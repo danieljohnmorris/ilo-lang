@@ -43,36 +43,92 @@ COMMENT_PREFIXES = {
     ".ilo": "--",
     ".py": "#",
     ".yaml": "#",
+    ".ast": ";",
 }
 
-# Ideas to test with Haiku (must have examples 01 and 04 as training, plus enough syntax)
-TESTABLE_IDEAS = ["idea1", "idea1-compact"]
+# All ideas with 5 examples get tested
+TESTABLE_IDEAS = [
+    "idea1",
+    "idea1-compact",
+    "idea2-tool-calling",
+    "idea3-constrained-decoding",
+    "idea4-ast-bytecode",
+    "idea5-workflow-dag",
+    "idea6-mcp-composition",
+    "idea7-dense-wire",
+]
 
-TEST_PROMPT = """You are being given examples of a language called "ilo". Study them, then write a new function.
+# Format-specific task descriptions
+TASK_DESC = """Write a function called `validate-email` that:
+- Takes an email (text) and returns a result (success: bool, error: text)
+- Depends on / calls a tool called `check-format` that takes (email: text) and returns a result (success: bool, error: text)
+- Calls check-format with the email
+- If check-format returns an error, return error "Invalid format"
+- If check-format returns success with false, return error "Invalid format"
+- If check-format returns success with true, return success true"""
+
+TEST_PROMPT = """You are being given examples of a programming format. Study them, then write a new program in the SAME format.
 
 {examples}
 
-Now write a function called `validate-email` in the same ilo syntax that:
-- Takes an email (text) and returns result bool, text
-- Depends on a tool called `check-format` that takes (email: text) -> result bool, text
-- Calls check-format with the email
-- If check-format returns err, return err "Invalid format"
-- If check-format returns ok with false, return err "Invalid format"
-- If check-format returns ok with true, return ok true
+Task:
+{task}
 
-Output ONLY the ilo code. No explanation, no markdown fences."""
+Output ONLY the code in the same format as the examples above. No explanation, no markdown fences."""
 
-# What we check in the output
-EXPECTED_FEATURES = {
-    "tool_decl": "tool declaration for check-format",
-    "fn_decl": "function declaration",
-    "dep": "dependency on check-format",
-    "named_args": "named arguments at call site",
-    "match": "match/pattern matching on result",
-    "ok": "ok constructor",
-    "err": "err constructor",
-    "result_type": "result return type",
-}
+# Features to check — adapted per format family
+def check_output(output: str, idea: str) -> dict[str, bool]:
+    """Check which expected features appear in the model output."""
+    text = output.lower()
+
+    if "tool-calling" in idea or "mcp" in idea or "constrained" in idea:
+        # JSON-based formats
+        return {
+            "function_name": "validate" in text and "email" in text,
+            "tool_ref": "check-format" in text,
+            "input_type": "email" in text and "text" in text,
+            "result_type": "result" in text or "error" in text or "ok" in text,
+            "call_tool": "call" in text and "check-format" in text,
+            "handle_error": "invalid format" in text,
+            "handle_false": ("false" in text or "not" in text or "!" in text),
+            "return_success": "ok" in text or "true" in text or "return" in text,
+        }
+    elif "bytecode" in idea:
+        # AST bytecode format
+        return {
+            "function_name": "validate" in text or "email" in text,
+            "tool_ref": "check" in text or "format" in text,
+            "call_op": "call" in text,
+            "match_op": "match" in text,
+            "ret_ok": "ret_ok" in text or "ret " in text,
+            "ret_err": "ret_err" in text,
+            "lit_string": '"invalid format"' in text or '"invalid' in text,
+            "structure": "let" in text or "if" in text,
+        }
+    elif "workflow-dag" in idea:
+        # YAML workflow format
+        return {
+            "function_name": "validate" in text and "email" in text,
+            "tool_ref": "check-format" in text,
+            "input_def": "input" in text and "email" in text,
+            "output_def": "output" in text or "result" in text,
+            "call_step": "call" in text and "check-format" in text,
+            "error_handling": "catch" in text or "error" in text,
+            "condition": "if" in text or "not" in text,
+            "return_ok": "ok" in text or "return" in text,
+        }
+    else:
+        # ilo-family formats (idea1, idea1-compact, idea7-dense-wire)
+        return {
+            "function_name": "validate" in text and "email" in text,
+            "tool_ref": "check-format" in text,
+            "named_args": "email:" in text,
+            "result_type": "result" in text and "bool" in text,
+            "match": "match " in text or "match{" in text,
+            "ok": "ok " in text or "ok(" in text,
+            "err": "err " in text or "err(" in text,
+            "handle_both": "invalid format" in text,
+        }
 
 
 def strip_comments(text: str, ext: str) -> str:
@@ -157,27 +213,10 @@ def load_examples(idea: str) -> str:
     return "\n\n".join(parts)
 
 
-def check_output(output: str, idea: str) -> dict[str, bool]:
-    """Check which expected features appear in the model output."""
-    text = output.lower()
-    is_compact = "compact" in idea
-
-    results = {}
-    results["tool_decl"] = "tool " in text and "check-format" in text
-    results["fn_decl"] = "fn " in text or "fn validate" in text
-    results["dep"] = "@check-format" in text or "@ check-format" in text
-    results["named_args"] = "email:" in text
-    results["match"] = "match " in text or "match{" in text
-    results["ok"] = "ok " in text or "ok(" in text
-    results["err"] = "err " in text or "err(" in text
-    results["result_type"] = "result " in text and ("bool" in text)
-    return results
-
-
 def run_test(idea: str, client, trial: int) -> dict:
     """Run a single cold-LLM test for an idea. Returns results dict."""
     examples_text = load_examples(idea)
-    prompt = TEST_PROMPT.format(examples=examples_text)
+    prompt = TEST_PROMPT.format(examples=examples_text, task=TASK_DESC)
 
     prompt_tokens = count_tokens(prompt)
 
@@ -238,7 +277,6 @@ def run_tests(n_trials: int):
             idea_scores.append(result)
 
             features = result["features"]
-            passed = [k for k, v in features.items() if v]
             failed = [k for k, v in features.items() if not v]
 
             print(f"\n  Trial {trial}: {result['score']} features | "
@@ -247,26 +285,25 @@ def run_tests(n_trials: int):
                 print(f"    missing: {', '.join(failed)}")
             print(f"    output: {result['output'][:120]}...")
 
-        # Summary for this idea
         scores = [sum(r["features"].values()) for r in idea_scores]
         avg = sum(scores) / len(scores)
-        total = len(EXPECTED_FEATURES)
+        total_features = len(check_output("", idea))
         avg_tokens = sum(r["output_tokens"] for r in idea_scores) / len(idea_scores)
-        print(f"\n  Average: {avg:.1f}/{total} features, {avg_tokens:.0f} output tokens")
+        print(f"\n  Average: {avg:.1f}/{total_features} features, {avg_tokens:.0f} output tokens")
 
     # Cross-idea summary
     print(f"\n{'=' * 70}")
     print("Summary")
     print(f"{'=' * 70}")
-    print(f"\n  {'Idea':20s}  {'Avg Score':>10s}  {'Avg Tokens':>11s}  {'Avg Time':>9s}")
-    print(f"  {'-' * 54}")
+    print(f"\n  {'Idea':30s}  {'Avg Score':>10s}  {'Avg Tokens':>11s}  {'Avg Time':>9s}")
+    print(f"  {'-' * 64}")
     for idea in TESTABLE_IDEAS:
         idea_results = [r for r in all_results if r["idea"] == idea]
-        total = len(EXPECTED_FEATURES)
+        total_features = len(check_output("", idea))
         avg_score = sum(sum(r["features"].values()) for r in idea_results) / len(idea_results)
         avg_tokens = sum(r["output_tokens"] for r in idea_results) / len(idea_results)
         avg_time = sum(r["elapsed_s"] for r in idea_results) / len(idea_results)
-        print(f"  {idea:20s}  {avg_score:.1f}/{total:d}      {avg_tokens:>7.0f}      {avg_time:.2f}s")
+        print(f"  {idea:30s}  {avg_score:.1f}/{total_features:d}      {avg_tokens:>7.0f}      {avg_time:.2f}s")
 
     # Save raw results
     results_path = EXAMPLES_DIR / "test-results.json"
@@ -284,7 +321,7 @@ def main():
     print_token_counts()
 
     if args.test:
-        run_tests(args.n_trials if hasattr(args, "n_trials") else args.n)
+        run_tests(args.n)
 
 
 if __name__ == "__main__":
