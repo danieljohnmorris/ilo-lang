@@ -54,7 +54,7 @@ This means:
 
 ## The Name
 
-*ilo* is Toki Pona for "tool."
+*[ilo](https://sona.pona.la/wiki/ilo)* is Toki Pona for "tool."
 
 Toki Pona is a constructed language — a conlang — built around radical minimalism. ~120 words. 14 phonemes. Complex ideas expressed by combining simple terms. It constrains human expression to force clarity of thought.
 
