@@ -1,6 +1,6 @@
 # ilo
 
-*[ilo](https://sona.pona.la/wiki/ilo)* — Toki Pona for "tool." A constructed language for AI agents.
+*ilo* — Toki Pona for "tool" ([sona.pona.la/wiki/ilo](https://sona.pona.la/wiki/ilo)). A constructed language for AI agents.
 
 Languages were designed for humans — visual parsing, readable syntax, spatial navigation. AI agents are not humans. They generate tokens. Every token costs latency, money, and context window. The only metric that matters is **total tokens from intent to working code**.
 
