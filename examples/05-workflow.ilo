@@ -1,7 +1,7 @@
--- 05: Workflow (terse syntax)
+-- 05: Workflow
 
 tool charge "Charge a payment method"
-	pid: text, amount: number -> result text, text
+	payment-id: text, amount: number -> result text, text
 	timeout: 30, retry: 0
 
 tool reserve "Reserve items in warehouse"
@@ -9,7 +9,7 @@ tool reserve "Reserve items in warehouse"
 	timeout: 10, retry: 1
 
 tool release "Release reserved inventory"
-	rid: text -> result nil, text
+	reservation-id: text -> result nil, text
 	timeout: 10, retry: 2
 
 type item
@@ -17,31 +17,31 @@ type item
 	quantity: number
 
 type receipt
-	oid: text
-	cid: text
-	rid: text
+	order-id: text
+	charge-id: text
+	reservation-id: text
 
 fn checkout
 	@ charge from tools
 	@ reserve from tools
 	@ release from tools
-	@ genid from orders
-	pid: text, amount: number, items: list item -> result receipt, text
+	@ make-id from orders
+	payment-id: text, amount: number, items: list item -> result receipt, text
 	-- Step 1: Reserve inventory
 	let reserved = reserve items: items
 	match reserved
 		err e: err concat "Inventory unavailable: " e
 	let rid = unwrap reserved
 	-- Step 2: Charge payment (compensate on failure)
-	let charged = charge pid: pid, amount: amount
+	let charged = charge payment-id: payment-id, amount: amount
 	match charged
 		err e:
-			release rid: rid
+			release reservation-id: rid
 			err concat "Payment failed: " e
 	let cid = unwrap charged
 	-- Step 3: Generate order
-	let oid = genid
+	let oid = make-id
 	ok receipt
-		oid: oid,
-		cid: cid,
-		rid: rid
+		order-id: oid,
+		charge-id: cid,
+		reservation-id: rid

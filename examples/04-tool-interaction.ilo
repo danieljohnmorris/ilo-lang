@@ -1,10 +1,10 @@
--- 04: Tool interaction (terse syntax)
+-- 04: Tool interaction
 
-tool fetch "Retrieve user by ID"
-	uid: text -> result profile, text
+tool get-user "Retrieve user by ID"
+	user-id: text -> result profile, text
 	timeout: 5, retry: 2
 
-tool send "Send an email"
+tool send-email "Send an email"
 	to: text, subject: text, body: text -> result nil, text
 	timeout: 10, retry: 1
 
@@ -15,10 +15,10 @@ type profile
 	verified: bool
 
 fn notify
-	@ fetch from tools
-	@ send from tools
-	uid: text, message: text -> result nil, text
-	let user = fetch uid: uid
+	@ get-user from tools
+	@ send-email from tools
+	user-id: text, message: text -> result nil, text
+	let user = get-user user-id: user-id
 	match user
 		err e:
 			log error concat "Failed to fetch user: " e
@@ -26,7 +26,7 @@ fn notify
 		ok data:
 			if not data.verified
 				err "User email not verified"
-			let sent = send
+			let sent = send-email
 				to: data.email,
 				subject: "Notification",
 				body: message
@@ -35,5 +35,5 @@ fn notify
 					log error concat "Email failed: " e
 					err concat "Send failed: " e
 				ok _:
-					log info concat "Notified user " uid
+					log info concat "Notified user " user-id
 					ok nil

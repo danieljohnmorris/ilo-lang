@@ -59,17 +59,18 @@ An agent working on function A shouldn't need to load functions B through Z to u
 
 ### 4. Language-Agnostic
 
-No dependency on English or any natural language.
+Minimise dependency on English or any natural language.
 
-Keywords like `function`, `return`, `if` assume the agent was trained primarily on English-language code. An agent trained on Mandarin, Arabic, or purely on mathematical notation should be equally capable of writing ilo.
+In practice, ilo uses short English-derived keywords (`fn`, `let`, `match`, `for`, `if`, `type`, `tool`, `ok`, `err`). These are pragmatic — all major LLMs are heavily trained on English code, and these tokens are cheap. But the language minimises the English surface:
 
-This means keywords are either:
-- Symbols with no natural-language bias (`→`, `::`, `|`)
-- Constructed tokens that are equally foreign to all human languages
-- Structural markers that derive meaning from position, not spelling
+- **Structural tokens** where possible: `@` for dependencies, `->` for return types, `?` for tests, `*`/`+`/`==` for operators
+- **Short opaque keywords**: `fn`, `ok`, `err` function more as symbols than English words
+- **No English in semantics**: meaning comes from position and structure, not from reading the keyword as a word
 
-**What the agent cares about:** "Can I use this language regardless of my training distribution?"
-**How this helps:** No cultural or linguistic bias in the token vocabulary. The language works for any agent, trained on any corpus.
+The remaining English words (`match`, `let`, `for`, `if`, `type`, `tool`, `log`) are structural markers an agent learns from examples, not from understanding English.
+
+**What the agent cares about:** "Can I learn this language from its spec and examples, regardless of my training?"
+**How this helps:** The spec is small enough to bundle with any program. Keywords are learned from structure, not from natural language understanding.
 
 ### 5. Graph-Native
 
