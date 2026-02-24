@@ -1,0 +1,24 @@
+-- Approach 6: Dense wire format
+-- ilo as a compressed text format optimised for tokeniser efficiency.
+-- Spaces removed where tokeniser merges help. Semicolons instead of newlines.
+-- Looks ugly. Beats Python on token count.
+
+-- Tool declarations (loaded from registry, not written by agent)
+-- Agent only writes the program below:
+
+notify(uid:text msg:text)->result nil text;user=get-user(uid:uid);match user{err e:err concat"Lookup failed: "e;ok data:if not data.verified{err"Email not verified"};sent=send-email(to:data.email subject:"Notification" body:msg);match sent{err e:err concat"Send failed: "e;ok _:ok nil}}
+
+-- Same program, formatted for humans:
+--
+-- notify(uid:text msg:text) -> result nil text
+--   user = get-user(uid: uid)
+--   match user {
+--     err e: err concat "Lookup failed: " e
+--     ok data:
+--       if not data.verified { err "Email not verified" }
+--       sent = send-email(to: data.email subject: "Notification" body: msg)
+--       match sent {
+--         err e: err concat "Send failed: " e
+--         ok _: ok nil
+--       }
+--   }

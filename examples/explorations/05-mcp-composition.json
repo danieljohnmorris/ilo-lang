@@ -1,0 +1,24 @@
+{
+  "description": "Approach 5: MCP Composition Layer. ilo as a thin layer on top of Model Context Protocol. Tools are already MCP servers. ilo adds composition, data flow, and error handling.",
+
+  "meta": {
+    "tools": ["mcp://users/get-user", "mcp://email/send-email"],
+    "input": {"user-id": "text", "message": "text"},
+    "output": "result nil text"
+  },
+
+  "steps": [
+    {"let": "user", "call": "mcp://users/get-user", "with": {"user-id": "$.user-id"},
+     "err": "Lookup failed: ${err}"},
+
+    {"assert": "${user.verified}", "err": "Email not verified"},
+
+    {"call": "mcp://email/send-email",
+     "with": {"to": "${user.email}", "subject": "Notification", "body": "$.message"},
+     "err": "Send failed: ${err}"},
+
+    {"ok": null}
+  ],
+
+  "notes": "MCP already defines tool discovery, typed schemas, and invocation. ilo adds: (1) sequencing — chain calls with data flow, (2) error handling — err on each step, (3) verification — all mcp:// URIs resolved before execution, all types checked. The agent discovers tools via MCP, composes them via ilo."
+}

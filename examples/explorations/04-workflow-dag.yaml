@@ -1,0 +1,48 @@
+# Approach 4: Workflow DAG (like Step Functions / Temporal)
+# ilo as a YAML workflow definition. Agents generate YAML well.
+# The runtime is a workflow engine that executes the DAG.
+
+name: notify
+input:
+  user-id: text
+  message: text
+output: result nil, text
+
+steps:
+  fetch:
+    call: get-user
+    args:
+      user-id: $.user-id
+    catch:
+      return:
+        error: "Lookup failed: ${error}"
+
+  check:
+    if:
+      not: ${fetch.verified}
+    then:
+      return:
+        error: "Email not verified"
+
+  send:
+    call: send-email
+    args:
+      to: ${fetch.email}
+      subject: "Notification"
+      body: $.message
+    catch:
+      return:
+        error: "Send failed: ${error}"
+
+  done:
+    return:
+      ok: null
+
+# Notes:
+# - YAML is well-tokenised (agents generate lots of YAML)
+# - $ references for data flow between steps
+# - Named steps make the DAG explicit
+# - catch blocks for error handling
+# - Very similar to AWS Step Functions / GitHub Actions
+# - The runtime walks the DAG, calling tools at each step
+# - Verification: all tool names checked, all references resolved
