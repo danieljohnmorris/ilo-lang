@@ -44,12 +44,11 @@ ilo adds named args at call sites, inline tests (`?`), and explicit dependency d
 
 ## Documentation
 
-| Document | Audience | Purpose |
-|----------|----------|---------|
-| [SPEC.md](SPEC.md) | Agents | Compact spec, loadable into context window |
-| [docs/reference.md](docs/reference.md) | Humans | Full reference with explanations and examples |
-| [MANIFESTO.md](MANIFESTO.md) | Both | Design rationale and principles |
-| [examples/](examples/) | Both | Working programs demonstrating the language |
+| Document | Purpose |
+|----------|---------|
+| [SPEC.md](SPEC.md) | Language spec — syntax, types, rules. What you need to write ilo. |
+| [MANIFESTO.md](MANIFESTO.md) | Design rationale — why ilo exists, the five principles. |
+| [examples/](examples/) | Working programs demonstrating the language. |
 
 ## Status
 
@@ -59,10 +58,9 @@ Design phase. Defining the language through principles, examples, and specificat
 
 ```
 ilo-lang/
-├── MANIFESTO.md          # Design rationale and principles
-├── SPEC.md               # Agent-facing language spec
-├── README.md             # This file
-├── docs/reference.md     # Human-facing language reference
-├── examples/             # Syntax exploration programs
-└── src/                  # Rust implementation (coming)
+├── MANIFESTO.md     # Design rationale and principles
+├── SPEC.md          # Language spec — syntax, types, rules
+├── README.md        # This file
+├── examples/        # Working programs
+└── src/             # Rust implementation (coming)
 ```
