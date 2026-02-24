@@ -12,30 +12,20 @@
 | `STATUS.md` | This file |
 
 ### Examples
-| File | Demonstrates | Tokens |
-|------|-------------|--------|
-| `examples/01-simple-function.ilo` | Named args, property tests, prefix operators | 79 |
-| `examples/02-with-dependencies.ilo` | `@` deps, match, record update | 114 |
-| `examples/03-data-transform.ilo` | Types, for-each, constructors | 205 |
-| `examples/04-tool-interaction.ilo` | Tool declarations, error handling, logging | 242 |
-| `examples/05-workflow.ilo` | Saga pattern, compensation, multi-step | 264 |
 
-### Analysis
-| File | Contents |
-|------|----------|
-| `examples/EVALUATION.md` | Token counts vs Python, retry cost analysis, cold-LLM test |
-| `examples/GRAMMAR-NOTES.md` | Emerging grammar, naming rules, open syntax questions |
+```
+examples/
+├── idea1/                        # Current ilo syntax (0.72x Python)
+├── idea2-tool-calling/           # JSON tool call sequence (0.85x Python)
+├── idea3-constrained-decoding/   # Grammar-constrained JSON (0.85x Python)
+├── idea4-ast-bytecode/           # AST bytecode (1.39x Python)
+├── idea5-workflow-dag/           # YAML workflow DAG (1.13x Python)
+├── idea6-mcp-composition/        # MCP composition layer (0.80x Python)
+└── idea7-dense-wire/             # Dense wire format (0.76x Python)
+```
 
-### Alternative Approaches Explored
-| File | Approach | Tokens | vs Python |
-|------|----------|--------|-----------|
-| `explorations/01-tool-calling.json` | JSON tool call sequence | 93 | 0.85x |
-| `explorations/02-constrained-decoding.md` | Grammar-constrained JSON | 93 | 0.85x |
-| `explorations/03-ast-generation.md` | AST bytecode | 151 | 1.39x |
-| `explorations/04-workflow-dag.yaml` | YAML workflow DAG | 123 | 1.13x |
-| `explorations/05-mcp-composition.json` | MCP composition layer | 87 | 0.80x |
-| `explorations/06-dense-wire.ilo` | Dense wire format | 83 | 0.76x |
-| *current ilo syntax* | — | 79 | 0.72x |
+**idea1** contains the current ilo syntax examples, evaluation, and grammar notes.
+**idea2–idea7** are alternative approaches explored for comparison.
 
 ### Rust Implementation
 | File | Status |
