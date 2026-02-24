@@ -1,0 +1,91 @@
+-- 05: Workflow — chain operations, handle partial failure
+-- Demonstrates: graph-native, self-contained, token-conservative
+
+define tool charge-payment
+  description: "Charge a payment method"
+  input: payment-id as text, amount as number
+  output: result text, text
+  timeout: 30
+  retry: 0
+end
+
+define tool reserve-inventory
+  description: "Reserve items in warehouse"
+  input: items as list item-line
+  output: result text, text
+  timeout: 10
+  retry: 1
+end
+
+define tool release-inventory
+  description: "Release previously reserved inventory"
+  input: reservation-id as text
+  output: result void, text
+  timeout: 10
+  retry: 2
+end
+
+define type item-line
+  sku as text
+  quantity as number
+end
+
+define type checkout-result
+  order-id as text
+  charge-id as text
+  reservation-id as text
+end
+
+define function checkout
+  requires:
+    charge-payment from tools
+    reserve-inventory from tools
+    release-inventory from tools
+    generate-order-id from orders
+  input: payment-id as text, amount as number, items as list item-line
+  output: result checkout-result, text
+  body:
+    -- Step 1: Reserve inventory
+    let reserved = reserve-inventory items: items
+    match reserved on
+      result.error e:
+        return result.error concat "Inventory unavailable: " e
+    end
+    let reservation-id = result.unwrap reserved
+
+    -- Step 2: Charge payment (compensate on failure)
+    let charged = charge-payment payment-id: payment-id, amount: amount
+    match charged on
+      result.error e:
+        -- Compensate: release the inventory we reserved
+        release-inventory reservation-id: reservation-id
+        return result.error concat "Payment failed: " e
+    end
+    let charge-id = result.unwrap charged
+
+    -- Step 3: Generate order
+    let order-id = generate-order-id
+
+    return result.ok checkout-result
+      order-id: order-id,
+      charge-id: charge-id,
+      reservation-id: reservation-id
+end
+
+-- Notes:
+-- - Saga pattern: each step has explicit compensation on failure.
+--   No transaction block hiding the rollback logic. The agent can see
+--   exactly what happens when step 2 fails: step 1 is rolled back.
+-- - `result.unwrap` — used only after a match confirms success.
+--   The agent knows the value is safe because the error case already returned.
+-- - The dependency graph for this function:
+--     checkout → charge-payment (tool)
+--     checkout → reserve-inventory (tool)
+--     checkout → release-inventory (tool, compensation)
+--     checkout → generate-order-id (function)
+--   All edges visible in the `requires` block. No hidden dependencies.
+-- - Sequential by default. No async/await. If the runtime wants to
+--   parallelise independent steps, it can — the graph makes it clear
+--   which steps have data dependencies and which don't.
+-- - Comments use `--` (SQL-style). Two characters, unambiguous.
+--   No `//` vs `#` vs `/* */` confusion.

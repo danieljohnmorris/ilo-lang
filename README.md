@@ -4,25 +4,23 @@
 
 Languages were designed for humans — visual parsing, readable syntax, spatial navigation. AI agents are not humans. They generate tokens. Every token costs latency, money, and context window. The only metric that matters is **total tokens from intent to working code**.
 
-ilo is designed from first principles around that metric.
-
-## The Single Principle
-
-**Minimise total token cost across the full execution loop.**
-
 ```
-Total cost = generation + context loading + error feedback + retries
+Total cost = spec loading + generation + context loading + error feedback + retries
 ```
 
-Not just concise syntax. Not just short keywords. Concise across the *entire* loop — writing, executing, understanding results, fixing mistakes. A verbose keyword that prevents one retry is cheaper than a terse keyword that causes one.
+## Five Principles
 
-Three strategies achieve this:
+1. **Token-conservative** — the north star. Every choice evaluated against total token cost across the full loop: generation, retries, error feedback, context loading. Not just "short syntax."
 
-1. **Concise** — minimum tokens to express correct intent
-2. **Constrained** — small possibility space makes it hard to generate invalid programs, eliminating retry cycles
-3. **Self-contained** — each unit declares what it needs, minimising context that must be loaded
+2. **Constrained** — small vocabulary, closed world, one way to do things. Fewer valid next-tokens = fewer wrong choices = fewer retries.
 
-Strategies 2 and 3 serve strategy 1. Constraints reduce retries (fewer tokens). Self-containment reduces context loading (fewer tokens).
+3. **Self-contained** — each unit carries its own context: deps, types, rules. The spec can travel with the program. Minimal external knowledge required.
+
+4. **Language-agnostic** — no dependency on English or any natural language. An agent trained on any corpus can use ilo.
+
+5. **Graph-native** — programs express relationships (calls, depends-on, has-type). Navigable as a graph, not just readable as linear text.
+
+See [MANIFESTO.md](MANIFESTO.md) for the full rationale.
 
 ## What An Agent Actually Does
 
@@ -40,14 +38,15 @@ Every design decision is evaluated against this loop. Does it reduce the total t
 
 ## Status
 
-Design phase. Defining the language specification before writing the implementation.
+Design phase. Defining the language principles and exploring syntax through examples before writing the implementation.
 
 ## Structure
 
 ```
 ilo-lang/
-├── MANIFESTO.md     # Design rationale
+├── MANIFESTO.md     # Design rationale and principles
 ├── README.md        # This file
+├── examples/        # Syntax exploration programs
 ├── src/             # Rust implementation (coming)
-└── examples/        # Example programs (coming)
+└── docs/            # Specification (emerging from examples)
 ```

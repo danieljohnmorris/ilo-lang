@@ -1,0 +1,38 @@
+-- 02: Function with dependencies — calls other functions, declares what it needs
+-- Demonstrates: self-contained, graph-native, constrained
+
+define function process-order
+  requires:
+    validate-address from validation
+    calculate-shipping from shipping
+    apply-discount from pricing
+  input: order as order-record
+  output: result order-record, text
+  body:
+    let valid = validate-address address: order.shipping-address
+    match valid on
+      false:
+        return result.error "Invalid shipping address"
+    end
+    let shipping = calculate-shipping
+      weight: order.total-weight,
+      destination: order.shipping-address.country
+    let discount = apply-discount
+      subtotal: order.subtotal,
+      code: order.discount-code
+    let final-total = add (subtract order.subtotal discount) shipping
+    return result.ok order with total: final-total, shipping-cost: shipping
+end
+
+-- Notes:
+-- - `requires` makes the dependency graph explicit. An agent reading this
+--   function knows exactly what it calls without scanning the body.
+--   This is graph-native: edges (calls) are declared, not inferred.
+-- - `from validation` names the module. The closed world means these must
+--   exist — the verifier catches hallucinated dependencies before execution.
+-- - `result order-record, text` — tagged union for success/failure.
+--   One way to handle errors. No exceptions, no try/catch, no null.
+-- - `order with total: final-total` — record update syntax. Creates a new
+--   record with one field changed. No mutation.
+-- - Named args on multi-line calls — each arg on its own line for clarity.
+--   The agent can generate one arg per step.
