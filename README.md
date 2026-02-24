@@ -33,34 +33,23 @@ ilo adds named args at call sites, inline tests (`?`), and explicit dependency d
 ## Five Principles
 
 1. **Token-conservative** — the north star. Every choice evaluated against total token cost across the full loop: generation, retries, error feedback, context loading. Not just "short syntax."
-
 2. **Constrained** — small vocabulary, closed world, one way to do things. Fewer valid next-tokens = fewer wrong choices = fewer retries.
-
 3. **Self-contained** — each unit carries its own context: deps, types, rules. The spec can travel with the program. Minimal external knowledge required.
-
 4. **Language-agnostic** — minimise dependency on English or any natural language. Structural tokens (`@`, `->`, `?`, `*`) over English words where possible.
-
 5. **Graph-native** — programs express relationships (calls, depends-on, has-type). Navigable as a graph, not just readable as linear text.
+
+See [MANIFESTO.md](MANIFESTO.md) for the full rationale behind each principle.
 
 ## Documentation
 
 | Document | Purpose |
 |----------|---------|
-| [SPEC.md](SPEC.md) | Language spec — syntax, types, rules. What you need to write ilo. |
-| [MANIFESTO.md](MANIFESTO.md) | Design rationale — why ilo exists, the five principles. |
-| [examples/](examples/) | Working programs demonstrating the language. |
+| [SPEC.md](SPEC.md) | Language spec — syntax, types, rules |
+| [MANIFESTO.md](MANIFESTO.md) | Design rationale — why each principle exists |
+| [OPEN.md](OPEN.md) | Unresolved design questions |
+| [STATUS.md](STATUS.md) | Current project state and decisions |
+| [examples/](examples/) | Programs and syntax explorations |
 
 ## Status
 
-Design phase. Defining the language through principles, examples, and specification before writing the implementation.
-
-## Structure
-
-```
-ilo-lang/
-├── MANIFESTO.md     # Design rationale and principles
-├── SPEC.md          # Language spec — syntax, types, rules
-├── README.md        # This file
-├── examples/        # Working programs
-└── src/             # Rust implementation (coming)
-```
+Design phase. Defining the language through principles, examples, and specification before writing the implementation. See [STATUS.md](STATUS.md) for details.

@@ -1,6 +1,6 @@
 # Open Questions
 
-Unresolved design questions. Nothing here is decided — these are options being explored.
+Unresolved design questions. Nothing here is decided — these are options being explored. For the current language spec, see [SPEC.md](SPEC.md). For design rationale, see [MANIFESTO.md](MANIFESTO.md).
 
 ## Execution Model
 

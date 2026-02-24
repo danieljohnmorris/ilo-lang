@@ -113,6 +113,8 @@ ilo does the same for machine programmers. A minimal, verified vocabulary. Compl
 
 A **minimal, verified action space** — the smallest set of constructs an agent needs to express computational intent, with relationships made explicit and everything else stripped away.
 
-## Open Questions
+## Further Reading
 
-See [OPEN.md](OPEN.md) for unresolved design questions.
+- [SPEC.md](SPEC.md) — language syntax and rules
+- [OPEN.md](OPEN.md) — unresolved design questions
+- [STATUS.md](STATUS.md) — current project state

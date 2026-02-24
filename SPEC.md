@@ -29,7 +29,11 @@ Types are flat data shapes. No methods, no inheritance. The type name is the con
 profile id: "123", name: "Dan", email: "d@x.com"
 ```
 
-Update with `with`: `order with total: 100`. Access with `.`: `order.total`.
+Update with `with`: `order with total: 100`. Access with `.`: `order.total`. The type name is the constructor:
+
+```
+loyalty customer-name: c.name, level: level
+```
 
 Tools declare external capabilities. The runtime provides the implementation. Tools always return `result` because external calls can fail.
 
@@ -73,7 +77,7 @@ and a b    or a b     not a      concat a b
 | Iteration | `for x in <collection>` with indented body. Returns a list |
 | Logging | `log <level> <expr>` where level is `error`, `info`, `debug` |
 
-Bindings are immutable. All blocks use tab indentation, no closing delimiters.
+Bindings are immutable. All blocks use tab indentation, no closing delimiters. Last expression in a function is the return value — no `return` keyword.
 
 ## Error Handling
 
@@ -143,3 +147,7 @@ fn notify
 				err "Email not verified"
 			ok nil
 ```
+
+## Open Questions
+
+See [OPEN.md](OPEN.md) for unresolved syntax and design questions.
