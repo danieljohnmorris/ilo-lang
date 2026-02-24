@@ -32,7 +32,7 @@ FOLDERS = {
     "idea1": [".ilo"],
     "idea1-compact": [".ilo"],
     "idea2-tool-calling": [".json"],
-    "idea3-constrained-decoding": [".md"],
+    "idea3-constrained-decoding": [".json"],
     "idea4-ast-bytecode": [".ast"],
     "idea5-workflow-dag": [".yaml"],
     "idea6-mcp-composition": [".json"],

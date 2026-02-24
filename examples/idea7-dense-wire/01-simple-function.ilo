@@ -1,0 +1,1 @@
+total(price:number quantity:number rate:number)->number;sub=*price quantity;tax=*sub rate;+sub tax

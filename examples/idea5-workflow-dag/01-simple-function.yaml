@@ -1,0 +1,14 @@
+name: total
+input:
+  price: number
+  quantity: number
+  rate: number
+output: number
+
+steps:
+  sub:
+    expr: "$.price * $.quantity"
+  tax:
+    expr: "${sub} * $.rate"
+  result:
+    return: "${sub} + ${tax}"
