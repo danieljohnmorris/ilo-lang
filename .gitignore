@@ -1,1 +1,3 @@
 /target
+.env
+examples/test-results.json
