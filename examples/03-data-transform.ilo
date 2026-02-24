@@ -1,66 +1,37 @@
--- 03: Data transform — define types, transform data, handle errors
--- Demonstrates: self-contained, constrained, token-conservative
+-- 03: Data transform (terse syntax)
 
-define type customer-record
-  name as text
-  email as text
-  tier as text
-  total-spent as number
-end
+type customer-record
+	name: text
+	email: text
+	tier: text
+	total-spent: number
 
-define type loyalty-summary
-  customer-name as text
-  level as text
-  discount-percent as number
-end
+type loyalty-summary
+	customer-name: text
+	level: text
+	discount-percent: number
 
-define function classify-loyalty
-  input: spent as number
-  output: text
-  properties:
-    classify-loyalty spent: 0 equals "bronze"
-    classify-loyalty spent: 500 equals "silver"
-    classify-loyalty spent: 1000 equals "gold"
-  body:
-    match true on
-      greater-or-equal spent 1000:
-        return "gold"
-      greater-or-equal spent 500:
-        return "silver"
-      _:
-        return "bronze"
-    end
-end
+fn classify-loyalty
+	spent: number -> text
+	? spent: 0 == "bronze"
+	? spent: 500 == "silver"
+	? spent: 1000 == "gold"
+	match true
+		>= spent 1000: "gold"
+		>= spent 500: "silver"
+		_: "bronze"
 
-define function build-loyalty-summaries
-  requires:
-    classify-loyalty from self
-  input: customers as list customer-record
-  output: list loyalty-summary
-  body:
-    let results = for-each c in customers do
-      let level = classify-loyalty spent: c.total-spent
-      let discount = match level on
-        "gold": 20
-        "silver": 10
-        "bronze": 5
-        _: 0
-      end
-      loyalty-summary
-        customer-name: c.name,
-        level: level,
-        discount-percent: discount
-    end
-    return results
-end
-
--- Notes:
--- - Types are declared inline — no separate schema file. Self-contained.
--- - `from self` means the dependency is in this same file.
---   The agent knows classify-loyalty is local, not external.
--- - `for-each` as expression — returns a list. One construct for iteration.
--- - Type constructors use the type name directly (loyalty-summary ...).
---   No `new`, no special syntax. The type name IS the constructor.
--- - Properties on classify-loyalty serve as both docs and tests.
---   An agent asked to modify the thresholds can see the expected behaviour
---   without loading anything else.
+fn build-loyalty-summaries
+	@ classify-loyalty from self
+	customers: list customer-record -> list loyalty-summary
+	for c in customers
+		let level = classify-loyalty spent: c.total-spent
+		let discount = match level
+			"gold": 20
+			"silver": 10
+			"bronze": 5
+			_: 0
+		loyalty-summary
+			customer-name: c.name,
+			level: level,
+			discount-percent: discount

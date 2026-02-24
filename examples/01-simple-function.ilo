@@ -1,26 +1,9 @@
--- 01: Simple function — inputs, output, no dependencies
--- Demonstrates: token-conservative, constrained, self-contained
+-- 01: Simple function (terse syntax)
 
-define function calculate-total
-  input: price as number, quantity as number, tax-rate as number
-  output: number
-  properties:
-    calculate-total price: 10, quantity: 2, tax-rate: 0.2 equals 24
-    calculate-total price: 100, quantity: 1, tax-rate: 0 equals 100
-  body:
-    let subtotal = multiply price quantity
-    let tax = multiply subtotal tax-rate
-    return add subtotal tax
-end
-
--- Notes:
--- - Named args (price: 10) cost more tokens than positional, but eliminate
---   swap errors. An agent never confuses price with quantity.
--- - Properties are inline tests. The spec travels with the function.
--- - Operators are words (multiply, add) not symbols. No ambiguity between
---   * (multiply) and * (pointer/glob/emphasis). One token, one meaning.
--- - Hyphenated identifiers (calculate-total, tax-rate) avoid camelCase
---   tokenisation splits. "taxRate" may become ["tax", "Rate"] for some
---   tokenisers. "tax-rate" is always ["tax", "-", "rate"].
--- - No return type annotation on the body — the output declaration covers it.
--- - `end` terminates blocks, not indentation. Indentation is cosmetic.
+fn calculate-total
+	price: number, quantity: number, tax-rate: number -> number
+	? price: 10, quantity: 2, tax-rate: 0.2 == 24
+	? price: 100, quantity: 1, tax-rate: 0 == 100
+	let subtotal = * price quantity
+	let tax = * subtotal tax-rate
+	+ subtotal tax

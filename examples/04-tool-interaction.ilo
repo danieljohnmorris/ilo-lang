@@ -1,71 +1,39 @@
--- 04: Tool interaction — call an external tool (HTTP API, database, file system)
--- Demonstrates: constrained, self-contained, graph-native
+-- 04: Tool interaction (terse syntax)
 
-define tool fetch-user
-  description: "Retrieve a user record from the user service by ID"
-  input: user-id as text
-  output: result user-data, text
-  timeout: 5
-  retry: 2
-end
+tool fetch-user "Retrieve user by ID"
+	user-id: text -> result user-data, text
+	timeout: 5, retry: 2
 
-define tool send-email
-  description: "Send an email via the email service"
-  input: to as text, subject as text, body as text
-  output: result void, text
-  timeout: 10
-  retry: 1
-end
+tool send-email "Send an email"
+	to: text, subject: text, body: text -> result nil, text
+	timeout: 10, retry: 1
 
-define type user-data
-  id as text
-  name as text
-  email as text
-  verified as bool
-end
+type user-data
+	id: text
+	name: text
+	email: text
+	verified: bool
 
-define function notify-user
-  requires:
-    fetch-user from tools
-    send-email from tools
-  input: user-id as text, message as text
-  output: result void, text
-  body:
-    let user = fetch-user user-id: user-id
-    match user on
-      result.error e:
-        log level: "error", message: concat "Failed to fetch user: " e
-        return result.error concat "User lookup failed: " e
-      result.ok data:
-        if not data.verified then
-          return result.error "User email not verified"
-        end
-        let sent = send-email
-          to: data.email,
-          subject: "Notification",
-          body: message
-        match sent on
-          result.error e:
-            log level: "error", message: concat "Email failed: " e
-            return result.error concat "Send failed: " e
-          result.ok _:
-            log level: "info", message: concat "Notified user " user-id
-            return result.ok nothing
-        end
-      end
-    end
-end
-
--- Notes:
--- - `define tool` is a first-class declaration. Tools are in the closed world.
---   The agent cannot hallucinate a tool that isn't declared.
--- - `timeout` and `retry` are part of the tool contract, not implementation
---   details hidden in config. Self-contained: everything about this tool's
---   behaviour is in its declaration.
--- - `from tools` — tools live in a special namespace. The graph shows which
---   functions depend on external tools vs pure computation.
--- - Every tool returns `result` — success or failure. No exceptions.
---   The agent is forced to handle both paths. Silent failures are impossible
---   because `result` must be matched before its value is usable.
--- - `description` is for the agent, not the runtime. When an agent sees
---   the tool declaration, it knows what the tool does without calling it.
+fn notify-user
+	@ fetch-user from tools
+	@ send-email from tools
+	user-id: text, message: text -> result nil, text
+	let user = fetch-user user-id: user-id
+	match user
+		err e:
+			log error concat "Failed to fetch user: " e
+			err concat "User lookup failed: " e
+		ok data:
+			if not data.verified
+				err "User email not verified"
+			let sent = send-email
+				to: data.email,
+				subject: "Notification",
+				body: message
+			match sent
+				err e:
+					log error concat "Email failed: " e
+					err concat "Send failed: " e
+				ok _:
+					log info concat "Notified user " user-id
+					ok nil

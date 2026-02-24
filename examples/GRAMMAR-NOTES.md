@@ -1,42 +1,34 @@
 # Grammar Notes
 
-Emerging grammar extracted from the five example programs. Not a formal spec — observations on what patterns recur and what the syntax converges toward.
+Emerging grammar extracted from the five example programs.
 
 ## Top-Level Declarations
 
-Three declaration forms:
-
 ```
-define function <name> ... end
-define type <name> ... end
-define tool <name> ... end
+fn <name> ...
+type <name> ...
+tool <name> <description> ...
 ```
 
-`define` is always the entry keyword. The second token (`function`, `type`, `tool`) disambiguates. This is constrained — the agent always knows: after `define`, there are exactly 3 valid next tokens.
+No `define` prefix. The keyword itself (`fn`, `type`, `tool`) starts the declaration. Indentation-based — no closing delimiter.
 
 ## Function Structure
 
 ```
-define function <name>
-  requires:          -- optional, dependency edges
-    <name> from <module>
-  input: <params>    -- required
-  output: <type>     -- required
-  properties:        -- optional, inline tests
-    <call> equals <value>
-  body:              -- required
-    <statements>
-end
+fn <name>
+	@ <dep> from <module>     -- optional, dependency edges
+	<params> -> <return-type>  -- signature
+	? <call> == <expected>     -- optional, property tests
+	<body>                     -- statements
 ```
 
-Section order is fixed: requires → input → output → properties → body. The agent never has to decide where to put a section.
+Section order is implicit: `@` deps first, then signature (`->`), then `?` tests, then body. No section markers needed.
 
 ## Type Structure
 
 ```
-define type <name>
-  <field> as <type>
-end
+type <name>
+	<field>: <type>
 ```
 
 Flat field list. No methods, no inheritance. Types are data shapes.
@@ -44,114 +36,129 @@ Flat field list. No methods, no inheritance. Types are data shapes.
 ## Tool Structure
 
 ```
-define tool <name>
-  description: <text>
-  input: <params>
-  output: <type>
-  timeout: <number>    -- optional
-  retry: <number>      -- optional
-end
+tool <name> <description>
+	<params> -> <return-type>
+	timeout: <n>, retry: <n>   -- optional
 ```
 
-Tools declare the contract. The runtime provides the implementation.
+Description is inline after the name. Tools declare the contract; the runtime provides the implementation.
 
-## Parameters
+## Parameters and Signatures
 
 ```
-<name> as <type>
+price: number, quantity: number -> number
 ```
 
-Always named, always typed. Multiple params separated by commas:
-```
-input: price as number, quantity as number
-```
+`<name>: <type>` for each param, comma-separated. `->` separates inputs from output type. No `input:`/`output:` markers.
 
 ## Arguments (call site)
 
 ```
-function-name arg-name: value, arg-name: value
+calculate-total price: 10, quantity: 2
 ```
 
-Always named. No positional args at call sites.
+Always named. No positional args.
 
 ## Types
 
-Built-in: `number`, `text`, `bool`, `void`, `nothing`
+Built-in: `number`, `text`, `bool`, `nil`
 Parameterised: `list <type>`, `option <type>`, `result <ok-type>, <err-type>`
 User-defined: referenced by name (e.g., `customer-record`)
 
 ## Identifiers
 
-Lowercase with hyphens: `calculate-total`, `tax-rate`, `order-id`
-
-- No camelCase, no snake_case
-- Hyphens are part of the identifier
-- Always `[a-z][a-z0-9]*(-[a-z0-9]+)*`
+`[a-z][a-z0-9]*(-[a-z0-9]+)*` — lowercase with hyphens.
 
 ## Operators
 
-All operators are words, prefix notation:
+Symbol operators, prefix notation:
 
 ```
-add a b            -- a + b
-multiply a b       -- a * b
-equals a b         -- a == b
-greater-or-equal a b  -- a >= b
-not condition      -- !condition
-concat a b         -- a ++ b / a + b (string)
++ a b       -- addition
+- a b       -- subtraction
+* a b       -- multiplication
+/ a b       -- division
+== a b      -- equality
+!= a b      -- inequality
+>= a b      -- greater or equal
+<= a b      -- less or equal
+> a b       -- greater than
+< a b       -- less than
+not x       -- logical not
+and a b     -- logical and
+or a b      -- logical or
+concat a b  -- string concatenation
 ```
-
-No operator precedence to remember. No symbols to confuse. Each expression is a single function call.
 
 ## Statements
 
 | Statement | Form |
 |-----------|------|
 | Let binding | `let <name> = <expr>` |
-| Return | `return <expr>` |
-| If | `if <expr> then ... end` or `if <expr> then ... else ... end` |
-| Match | `match <expr> on <pattern>: <body> ... end` |
-| For-each | `for-each <name> in <expr> do ... end` |
-| Log | `log level: <text>, message: <expr>` |
+| If | `if <expr>` (body indented) |
+| Match | `match <expr>` with indented `<pattern>: <body>` arms |
+| For | `for <name> in <expr>` (body indented) |
+| Log | `log <level> <expr>` |
 
-All blocks end with `end`. No indentation sensitivity.
+Implicit return: last expression in a function is the return value. No `return` keyword needed.
 
-## Expressions
+All blocks use indentation — no `end`, no `}`.
 
-| Expression | Form |
-|------------|------|
-| Literal | `42`, `"hello"`, `true`, `false`, `nothing` |
-| Variable | `name` |
-| Field access | `object.field` |
-| Function call | `function-name arg: val` |
-| Binary op | `op left right` |
-| Unary op | `op operand` |
-| Record construction | `type-name field: val, field: val` |
-| Record update | `record with field: val` |
-| Result constructors | `result.ok value`, `result.error value` |
+## Result Type and Error Handling
 
-## Error Handling
+Construct:
+```
+ok value
+err message
+```
 
-One mechanism: `result <ok-type>, <err-type>`.
+Destructure:
+```
+match result-value
+	ok data: ...
+	err e: ...
+```
 
-- Construct: `result.ok value` or `result.error message`
-- Destructure: `match value on result.ok x: ... result.error e: ... end`
-- Shortcut: `result.unwrap value` (only safe after match confirms ok)
+Shortcut (after match confirms success):
+```
+let value = unwrap result-value
+```
 
 No exceptions. No try/catch. No null. Every function that can fail returns `result`.
 
 ## Dependency Declaration
 
 ```
-requires:
-  function-name from module-name
+@ function-name from module-name
 ```
 
 - `from self` — same file
 - `from tools` — external tool
 - `from <module>` — another module
 
-Appears before `input` in function declarations. Makes the call graph explicit.
+`@` is the dependency marker. Appears before the signature.
+
+## Property Tests
+
+```
+? function-name arg: val, arg: val == expected
+```
+
+`?` introduces an inline test. Lives between signature and body.
+
+## Record Construction and Update
+
+```
+-- Construct
+loyalty-summary
+	customer-name: c.name,
+	level: level
+
+-- Update
+order with total: new-total
+```
+
+Type name IS the constructor. `with` creates a copy with fields changed.
 
 ## Comments
 
@@ -159,14 +166,15 @@ Appears before `input` in function declarations. Makes the call graph explicit.
 -- single line comment
 ```
 
-Two hyphens. No block comments.
+## Indentation
+
+Tab-based. One tab = one indent level. Indentation is significant (determines block structure). No closing delimiters.
 
 ## Open Questions
 
-1. **Keyword verbosity**: `define function` (2 tokens) vs `fn` (1 token). Worth ~10 tokens per file.
-2. **`body:` section marker**: Could be implicit (everything after `output`/`properties` is body). Saves 1 token per function.
-3. **Match syntax**: `match x on pattern: body end` — could `|` arms be terser?
-4. **Language-agnostic keywords**: Current syntax is English. Should we explore symbols or constructed words?
-5. **Record update**: `record with field: val` — is `with` the right keyword?
-6. **`result.unwrap`**: Should this exist, or should every result be matched explicitly?
-7. **List expressions in for-each**: `for-each x in list do ... end` as expression — should this return a list implicitly?
+1. **Match exhaustiveness**: should the verifier require all patterns to be covered?
+2. **`unwrap` safety**: should `unwrap` be allowed, or must every result be matched?
+3. **Multi-line args**: should continuation lines be indented, or use explicit line continuation?
+4. **`for` as expression**: does `for` always return a list? Or is it a statement?
+5. **`with` record update**: should this be deeper (nested field updates)?
+6. **`concat`**: only remaining word-operator. Should string concatenation use a symbol?
