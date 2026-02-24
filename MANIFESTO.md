@@ -29,6 +29,8 @@ A named argument like `amount: 42` costs more tokens than positional `42`. But i
 **What the agent cares about:** "How many tokens will this cost me end-to-end?"
 **How this helps:** The language is as terse as possible *without increasing retry rate*. Where there's a tradeoff between generation cost and error rate, we optimise for total cost.
 
+**Naming rule:** prefer single-word identifiers. Across all major LLM tokenisers (OpenAI, Anthropic), common English words are 1 token. Hyphenated compounds are always 2 — the hyphen forces a token split. Every hyphen in a name doubles its cost.
+
 ### 2. Constrained
 
 Small vocabulary. Closed world. One way to do things.

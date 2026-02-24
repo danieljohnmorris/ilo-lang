@@ -1,17 +1,17 @@
 -- 03: Data transform (terse syntax)
 
-type customer-record
+type customer
 	name: text
 	email: text
 	tier: text
-	total-spent: number
+	spent: number
 
-type loyalty-summary
-	customer-name: text
+type summary
+	name: text
 	level: text
-	discount-percent: number
+	discount: number
 
-fn classify-loyalty
+fn classify
 	spent: number -> text
 	? spent: 0 == "bronze"
 	? spent: 500 == "silver"
@@ -21,17 +21,17 @@ fn classify-loyalty
 		>= spent 500: "silver"
 		_: "bronze"
 
-fn build-loyalty-summaries
-	@ classify-loyalty from self
-	customers: list customer-record -> list loyalty-summary
+fn summaries
+	@ classify from self
+	customers: list customer -> list summary
 	for c in customers
-		let level = classify-loyalty spent: c.total-spent
-		let discount = match level
+		let level = classify spent: c.spent
+		let disc = match level
 			"gold": 20
 			"silver": 10
 			"bronze": 5
 			_: 0
-		loyalty-summary
-			customer-name: c.name,
+		summary
+			name: c.name,
 			level: level,
-			discount-percent: discount
+			discount: disc

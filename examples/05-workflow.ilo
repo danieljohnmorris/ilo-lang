@@ -1,47 +1,47 @@
 -- 05: Workflow (terse syntax)
 
-tool charge-payment "Charge a payment method"
-	payment-id: text, amount: number -> result text, text
+tool charge "Charge a payment method"
+	pid: text, amount: number -> result text, text
 	timeout: 30, retry: 0
 
-tool reserve-inventory "Reserve items in warehouse"
-	items: list item-line -> result text, text
+tool reserve "Reserve items in warehouse"
+	items: list item -> result text, text
 	timeout: 10, retry: 1
 
-tool release-inventory "Release reserved inventory"
-	reservation-id: text -> result nil, text
+tool release "Release reserved inventory"
+	rid: text -> result nil, text
 	timeout: 10, retry: 2
 
-type item-line
+type item
 	sku: text
 	quantity: number
 
-type checkout-result
-	order-id: text
-	charge-id: text
-	reservation-id: text
+type receipt
+	oid: text
+	cid: text
+	rid: text
 
 fn checkout
-	@ charge-payment from tools
-	@ reserve-inventory from tools
-	@ release-inventory from tools
-	@ generate-order-id from orders
-	payment-id: text, amount: number, items: list item-line -> result checkout-result, text
+	@ charge from tools
+	@ reserve from tools
+	@ release from tools
+	@ genid from orders
+	pid: text, amount: number, items: list item -> result receipt, text
 	-- Step 1: Reserve inventory
-	let reserved = reserve-inventory items: items
+	let reserved = reserve items: items
 	match reserved
 		err e: err concat "Inventory unavailable: " e
-	let reservation-id = unwrap reserved
+	let rid = unwrap reserved
 	-- Step 2: Charge payment (compensate on failure)
-	let charged = charge-payment payment-id: payment-id, amount: amount
+	let charged = charge pid: pid, amount: amount
 	match charged
 		err e:
-			release-inventory reservation-id: reservation-id
+			release rid: rid
 			err concat "Payment failed: " e
-	let charge-id = unwrap charged
+	let cid = unwrap charged
 	-- Step 3: Generate order
-	let order-id = generate-order-id
-	ok checkout-result
-		order-id: order-id,
-		charge-id: charge-id,
-		reservation-id: reservation-id
+	let oid = genid
+	ok receipt
+		oid: oid,
+		cid: cid,
+		rid: rid

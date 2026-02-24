@@ -1,19 +1,19 @@
 -- 02: Function with dependencies (terse syntax)
 
-fn process-order
-	@ validate-address from validation
-	@ calculate-shipping from shipping
-	@ apply-discount from pricing
-	order: order-record -> result order-record, text
-	let valid = validate-address address: order.shipping-address
+fn process
+	@ validate from validation
+	@ shipping from shipping
+	@ discount from pricing
+	order: order -> result order, text
+	let valid = validate address: order.address
 	match valid
 		false:
 			err "Invalid shipping address"
-	let shipping = calculate-shipping
-		weight: order.total-weight,
-		destination: order.shipping-address.country
-	let discount = apply-discount
+	let ship = shipping
+		weight: order.weight,
+		dest: order.address.country
+	let disc = discount
 		subtotal: order.subtotal,
-		code: order.discount-code
-	let final-total = + (- order.subtotal discount) shipping
-	ok order with total: final-total, shipping-cost: shipping
+		code: order.code
+	let final = + (- order.subtotal disc) ship
+	ok order with total: final, cost: ship

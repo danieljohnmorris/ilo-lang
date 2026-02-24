@@ -69,6 +69,14 @@ User-defined: referenced by name (e.g., `customer-record`)
 
 `[a-z][a-z0-9]*(-[a-z0-9]+)*` — lowercase with hyphens.
 
+**Prefer single words.** Common English words (`price`, `quantity`, `user`, `email`, `data`, `total`, `tax`) are 1 token across all major LLM tokenisers. Hyphenated compounds (`tax-rate`, `fetch-user`, `shipping-address`) are always 2 tokens — the hyphen forces a split. Every hyphen doubles the cost of a name.
+
+Guidelines:
+- Use single words where unambiguous: `total` not `calculate-total`, `addr` not `shipping-address`
+- Use hyphens only when a single word would be ambiguous in context
+- Function names can be single words if the signature disambiguates: `fn total` with `price: number, quantity: number -> number` is clear
+- Type names should be single words where possible: `user` not `user-data`, `item` not `item-line`
+
 ## Operators
 
 Symbol operators, prefix notation:
