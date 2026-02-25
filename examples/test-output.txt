@@ -1,0 +1,532 @@
+======================================================================
+Token comparison vs Python (cl100k_base)
+======================================================================
+
+  Idea                             Tokens   vs Python
+  ---------------------------------------------------
+  python-baseline                     871       1.00x  (baseline)
+  idea1                               921       1.06x
+  idea1-compact                       677       0.78x
+  idea2-tool-calling                  983       1.13x
+  idea3-constrained-decoding          598       0.69x
+  idea4-ast-bytecode                  584       0.67x
+  idea5-workflow-dag                  710       0.82x
+  idea6-mcp-composition               956       1.10x
+  idea7-dense-wire                    351       0.40x
+
+======================================================================
+Cold-LLM test (claude-haiku-4-5, 1 trial(s), 4 tasks)
+Total API calls: 32
+======================================================================
+
+==================================================
+  idea1
+==================================================
+
+  [workflow]
+    T1: 10/10 | 118tok
+    avg: 10.0/10 | 118tok
+
+  [data_pipeline]
+    T1: 9/10 | 249tok | miss: handles_lookup_fail
+    avg: 9.0/10 | 249tok
+
+  [decision_logic]
+    T1: 10/10 | 347tok
+    avg: 10.0/10 | 347tok
+
+  [api_orchestration]
+    T1: 10/10 | 186tok
+    avg: 10.0/10 | 186tok
+
+==================================================
+  idea1-compact
+==================================================
+
+  [workflow]
+    T1: 10/10 | 74tok
+    avg: 10.0/10 | 74tok
+
+  [data_pipeline]
+    T1: 9/10 | 193tok | miss: handles_lookup_fail
+    avg: 9.0/10 | 193tok
+
+  [decision_logic]
+    T1: 10/10 | 194tok
+    avg: 10.0/10 | 194tok
+
+  [api_orchestration]
+    T1: 10/10 | 151tok
+    avg: 10.0/10 | 151tok
+
+==================================================
+  idea2-tool-calling
+==================================================
+
+  [workflow]
+    T1: 10/10 | 287tok
+    avg: 10.0/10 | 287tok
+
+  [data_pipeline]
+    T1: 9/10 | 347tok | miss: handles_lookup_fail
+    avg: 9.0/10 | 347tok
+
+  [decision_logic]
+    T1: 10/10 | 358tok
+    avg: 10.0/10 | 358tok
+
+  [api_orchestration]
+    T1: 10/10 | 421tok
+    avg: 10.0/10 | 421tok
+
+==================================================
+  idea3-constrained-decoding
+==================================================
+
+  [workflow]
+    T1: 10/10 | 356tok
+    avg: 10.0/10 | 356tok
+
+  [data_pipeline]
+    T1: 9/10 | 245tok | miss: handles_lookup_fail
+    avg: 9.0/10 | 245tok
+
+  [decision_logic]
+    T1: 10/10 | 257tok
+    avg: 10.0/10 | 257tok
+
+  [api_orchestration]
+    T1: 10/10 | 245tok
+    avg: 10.0/10 | 245tok
+
+==================================================
+  idea4-ast-bytecode
+==================================================
+
+  [workflow]
+    T1: 8/10 | 139tok | miss: named_transfer, returns_receipt
+    avg: 8.0/10 | 139tok
+
+  [data_pipeline]
+    T1: 4/10 | 178tok | miss: named_enrich, takes_orders, iterates, handles_lookup_fail, includes_final_total, includes_customer_data
+    avg: 4.0/10 | 178tok
+
+  [decision_logic]
+    T1: 8/10 | 178tok | miss: four_inputs, max_loan
+    avg: 8.0/10 | 178tok
+
+  [api_orchestration]
+    T1: 9/10 | 142tok | miss: returns_success
+    avg: 9.0/10 | 142tok
+
+==================================================
+  idea5-workflow-dag
+==================================================
+
+  [workflow]
+    T1: 10/10 | 172tok
+    avg: 10.0/10 | 172tok
+
+  [data_pipeline]
+    T1: 8/10 | 178tok | miss: iterates, handles_lookup_fail
+    avg: 8.0/10 | 178tok
+
+  [decision_logic]
+    T1: 10/10 | 292tok
+    avg: 10.0/10 | 292tok
+
+  [api_orchestration]
+    T1: 10/10 | 271tok
+    avg: 10.0/10 | 271tok
+
+==================================================
+  idea6-mcp-composition
+==================================================
+
+  [workflow]
+    T1: 9/10 | 177tok | miss: named_transfer
+    avg: 9.0/10 | 177tok
+
+  [data_pipeline]
+    T1: 10/10 | 223tok
+    avg: 10.0/10 | 223tok
+
+  [decision_logic]
+    T1: 10/10 | 234tok
+    avg: 10.0/10 | 234tok
+
+  [api_orchestration]
+    T1: 10/10 | 249tok
+    avg: 10.0/10 | 249tok
+
+==================================================
+  idea7-dense-wire
+==================================================
+
+  [workflow]
+    T1: 10/10 | 111tok
+    avg: 10.0/10 | 111tok
+
+  [data_pipeline]
+    T1: 9/10 | 108tok | miss: handles_lookup_fail
+    avg: 9.0/10 | 108tok
+
+  [decision_logic]
+    T1: 10/10 | 168tok
+    avg: 10.0/10 | 168tok
+
+  [api_orchestration]
+    T1: 10/10 | 106tok
+    avg: 10.0/10 | 106tok
+
+======================================================================
+Summary (averaged across all tasks and trials)
+======================================================================
+
+  Idea                               Score    Tokens     Time
+  ---------------------------------------------------------
+  idea1                           9.8/10      225    2.26s
+  idea1-compact                   9.8/10      153    2.25s
+  idea2-tool-calling              9.8/10      353    3.51s
+  idea3-constrained-decoding      9.8/10      276    2.56s
+  idea4-ast-bytecode              7.2/10      159    2.52s
+  idea5-workflow-dag              9.5/10      228    2.12s
+  idea6-mcp-composition           9.8/10      221    2.48s
+  idea7-dense-wire                9.8/10      123    2.10s
+
+  Per-task scores (avg across trials):
+
+  Idea                              workflow  data_pipel  decision_l  api_orches
+  ------------------------------------------------------------------------------
+  idea1                                10.0        9.0       10.0       10.0
+  idea1-compact                        10.0        9.0       10.0       10.0
+  idea2-tool-calling                   10.0        9.0       10.0       10.0
+  idea3-constrained-decoding           10.0        9.0       10.0       10.0
+  idea4-ast-bytecode                    8.0        4.0        8.0        9.0
+  idea5-workflow-dag                   10.0        8.0       10.0       10.0
+  idea6-mcp-composition                 9.0       10.0       10.0       10.0
+  idea7-dense-wire                     10.0        9.0       10.0       10.0
+
+  Raw results saved to /Users/dan/code/ilo-lang/examples/test-results.json
+======================================================================
+Comprehension test (claude-haiku-4-5, 1 trial(s))
+Examples: 04-tool-interaction, 05-workflow
+Total API calls: 18
+======================================================================
+
+==================================================
+  python-baseline
+==================================================
+
+  [04-tool-interaction]
+    T1: 8/8 | 539tok
+
+  [05-workflow]
+    T1: 8/8 | 379tok
+
+==================================================
+  idea1
+==================================================
+
+  [04-tool-interaction]
+    T1: 8/8 | 341tok
+
+  [05-workflow]
+    T1: 8/8 | 387tok
+
+==================================================
+  idea1-compact
+==================================================
+
+  [04-tool-interaction]
+    T1: 8/8 | 366tok
+
+  [05-workflow]
+    T1: 8/8 | 383tok
+
+==================================================
+  idea2-tool-calling
+==================================================
+
+  [04-tool-interaction]
+    T1: 8/8 | 379tok
+
+  [05-workflow]
+    T1: 8/8 | 423tok
+
+==================================================
+  idea3-constrained-decoding
+==================================================
+
+  [04-tool-interaction]
+    T1: 8/8 | 360tok
+
+  [05-workflow]
+    T1: 8/8 | 373tok
+
+==================================================
+  idea4-ast-bytecode
+==================================================
+
+  [04-tool-interaction]
+    T1: 7/8 | 472tok | miss: mentions_notify
+
+  [05-workflow]
+    T1: 8/8 | 444tok
+
+==================================================
+  idea5-workflow-dag
+==================================================
+
+  [04-tool-interaction]
+    T1: 8/8 | 368tok
+
+  [05-workflow]
+    T1: 8/8 | 361tok
+
+==================================================
+  idea6-mcp-composition
+==================================================
+
+  [04-tool-interaction]
+    T1: 7/8 | 411tok | miss: mentions_notify
+
+  [05-workflow]
+    T1: 7/8 | 413tok | miss: mentions_checkout
+
+==================================================
+  idea7-dense-wire
+==================================================
+
+  [04-tool-interaction]
+    T1: 8/8 | 382tok
+
+  [05-workflow]
+    T1: 8/8 | 385tok
+
+======================================================================
+Comprehension Summary
+======================================================================
+
+  Idea                               Score    Tokens
+  --------------------------------------------------
+  python-baseline                 8.0/8       459
+  idea1                           8.0/8       364
+  idea1-compact                   8.0/8       374
+  idea2-tool-calling              8.0/8       401
+  idea3-constrained-decoding      8.0/8       366
+  idea4-ast-bytecode              7.5/8       458
+  idea5-workflow-dag              8.0/8       364
+  idea6-mcp-composition           7.0/8       412
+  idea7-dense-wire                8.0/8       384
+
+  Per-example scores (avg across trials):
+
+  Idea                            04-tool-interac      05-workflow
+  ----------------------------------------------------------------
+  python-baseline                            8.0             8.0
+  idea1                                      8.0             8.0
+  idea1-compact                              8.0             8.0
+  idea2-tool-calling                         8.0             8.0
+  idea3-constrained-decoding                 8.0             8.0
+  idea4-ast-bytecode                         7.0             8.0
+  idea5-workflow-dag                         8.0             8.0
+  idea6-mcp-composition                      7.0             7.0
+  idea7-dense-wire                           8.0             8.0
+
+  Raw results saved to /Users/dan/code/ilo-lang/examples/comprehension-results.json
+======================================================================
+Rules-based generation test (claude-haiku-4-5, 1 trial(s), 4 tasks)
+Ideas with rules: idea1, idea1-compact, idea2-tool-calling, idea3-constrained-decoding, idea4-ast-bytecode, idea5-workflow-dag, idea6-mcp-composition, idea7-dense-wire
+Total API calls: 32
+======================================================================
+
+==================================================
+  idea1
+==================================================
+
+  [workflow]
+    T1: 10/10 | 274tok
+    avg: 10.0/10 | 274tok
+
+  [data_pipeline]
+    T1: 10/10 | 319tok
+    avg: 10.0/10 | 319tok
+
+  [decision_logic]
+    T1: 10/10 | 397tok
+    avg: 10.0/10 | 397tok
+
+  [api_orchestration]
+    T1: 10/10 | 451tok
+    avg: 10.0/10 | 451tok
+
+==================================================
+  idea1-compact
+==================================================
+
+  [workflow]
+    T1: 10/10 | 98tok
+    avg: 10.0/10 | 98tok
+
+  [data_pipeline]
+    T1: 10/10 | 201tok
+    avg: 10.0/10 | 201tok
+
+  [decision_logic]
+    T1: 10/10 | 243tok
+    avg: 10.0/10 | 243tok
+
+  [api_orchestration]
+    T1: 10/10 | 144tok
+    avg: 10.0/10 | 144tok
+
+==================================================
+  idea2-tool-calling
+==================================================
+
+  [workflow]
+    T1: 10/10 | 550tok
+    avg: 10.0/10 | 550tok
+
+  [data_pipeline]
+    T1: 10/10 | 746tok
+    avg: 10.0/10 | 746tok
+
+  [decision_logic]
+    T1: 9/10 | 737tok | miss: monthly_calc
+    avg: 9.0/10 | 737tok
+
+  [api_orchestration]
+    T1: 10/10 | 686tok
+    avg: 10.0/10 | 686tok
+
+==================================================
+  idea3-constrained-decoding
+==================================================
+
+  [workflow]
+    T1: 10/10 | 799tok
+    avg: 10.0/10 | 799tok
+
+  [data_pipeline]
+    T1: 7/10 | 850tok | miss: handles_lookup_fail, tier_check, calculates_discount
+    avg: 7.0/10 | 850tok
+
+  [decision_logic]
+    T1: 10/10 | 620tok
+    avg: 10.0/10 | 620tok
+
+  [api_orchestration]
+    T1: 7/10 | 814tok | miss: calls_rollout, handles_rollout_fail, rollback_on_fail
+    avg: 7.0/10 | 814tok
+
+==================================================
+  idea4-ast-bytecode
+==================================================
+
+  [workflow]
+    T1: 7/10 | 119tok | miss: named_transfer, three_inputs, returns_receipt
+    avg: 7.0/10 | 119tok
+
+  [data_pipeline]
+    T1: 3/10 | 124tok | miss: named_enrich, takes_orders, iterates, calls_lookup, returns_list, includes_final_total, includes_customer_data
+    avg: 3.0/10 | 124tok
+
+  [decision_logic]
+    T1: 4/10 | 206tok | miss: named_approve, four_inputs, credit_check, max_loan, monthly_calc, returns_approved
+    avg: 4.0/10 | 206tok
+
+  [api_orchestration]
+    T1: 10/10 | 283tok
+    avg: 10.0/10 | 283tok
+
+==================================================
+  idea5-workflow-dag
+==================================================
+
+  [workflow]
+    T1: 10/10 | 385tok
+    avg: 10.0/10 | 385tok
+
+  [data_pipeline]
+    T1: 10/10 | 518tok
+    avg: 10.0/10 | 518tok
+
+  [decision_logic]
+    T1: 10/10 | 843tok
+    avg: 10.0/10 | 843tok
+
+  [api_orchestration]
+    T1: 10/10 | 314tok
+    avg: 10.0/10 | 314tok
+
+==================================================
+  idea6-mcp-composition
+==================================================
+
+  [workflow]
+    T1: 10/10 | 221tok
+    avg: 10.0/10 | 221tok
+
+  [data_pipeline]
+    T1: 10/10 | 292tok
+    avg: 10.0/10 | 292tok
+
+  [decision_logic]
+    T1: 7/10 | 707tok | miss: rate_tiers, rate_values, monthly_calc
+    avg: 7.0/10 | 707tok
+
+  [api_orchestration]
+    T1: 10/10 | 253tok
+    avg: 10.0/10 | 253tok
+
+==================================================
+  idea7-dense-wire
+==================================================
+
+  [workflow]
+    T1: 10/10 | 69tok
+    avg: 10.0/10 | 69tok
+
+  [data_pipeline]
+    T1: 8/10 | 130tok | miss: handles_lookup_fail, returns_list
+    avg: 8.0/10 | 130tok
+
+  [decision_logic]
+    T1: 10/10 | 131tok
+    avg: 10.0/10 | 131tok
+
+  [api_orchestration]
+    T1: 10/10 | 127tok
+    avg: 10.0/10 | 127tok
+
+======================================================================
+Rules-Based Generation Summary
+======================================================================
+
+  Idea                               Score    Tokens     Time
+  ---------------------------------------------------------
+  idea1                           10.0/10      360    3.60s
+  idea1-compact                   10.0/10      172    2.41s
+  idea2-tool-calling              9.8/10      680    4.26s
+  idea3-constrained-decoding      8.5/10      771    4.39s
+  idea4-ast-bytecode              6.0/10      183    2.25s
+  idea5-workflow-dag              10.0/10      515    4.16s
+  idea6-mcp-composition           9.2/10      368    3.13s
+  idea7-dense-wire                9.5/10      114    1.85s
+
+  Per-task scores (avg across trials):
+
+  Idea                              workflow  data_pipel  decision_l  api_orches
+  ------------------------------------------------------------------------------
+  idea1                                10.0       10.0       10.0       10.0
+  idea1-compact                        10.0       10.0       10.0       10.0
+  idea2-tool-calling                   10.0       10.0        9.0       10.0
+  idea3-constrained-decoding           10.0        7.0       10.0        7.0
+  idea4-ast-bytecode                    7.0        3.0        4.0       10.0
+  idea5-workflow-dag                   10.0       10.0       10.0       10.0
+  idea6-mcp-composition                10.0       10.0        7.0       10.0
+  idea7-dense-wire                     10.0        8.0       10.0       10.0
+
+  Raw results saved to /Users/dan/code/ilo-lang/examples/rules-results.json

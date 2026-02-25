@@ -334,36 +334,30 @@ def count_folder(folder: Path, extensions: list[str]) -> dict[str, int]:
 
 def print_token_counts():
     print("=" * 70)
-    print("ilo token comparison (cl100k_base)")
+    print("Token comparison vs Python (cl100k_base)")
     print("=" * 70)
 
-    py_folder = EXAMPLES_DIR / "python-baseline"
-    py_counts = count_folder(py_folder, [".py"])
-    py_total = sum(py_counts.values())
-
-    print(f"\n{'python-baseline':30s}  {'tokens':>7s}  {'vs python':>10s}")
-    print("-" * 52)
-    for name, tokens in sorted(py_counts.items()):
-        print(f"  {name:28s}  {tokens:7d}")
-    print(f"  {'TOTAL':28s}  {py_total:7d}  {'1.00x':>10s}")
-
+    # Collect totals for all ideas
+    totals = {}
     for folder_name, exts in FOLDERS.items():
-        if folder_name == "python-baseline":
-            continue
         folder = EXAMPLES_DIR / folder_name
         if not folder.exists():
             continue
         counts = count_folder(folder, exts)
-        if not counts:
-            continue
-        total = sum(counts.values())
-        ratio = total / py_total if py_total else 0
+        if counts:
+            totals[folder_name] = sum(counts.values())
 
-        print(f"\n{folder_name:30s}  {'tokens':>7s}  {'vs python':>10s}")
-        print("-" * 52)
-        for name, tokens in sorted(counts.items()):
-            print(f"  {name:28s}  {tokens:7d}")
-        print(f"  {'TOTAL':28s}  {total:7d}  {ratio:.2f}x")
+    py_total = totals.get("python-baseline", 1)
+
+    print(f"\n  {'Idea':30s}  {'Tokens':>7s}  {'vs Python':>10s}")
+    print(f"  {'-' * 51}")
+    for folder_name in FOLDERS:
+        if folder_name not in totals:
+            continue
+        total = totals[folder_name]
+        ratio = total / py_total if py_total else 0
+        marker = "" if folder_name != "python-baseline" else "  (baseline)"
+        print(f"  {folder_name:30s}  {total:7d}  {ratio:>9.2f}x{marker}")
 
     print()
 
