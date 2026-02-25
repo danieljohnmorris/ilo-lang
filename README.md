@@ -18,12 +18,12 @@ def total(price: float, quantity: int, rate: float) -> float:
     return sub + tax
 ```
 
-ilo (idea8 — ultra-dense):
+ilo (idea9 — ultra-dense-short):
 ```
-total p:n q:n r:n>n;s=*p q;t=*s r;+s t
+tot p:n q:n r:n>n;s=*p q;t=*s r;+s t
 ```
 
-0.33x the tokens, 0.25x the characters. Same semantics.
+0.33x the tokens, 0.22x the characters. Same semantics.
 
 ## Principles
 
