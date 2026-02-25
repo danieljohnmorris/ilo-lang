@@ -454,7 +454,66 @@ impl RegCompiler {
         }
     }
 
+    /// Try to evaluate an expression at compile time. Returns Some(Value) if fully constant.
+    fn try_const_fold(expr: &Expr) -> Option<Value> {
+        match expr {
+            Expr::Literal(lit) => Some(match lit {
+                Literal::Number(n) => Value::Number(*n),
+                Literal::Text(s) => Value::Text(s.clone()),
+                Literal::Bool(b) => Value::Bool(*b),
+            }),
+            Expr::BinOp { op, left, right } => {
+                let lv = Self::try_const_fold(left)?;
+                let rv = Self::try_const_fold(right)?;
+                match (&lv, &rv) {
+                    (Value::Number(a), Value::Number(b)) => Some(match op {
+                        BinOp::Add => Value::Number(a + b),
+                        BinOp::Subtract => Value::Number(a - b),
+                        BinOp::Multiply => Value::Number(a * b),
+                        BinOp::Divide if *b != 0.0 => Value::Number(a / b),
+                        BinOp::Equals => Value::Bool((a - b).abs() < f64::EPSILON),
+                        BinOp::NotEquals => Value::Bool((a - b).abs() >= f64::EPSILON),
+                        BinOp::GreaterThan => Value::Bool(a > b),
+                        BinOp::LessThan => Value::Bool(a < b),
+                        BinOp::GreaterOrEqual => Value::Bool(a >= b),
+                        BinOp::LessOrEqual => Value::Bool(a <= b),
+                        _ => return None,
+                    }),
+                    (Value::Text(a), Value::Text(b)) => match op {
+                        BinOp::Add => Some(Value::Text(format!("{}{}", a, b))),
+                        _ => None,
+                    },
+                    (Value::Bool(a), Value::Bool(b)) => match op {
+                        BinOp::Equals => Some(Value::Bool(a == b)),
+                        BinOp::NotEquals => Some(Value::Bool(a != b)),
+                        _ => None,
+                    },
+                    _ => None,
+                }
+            }
+            Expr::UnaryOp { op, operand } => {
+                let v = Self::try_const_fold(operand)?;
+                match (&v, op) {
+                    (Value::Number(n), UnaryOp::Negate) => Some(Value::Number(-n)),
+                    (Value::Bool(b), UnaryOp::Not) => Some(Value::Bool(!b)),
+                    _ => None,
+                }
+            }
+            _ => None,
+        }
+    }
+
     fn compile_expr(&mut self, expr: &Expr) -> u8 {
+        // Try constant folding for BinOp/UnaryOp expressions
+        if matches!(expr, Expr::BinOp { .. } | Expr::UnaryOp { .. }) {
+            if let Some(val) = Self::try_const_fold(expr) {
+                let reg = self.alloc_reg();
+                let ki = self.current.add_const(val);
+                self.emit_abx(OP_LOADK, reg, ki);
+                return reg;
+            }
+        }
+
         match expr {
             Expr::Literal(lit) => {
                 let val = match lit {
