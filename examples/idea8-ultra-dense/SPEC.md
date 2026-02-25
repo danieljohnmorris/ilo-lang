@@ -71,13 +71,16 @@ The callee's param names define the order. Caller just passes values in position
 
 ## Operators
 
-Prefix notation. `+` doubles as string concat:
+Prefix notation. `+` doubles as string concat. All comparison operators: `>`, `<`, `>=`, `<=`, `=`, `!=`.
 
 ```
 *p q
 +s t
 +"Lookup failed: "e
 >=spent 1000
+<score 500
+>ratio 0.4
+/ debt income
 ```
 
 ## Statements

@@ -907,6 +907,11 @@ def write_summary():
 
     full_results = load_results("full-results.json")
 
+    # Re-score with current checkers (in case checkers were updated after the test ran)
+    for r in full_results:
+        if r.get("task") in TASK_CHECKERS:
+            r["features"] = TASK_CHECKERS[r["task"]](r["output"].lower())
+
     def avg_score(results, idea):
         r = [x for x in results if x["idea"] == idea]
         if not r:
