@@ -57,6 +57,117 @@ fn main() {
             eprintln!("Unknown emit target. Supported: python");
             std::process::exit(1);
         }
+    } else if args.len() > 2 && args[2] == "--run-jit" {
+        // --run-jit [func] [args...] — ARM64 JIT (aarch64 only)
+        #[cfg(target_arch = "aarch64")]
+        {
+            let func_name = if args.len() > 3 { Some(args[3].as_str()) } else { None };
+            let run_args: Vec<f64> = if args.len() > 4 {
+                args[4..].iter().map(|a| a.parse::<f64>().expect("JIT args must be numbers")).collect()
+            } else {
+                vec![]
+            };
+
+            let compiled = vm::compile(&program);
+            let target = func_name.unwrap_or(compiled.func_names.first().map(|s| s.as_str()).unwrap_or("main"));
+            let func_idx = compiled.func_names.iter().position(|n| n == target)
+                .unwrap_or_else(|| { eprintln!("undefined function: {}", target); std::process::exit(1); });
+            let chunk = &compiled.chunks[func_idx];
+            let nan_consts = &compiled.nan_constants[func_idx];
+
+            match vm::jit_arm64::compile_and_call(chunk, nan_consts, &run_args) {
+                Some(result) => {
+                    if result == (result as i64) as f64 {
+                        println!("{}", result as i64);
+                    } else {
+                        println!("{}", result);
+                    }
+                }
+                None => {
+                    eprintln!("JIT: function not eligible for compilation (numeric-only required)");
+                    std::process::exit(1);
+                }
+            }
+        }
+        #[cfg(not(target_arch = "aarch64"))]
+        {
+            eprintln!("ARM64 JIT is only available on aarch64");
+            std::process::exit(1);
+        }
+    } else if args.len() > 2 && args[2] == "--run-cranelift" {
+        // --run-cranelift [func] [args...]
+        #[cfg(feature = "cranelift")]
+        {
+            let func_name = if args.len() > 3 { Some(args[3].as_str()) } else { None };
+            let run_args: Vec<f64> = if args.len() > 4 {
+                args[4..].iter().map(|a| a.parse::<f64>().expect("JIT args must be numbers")).collect()
+            } else {
+                vec![]
+            };
+
+            let compiled = vm::compile(&program);
+            let target = func_name.unwrap_or(compiled.func_names.first().map(|s| s.as_str()).unwrap_or("main"));
+            let func_idx = compiled.func_names.iter().position(|n| n == target)
+                .unwrap_or_else(|| { eprintln!("undefined function: {}", target); std::process::exit(1); });
+            let chunk = &compiled.chunks[func_idx];
+            let nan_consts = &compiled.nan_constants[func_idx];
+
+            match vm::jit_cranelift::compile_and_call(chunk, nan_consts, &run_args) {
+                Some(result) => {
+                    if result == (result as i64) as f64 {
+                        println!("{}", result as i64);
+                    } else {
+                        println!("{}", result);
+                    }
+                }
+                None => {
+                    eprintln!("Cranelift JIT: function not eligible for compilation");
+                    std::process::exit(1);
+                }
+            }
+        }
+        #[cfg(not(feature = "cranelift"))]
+        {
+            eprintln!("Cranelift JIT not enabled. Build with: cargo build --features cranelift");
+            std::process::exit(1);
+        }
+    } else if args.len() > 2 && args[2] == "--run-llvm" {
+        // --run-llvm [func] [args...]
+        #[cfg(feature = "llvm")]
+        {
+            let func_name = if args.len() > 3 { Some(args[3].as_str()) } else { None };
+            let run_args: Vec<f64> = if args.len() > 4 {
+                args[4..].iter().map(|a| a.parse::<f64>().expect("JIT args must be numbers")).collect()
+            } else {
+                vec![]
+            };
+
+            let compiled = vm::compile(&program);
+            let target = func_name.unwrap_or(compiled.func_names.first().map(|s| s.as_str()).unwrap_or("main"));
+            let func_idx = compiled.func_names.iter().position(|n| n == target)
+                .unwrap_or_else(|| { eprintln!("undefined function: {}", target); std::process::exit(1); });
+            let chunk = &compiled.chunks[func_idx];
+            let nan_consts = &compiled.nan_constants[func_idx];
+
+            match vm::jit_llvm::compile_and_call(chunk, nan_consts, &run_args) {
+                Some(result) => {
+                    if result == (result as i64) as f64 {
+                        println!("{}", result as i64);
+                    } else {
+                        println!("{}", result);
+                    }
+                }
+                None => {
+                    eprintln!("LLVM JIT: function not eligible for compilation");
+                    std::process::exit(1);
+                }
+            }
+        }
+        #[cfg(not(feature = "llvm"))]
+        {
+            eprintln!("LLVM JIT not enabled. Build with: cargo build --features llvm");
+            std::process::exit(1);
+        }
     } else if args.len() > 2 && args[2] == "--run-vm" {
         // --run-vm [func] [args...]
         let func_name = if args.len() > 3 { Some(args[3].as_str()) } else { None };
@@ -173,6 +284,121 @@ fn run_bench(program: &ast::Program, func_name: Option<&str>, args: &[interprete
     println!("  per call:   {}ns", vm_reuse_ns);
     println!();
 
+    // -- JIT benchmarks --
+    // Extract function info for JIT
+    let call_name_jit = func_name.unwrap_or(compiled.func_names.first().map(|s| s.as_str()).unwrap_or("main"));
+    let func_idx_jit = compiled.func_names.iter().position(|n| n == call_name_jit);
+    let jit_args: Vec<f64> = args.iter().filter_map(|a| match a {
+        interpreter::Value::Number(n) => Some(*n),
+        _ => None,
+    }).collect();
+    let all_numeric = jit_args.len() == args.len();
+
+    let mut jit_arm64_ns: Option<u128> = None;
+    #[cfg(target_arch = "aarch64")]
+    if let Some(fi) = func_idx_jit {
+        if all_numeric {
+            let chunk = &compiled.chunks[fi];
+            let nan_consts = &compiled.nan_constants[fi];
+            if let Some(jit_func) = vm::jit_arm64::compile(chunk, nan_consts) {
+                // Warmup
+                for _ in 0..100 {
+                    let _ = vm::jit_arm64::call(&jit_func, &jit_args);
+                }
+
+                let start = Instant::now();
+                let mut jit_result = 0.0f64;
+                for _ in 0..iterations {
+                    jit_result = vm::jit_arm64::call(&jit_func, &jit_args).unwrap();
+                }
+                let jit_dur = start.elapsed();
+                let ns = jit_dur.as_nanos() / iterations as u128;
+                jit_arm64_ns = Some(ns);
+
+                println!("ARM64 JIT");
+                if jit_result == (jit_result as i64) as f64 {
+                    println!("  result:     {}", jit_result as i64);
+                } else {
+                    println!("  result:     {}", jit_result);
+                }
+                println!("  iterations: {}", iterations);
+                println!("  total:      {:.2}ms", jit_dur.as_nanos() as f64 / 1e6);
+                println!("  per call:   {}ns", ns);
+                println!();
+            }
+        }
+    }
+
+    #[allow(unused_variables)]
+    let mut jit_cranelift_ns: Option<u128> = None;
+    #[cfg(feature = "cranelift")]
+    if let Some(fi) = func_idx_jit {
+        if all_numeric {
+            let chunk = &compiled.chunks[fi];
+            let nan_consts = &compiled.nan_constants[fi];
+            if let Some(jit_func) = vm::jit_cranelift::compile(chunk, nan_consts) {
+                for _ in 0..100 {
+                    let _ = vm::jit_cranelift::call(&jit_func, &jit_args);
+                }
+
+                let start = Instant::now();
+                let mut jit_result = 0.0f64;
+                for _ in 0..iterations {
+                    jit_result = vm::jit_cranelift::call(&jit_func, &jit_args).unwrap();
+                }
+                let jit_dur = start.elapsed();
+                let ns = jit_dur.as_nanos() / iterations as u128;
+                jit_cranelift_ns = Some(ns);
+
+                println!("Cranelift JIT");
+                if jit_result == (jit_result as i64) as f64 {
+                    println!("  result:     {}", jit_result as i64);
+                } else {
+                    println!("  result:     {}", jit_result);
+                }
+                println!("  iterations: {}", iterations);
+                println!("  total:      {:.2}ms", jit_dur.as_nanos() as f64 / 1e6);
+                println!("  per call:   {}ns", ns);
+                println!();
+            }
+        }
+    }
+
+    #[allow(unused_variables)]
+    let mut jit_llvm_ns: Option<u128> = None;
+    #[cfg(feature = "llvm")]
+    if let Some(fi) = func_idx_jit {
+        if all_numeric {
+            let chunk = &compiled.chunks[fi];
+            let nan_consts = &compiled.nan_constants[fi];
+            if let Some(jit_func) = vm::jit_llvm::compile(chunk, nan_consts) {
+                for _ in 0..100 {
+                    let _ = vm::jit_llvm::call(&jit_func, &jit_args);
+                }
+
+                let start = Instant::now();
+                let mut jit_result = 0.0f64;
+                for _ in 0..iterations {
+                    jit_result = vm::jit_llvm::call(&jit_func, &jit_args).unwrap();
+                }
+                let jit_dur = start.elapsed();
+                let ns = jit_dur.as_nanos() / iterations as u128;
+                jit_llvm_ns = Some(ns);
+
+                println!("LLVM JIT");
+                if jit_result == (jit_result as i64) as f64 {
+                    println!("  result:     {}", jit_result as i64);
+                } else {
+                    println!("  result:     {}", jit_result);
+                }
+                println!("  iterations: {}", iterations);
+                println!("  total:      {:.2}ms", jit_dur.as_nanos() as f64 / 1e6);
+                println!("  per call:   {}ns", ns);
+                println!();
+            }
+        }
+    }
+
     // -- Python transpiler benchmark (single invocation) --
     let py_code = codegen::python::emit(program);
     let call_func = func_name.unwrap_or("main").replace('-', "_");
@@ -242,6 +468,21 @@ print(f"__NS__={{_per}}")
             println!("  Interpreter is {:.1}x faster than bytecode VM", vm_ns as f64 / interp_ns as f64);
         }
     }
+    if let Some(jit_ns) = jit_arm64_ns {
+        if jit_ns > 0 && vm_reuse_ns > 0 {
+            println!("  ARM64 JIT is {:.1}x faster than VM (reusable)", vm_reuse_ns as f64 / jit_ns as f64);
+        }
+    }
+    if let Some(jit_ns) = jit_cranelift_ns {
+        if jit_ns > 0 && vm_reuse_ns > 0 {
+            println!("  Cranelift JIT is {:.1}x faster than VM (reusable)", vm_reuse_ns as f64 / jit_ns as f64);
+        }
+    }
+    if let Some(jit_ns) = jit_llvm_ns {
+        if jit_ns > 0 && vm_reuse_ns > 0 {
+            println!("  LLVM JIT is {:.1}x faster than VM (reusable)", vm_reuse_ns as f64 / jit_ns as f64);
+        }
+    }
     if let Some(py) = py_ns {
         if interp_ns > 0 && py > 0 {
             if interp_ns < py {
@@ -262,6 +503,21 @@ print(f"__NS__={{_per}}")
                 println!("  VM (reusable) is {:.1}x faster than Python", py as f64 / vm_reuse_ns as f64);
             } else {
                 println!("  Python is {:.1}x faster than VM (reusable)", vm_reuse_ns as f64 / py as f64);
+            }
+        }
+        if let Some(jit_ns) = jit_arm64_ns {
+            if jit_ns > 0 && py > 0 {
+                println!("  ARM64 JIT is {:.1}x faster than Python", py as f64 / jit_ns as f64);
+            }
+        }
+        if let Some(jit_ns) = jit_cranelift_ns {
+            if jit_ns > 0 && py > 0 {
+                println!("  Cranelift JIT is {:.1}x faster than Python", py as f64 / jit_ns as f64);
+            }
+        }
+        if let Some(jit_ns) = jit_llvm_ns {
+            if jit_ns > 0 && py > 0 {
+                println!("  LLVM JIT is {:.1}x faster than Python", py as f64 / jit_ns as f64);
             }
         }
     }

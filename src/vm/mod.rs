@@ -3,56 +3,63 @@ use std::rc::Rc;
 use crate::ast::*;
 use crate::interpreter::Value;
 
+#[cfg(target_arch = "aarch64")]
+pub(crate) mod jit_arm64;
+#[cfg(feature = "cranelift")]
+pub(crate) mod jit_cranelift;
+#[cfg(feature = "llvm")]
+pub(crate) mod jit_llvm;
+
 // ── Register-based opcodes (32-bit packed instructions) ─────────────
 //
 // ABC mode:  [OP:8 | A:8 | B:8 | C:8]
 // ABx mode:  [OP:8 | A:8 | Bx:16]  (Bx unsigned or signed)
 
 // ABC mode — 3 registers
-const OP_ADD: u8 = 0;
-const OP_SUB: u8 = 1;
-const OP_MUL: u8 = 2;
-const OP_DIV: u8 = 3;
-const OP_EQ: u8 = 4;
-const OP_NE: u8 = 5;
-const OP_GT: u8 = 6;
-const OP_LT: u8 = 7;
-const OP_GE: u8 = 8;
-const OP_LE: u8 = 9;
-const OP_MOVE: u8 = 10;
-const OP_NOT: u8 = 11;
-const OP_NEG: u8 = 12;
-const OP_WRAPOK: u8 = 13;
-const OP_WRAPERR: u8 = 14;
-const OP_ISOK: u8 = 15;
-const OP_ISERR: u8 = 16;
-const OP_UNWRAP: u8 = 17;
-const OP_RECFLD: u8 = 18;
-const OP_LISTGET: u8 = 19;
+pub(crate) const OP_ADD: u8 = 0;
+pub(crate) const OP_SUB: u8 = 1;
+pub(crate) const OP_MUL: u8 = 2;
+pub(crate) const OP_DIV: u8 = 3;
+pub(crate) const OP_EQ: u8 = 4;
+pub(crate) const OP_NE: u8 = 5;
+pub(crate) const OP_GT: u8 = 6;
+pub(crate) const OP_LT: u8 = 7;
+pub(crate) const OP_GE: u8 = 8;
+pub(crate) const OP_LE: u8 = 9;
+pub(crate) const OP_MOVE: u8 = 10;
+pub(crate) const OP_NOT: u8 = 11;
+pub(crate) const OP_NEG: u8 = 12;
+pub(crate) const OP_WRAPOK: u8 = 13;
+pub(crate) const OP_WRAPERR: u8 = 14;
+pub(crate) const OP_ISOK: u8 = 15;
+pub(crate) const OP_ISERR: u8 = 16;
+pub(crate) const OP_UNWRAP: u8 = 17;
+pub(crate) const OP_RECFLD: u8 = 18;
+pub(crate) const OP_LISTGET: u8 = 19;
 
 // ABC mode — type-specialized (both operands known numeric, no type check)
-const OP_ADD_NN: u8 = 29;
-const OP_SUB_NN: u8 = 30;
-const OP_MUL_NN: u8 = 31;
-const OP_DIV_NN: u8 = 32;
+pub(crate) const OP_ADD_NN: u8 = 29;
+pub(crate) const OP_SUB_NN: u8 = 30;
+pub(crate) const OP_MUL_NN: u8 = 31;
+pub(crate) const OP_DIV_NN: u8 = 32;
 
 // ABC mode — superinstructions: register op constant (C = constant pool index)
 // These fuse LOADK + arithmetic into one dispatch, both operands known numeric
-const OP_ADDK_N: u8 = 33;  // R[A] = R[B] + K[C]
-const OP_SUBK_N: u8 = 34;  // R[A] = R[B] - K[C]
-const OP_MULK_N: u8 = 35;  // R[A] = R[B] * K[C]
-const OP_DIVK_N: u8 = 36;  // R[A] = R[B] / K[C]
+pub(crate) const OP_ADDK_N: u8 = 33;  // R[A] = R[B] + K[C]
+pub(crate) const OP_SUBK_N: u8 = 34;  // R[A] = R[B] - K[C]
+pub(crate) const OP_MULK_N: u8 = 35;  // R[A] = R[B] * K[C]
+pub(crate) const OP_DIVK_N: u8 = 36;  // R[A] = R[B] / K[C]
 
 // ABx mode — register + 16-bit operand
-const OP_LOADK: u8 = 20;
-const OP_JMP: u8 = 21;
-const OP_JMPF: u8 = 22;
-const OP_JMPT: u8 = 23;
-const OP_CALL: u8 = 24;
-const OP_RET: u8 = 25;
-const OP_RECNEW: u8 = 26;
-const OP_RECWITH: u8 = 27;
-const OP_LISTNEW: u8 = 28;
+pub(crate) const OP_LOADK: u8 = 20;
+pub(crate) const OP_JMP: u8 = 21;
+pub(crate) const OP_JMPF: u8 = 22;
+pub(crate) const OP_JMPT: u8 = 23;
+pub(crate) const OP_CALL: u8 = 24;
+pub(crate) const OP_RET: u8 = 25;
+pub(crate) const OP_RECNEW: u8 = 26;
+pub(crate) const OP_RECWITH: u8 = 27;
+pub(crate) const OP_LISTNEW: u8 = 28;
 
 // ── Instruction encoding ────────────────────────────────────────────
 
@@ -121,7 +128,7 @@ impl Chunk {
 pub struct CompiledProgram {
     pub chunks: Vec<Chunk>,
     pub func_names: Vec<String>,
-    nan_constants: Vec<Vec<NanVal>>,
+    pub(crate) nan_constants: Vec<Vec<NanVal>>,
 }
 
 impl CompiledProgram {
@@ -851,11 +858,11 @@ impl Drop for HeapObj {
 }
 
 #[derive(Clone, Copy)]
-struct NanVal(u64);
+pub(crate) struct NanVal(u64);
 
 impl NanVal {
     #[inline]
-    fn number(n: f64) -> Self {
+    pub(crate) fn number(n: f64) -> Self {
         if n.is_nan() {
             NanVal(0x7FF8_0000_0000_0000) // canonical NaN, outside our tag space
         } else {
@@ -902,12 +909,12 @@ impl NanVal {
     }
 
     #[inline]
-    fn is_number(self) -> bool {
+    pub(crate) fn is_number(self) -> bool {
         (self.0 & QNAN) != QNAN
     }
 
     #[inline]
-    fn as_number(self) -> f64 {
+    pub(crate) fn as_number(self) -> f64 {
         f64::from_bits(self.0)
     }
 
@@ -943,7 +950,7 @@ impl NanVal {
         }
     }
 
-    fn from_value(val: &Value) -> Self {
+    pub(crate) fn from_value(val: &Value) -> Self {
         match val {
             Value::Number(n) => NanVal::number(*n),
             Value::Bool(b) => NanVal::boolean(*b),
@@ -963,7 +970,7 @@ impl NanVal {
         }
     }
 
-    fn to_value(self) -> Value {
+    pub(crate) fn to_value(self) -> Value {
         if self.is_number() {
             return Value::Number(self.as_number());
         }
