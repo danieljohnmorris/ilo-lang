@@ -21,14 +21,14 @@ Full Test (spec + all examples)
 
   Idea                               Score    Tokens     Time
   ---------------------------------------------------------
-  idea1                           10.0/10      348    3.03s
-  idea1-compact                   10.0/10      229    3.02s
-  idea2-tool-calling              10.0/10      342    2.92s
-  idea3-constrained-decoding      10.0/10      197    2.27s
-  idea4-ast-bytecode              4.5/10      221    2.49s
-  idea5-workflow-dag              10.0/10      222    1.73s
-  idea6-mcp-composition           9.8/10      319    3.42s
-  idea7-dense-wire                10.0/10      115    2.47s
+  idea1                           10.0/10      346    2.68s
+  idea1-compact                   10.0/10      225    2.17s
+  idea2-tool-calling              10.0/10      340    2.23s
+  idea3-constrained-decoding      10.0/10      228    2.27s
+  idea4-ast-bytecode              9.8/10      316    3.54s
+  idea5-workflow-dag              10.0/10      232    1.73s
+  idea6-mcp-composition           9.5/10      323    2.51s
+  idea7-dense-wire                10.0/10      196    2.44s
 
   Per-task scores (avg across trials):
 
@@ -38,9 +38,9 @@ Full Test (spec + all examples)
   idea1-compact                        10.0       10.0       10.0       10.0
   idea2-tool-calling                   10.0       10.0       10.0       10.0
   idea3-constrained-decoding           10.0       10.0       10.0       10.0
-  idea4-ast-bytecode                    0.0        4.0        7.0        7.0
+  idea4-ast-bytecode                   10.0       10.0        9.0       10.0
   idea5-workflow-dag                   10.0       10.0       10.0       10.0
-  idea6-mcp-composition                 9.0       10.0       10.0       10.0
+  idea6-mcp-composition                 9.0       10.0        9.0       10.0
   idea7-dense-wire                     10.0       10.0       10.0       10.0
 
 
@@ -110,14 +110,14 @@ Generation from Rules (spec only, no examples)
 
   Idea                               Score    Tokens     Time
   ---------------------------------------------------------
-  idea1                           10.0/10      360    3.60s
-  idea1-compact                   10.0/10      172    2.41s
-  idea2-tool-calling              9.8/10      680    4.26s
-  idea3-constrained-decoding      8.5/10      771    4.39s
-  idea4-ast-bytecode              6.0/10      183    2.25s
-  idea5-workflow-dag              10.0/10      515    4.16s
-  idea6-mcp-composition           9.2/10      368    3.13s
-  idea7-dense-wire                9.5/10      114    1.85s
+  idea1                           10.0/10      324    3.21s
+  idea1-compact                   10.0/10      252    2.71s
+  idea2-tool-calling              10.0/10      382    2.71s
+  idea3-constrained-decoding      10.0/10      208    2.06s
+  idea4-ast-bytecode              10.0/10      320    3.20s
+  idea5-workflow-dag              10.0/10      241    2.07s
+  idea6-mcp-composition           9.2/10      340    2.48s
+  idea7-dense-wire                10.0/10      194    2.50s
 
   Per-task scores (avg across trials):
 
@@ -125,9 +125,9 @@ Generation from Rules (spec only, no examples)
   ------------------------------------------------------------------------------
   idea1                                10.0       10.0       10.0       10.0
   idea1-compact                        10.0       10.0       10.0       10.0
-  idea2-tool-calling                   10.0       10.0        9.0       10.0
-  idea3-constrained-decoding           10.0        7.0       10.0        7.0
-  idea4-ast-bytecode                    7.0        3.0        4.0       10.0
+  idea2-tool-calling                   10.0       10.0       10.0       10.0
+  idea3-constrained-decoding           10.0       10.0       10.0       10.0
+  idea4-ast-bytecode                   10.0       10.0       10.0       10.0
   idea5-workflow-dag                   10.0       10.0       10.0       10.0
-  idea6-mcp-composition                10.0       10.0        7.0       10.0
-  idea7-dense-wire                     10.0        8.0       10.0       10.0
+  idea6-mcp-composition                 9.0        9.0        9.0       10.0
+  idea7-dense-wire                     10.0       10.0       10.0       10.0

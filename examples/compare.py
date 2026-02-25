@@ -522,13 +522,10 @@ def load_example_file(idea: str, example_name: str) -> str:
 
 
 def load_rules(idea: str) -> str:
-    """Load the SPEC.md (or README.md fallback) from an idea folder."""
+    """Load the SPEC.md from an idea folder."""
     spec = EXAMPLES_DIR / idea / "SPEC.md"
     if spec.exists():
         return spec.read_text()
-    readme = EXAMPLES_DIR / idea / "README.md"
-    if readme.exists():
-        return readme.read_text()
     return ""
 
 
