@@ -12,6 +12,7 @@ ilo pushed to minimum characters AND tokens. Every keyword shortened to 1 char. 
 | `list T` | `L T` | list type |
 | `result T E` | `R T E` | result type |
 | `call(name:val name:val)` | `call val val` | positional args (drop names, parens) |
+| `fn(p:type p:type)>` | `fn p:type p:type>` | no parens in declarations |
 | `x=call(...);match x{err e:;ok v:}` | `call val;?{!e:;~v:}` | implicit last-result match |
 | `match x{"a":1;"b":2}` | `?x{"a":1;"b":2}` | value match |
 | `for c in list` | `@c list` | iteration |
@@ -26,10 +27,10 @@ ilo pushed to minimum characters AND tokens. Every keyword shortened to 1 char. 
 ### Functions
 
 ```
-<name>(<param>:<type> ...)><return-type>;<body>
+<name> <param>:<type> ...><return-type>;<body>
 ```
 
-Function params keep `name:type` syntax (they define the interface). `>` separates return type.
+No parens around params — `>` marks where params end and return type begins.
 
 ### Types
 
@@ -40,7 +41,7 @@ type <name>{<field>:<type>;<field>:<type>}
 ### Tools
 
 ```
-tool <name>"<description>"(<params>)><return-type> timeout:<n>,retry:<n>
+tool <name>"<description>" <params>><return-type> timeout:<n>,retry:<n>
 ```
 
 ## Types
@@ -131,8 +132,8 @@ Dot notation: `data.email`, `c.spent`, `order.addr.country`.
 ## Complete Example
 
 ```
-tool get-user"Retrieve user by ID"(uid:t)>R profile t timeout:5,retry:2
-tool send-email"Send an email"(to:t subject:t body:t)>R _ t timeout:10,retry:1
+tool get-user"Retrieve user by ID" uid:t>R profile t timeout:5,retry:2
+tool send-email"Send an email" to:t subject:t body:t>R _ t timeout:10,retry:1
 type profile{id:t;name:t;email:t;verified:b}
-notify(uid:t msg:t)>R _ t;get-user uid;?{!e:!+"Lookup failed: "e;~data:!data.verified{!"Email not verified"};send-email data.email "Notification" msg;?{!e:!+"Send failed: "e;~_:~_}}
+notify uid:t msg:t>R _ t;get-user uid;?{!e:!+"Lookup failed: "e;~data:!data.verified{!"Email not verified"};send-email data.email "Notification" msg;?{!e:!+"Send failed: "e;~_:~_}}
 ```
