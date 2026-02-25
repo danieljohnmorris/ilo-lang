@@ -29,7 +29,7 @@ A named argument like `amount: 42` costs more tokens than positional `42`. We in
 **What the agent cares about:** "How many tokens will this cost me end-to-end?"
 **How this helps:** The language is as terse as possible *without increasing retry rate*. Where there's a tradeoff between generation cost and error rate, we optimise for total cost.
 
-**Naming rule:** prefer single-word identifiers. Across all major LLM tokenisers (OpenAI, Anthropic), common English words are 1 token. Hyphenated compounds are always 2 — the hyphen forces a token split. Abbreviations (`uid` vs `user-id`) save characters but rarely save tokens, since tokenisers already encode common words as single tokens. Both styles score 10/10 in generation accuracy — use whichever is shorter.
+**Naming rule:** prefer single-word identifiers. Across all major LLM tokenisers (OpenAI, Anthropic), common English words are 1 token. Hyphenated compounds are always 2 — the hyphen forces a token split. Every hyphen in a name doubles its token cost. Abbreviations (`uid` vs `user`) save characters but not tokens — tokenisers encode common words as single tokens either way. Both styles score 10/10 in generation accuracy.
 
 ### 2. Constrained
 
@@ -46,13 +46,13 @@ When an agent generates the next token, how many valid options are there? Fewer 
 
 ### 3. Self-Contained
 
-Each unit carries its own context: deps, types, rules. The spec can travel with the program.
+Each unit carries its own context: deps, types, rules.
 
 An agent working on function A shouldn't need to load functions B through Z to understand what A does. The less context required per step, the fewer tokens consumed, the more of the context window is available for the actual task.
 
 - **Explicit dependencies.** Each function declares exactly what it needs — by name, with types. No globals, no ambient state, no implicit imports.
 - **Small units.** A function that fits in a few dozen tokens can be loaded, understood, and modified cheaply.
-- **Bundled spec.** The language definition travels with the program. An agent encountering ilo for the first time can read the spec inline.
+- **Spec as context.** Until foundation models are trained on ilo, agents need the spec somewhere they can access it — bundled with the program, fetched on demand, or installed locally.
 
 **What the agent cares about:** "How much context do I need to load to work on this unit?"
 **How this helps:** Minimal context loading per task. Each unit is self-describing. The agent never needs to hunt for definitions elsewhere.
