@@ -10,17 +10,7 @@ Total cost = spec loading + generation + context loading + error feedback + retr
 
 ## What It Looks Like
 
-```
-fn total
-	price: number, quantity: number, rate: number -> number
-	? price: 10, quantity: 2, rate: 0.2 == 24
-	let sub = * price quantity
-	let tax = * sub rate
-	+ sub tax
-```
-
-Same function in Python (for comparison):
-
+Python:
 ```python
 def total(price: float, quantity: int, rate: float) -> float:
     sub = price * quantity
@@ -28,28 +18,45 @@ def total(price: float, quantity: int, rate: float) -> float:
     return sub + tax
 ```
 
-ilo adds named args at call sites, inline tests (`?`), and explicit dependency declarations (`@`) — features that cost a few extra tokens to generate but prevent entire categories of retries.
+ilo (idea8 — ultra-dense):
+```
+total p:n q:n r:n>n;s=*p q;t=*s r;+s t
+```
 
-## Five Principles
+0.33x the tokens, 0.25x the characters. Same semantics.
 
-1. **Token-conservative** — the north star. Every choice evaluated against total token cost across the full loop: generation, retries, error feedback, context loading. Not just "short syntax."
+## Principles
+
+1. **Token-conservative** — every choice evaluated against total token cost across the full loop: generation, retries, error feedback, context loading.
 2. **Constrained** — small vocabulary, closed world, one way to do things. Fewer valid next-tokens = fewer wrong choices = fewer retries.
-3. **Self-contained** — each unit carries its own context: deps, types, rules. The spec can travel with the program. Minimal external knowledge required.
-4. **Language-agnostic** — minimise dependency on English or any natural language. Structural tokens (`@`, `->`, `?`, `*`) over English words where possible.
+3. **Self-contained** — each unit carries its own context: deps, types, rules. The spec travels with the program.
+4. **Language-agnostic** — structural tokens (`@`, `>`, `?`, `!`, `~`) over English words.
 5. **Graph-native** — programs express relationships (calls, depends-on, has-type). Navigable as a graph, not just readable as linear text.
 
-See [MANIFESTO.md](MANIFESTO.md) for the full rationale behind each principle.
+See [MANIFESTO.md](MANIFESTO.md) for the full rationale.
+
+## Syntax Variants
+
+Each idea explores a different syntax. Every folder has a SPEC and 5 example programs.
+
+| Idea | Tokens | vs Py | Chars | vs Py | Score |
+|------|--------|-------|-------|-------|-------|
+| [idea8-ultra-dense](examples/idea8-ultra-dense/) | 285 | 0.33x | 901 | 0.25x | 10.0 |
+| [idea9-ultra-dense-short](examples/idea9-ultra-dense-short/) | 287 | 0.33x | 787 | 0.22x | 10.0 |
+| [idea7-dense-wire](examples/idea7-dense-wire/) | 351 | 0.40x | 1292 | 0.36x | 10.0 |
+| [idea4-ast-bytecode](examples/idea4-ast-bytecode/) | 584 | 0.67x | 1190 | 0.33x | 9.8 |
+| [idea3-constrained-decoding](examples/idea3-constrained-decoding/) | 598 | 0.69x | 2187 | 0.60x | 10.0 |
+| [idea1-compact](examples/idea1-compact/) | 677 | 0.78x | 2564 | 0.71x | 10.0 |
+| [idea5-workflow-dag](examples/idea5-workflow-dag/) | 710 | 0.82x | 2603 | 0.72x | 10.0 |
+| [idea1](examples/idea1/) | 921 | 1.06x | 3108 | 0.86x | 10.0 |
+| [idea6-mcp-composition](examples/idea6-mcp-composition/) | 956 | 1.10x | 2978 | 0.82x | 9.5 |
+| [idea2-tool-calling](examples/idea2-tool-calling/) | 983 | 1.13x | 3203 | 0.88x | 10.0 |
+
+Score = LLM generation accuracy /10 (claude-haiku-4-5, spec + all examples as context). See [test-summary.txt](examples/test-summary.txt) for per-task breakdown.
 
 ## Documentation
 
 | Document | Purpose |
 |----------|---------|
-| [SPEC.md](SPEC.md) | Language spec — syntax, types, rules |
-| [MANIFESTO.md](MANIFESTO.md) | Design rationale — why each principle exists |
+| [MANIFESTO.md](MANIFESTO.md) | Design rationale |
 | [OPEN.md](OPEN.md) | Unresolved design questions |
-| [STATUS.md](STATUS.md) | Current project state and decisions |
-| [examples/](examples/) | Programs and syntax explorations |
-
-## Status
-
-Design phase. Defining the language through principles, examples, and specification before writing the implementation. See [STATUS.md](STATUS.md) for details.

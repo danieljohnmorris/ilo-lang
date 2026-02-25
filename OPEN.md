@@ -1,122 +1,81 @@
 # Open Questions
 
-Unresolved design questions. Nothing here is decided — these are options being explored. For the current language spec, see [SPEC.md](SPEC.md). For design rationale, see [MANIFESTO.md](MANIFESTO.md).
+Unresolved design questions and lessons from syntax exploration. For design rationale, see [MANIFESTO.md](MANIFESTO.md). For syntax variants, see [examples/](examples/).
+
+## Lessons From Syntax Experiments
+
+### What saves tokens
+
+Positional arguments are the single biggest token saver. `reserve(items:items)` → `reserve items` eliminates parens, colons, and repeated names. Most call sites become `verb arg arg`.
+
+Implicit last-result matching saves both tokens and variable names. `x=call(...);match x{err e:...}` → `call arg;?{!e:...}` — no intermediate binding needed.
+
+Single-char operators (`?`/`!`/`~`/`@`/`>`) replace keywords (`match`/`err`/`ok`/`for`/`->`) but save fewer tokens than expected — the tokenizer already encodes common English words as single tokens. The savings are mainly in characters.
+
+### What doesn't save tokens
+
+Short variable names (`ord` instead of `order`, `dc` instead of `discount`) save characters but not tokens. Common English words are already single tokens in cl100k_base. Unusual abbreviations sometimes split into multiple tokens, costing more. This is why idea8 and idea9 have nearly identical token counts (285 vs 287) despite idea9 being 114 chars shorter.
+
+### Key tradeoff: tokens vs characters
+
+Tokens and characters optimise differently. idea4-ast-bytecode is 0.67x tokens but 0.33x chars. idea8-ultra-dense is 0.33x tokens and 0.25x chars. The best formats score well on both, but the techniques that help each metric are different.
+
+### Spec quality matters for generation
+
+LLM generation accuracy depends heavily on spec clarity. Adding operator examples (showing `<`, `>`, `/` usage) and explicit comparison operator docs raised scores from 8/10 to 10/10. The spec is part of the prompt — it needs to be unambiguous.
 
 ## Execution Model
 
-The Rust implementation needs to be one of these.
-
 **Option A: Graph engine (verify → execute)**
-The program is a graph of nodes (functions, types, tools). The runtime holds the graph, validates new nodes as they're added, and executes by traversing edges. No compile step — each node is verified and live immediately.
-
-- Aligns with graph-native principle
-- Incremental: add one node, verify it, it's available
-- Cost of a mistake is one node, not the whole program
+The program is a graph of nodes (functions, types, tools). The runtime validates new nodes and executes by traversing edges. No compile step — each node is verified and live immediately.
 
 **Option B: Tool orchestration engine**
-The runtime is a workflow engine. ilo programs are DAGs of tool calls — fetch data, transform, call APIs, handle errors. The runtime executes the DAG, calling real external services. General computation (loops, math) is supported but the primary purpose is chaining tool calls.
+The runtime is a workflow engine. ilo programs are DAGs of tool calls. The runtime executes the DAG, calling real external services.
 
 **Option C: Transpilation**
-ilo verifies the program (types, deps, closed world) then compiles to Python/JS/WASM for execution. Verification happens in ilo, execution happens in a mature runtime. Leverages existing ecosystems but error messages may leak from the target language.
-
-## The Agent's Workflow
-
-How does an agent actually use ilo vs what it does today?
-
-Today (Python):
-```
-1. Agent gets task
-2. Generates Python, guessing at APIs
-3. Runtime error → retry (one error at a time, ~200 tokens each)
-4. Eventually works (maybe)
-```
-
-With ilo:
-```
-1. Agent gets task + the ilo graph (all available tools, types, functions)
-2. Agent writes ilo against a known world
-3. Verifier catches ALL errors before execution (~50 tokens total)
-4. Executes. Works first time.
-```
-
-The key difference: the agent receives the world as a loadable graph. It's not guessing. And the verifier catches everything before execution, all at once.
+ilo verifies the program then compiles to Python/JS/WASM for execution. Verification in ilo, execution in a mature runtime.
 
 ## Graph Loading Problem
 
-"Agent gets the world upfront" has a cost: the world must be loaded into context. 500 tools and 200 types = thousands of tokens of spec before the agent writes a line. The context window cost could dwarf the savings from fewer retries.
+"Agent gets the world upfront" has a cost: the world must be loaded into context. 500 tools and 200 types = thousands of tokens of spec before the agent writes a line.
 
-### How does the agent get just enough of the graph?
+**Option 1: Full graph** — load everything. Only works for small projects.
 
-**Option 1: Full graph** — load everything. Only works for small projects. Simple but doesn't scale.
+**Option 2: Subgraph by task** — something decides which slice is relevant. Question: who decides?
 
-**Option 2: Subgraph by task** — something decides which slice of the graph is relevant to the task and loads only that. Question: who decides? The orchestrator? A routing agent? Keyword matching?
+**Option 3: Query on demand** — agent starts with nothing, queries the runtime for what it needs. Total context cost: 2 tool signatures instead of 500.
 
-**Option 3: Query on demand** — agent starts with nothing, asks the runtime questions:
-```
-agent: "what tools can send email?"
-runtime: send-email(to: text, subject: text, body: text -> result nil, text)
-agent: "what types exist for users?"
-runtime: profile(id: text, name: text, email: text, verified: bool)
-```
-Agent builds the `@` dependency block from query results, not from pre-loaded context.
+**Option 4: Progressive disclosure** — load tool names first (cheap), load full signatures on demand.
 
-**Option 4: Progressive disclosure** — load tool/function names first (cheap — just a list of single-token names), load full signatures on demand when the agent decides to use one.
+## ilo as a Typed Shell
 
-Option 3 is the most interesting. The workflow becomes:
-```
-1. Agent gets task: "notify user X about their order"
-2. Agent queries: "what tools handle users?" → get-user
-3. Agent queries: "what tools send messages?" → send-email
-4. Agent now has exactly the two tool signatures it needs
-5. Writes ilo, verify, execute
-```
+Not just a language — a **typed shell** for agents. Like bash discovers executables on `$PATH`, ilo discovers typed tools from configured sources and lets agents compose them with verified types and error handling.
 
-Total context cost: 2 tool signatures instead of 500.
+The runtime's job: discover → present → verify → execute.
 
-## Interop With The Real World
+## Syntax Questions (Resolved by Experiments)
 
-ilo programs don't run in isolation. Real systems have Python services, REST APIs, databases, operating systems. The `tool` declaration is the bridge — but who writes them?
+These were open questions that the syntax experiments have now answered:
 
-### Tool discovery
+- **`let` keyword** — dropped entirely in idea7+. `x=expr` is unambiguous. Saves ~15 tokens per program.
+- **`concat` operator** — `+` doubles as string concat in idea8+. One fewer keyword.
+- **`for` syntax** — `@` in idea8+. Always produces a list. Statement-form iteration wasn't needed.
+- **Named vs positional args** — positional wins for token efficiency. Named args at call sites were the biggest token cost in idea1.
 
-**Manual** — human writes tool declarations. Accurate but doesn't scale. Defeats the purpose if the goal is autonomous agents.
+## Still Open
 
-**Auto-generated from specs** — OpenAPI/Swagger → tool declarations. Database schema → type declarations. CLI `--help` → tool declarations. The runtime reads existing specs and generates ilo-compatible declarations automatically.
+### Which syntax to build?
 
-**Runtime introspection** — the runtime connects to configured sources (API endpoints, databases, local services) and discovers what's available. Like `$PATH` for bash — the runtime knows what tools exist because it can see them.
+idea8-ultra-dense has the best token efficiency at 10/10 accuracy. But is it too dense for debugging? Error messages pointing at `?{!e:!+"Failed: "e;~d:...}` may be hard to read. The runtime/tooling could help — pretty-printing for human review while keeping the dense wire format for LLM I/O.
 
-### ilo as a typed shell
+### Hybrid approach?
 
-This reframes what ilo is: not just a language, but a **typed shell** for agents. The way bash discovers executables on `$PATH` and lets you pipe them together, ilo discovers typed tools from configured sources and lets agents compose them with verified types and error handling.
-
-The runtime's job:
-1. **Discover** — connect to sources, introspect available tools, generate typed declarations
-2. **Present** — respond to agent queries about available tools
-3. **Verify** — check the agent's program against the known world
-4. **Execute** — run the verified program, calling real external services
-
-The agent never guesses at APIs. It browses a typed catalogue.
-
-## Use Cases (Not Yet Prioritised)
-
-1. **Tool orchestration** — chain API calls with verified types and explicit error handling. The most immediate use case.
-2. **Sandboxed execution** — the closed world is a security boundary. The agent can only use what's declared.
-3. **Multi-agent composition** — Agent A writes a function, Agent B extends it. The graph makes dependencies explicit.
-4. **Persistent programs** — the graph grows incrementally across sessions. Each node is self-contained.
-
-## Syntax Questions
-
-### `let` keyword
-`let` costs 1 token per binding (~15-20 per program). Python manages without it — `x = expr` is unambiguous in statement position. Does the disambiguation earn its keep, or should bindings be `x = expr`?
-
-### `concat` operator
-Only remaining word-operator. Should string concatenation use a symbol? `++`? `~`?
+Could the runtime accept multiple syntax levels — dense wire format for LLM generation, expanded form for human review — with lossless conversion between them? Same AST, different serialisations.
 
 ### Match exhaustiveness
-Should the verifier require all patterns to be covered?
 
-### `unwrap` safety
-Should `unwrap` be allowed, or must every result be matched explicitly?
+Should the verifier require all patterns to be covered? The experiments don't test this since there's no verifier yet.
 
-### `for` as expression
-Does `for` always return a list? Or can it be a statement (side-effects only)?
+### Compensation patterns
+
+The workflow examples show inline compensation (`charge pid amt;?{!e:release rid;!+"Payment failed"...}`). Should compensation be a first-class concept, or is inline error handling sufficient?
