@@ -787,7 +787,7 @@ impl NanVal {
         unsafe { &*ptr }
     }
 
-    #[inline]
+    #[inline(always)]
     fn clone_rc(self) {
         if self.is_heap() {
             let ptr = (self.0 & PTR_MASK) as *const HeapObj;
@@ -795,7 +795,7 @@ impl NanVal {
         }
     }
 
-    #[inline]
+    #[inline(always)]
     fn drop_rc(self) {
         if self.is_heap() {
             let ptr = (self.0 & PTR_MASK) as *const HeapObj;
@@ -1119,7 +1119,7 @@ impl<'a> VM<'a> {
                     let a = ((inst >> 16) & 0xFF) as usize + base;
                     let b = ((inst >> 8) & 0xFF) as usize + base;
                     let v = reg!(b);
-                    v.clone_rc();
+                    if !v.is_number() { v.clone_rc(); }
                     reg_set!(a, v);
                 }
                 OP_NOT => {
@@ -1142,14 +1142,14 @@ impl<'a> VM<'a> {
                     let a = ((inst >> 16) & 0xFF) as usize + base;
                     let b = ((inst >> 8) & 0xFF) as usize + base;
                     let v = reg!(b);
-                    v.clone_rc();
+                    if !v.is_number() { v.clone_rc(); }
                     reg_set!(a, NanVal::heap_ok(v));
                 }
                 OP_WRAPERR => {
                     let a = ((inst >> 16) & 0xFF) as usize + base;
                     let b = ((inst >> 8) & 0xFF) as usize + base;
                     let v = reg!(b);
-                    v.clone_rc();
+                    if !v.is_number() { v.clone_rc(); }
                     reg_set!(a, NanVal::heap_err(v));
                 }
                 OP_ISOK => {
@@ -1235,7 +1235,7 @@ impl<'a> VM<'a> {
                     let a = ((inst >> 16) & 0xFF) as usize + base;
                     let bx = (inst & 0xFFFF) as usize;
                     let v = unsafe { *nan_consts.get_unchecked(bx) };
-                    v.clone_rc();
+                    if !v.is_number() { v.clone_rc(); }
                     reg_set!(a, v);
                 }
                 OP_JMP => {
@@ -1267,7 +1267,7 @@ impl<'a> VM<'a> {
                     let mut args = Vec::with_capacity(n_args);
                     for i in 0..n_args {
                         let v = reg!(base + a as usize + 1 + i);
-                        v.clone_rc();
+                        if !v.is_number() { v.clone_rc(); }
                         args.push(v);
                     }
 
@@ -1281,7 +1281,7 @@ impl<'a> VM<'a> {
                 OP_RET => {
                     let a = ((inst >> 16) & 0xFF) as usize + base;
                     let result = reg!(a);
-                    result.clone_rc();
+                    if !result.is_number() { result.clone_rc(); }
 
                     let result_reg = unsafe { self.frames.last().unwrap_unchecked() }.result_reg;
 
