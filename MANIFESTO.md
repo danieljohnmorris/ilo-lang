@@ -24,12 +24,12 @@ Every design decision is evaluated against this number. If a feature reduces it,
 
 The north star. Every choice evaluated against total token cost across the full loop — not just "short syntax," but including retries, error feedback, and context loading.
 
-A named argument like `amount: 42` costs more tokens than positional `42`. But if positional args cause the agent to swap parameters once in ten calls, and each retry costs 200 tokens, named args win. The math decides, not taste.
+A named argument like `amount: 42` costs more tokens than positional `42`. We initially worried positional args would cause parameter-swap errors — but across 10 syntax variants and 4 task types, positional args scored 10/10 generation accuracy. The swap concern was unfounded. Positional args are the single biggest token saver.
 
 **What the agent cares about:** "How many tokens will this cost me end-to-end?"
 **How this helps:** The language is as terse as possible *without increasing retry rate*. Where there's a tradeoff between generation cost and error rate, we optimise for total cost.
 
-**Naming rule:** prefer single-word identifiers. Across all major LLM tokenisers (OpenAI, Anthropic), common English words are 1 token. Hyphenated compounds are always 2 — the hyphen forces a token split. Every hyphen in a name doubles its cost.
+**Naming rule:** prefer single-word identifiers. Across all major LLM tokenisers (OpenAI, Anthropic), common English words are 1 token. Hyphenated compounds are always 2 — the hyphen forces a token split. Abbreviations (`uid` vs `user-id`) save characters but rarely save tokens, since tokenisers already encode common words as single tokens. Both styles score 10/10 in generation accuracy — use whichever is shorter.
 
 ### 2. Constrained
 
@@ -61,13 +61,13 @@ An agent working on function A shouldn't need to load functions B through Z to u
 
 Minimise dependency on English or any natural language.
 
-In practice, ilo uses short English-derived keywords (`fn`, `let`, `match`, `for`, `if`, `type`, `tool`, `ok`, `err`). These are pragmatic — all major LLMs are heavily trained on English code, and these tokens are cheap. But the language minimises the English surface:
+Early variants used short English-derived keywords (`fn`, `let`, `match`, `for`, `if`). Experiments showed structural tokens outperform keywords entirely — the winning syntax (idea8/idea9) replaced all keywords with single-character sigils:
 
-- **Structural tokens** where possible: `@` for dependencies, `->` for return types, `?` for tests, `*`/`+`/`==` for operators
-- **Short opaque keywords**: `fn`, `ok`, `err` function more as symbols than English words
-- **No English in semantics**: meaning comes from position and structure, not from reading the keyword as a word
+- `?` conditional, `!` effect/call, `~` transform, `@` dependency, `>` pipe/return
+- No English keywords remain in the core syntax
+- Agents learned the sigil set from spec + examples with 10/10 accuracy
 
-The remaining English words (`match`, `let`, `for`, `if`, `type`, `tool`, `log`) are structural markers an agent learns from examples, not from understanding English.
+Structural tokens won because they are unambiguous single tokens that cannot be confused with variable names or hallucinated into natural-language variations.
 
 **What the agent cares about:** "Can I learn this language from its spec and examples, regardless of my training?"
 **How this helps:** The spec is small enough to bundle with any program. Keywords are learned from structure, not from natural language understanding.
@@ -107,7 +107,7 @@ ilo does the same for machine programmers. A minimal, verified vocabulary. Compl
 
 **Not optimised for human readability.** Humans can read it — it's not obfuscated — but no decision is made because it "looks cleaner" or "reads more naturally." If a design is uglier but costs fewer total tokens, it wins.
 
-**Not theoretical.** Every principle here addresses measured failure modes in AI-generated code: hallucinated APIs, positional argument swaps, context window exhaustion, wasted retry cycles from vague errors.
+**Not theoretical.** Every principle here addresses measured failure modes in AI-generated code: hallucinated APIs, context window exhaustion, wasted retry cycles from vague errors.
 
 ## What ilo Is
 
@@ -115,6 +115,6 @@ A **minimal, verified action space** — the smallest set of constructs an agent
 
 ## Further Reading
 
-- [SPEC.md](SPEC.md) — language syntax and rules
+- [README.md](README.md) — project overview and results
 - [OPEN.md](OPEN.md) — unresolved design questions
-- [STATUS.md](STATUS.md) — current project state
+- [examples/](examples/) — all syntax variants and test harness
