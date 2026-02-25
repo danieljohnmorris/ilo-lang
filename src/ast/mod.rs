@@ -1,146 +1,80 @@
 use serde::{Deserialize, Serialize};
-use std::collections::HashMap;
 
-/// Every value in LFAA is typed and named.
-/// No positional arguments, no implicit conversions.
+/// Types in idea9 — single-char base types, composable
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub enum Type {
-    Number,
-    Text,
-    Bool,
-    List(Box<Type>),
-    Record(HashMap<String, Type>),
-    Option(Box<Type>),
-    Result(Box<Type>, Box<Type>),
-    Void,
-    /// User-defined type name
-    Named(String),
+    Number,  // n
+    Text,    // t
+    Bool,    // b
+    Nil,     // _
+    List(Box<Type>),             // L type
+    Result(Box<Type>, Box<Type>), // R ok err
+    Named(String),               // user-defined type name
 }
 
-/// A named parameter: `amount as number`
+/// A parameter: `name:type`
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct Param {
     pub name: String,
     pub ty: Type,
 }
 
-/// A named argument at a call site: `amount: 42`
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
-pub struct NamedArg {
-    pub name: String,
-    pub value: Expr,
-}
-
-/// Property assertions on functions
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
-pub enum Property {
-    /// `fibonacci 0 equals 0`
-    Example {
-        args: Vec<NamedArg>,
-        expected: Expr,
-    },
-    /// Free-form invariant (checked at runtime)
-    Invariant {
-        description: String,
-        condition: Expr,
-    },
-}
-
 /// Top-level declarations
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub enum Decl {
-    /// `define function <name>`
+    /// `name params>return;body`
     Function {
         name: String,
-        requires: Vec<Import>,
-        inputs: Vec<Param>,
-        output: Type,
-        properties: Vec<Property>,
+        params: Vec<Param>,
+        return_type: Type,
         body: Vec<Stmt>,
     },
 
-    /// `define type <name>`
+    /// `type name{field:type;...}`
     TypeDef {
         name: String,
         fields: Vec<Param>,
     },
 
-    /// `define tool <name>` — external tool available to the agent
+    /// `tool name"desc" params>return timeout:n,retry:n`
     Tool {
         name: String,
         description: String,
-        inputs: Vec<Param>,
-        output: Type,
-        timeout_secs: Option<u64>,
-        retry: Option<u32>,
+        params: Vec<Param>,
+        return_type: Type,
+        timeout: Option<f64>,
+        retry: Option<f64>,
     },
-
-    /// `amend function <name>` — patch an existing function
-    Amend {
-        target: String,
-        after: Option<String>,
-        before: Option<String>,
-        insert: Vec<Stmt>,
-        remove: Vec<String>,
-    },
-}
-
-/// Import: `get-order from orders`
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
-pub struct Import {
-    pub name: String,
-    pub module: String,
 }
 
 /// Statements
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub enum Stmt {
-    /// `let name = expr`
+    /// `name=expr`
     Let { name: String, value: Expr },
 
-    /// `return expr`
-    Return { value: Expr },
-
-    /// `call function-name arg1:val1 arg2:val2`
-    Call {
-        function: String,
-        args: Vec<NamedArg>,
-    },
-
-    /// `if condition then ... else ...`
-    If {
+    /// `cond{body}` or `!cond{body}`
+    Guard {
         condition: Expr,
-        then_body: Vec<Stmt>,
-        else_body: Vec<Stmt>,
+        negated: bool,
+        body: Vec<Stmt>,
     },
 
-    /// `for-each item in collection do ...`
+    /// `?expr{arms}` or `?{arms}`
+    Match {
+        subject: Option<Expr>,
+        arms: Vec<MatchArm>,
+    },
+
+    /// `@binding collection{body}`
     ForEach {
         binding: String,
         collection: Expr,
         body: Vec<Stmt>,
     },
 
-    /// `match expr on ...`
-    Match {
-        subject: Expr,
-        arms: Vec<MatchArm>,
-    },
-
-    /// `transaction ... on-failure ...`
-    Transaction {
-        body: Vec<Stmt>,
-        on_failure: Vec<Stmt>,
-    },
-
-    /// `log level: "info" message: "something happened"`
-    Log { level: String, message: Expr },
-
-    /// `assert condition message: "..."` — runtime check
-    Assert {
-        condition: Expr,
-        message: Option<String>,
-    },
+    /// Expression as statement (last expr is return value)
+    Expr(Expr),
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -151,12 +85,17 @@ pub struct MatchArm {
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub enum Pattern {
+    /// `!e:` — binds error value
+    Err(String),
+    /// `~v:` — binds ok value
+    Ok(String),
+    /// Literal pattern: `"gold":`, `1000:`
     Literal(Literal),
-    Name(String),
+    /// `_:` — wildcard / catch-all
     Wildcard,
 }
 
-/// Expressions — always evaluate to a value
+/// Expressions
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub enum Expr {
     Literal(Literal),
@@ -164,30 +103,54 @@ pub enum Expr {
     /// Variable reference
     Ref(String),
 
-    /// Field access: `order.amount`
+    /// Field access: `obj.field`
     Field { object: Box<Expr>, field: String },
 
-    /// Named function call as expression
+    /// Function call with positional args: `func arg1 arg2`
     Call {
         function: String,
-        args: Vec<NamedArg>,
+        args: Vec<Expr>,
     },
 
-    /// Binary operation (all named): `add a b`, `equals a b`
+    /// Prefix binary op: `+a b`, `*a b`
     BinOp {
         op: BinOp,
         left: Box<Expr>,
         right: Box<Expr>,
     },
 
-    /// Unary: `not condition`
-    UnaryOp { op: UnaryOp, operand: Box<Expr> },
+    /// Unary negation: `!expr` (logical) or `-expr` (numeric)
+    UnaryOp {
+        op: UnaryOp,
+        operand: Box<Expr>,
+    },
+
+    /// Ok constructor: `~expr`
+    Ok(Box<Expr>),
+
+    /// Err constructor: `!expr`
+    Err(Box<Expr>),
 
     /// List literal
     List(Vec<Expr>),
 
-    /// Record literal
-    Record(Vec<NamedArg>),
+    /// Record construction: `typename field:val field:val`
+    Record {
+        type_name: String,
+        fields: Vec<(String, Expr)>,
+    },
+
+    /// Match expression: `?expr{arms}` or `?{arms}` used as value
+    Match {
+        subject: Option<Box<Expr>>,
+        arms: Vec<MatchArm>,
+    },
+
+    /// With expression: `obj with field:val`
+    With {
+        object: Box<Expr>,
+        updates: Vec<(String, Expr)>,
+    },
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -195,27 +158,20 @@ pub enum Literal {
     Number(f64),
     Text(String),
     Bool(bool),
-    Nothing,
 }
 
-/// All operators are words, not symbols. No `+`, `-`, `==`.
-/// Agents don't confuse `add` with `equals`.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub enum BinOp {
     Add,
     Subtract,
     Multiply,
     Divide,
-    Modulo,
     Equals,
     NotEquals,
     GreaterThan,
     LessThan,
     GreaterOrEqual,
     LessOrEqual,
-    And,
-    Or,
-    Concat,
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
