@@ -3,67 +3,72 @@ use std::rc::Rc;
 use crate::ast::*;
 use crate::interpreter::Value;
 
-// ── Opcodes ──────────────────────────────────────────────────────────
+// ── Register-based opcodes (32-bit packed instructions) ─────────────
+//
+// ABC mode:  [OP:8 | A:8 | B:8 | C:8]
+// ABx mode:  [OP:8 | A:8 | Bx:16]  (Bx unsigned or signed)
 
-#[derive(Debug, Clone)]
-pub enum Op {
-    LoadConst(u16),
-    LoadLocal(u16),
-    StoreLocal(u16),
-    Add,
-    Sub,
-    Mul,
-    Div,
-    Eq,
-    NotEq,
-    Gt,
-    Lt,
-    Ge,
-    Le,
-    Not,
-    Negate,
-    WrapOk,
-    WrapErr,
-    JumpIfFalse(u16),
-    JumpIfTrue(u16),
-    Jump(u16),
-    Call(u16, u8),
-    Return,
-    /// Create record: (descriptor_const_idx, n_field_values_on_stack)
-    /// Descriptor const is List [type_name_str, List [field_name_strs...]]
-    RecordNew(u16, u8),
-    /// Field access: (field_name_const_idx) — pops record, pushes field value
-    RecordField(u16),
-    /// Record with: (field_names_const_idx, n_updates)
-    /// Stack: [record, val1, val2, ...] → [updated_record]
-    RecordWith(u16, u8),
-    Pop,
-    Dup,
-    IsOk,
-    IsErr,
-    UnwrapOkErr,
-    /// Create list from N items on stack
-    ListNew(u16),
-    /// Stack: [list, index] → [item] or jump to target if out of bounds
-    ListGetOrEnd(u16),
+// ABC mode — 3 registers
+const OP_ADD: u8 = 0;
+const OP_SUB: u8 = 1;
+const OP_MUL: u8 = 2;
+const OP_DIV: u8 = 3;
+const OP_EQ: u8 = 4;
+const OP_NE: u8 = 5;
+const OP_GT: u8 = 6;
+const OP_LT: u8 = 7;
+const OP_GE: u8 = 8;
+const OP_LE: u8 = 9;
+const OP_MOVE: u8 = 10;
+const OP_NOT: u8 = 11;
+const OP_NEG: u8 = 12;
+const OP_WRAPOK: u8 = 13;
+const OP_WRAPERR: u8 = 14;
+const OP_ISOK: u8 = 15;
+const OP_ISERR: u8 = 16;
+const OP_UNWRAP: u8 = 17;
+const OP_RECFLD: u8 = 18;
+const OP_LISTGET: u8 = 19;
+
+// ABx mode — register + 16-bit operand
+const OP_LOADK: u8 = 20;
+const OP_JMP: u8 = 21;
+const OP_JMPF: u8 = 22;
+const OP_JMPT: u8 = 23;
+const OP_CALL: u8 = 24;
+const OP_RET: u8 = 25;
+const OP_RECNEW: u8 = 26;
+const OP_RECWITH: u8 = 27;
+const OP_LISTNEW: u8 = 28;
+
+// ── Instruction encoding ────────────────────────────────────────────
+
+#[inline(always)]
+fn encode_abc(op: u8, a: u8, b: u8, c: u8) -> u32 {
+    (op as u32) << 24 | (a as u32) << 16 | (b as u32) << 8 | c as u32
+}
+
+#[inline(always)]
+fn encode_abx(op: u8, a: u8, bx: u16) -> u32 {
+    (op as u32) << 24 | (a as u32) << 16 | bx as u32
 }
 
 // ── Chunk ────────────────────────────────────────────────────────────
 
 #[derive(Debug, Clone)]
 pub struct Chunk {
-    pub code: Vec<Op>,
+    pub code: Vec<u32>,
     pub constants: Vec<Value>,
     pub param_count: u8,
+    pub reg_count: u8,
 }
 
 impl Chunk {
     fn new(param_count: u8) -> Self {
-        Chunk { code: Vec::new(), constants: Vec::new(), param_count }
+        Chunk { code: Vec::new(), constants: Vec::new(), param_count, reg_count: param_count }
     }
 
     fn add_const(&mut self, val: Value) -> u16 {
-        // Reuse existing constant if identical (simple types only)
         for (i, c) in self.constants.iter().enumerate() {
             match (c, &val) {
                 (Value::Number(a), Value::Number(b)) if (a - b).abs() < f64::EPSILON => return i as u16,
@@ -78,18 +83,23 @@ impl Chunk {
         idx
     }
 
-    fn emit(&mut self, op: Op) -> usize {
-        let idx = self.code.len();
-        self.code.push(op);
+    fn add_const_raw(&mut self, val: Value) -> u16 {
+        let idx = self.constants.len() as u16;
+        self.constants.push(val);
         idx
     }
 
-    fn patch_jump(&mut self, idx: usize) {
-        let target = self.code.len() as u16;
-        match &mut self.code[idx] {
-            Op::JumpIfFalse(a) | Op::JumpIfTrue(a) | Op::Jump(a) | Op::ListGetOrEnd(a) => *a = target,
-            _ => panic!("tried to patch non-jump at {}", idx),
-        }
+    fn emit(&mut self, inst: u32) -> usize {
+        let idx = self.code.len();
+        self.code.push(inst);
+        idx
+    }
+
+    fn patch_jump(&mut self, jump_pos: usize) {
+        let target = self.code.len();
+        let offset = (target as i32 - jump_pos as i32 - 1) as i16;
+        let inst = self.code[jump_pos];
+        self.code[jump_pos] = (inst & 0xFFFF0000) | (offset as u16 as u32);
     }
 }
 
@@ -98,8 +108,6 @@ impl Chunk {
 pub struct CompiledProgram {
     pub chunks: Vec<Chunk>,
     pub func_names: Vec<String>,
-    /// Pre-computed NaN-boxed constants, parallel to chunks.
-    /// Stored here (not in Chunk) to avoid Chunk Clone/Drop complications.
     nan_constants: Vec<Vec<NanVal>>,
 }
 
@@ -119,37 +127,73 @@ impl Drop for CompiledProgram {
     }
 }
 
-// ── Compiler ─────────────────────────────────────────────────────────
+// ── Register Compiler ────────────────────────────────────────────────
 
-struct Compiler {
+struct RegCompiler {
     chunks: Vec<Chunk>,
     func_names: Vec<String>,
-    current_chunk: Chunk,
-    locals: Vec<String>,
+    current: Chunk,
+    locals: Vec<(String, u8)>,
+    next_reg: u8,
+    max_reg: u8,
 }
 
-impl Compiler {
+impl RegCompiler {
     fn new() -> Self {
-        Compiler {
+        RegCompiler {
             chunks: Vec::new(),
             func_names: Vec::new(),
-            current_chunk: Chunk::new(0),
+            current: Chunk::new(0),
             locals: Vec::new(),
+            next_reg: 0,
+            max_reg: 0,
         }
     }
 
-    fn resolve_local(&self, name: &str) -> Option<u16> {
-        self.locals.iter().rposition(|n| n == name).map(|i| i as u16)
+    fn alloc_reg(&mut self) -> u8 {
+        let r = self.next_reg;
+        self.next_reg += 1;
+        if self.next_reg > self.max_reg {
+            self.max_reg = self.next_reg;
+        }
+        r
     }
 
-    fn add_local(&mut self, name: &str) -> u16 {
-        let idx = self.locals.len() as u16;
-        self.locals.push(name.to_string());
-        idx
+    fn resolve_local(&self, name: &str) -> Option<u8> {
+        self.locals.iter().rev().find(|(n, _)| n == name).map(|(_, r)| *r)
+    }
+
+    fn add_local(&mut self, name: &str, reg: u8) {
+        self.locals.push((name.to_string(), reg));
+    }
+
+    fn emit_abc(&mut self, op: u8, a: u8, b: u8, c: u8) -> usize {
+        self.current.emit(encode_abc(op, a, b, c))
+    }
+
+    fn emit_abx(&mut self, op: u8, a: u8, bx: u16) -> usize {
+        self.current.emit(encode_abx(op, a, bx))
+    }
+
+    fn emit_jmpf(&mut self, reg: u8) -> usize {
+        self.emit_abx(OP_JMPF, reg, 0)
+    }
+
+    fn emit_jmpt(&mut self, reg: u8) -> usize {
+        self.emit_abx(OP_JMPT, reg, 0)
+    }
+
+    fn emit_jmp_placeholder(&mut self) -> usize {
+        self.emit_abx(OP_JMP, 0, 0)
+    }
+
+    fn emit_jump_to(&mut self, target: usize) {
+        let pos = self.current.code.len();
+        let offset = (target as i32 - pos as i32 - 1) as i16;
+        self.emit_abx(OP_JMP, 0, offset as u16);
     }
 
     fn compile_program(mut self, program: &Program) -> CompiledProgram {
-        // Register function names (so Call can resolve during compilation)
         for decl in &program.declarations {
             match decl {
                 Decl::Function { name, .. } | Decl::Tool { name, .. } => {
@@ -161,22 +205,35 @@ impl Compiler {
 
         for decl in &program.declarations {
             if let Decl::Function { params, body, .. } = decl {
-                self.current_chunk = Chunk::new(params.len() as u8);
+                self.current = Chunk::new(params.len() as u8);
                 self.locals.clear();
+                self.next_reg = params.len() as u8;
+                self.max_reg = self.next_reg;
 
-                for p in params {
-                    self.add_local(&p.name);
+                for (i, p) in params.iter().enumerate() {
+                    self.add_local(&p.name, i as u8);
                 }
 
-                self.compile_body(body, true);
+                let result = self.compile_body(body);
 
-                if !matches!(self.current_chunk.code.last(), Some(Op::Return)) {
-                    self.current_chunk.emit(Op::Return);
+                let ret_reg = result.unwrap_or_else(|| {
+                    let r = self.alloc_reg();
+                    let ki = self.current.add_const(Value::Nil);
+                    self.emit_abx(OP_LOADK, r, ki);
+                    r
+                });
+
+                // Only emit RET if last instruction isn't already RET
+                let last_is_ret = self.current.code.last()
+                    .map(|inst| (inst >> 24) as u8 == OP_RET)
+                    .unwrap_or(false);
+                if !last_is_ret {
+                    self.emit_abx(OP_RET, ret_reg, 0);
                 }
 
-                self.chunks.push(self.current_chunk.clone());
+                self.current.reg_count = self.max_reg;
+                self.chunks.push(self.current.clone());
             } else {
-                // Placeholder chunk for tools/typedefs
                 self.chunks.push(Chunk::new(0));
             }
         }
@@ -184,178 +241,180 @@ impl Compiler {
         CompiledProgram { chunks: self.chunks, func_names: self.func_names, nan_constants: Vec::new() }
     }
 
-    fn compile_body(&mut self, stmts: &[Stmt], is_func_body: bool) {
-        let saved = self.locals.len();
-        for (i, stmt) in stmts.iter().enumerate() {
-            let is_last = i == stmts.len() - 1;
-            self.compile_stmt(stmt, is_last, is_func_body);
+    fn compile_body(&mut self, stmts: &[Stmt]) -> Option<u8> {
+        let saved_locals = self.locals.len();
+        let mut result = None;
+        for stmt in stmts {
+            result = self.compile_stmt(stmt);
         }
-        self.locals.truncate(saved);
+        self.locals.truncate(saved_locals);
+        result
     }
 
-    fn compile_stmt(&mut self, stmt: &Stmt, is_last: bool, is_func_body: bool) {
+    fn compile_stmt(&mut self, stmt: &Stmt) -> Option<u8> {
         match stmt {
             Stmt::Let { name, value } => {
-                self.compile_expr(value);
-                let slot = self.add_local(name);
-                self.current_chunk.emit(Op::StoreLocal(slot));
+                let reg = self.compile_expr(value);
+                self.add_local(name, reg);
+                None
             }
 
             Stmt::Guard { condition, negated, body } => {
-                self.compile_expr(condition);
+                let saved_next = self.next_reg;
+                let cond_reg = self.compile_expr(condition);
                 let jump = if *negated {
-                    self.current_chunk.emit(Op::JumpIfTrue(0))
+                    self.emit_jmpt(cond_reg)
                 } else {
-                    self.current_chunk.emit(Op::JumpIfFalse(0))
+                    self.emit_jmpf(cond_reg)
                 };
-                self.compile_body(body, false);
-                self.current_chunk.emit(Op::Return);
-                self.current_chunk.patch_jump(jump);
+                let body_result = self.compile_body(body);
+                let ret_reg = body_result.unwrap_or_else(|| {
+                    let r = self.alloc_reg();
+                    let ki = self.current.add_const(Value::Nil);
+                    self.emit_abx(OP_LOADK, r, ki);
+                    r
+                });
+                self.emit_abx(OP_RET, ret_reg, 0);
+                self.current.patch_jump(jump);
+                self.next_reg = saved_next;
+                None
             }
 
             Stmt::Match { subject, arms } => {
-                match subject {
+                let sub_reg = match subject {
                     Some(e) => self.compile_expr(e),
                     None => {
-                        let idx = self.current_chunk.add_const(Value::Nil);
-                        self.current_chunk.emit(Op::LoadConst(idx));
+                        let r = self.alloc_reg();
+                        let ki = self.current.add_const(Value::Nil);
+                        self.emit_abx(OP_LOADK, r, ki);
+                        r
                     }
-                }
-                self.compile_match_arms(arms, is_last && is_func_body);
+                };
+                let result_reg = self.alloc_reg();
+                self.compile_match_arms(sub_reg, result_reg, arms);
+                Some(result_reg)
             }
 
             Stmt::ForEach { binding, collection, body } => {
-                // Compile collection, store it
-                self.compile_expr(collection);
-                let coll_slot = self.add_local("__fe_coll");
-                self.current_chunk.emit(Op::StoreLocal(coll_slot));
+                let coll_reg = self.compile_expr(collection);
+                self.add_local("__fe_coll", coll_reg);
 
-                // Index = 0
-                let zero = self.current_chunk.add_const(Value::Number(0.0));
-                self.current_chunk.emit(Op::LoadConst(zero));
-                let idx_slot = self.add_local("__fe_idx");
-                self.current_chunk.emit(Op::StoreLocal(idx_slot));
+                let idx_reg = self.alloc_reg();
+                let zero_ki = self.current.add_const(Value::Number(0.0));
+                self.emit_abx(OP_LOADK, idx_reg, zero_ki);
+                self.add_local("__fe_idx", idx_reg);
 
-                // last = nil
-                let nil = self.current_chunk.add_const(Value::Nil);
-                self.current_chunk.emit(Op::LoadConst(nil));
-                let last_slot = self.add_local("__fe_last");
-                self.current_chunk.emit(Op::StoreLocal(last_slot));
+                let last_reg = self.alloc_reg();
+                let nil_ki = self.current.add_const(Value::Nil);
+                self.emit_abx(OP_LOADK, last_reg, nil_ki);
+                self.add_local("__fe_last", last_reg);
 
-                // binding = nil (placeholder)
-                self.current_chunk.emit(Op::LoadConst(nil));
-                let bind_slot = self.add_local(binding);
-                self.current_chunk.emit(Op::StoreLocal(bind_slot));
+                let bind_reg = self.alloc_reg();
+                self.emit_abx(OP_LOADK, bind_reg, nil_ki);
+                self.add_local(binding, bind_reg);
+
+                let one_reg = self.alloc_reg();
+                let one_ki = self.current.add_const(Value::Number(1.0));
+                self.emit_abx(OP_LOADK, one_reg, one_ki);
 
                 // Loop top
-                let loop_top = self.current_chunk.code.len();
-                self.current_chunk.emit(Op::LoadLocal(coll_slot));
-                self.current_chunk.emit(Op::LoadLocal(idx_slot));
-                let exit = self.current_chunk.emit(Op::ListGetOrEnd(0));
-
-                // Store item into binding
-                self.current_chunk.emit(Op::StoreLocal(bind_slot));
+                let loop_top = self.current.code.len();
+                self.emit_abc(OP_LISTGET, bind_reg, coll_reg, idx_reg);
+                let exit_jump = self.emit_jmp_placeholder();
 
                 // Compile body
-                let saved = self.locals.len();
-                for (si, s) in body.iter().enumerate() {
-                    let sl = si == body.len() - 1;
-                    self.compile_stmt(s, sl, false);
-                }
-                self.locals.truncate(saved);
+                let saved_locals = self.locals.len();
+                let body_result = self.compile_body(body);
+                self.locals.truncate(saved_locals);
 
-                // Store body result as last
-                self.current_chunk.emit(Op::StoreLocal(last_slot));
+                if let Some(br) = body_result {
+                    if br != last_reg {
+                        self.emit_abc(OP_MOVE, last_reg, br, 0);
+                    }
+                }
 
                 // idx += 1
-                self.current_chunk.emit(Op::LoadLocal(idx_slot));
-                let one = self.current_chunk.add_const(Value::Number(1.0));
-                self.current_chunk.emit(Op::LoadConst(one));
-                self.current_chunk.emit(Op::Add);
-                self.current_chunk.emit(Op::StoreLocal(idx_slot));
+                self.emit_abc(OP_ADD, idx_reg, idx_reg, one_reg);
 
-                self.current_chunk.emit(Op::Jump(loop_top as u16));
-                self.current_chunk.patch_jump(exit);
+                // Jump back to loop top
+                self.emit_jump_to(loop_top);
 
-                // Push last value as result
-                self.current_chunk.emit(Op::LoadLocal(last_slot));
+                // Exit
+                self.current.patch_jump(exit_jump);
+
+                Some(last_reg)
             }
 
             Stmt::Expr(expr) => {
-                self.compile_expr(expr);
-                // Result stays on stack (last expr becomes return value)
+                let reg = self.compile_expr(expr);
+                Some(reg)
             }
         }
     }
 
-    fn compile_match_arms(&mut self, arms: &[MatchArm], should_return: bool) {
-        // Subject is on top of stack
+    fn compile_match_arms(&mut self, sub_reg: u8, result_reg: u8, arms: &[MatchArm]) {
         let mut end_jumps = Vec::new();
 
         for arm in arms {
-            self.current_chunk.emit(Op::Dup); // dup subject for pattern test
+            let saved_next = self.next_reg;
+            let saved_locals = self.locals.len();
 
             match &arm.pattern {
                 Pattern::Wildcard => {
-                    self.current_chunk.emit(Op::Pop); // pop dup
-                    self.current_chunk.emit(Op::Pop); // pop original subject
-                    self.compile_body(&arm.body, false);
-                    if should_return {
-                        self.current_chunk.emit(Op::Return);
+                    let body_result = self.compile_body(&arm.body);
+                    if let Some(br) = body_result {
+                        if br != result_reg {
+                            self.emit_abc(OP_MOVE, result_reg, br, 0);
+                        }
                     }
-                    // Patch all prior end_jumps to land here
+                    self.next_reg = saved_next;
+                    self.locals.truncate(saved_locals);
                     for j in end_jumps {
-                        self.current_chunk.patch_jump(j);
+                        self.current.patch_jump(j);
                     }
-                    return; // wildcard is terminal
+                    return;
                 }
 
                 Pattern::Ok(binding) => {
-                    // Dup is on stack. IsOk pops it, pushes bool.
-                    self.current_chunk.emit(Op::IsOk);
-                    let skip = self.current_chunk.emit(Op::JumpIfFalse(0));
+                    let test_reg = self.alloc_reg();
+                    self.emit_abc(OP_ISOK, test_reg, sub_reg, 0);
+                    let skip = self.emit_jmpf(test_reg);
 
-                    // Matched: subject still on stack. Unwrap it.
-                    self.current_chunk.emit(Op::Dup);
-                    self.current_chunk.emit(Op::UnwrapOkErr);
                     if binding != "_" {
-                        let slot = self.add_local(binding);
-                        self.current_chunk.emit(Op::StoreLocal(slot));
-                    } else {
-                        self.current_chunk.emit(Op::Pop);
+                        let bind_reg = self.alloc_reg();
+                        self.emit_abc(OP_UNWRAP, bind_reg, sub_reg, 0);
+                        self.add_local(binding, bind_reg);
                     }
-                    self.current_chunk.emit(Op::Pop); // pop subject
 
-                    self.compile_body(&arm.body, false);
-                    if should_return {
-                        self.current_chunk.emit(Op::Return);
-                    } else {
-                        end_jumps.push(self.current_chunk.emit(Op::Jump(0)));
+                    let body_result = self.compile_body(&arm.body);
+                    if let Some(br) = body_result {
+                        if br != result_reg {
+                            self.emit_abc(OP_MOVE, result_reg, br, 0);
+                        }
                     }
-                    self.current_chunk.patch_jump(skip);
+                    end_jumps.push(self.emit_jmp_placeholder());
+                    self.current.patch_jump(skip);
                 }
 
                 Pattern::Err(binding) => {
-                    self.current_chunk.emit(Op::IsErr);
-                    let skip = self.current_chunk.emit(Op::JumpIfFalse(0));
+                    let test_reg = self.alloc_reg();
+                    self.emit_abc(OP_ISERR, test_reg, sub_reg, 0);
+                    let skip = self.emit_jmpf(test_reg);
 
-                    self.current_chunk.emit(Op::Dup);
-                    self.current_chunk.emit(Op::UnwrapOkErr);
                     if binding != "_" {
-                        let slot = self.add_local(binding);
-                        self.current_chunk.emit(Op::StoreLocal(slot));
-                    } else {
-                        self.current_chunk.emit(Op::Pop);
+                        let bind_reg = self.alloc_reg();
+                        self.emit_abc(OP_UNWRAP, bind_reg, sub_reg, 0);
+                        self.add_local(binding, bind_reg);
                     }
-                    self.current_chunk.emit(Op::Pop);
 
-                    self.compile_body(&arm.body, false);
-                    if should_return {
-                        self.current_chunk.emit(Op::Return);
-                    } else {
-                        end_jumps.push(self.current_chunk.emit(Op::Jump(0)));
+                    let body_result = self.compile_body(&arm.body);
+                    if let Some(br) = body_result {
+                        if br != result_reg {
+                            self.emit_abc(OP_MOVE, result_reg, br, 0);
+                        }
                     }
-                    self.current_chunk.patch_jump(skip);
+                    end_jumps.push(self.emit_jmp_placeholder());
+                    self.current.patch_jump(skip);
                 }
 
                 Pattern::Literal(lit) => {
@@ -364,34 +423,38 @@ impl Compiler {
                         Literal::Text(s) => Value::Text(s.clone()),
                         Literal::Bool(b) => Value::Bool(*b),
                     };
-                    let idx = self.current_chunk.add_const(val);
-                    self.current_chunk.emit(Op::LoadConst(idx));
-                    self.current_chunk.emit(Op::Eq);
-                    let skip = self.current_chunk.emit(Op::JumpIfFalse(0));
+                    let const_reg = self.alloc_reg();
+                    let ki = self.current.add_const(val);
+                    self.emit_abx(OP_LOADK, const_reg, ki);
+                    let eq_reg = self.alloc_reg();
+                    self.emit_abc(OP_EQ, eq_reg, sub_reg, const_reg);
+                    let skip = self.emit_jmpf(eq_reg);
 
-                    self.current_chunk.emit(Op::Pop); // pop subject
-                    self.compile_body(&arm.body, false);
-                    if should_return {
-                        self.current_chunk.emit(Op::Return);
-                    } else {
-                        end_jumps.push(self.current_chunk.emit(Op::Jump(0)));
+                    let body_result = self.compile_body(&arm.body);
+                    if let Some(br) = body_result {
+                        if br != result_reg {
+                            self.emit_abc(OP_MOVE, result_reg, br, 0);
+                        }
                     }
-                    self.current_chunk.patch_jump(skip);
+                    end_jumps.push(self.emit_jmp_placeholder());
+                    self.current.patch_jump(skip);
                 }
             }
+
+            self.next_reg = saved_next;
+            self.locals.truncate(saved_locals);
         }
 
-        // No arm matched: pop subject, push nil
-        self.current_chunk.emit(Op::Pop);
-        let nil = self.current_chunk.add_const(Value::Nil);
-        self.current_chunk.emit(Op::LoadConst(nil));
+        // No wildcard matched: default to nil
+        let nil_ki = self.current.add_const(Value::Nil);
+        self.emit_abx(OP_LOADK, result_reg, nil_ki);
 
         for j in end_jumps {
-            self.current_chunk.patch_jump(j);
+            self.current.patch_jump(j);
         }
     }
 
-    fn compile_expr(&mut self, expr: &Expr) {
+    fn compile_expr(&mut self, expr: &Expr) -> u8 {
         match expr {
             Expr::Literal(lit) => {
                 let val = match lit {
@@ -399,114 +462,202 @@ impl Compiler {
                     Literal::Text(s) => Value::Text(s.clone()),
                     Literal::Bool(b) => Value::Bool(*b),
                 };
-                let idx = self.current_chunk.add_const(val);
-                self.current_chunk.emit(Op::LoadConst(idx));
+                let reg = self.alloc_reg();
+                let ki = self.current.add_const(val);
+                self.emit_abx(OP_LOADK, reg, ki);
+                reg
             }
 
             Expr::Ref(name) => {
-                if let Some(slot) = self.resolve_local(name) {
-                    self.current_chunk.emit(Op::LoadLocal(slot));
+                if let Some(reg) = self.resolve_local(name) {
+                    reg // FREE — no instruction needed!
                 } else {
                     panic!("undefined variable in compiler: {}", name);
                 }
             }
 
             Expr::Field { object, field } => {
-                self.compile_expr(object);
-                let idx = self.current_chunk.add_const(Value::Text(field.clone()));
-                self.current_chunk.emit(Op::RecordField(idx));
+                let obj_reg = self.compile_expr(object);
+                let ra = self.alloc_reg();
+                let ki = self.current.add_const(Value::Text(field.clone()));
+                self.emit_abc(OP_RECFLD, ra, obj_reg, ki as u8);
+                ra
             }
 
             Expr::Call { function, args } => {
-                for arg in args {
-                    self.compile_expr(arg);
-                }
+                let arg_regs: Vec<u8> = args.iter().map(|a| self.compile_expr(a)).collect();
                 let func_idx = self.func_names.iter().position(|n| n == function)
                     .unwrap_or_else(|| panic!("undefined function in compiler: {}", function));
-                self.current_chunk.emit(Op::Call(func_idx as u16, args.len() as u8));
+
+                let a = self.alloc_reg(); // result register
+                // Reserve slots for args
+                let args_base = self.next_reg;
+                self.next_reg += args.len() as u8;
+                if self.next_reg > self.max_reg {
+                    self.max_reg = self.next_reg;
+                }
+
+                for (i, &arg_reg) in arg_regs.iter().enumerate() {
+                    let target = args_base + i as u8;
+                    if arg_reg != target {
+                        self.emit_abc(OP_MOVE, target, arg_reg, 0);
+                    }
+                }
+
+                let bx = ((func_idx as u16) << 8) | args.len() as u16;
+                self.emit_abx(OP_CALL, a, bx);
+
+                // After call, only the result register is live
+                self.next_reg = a + 1;
+                a
             }
 
             Expr::BinOp { op, left, right } => {
-                self.compile_expr(left);
-                self.compile_expr(right);
-                match op {
-                    BinOp::Add => { self.current_chunk.emit(Op::Add); }
-                    BinOp::Subtract => { self.current_chunk.emit(Op::Sub); }
-                    BinOp::Multiply => { self.current_chunk.emit(Op::Mul); }
-                    BinOp::Divide => { self.current_chunk.emit(Op::Div); }
-                    BinOp::Equals => { self.current_chunk.emit(Op::Eq); }
-                    BinOp::NotEquals => { self.current_chunk.emit(Op::NotEq); }
-                    BinOp::GreaterThan => { self.current_chunk.emit(Op::Gt); }
-                    BinOp::LessThan => { self.current_chunk.emit(Op::Lt); }
-                    BinOp::GreaterOrEqual => { self.current_chunk.emit(Op::Ge); }
-                    BinOp::LessOrEqual => { self.current_chunk.emit(Op::Le); }
+                let rb = self.compile_expr(left);
+                let rc = self.compile_expr(right);
+                let ra = self.alloc_reg();
+                let opcode = match op {
+                    BinOp::Add => OP_ADD,
+                    BinOp::Subtract => OP_SUB,
+                    BinOp::Multiply => OP_MUL,
+                    BinOp::Divide => OP_DIV,
+                    BinOp::Equals => OP_EQ,
+                    BinOp::NotEquals => OP_NE,
+                    BinOp::GreaterThan => OP_GT,
+                    BinOp::LessThan => OP_LT,
+                    BinOp::GreaterOrEqual => OP_GE,
+                    BinOp::LessOrEqual => OP_LE,
                 };
+                self.emit_abc(opcode, ra, rb, rc);
+                ra
             }
 
             Expr::UnaryOp { op, operand } => {
-                self.compile_expr(operand);
-                match op {
-                    UnaryOp::Not => { self.current_chunk.emit(Op::Not); }
-                    UnaryOp::Negate => { self.current_chunk.emit(Op::Negate); }
+                let rb = self.compile_expr(operand);
+                let ra = self.alloc_reg();
+                let opcode = match op {
+                    UnaryOp::Not => OP_NOT,
+                    UnaryOp::Negate => OP_NEG,
                 };
+                self.emit_abc(opcode, ra, rb, 0);
+                ra
             }
 
             Expr::Ok(inner) => {
-                self.compile_expr(inner);
-                self.current_chunk.emit(Op::WrapOk);
+                let rb = self.compile_expr(inner);
+                let ra = self.alloc_reg();
+                self.emit_abc(OP_WRAPOK, ra, rb, 0);
+                ra
             }
 
             Expr::Err(inner) => {
-                self.compile_expr(inner);
-                self.current_chunk.emit(Op::WrapErr);
+                let rb = self.compile_expr(inner);
+                let ra = self.alloc_reg();
+                self.emit_abc(OP_WRAPERR, ra, rb, 0);
+                ra
             }
 
             Expr::List(items) => {
-                for item in items {
-                    self.compile_expr(item);
+                let item_regs: Vec<u8> = items.iter().map(|item| self.compile_expr(item)).collect();
+
+                let a = self.alloc_reg(); // result register
+                // Reserve slots for items
+                let items_base = self.next_reg;
+                self.next_reg += items.len() as u8;
+                if self.next_reg > self.max_reg {
+                    self.max_reg = self.next_reg;
                 }
-                self.current_chunk.emit(Op::ListNew(items.len() as u16));
+
+                for (i, &item_reg) in item_regs.iter().enumerate() {
+                    let target = items_base + i as u8;
+                    if item_reg != target {
+                        self.emit_abc(OP_MOVE, target, item_reg, 0);
+                    }
+                }
+
+                self.emit_abx(OP_LISTNEW, a, items.len() as u16);
+                a
             }
 
             Expr::Record { type_name, fields } => {
-                // Push field values onto stack
-                for (_, val_expr) in fields {
-                    self.compile_expr(val_expr);
-                }
-                // Build descriptor: [type_name, [field_names...]]
+                let field_regs: Vec<u8> = fields.iter()
+                    .map(|(_, val_expr)| self.compile_expr(val_expr))
+                    .collect();
+
                 let desc = Value::List(vec![
                     Value::Text(type_name.clone()),
                     Value::List(fields.iter().map(|(n, _)| Value::Text(n.clone())).collect()),
                 ]);
-                let desc_idx = self.current_chunk.constants.len() as u16;
-                self.current_chunk.constants.push(desc); // don't dedup complex values
-                self.current_chunk.emit(Op::RecordNew(desc_idx, fields.len() as u8));
+                let desc_idx = self.current.add_const_raw(desc);
+
+                let a = self.alloc_reg(); // result register
+                let fields_base = self.next_reg;
+                self.next_reg += fields.len() as u8;
+                if self.next_reg > self.max_reg {
+                    self.max_reg = self.next_reg;
+                }
+
+                for (i, &field_reg) in field_regs.iter().enumerate() {
+                    let target = fields_base + i as u8;
+                    if field_reg != target {
+                        self.emit_abc(OP_MOVE, target, field_reg, 0);
+                    }
+                }
+
+                let bx = ((desc_idx as u16) << 8) | fields.len() as u16;
+                self.emit_abx(OP_RECNEW, a, bx);
+                a
             }
 
             Expr::Match { subject, arms } => {
-                match subject {
+                let sub_reg = match subject {
                     Some(e) => self.compile_expr(e),
                     None => {
-                        let idx = self.current_chunk.add_const(Value::Nil);
-                        self.current_chunk.emit(Op::LoadConst(idx));
+                        let r = self.alloc_reg();
+                        let ki = self.current.add_const(Value::Nil);
+                        self.emit_abx(OP_LOADK, r, ki);
+                        r
                     }
-                }
-                self.compile_match_arms(arms, false);
+                };
+                let result_reg = self.alloc_reg();
+                self.compile_match_arms(sub_reg, result_reg, arms);
+                result_reg
             }
 
             Expr::With { object, updates } => {
-                self.compile_expr(object);
-                // Push update values
-                for (_, val_expr) in updates {
-                    self.compile_expr(val_expr);
-                }
-                // Field names descriptor
+                let obj_reg = self.compile_expr(object);
+                let update_regs: Vec<u8> = updates.iter()
+                    .map(|(_, val_expr)| self.compile_expr(val_expr))
+                    .collect();
+
                 let names = Value::List(
                     updates.iter().map(|(n, _)| Value::Text(n.clone())).collect()
                 );
-                let names_idx = self.current_chunk.constants.len() as u16;
-                self.current_chunk.constants.push(names);
-                self.current_chunk.emit(Op::RecordWith(names_idx, updates.len() as u8));
+                let names_idx = self.current.add_const_raw(names);
+
+                let a = self.alloc_reg(); // result register
+                let updates_base = self.next_reg;
+                self.next_reg += updates.len() as u8;
+                if self.next_reg > self.max_reg {
+                    self.max_reg = self.next_reg;
+                }
+
+                // Move object into result slot
+                if obj_reg != a {
+                    self.emit_abc(OP_MOVE, a, obj_reg, 0);
+                }
+
+                // Move update values into consecutive slots
+                for (i, &val_reg) in update_regs.iter().enumerate() {
+                    let target = updates_base + i as u8;
+                    if val_reg != target {
+                        self.emit_abc(OP_MOVE, target, val_reg, 0);
+                    }
+                }
+
+                let bx = ((names_idx as u16) << 8) | updates.len() as u16;
+                self.emit_abx(OP_RECWITH, a, bx);
+                a
             }
         }
     }
@@ -701,7 +852,7 @@ impl NanVal {
 // ── VM ───────────────────────────────────────────────────────────────
 
 pub fn compile(program: &Program) -> CompiledProgram {
-    let mut prog = Compiler::new().compile_program(program);
+    let mut prog = RegCompiler::new().compile_program(program);
     prog.nan_constants = prog.chunks.iter()
         .map(|chunk| chunk.constants.iter().map(|v| NanVal::from_value(v)).collect())
         .collect();
@@ -735,7 +886,6 @@ impl<'a> VmState<'a> {
     }
 
     pub fn call(&mut self, func_name: &str, args: Vec<Value>) -> Result<Value, String> {
-        // Drop any leaked NanVals from a prior failed call
         for v in self.vm.stack.drain(..) {
             v.drop_rc();
         }
@@ -744,7 +894,7 @@ impl<'a> VmState<'a> {
         let func_idx = self.vm.program.func_index(func_name)
             .ok_or_else(|| format!("undefined function: {}", func_name))?;
         let nan_args: Vec<NanVal> = args.iter().map(|v| NanVal::from_value(v)).collect();
-        self.vm.setup_call(func_idx, nan_args);
+        self.vm.setup_call(func_idx, nan_args, 0);
         self.vm.execute()
     }
 }
@@ -753,6 +903,7 @@ struct CallFrame {
     chunk_idx: u16,
     ip: usize,
     stack_base: usize,
+    result_reg: u8,
 }
 
 struct VM<'a> {
@@ -766,21 +917,7 @@ impl<'a> VM<'a> {
         VM { program, stack: Vec::with_capacity(256), frames: Vec::with_capacity(64) }
     }
 
-    fn max_local_slot(chunk: &Chunk) -> usize {
-        let mut max = chunk.param_count as usize;
-        for op in &chunk.code {
-            match op {
-                Op::StoreLocal(s) | Op::LoadLocal(s) => {
-                    let s = *s as usize + 1;
-                    if s > max { max = s; }
-                }
-                _ => {}
-            }
-        }
-        max
-    }
-
-    fn setup_call(&mut self, func_idx: u16, args: Vec<NanVal>) {
+    fn setup_call(&mut self, func_idx: u16, args: Vec<NanVal>, result_reg: u8) {
         let chunk = &self.program.chunks[func_idx as usize];
         let stack_base = self.stack.len();
 
@@ -788,294 +925,270 @@ impl<'a> VM<'a> {
             self.stack.push(arg);
         }
 
-        let max_locals = Self::max_local_slot(chunk);
-        while self.stack.len() < stack_base + max_locals {
+        // Pre-allocate register slots
+        while self.stack.len() < stack_base + chunk.reg_count as usize {
             self.stack.push(NanVal::nil());
         }
 
-        self.frames.push(CallFrame { chunk_idx: func_idx, ip: 0, stack_base });
+        self.frames.push(CallFrame {
+            chunk_idx: func_idx,
+            ip: 0,
+            stack_base,
+            result_reg,
+        });
     }
 
     fn call(&mut self, func_idx: u16, args: Vec<Value>) -> Result<Value, String> {
         let nan_args: Vec<NanVal> = args.iter().map(|v| NanVal::from_value(v)).collect();
-        self.setup_call(func_idx, nan_args);
+        self.setup_call(func_idx, nan_args, 0);
         self.execute()
     }
 
-    fn pop(&mut self) -> NanVal {
-        self.stack.pop().expect("stack underflow")
-    }
-
     fn execute(&mut self) -> Result<Value, String> {
-        // Cache frame state in locals to avoid frames.last() per opcode
         let frame = unsafe { self.frames.last().unwrap_unchecked() };
         let mut ci = frame.chunk_idx as usize;
         let mut ip = frame.ip;
         let mut base = frame.stack_base;
 
         loop {
-            let chunk = unsafe { self.program.chunks.get_unchecked(ci) };
+            let code = unsafe { &self.program.chunks.get_unchecked(ci).code };
             let nan_consts = unsafe { self.program.nan_constants.get_unchecked(ci) };
 
-            if ip >= chunk.code.len() {
-                // Implicit return at end of chunk
-                let result = if self.stack.len() > base + Self::max_local_slot(chunk) {
-                    self.stack.pop().unwrap()
-                } else {
-                    NanVal::nil()
-                };
+            if ip >= code.len() {
+                // Safety: should not happen with explicit RET, but handle gracefully
+                let result = NanVal::nil();
                 for i in base..self.stack.len() {
                     self.stack[i].drop_rc();
                 }
                 self.stack.truncate(base);
                 self.frames.pop();
                 if self.frames.is_empty() {
-                    let val = result.to_value();
-                    result.drop_rc();
-                    return Ok(val);
+                    return Ok(result.to_value());
                 }
-                self.stack.push(result);
                 let f = unsafe { self.frames.last().unwrap_unchecked() };
+                let target = f.stack_base + self.frames.last().map(|f| f.result_reg).unwrap_or(0) as usize;
                 ci = f.chunk_idx as usize;
                 ip = f.ip;
                 base = f.stack_base;
+                if target < self.stack.len() {
+                    self.stack[target].drop_rc();
+                    self.stack[target] = result;
+                }
                 continue;
             }
 
-            let op = unsafe { chunk.code.get_unchecked(ip) }.clone();
+            let inst = unsafe { *code.get_unchecked(ip) };
             ip += 1;
+            let op = (inst >> 24) as u8;
+
+            // Macro for safe register access (used in hot paths)
+            macro_rules! reg {
+                ($idx:expr) => { unsafe { *self.stack.get_unchecked($idx) } }
+            }
+            macro_rules! reg_set {
+                ($idx:expr, $val:expr) => { unsafe {
+                    let slot = self.stack.as_mut_ptr().add($idx);
+                    (*slot).drop_rc();
+                    *slot = $val;
+                } }
+            }
 
             match op {
-                Op::LoadConst(idx) => {
-                    let v = unsafe { *nan_consts.get_unchecked(idx as usize) };
-                    v.clone_rc();
-                    self.stack.push(v);
-                }
-                Op::LoadLocal(slot) => {
-                    let v = unsafe { *self.stack.get_unchecked(base + slot as usize) };
-                    v.clone_rc();
-                    self.stack.push(v);
-                }
-                Op::StoreLocal(slot) => {
-                    let val = self.pop();
-                    let abs = base + slot as usize;
-                    while self.stack.len() <= abs {
-                        self.stack.push(NanVal::nil());
-                    }
-                    self.stack[abs].drop_rc();
-                    self.stack[abs] = val;
-                }
-                Op::Add => {
-                    let b = self.pop();
-                    let a = self.pop();
-                    if a.is_number() && b.is_number() {
-                        self.stack.push(NanVal::number(a.as_number() + b.as_number()));
-                    } else if a.is_string() && b.is_string() {
+                OP_ADD => {
+                    let a = ((inst >> 16) & 0xFF) as usize + base;
+                    let b = ((inst >> 8) & 0xFF) as usize + base;
+                    let c = (inst & 0xFF) as usize + base;
+                    let bv = reg!(b);
+                    let cv = reg!(c);
+                    if bv.is_number() && cv.is_number() {
+                        reg_set!(a, NanVal::number(bv.as_number() + cv.as_number()));
+                    } else if bv.is_string() && cv.is_string() {
                         let result = unsafe {
-                            let sa = match a.as_heap_ref() { HeapObj::Str(s) => s, _ => unreachable!() };
-                            let sb = match b.as_heap_ref() { HeapObj::Str(s) => s, _ => unreachable!() };
-                            NanVal::heap_string(format!("{}{}", sa, sb))
+                            let sb = match bv.as_heap_ref() { HeapObj::Str(s) => s, _ => unreachable!() };
+                            let sc = match cv.as_heap_ref() { HeapObj::Str(s) => s, _ => unreachable!() };
+                            NanVal::heap_string(format!("{}{}", sb, sc))
                         };
-                        a.drop_rc();
-                        b.drop_rc();
-                        self.stack.push(result);
+                        reg_set!(a, result);
                     } else {
-                        a.drop_rc();
-                        b.drop_rc();
                         return Err("cannot add non-matching types".to_string());
                     }
                 }
-                Op::Sub => {
-                    let b = self.pop();
-                    let a = self.pop();
-                    if a.is_number() && b.is_number() {
-                        self.stack.push(NanVal::number(a.as_number() - b.as_number()));
+                OP_SUB => {
+                    let a = ((inst >> 16) & 0xFF) as usize + base;
+                    let b = ((inst >> 8) & 0xFF) as usize + base;
+                    let c = (inst & 0xFF) as usize + base;
+                    let bv = reg!(b);
+                    let cv = reg!(c);
+                    if bv.is_number() && cv.is_number() {
+                        reg_set!(a, NanVal::number(bv.as_number() - cv.as_number()));
                     } else {
-                        a.drop_rc();
-                        b.drop_rc();
                         return Err("cannot subtract non-numbers".to_string());
                     }
                 }
-                Op::Mul => {
-                    let b = self.pop();
-                    let a = self.pop();
-                    if a.is_number() && b.is_number() {
-                        self.stack.push(NanVal::number(a.as_number() * b.as_number()));
+                OP_MUL => {
+                    let a = ((inst >> 16) & 0xFF) as usize + base;
+                    let b = ((inst >> 8) & 0xFF) as usize + base;
+                    let c = (inst & 0xFF) as usize + base;
+                    let bv = reg!(b);
+                    let cv = reg!(c);
+                    if bv.is_number() && cv.is_number() {
+                        reg_set!(a, NanVal::number(bv.as_number() * cv.as_number()));
                     } else {
-                        a.drop_rc();
-                        b.drop_rc();
                         return Err("cannot multiply non-numbers".to_string());
                     }
                 }
-                Op::Div => {
-                    let b = self.pop();
-                    let a = self.pop();
-                    if a.is_number() && b.is_number() {
-                        let bv = b.as_number();
-                        if bv == 0.0 {
+                OP_DIV => {
+                    let a = ((inst >> 16) & 0xFF) as usize + base;
+                    let b = ((inst >> 8) & 0xFF) as usize + base;
+                    let c = (inst & 0xFF) as usize + base;
+                    let bv = reg!(b);
+                    let cv = reg!(c);
+                    if bv.is_number() && cv.is_number() {
+                        let dv = cv.as_number();
+                        if dv == 0.0 {
                             return Err("division by zero".to_string());
                         }
-                        self.stack.push(NanVal::number(a.as_number() / bv));
+                        reg_set!(a, NanVal::number(bv.as_number() / dv));
                     } else {
-                        a.drop_rc();
-                        b.drop_rc();
                         return Err("cannot divide non-numbers".to_string());
                     }
                 }
-                Op::Eq => {
-                    let b = self.pop();
-                    let a = self.pop();
-                    let eq = nanval_equal(a, b);
-                    a.drop_rc();
-                    b.drop_rc();
-                    self.stack.push(NanVal::boolean(eq));
+                OP_EQ => {
+                    let a = ((inst >> 16) & 0xFF) as usize + base;
+                    let b = ((inst >> 8) & 0xFF) as usize + base;
+                    let c = (inst & 0xFF) as usize + base;
+                    let eq = nanval_equal(reg!(b), reg!(c));
+                    reg_set!(a, NanVal::boolean(eq));
                 }
-                Op::NotEq => {
-                    let b = self.pop();
-                    let a = self.pop();
-                    let eq = nanval_equal(a, b);
-                    a.drop_rc();
-                    b.drop_rc();
-                    self.stack.push(NanVal::boolean(!eq));
+                OP_NE => {
+                    let a = ((inst >> 16) & 0xFF) as usize + base;
+                    let b = ((inst >> 8) & 0xFF) as usize + base;
+                    let c = (inst & 0xFF) as usize + base;
+                    let eq = nanval_equal(reg!(b), reg!(c));
+                    reg_set!(a, NanVal::boolean(!eq));
                 }
-                Op::Gt => {
-                    let b = self.pop();
-                    let a = self.pop();
-                    if a.is_number() && b.is_number() {
-                        self.stack.push(NanVal::boolean(a.as_number() > b.as_number()));
+                OP_GT => {
+                    let a = ((inst >> 16) & 0xFF) as usize + base;
+                    let b = ((inst >> 8) & 0xFF) as usize + base;
+                    let c = (inst & 0xFF) as usize + base;
+                    let bv = reg!(b);
+                    let cv = reg!(c);
+                    if bv.is_number() && cv.is_number() {
+                        reg_set!(a, NanVal::boolean(bv.as_number() > cv.as_number()));
                     } else {
-                        a.drop_rc();
-                        b.drop_rc();
                         return Err("cannot compare > non-numbers".to_string());
                     }
                 }
-                Op::Lt => {
-                    let b = self.pop();
-                    let a = self.pop();
-                    if a.is_number() && b.is_number() {
-                        self.stack.push(NanVal::boolean(a.as_number() < b.as_number()));
+                OP_LT => {
+                    let a = ((inst >> 16) & 0xFF) as usize + base;
+                    let b = ((inst >> 8) & 0xFF) as usize + base;
+                    let c = (inst & 0xFF) as usize + base;
+                    let bv = reg!(b);
+                    let cv = reg!(c);
+                    if bv.is_number() && cv.is_number() {
+                        reg_set!(a, NanVal::boolean(bv.as_number() < cv.as_number()));
                     } else {
-                        a.drop_rc();
-                        b.drop_rc();
                         return Err("cannot compare < non-numbers".to_string());
                     }
                 }
-                Op::Ge => {
-                    let b = self.pop();
-                    let a = self.pop();
-                    if a.is_number() && b.is_number() {
-                        self.stack.push(NanVal::boolean(a.as_number() >= b.as_number()));
+                OP_GE => {
+                    let a = ((inst >> 16) & 0xFF) as usize + base;
+                    let b = ((inst >> 8) & 0xFF) as usize + base;
+                    let c = (inst & 0xFF) as usize + base;
+                    let bv = reg!(b);
+                    let cv = reg!(c);
+                    if bv.is_number() && cv.is_number() {
+                        reg_set!(a, NanVal::boolean(bv.as_number() >= cv.as_number()));
                     } else {
-                        a.drop_rc();
-                        b.drop_rc();
                         return Err("cannot compare >= non-numbers".to_string());
                     }
                 }
-                Op::Le => {
-                    let b = self.pop();
-                    let a = self.pop();
-                    if a.is_number() && b.is_number() {
-                        self.stack.push(NanVal::boolean(a.as_number() <= b.as_number()));
+                OP_LE => {
+                    let a = ((inst >> 16) & 0xFF) as usize + base;
+                    let b = ((inst >> 8) & 0xFF) as usize + base;
+                    let c = (inst & 0xFF) as usize + base;
+                    let bv = reg!(b);
+                    let cv = reg!(c);
+                    if bv.is_number() && cv.is_number() {
+                        reg_set!(a, NanVal::boolean(bv.as_number() <= cv.as_number()));
                     } else {
-                        a.drop_rc();
-                        b.drop_rc();
                         return Err("cannot compare <= non-numbers".to_string());
                     }
                 }
-                Op::Not => {
-                    let v = self.pop();
-                    let t = nanval_truthy(v);
-                    v.drop_rc();
-                    self.stack.push(NanVal::boolean(!t));
+                OP_MOVE => {
+                    let a = ((inst >> 16) & 0xFF) as usize + base;
+                    let b = ((inst >> 8) & 0xFF) as usize + base;
+                    let v = reg!(b);
+                    v.clone_rc();
+                    reg_set!(a, v);
                 }
-                Op::Negate => {
-                    let v = self.pop();
+                OP_NOT => {
+                    let a = ((inst >> 16) & 0xFF) as usize + base;
+                    let b = ((inst >> 8) & 0xFF) as usize + base;
+                    let t = nanval_truthy(reg!(b));
+                    reg_set!(a, NanVal::boolean(!t));
+                }
+                OP_NEG => {
+                    let a = ((inst >> 16) & 0xFF) as usize + base;
+                    let b = ((inst >> 8) & 0xFF) as usize + base;
+                    let v = reg!(b);
                     if v.is_number() {
-                        self.stack.push(NanVal::number(-v.as_number()));
+                        reg_set!(a, NanVal::number(-v.as_number()));
                     } else {
-                        v.drop_rc();
                         return Err("cannot negate non-number".to_string());
                     }
                 }
-                Op::WrapOk => {
-                    let v = self.pop();
-                    self.stack.push(NanVal::heap_ok(v));
+                OP_WRAPOK => {
+                    let a = ((inst >> 16) & 0xFF) as usize + base;
+                    let b = ((inst >> 8) & 0xFF) as usize + base;
+                    let v = reg!(b);
+                    v.clone_rc();
+                    reg_set!(a, NanVal::heap_ok(v));
                 }
-                Op::WrapErr => {
-                    let v = self.pop();
-                    self.stack.push(NanVal::heap_err(v));
+                OP_WRAPERR => {
+                    let a = ((inst >> 16) & 0xFF) as usize + base;
+                    let b = ((inst >> 8) & 0xFF) as usize + base;
+                    let v = reg!(b);
+                    v.clone_rc();
+                    reg_set!(a, NanVal::heap_err(v));
                 }
-                Op::JumpIfFalse(target) => {
-                    let v = self.pop();
-                    let t = nanval_truthy(v);
-                    v.drop_rc();
-                    if !t {
-                        ip = target as usize;
-                    }
+                OP_ISOK => {
+                    let a = ((inst >> 16) & 0xFF) as usize + base;
+                    let b = ((inst >> 8) & 0xFF) as usize + base;
+                    let is_ok = (reg!(b).0 & TAG_MASK) == TAG_OK;
+                    reg_set!(a, NanVal::boolean(is_ok));
                 }
-                Op::JumpIfTrue(target) => {
-                    let v = self.pop();
-                    let t = nanval_truthy(v);
-                    v.drop_rc();
-                    if t {
-                        ip = target as usize;
-                    }
+                OP_ISERR => {
+                    let a = ((inst >> 16) & 0xFF) as usize + base;
+                    let b = ((inst >> 8) & 0xFF) as usize + base;
+                    let is_err = (reg!(b).0 & TAG_MASK) == TAG_ERR;
+                    reg_set!(a, NanVal::boolean(is_err));
                 }
-                Op::Jump(target) => {
-                    ip = target as usize;
+                OP_UNWRAP => {
+                    let a = ((inst >> 16) & 0xFF) as usize + base;
+                    let b = ((inst >> 8) & 0xFF) as usize + base;
+                    let v = reg!(b);
+                    let inner = unsafe {
+                        match v.as_heap_ref() {
+                            HeapObj::OkVal(inner) | HeapObj::ErrVal(inner) => {
+                                inner.clone_rc();
+                                *inner
+                            }
+                            _ => return Err("unwrap on non-Ok/Err".to_string()),
+                        }
+                    };
+                    reg_set!(a, inner);
                 }
-                Op::Call(func_idx, n_args) => {
-                    // Save ip back to current frame before switching
-                    unsafe { self.frames.last_mut().unwrap_unchecked() }.ip = ip;
-                    let n = n_args as usize;
-                    let args_start = self.stack.len() - n;
-                    let args: Vec<NanVal> = self.stack.drain(args_start..).collect();
-                    self.setup_call(func_idx, args);
-                    // Load new frame state
-                    let f = unsafe { self.frames.last().unwrap_unchecked() };
-                    ci = f.chunk_idx as usize;
-                    ip = f.ip;
-                    base = f.stack_base;
-                }
-                Op::Return => {
-                    let result = self.pop();
-                    for i in base..self.stack.len() {
-                        self.stack[i].drop_rc();
-                    }
-                    self.stack.truncate(base);
-                    self.frames.pop();
-                    if self.frames.is_empty() {
-                        let val = result.to_value();
-                        result.drop_rc();
-                        return Ok(val);
-                    }
-                    self.stack.push(result);
-                    // Restore parent frame state
-                    let f = unsafe { self.frames.last().unwrap_unchecked() };
-                    ci = f.chunk_idx as usize;
-                    ip = f.ip;
-                    base = f.stack_base;
-                }
-                Op::RecordNew(desc_idx, n_fields) => {
+                OP_RECFLD => {
+                    let a = ((inst >> 16) & 0xFF) as usize + base;
+                    let b = ((inst >> 8) & 0xFF) as usize + base;
+                    let c = (inst & 0xFF) as usize;
                     let chunk = unsafe { self.program.chunks.get_unchecked(ci) };
-                    let desc = chunk.constants[desc_idx as usize].clone();
-                    let (type_name, field_names) = unpack_record_desc(desc)?;
-                    let n = n_fields as usize;
-                    let start = self.stack.len() - n;
-                    let vals: Vec<NanVal> = self.stack.drain(start..).collect();
-                    let mut fields = HashMap::new();
-                    for (name, val) in field_names.into_iter().zip(vals) {
-                        fields.insert(name, val);
-                    }
-                    self.stack.push(NanVal::heap_record(type_name, fields));
-                }
-                Op::RecordField(field_idx) => {
-                    let chunk = unsafe { self.program.chunks.get_unchecked(ci) };
-                    let field_name = match &chunk.constants[field_idx as usize] {
+                    let field_name = match &chunk.constants[c] {
                         Value::Text(s) => s.as_str(),
                         _ => return Err("RecordField expects string constant".to_string()),
                     };
-                    let record = self.pop();
+                    let record = reg!(b);
                     let field_val = unsafe {
                         match record.as_heap_ref() {
                             HeapObj::Record { fields, .. } => {
@@ -1090,17 +1203,139 @@ impl<'a> VM<'a> {
                             _ => return Err("field access on non-record".to_string()),
                         }
                     };
-                    record.drop_rc();
-                    self.stack.push(field_val);
+                    reg_set!(a, field_val);
                 }
-                Op::RecordWith(names_idx, n_updates) => {
+                OP_LISTGET => {
+                    let a = ((inst >> 16) & 0xFF) as usize + base;
+                    let b = ((inst >> 8) & 0xFF) as usize + base;
+                    let c = (inst & 0xFF) as usize + base;
+                    let list = reg!(b);
+                    let idx_val = reg!(c);
+                    if idx_val.is_number() {
+                        unsafe {
+                            match list.as_heap_ref() {
+                                HeapObj::List(items) => {
+                                    let i = idx_val.as_number() as usize;
+                                    if i < items.len() {
+                                        let item = items[i];
+                                        item.clone_rc();
+                                        reg_set!(a, item);
+                                        ip += 1; // skip the following JMP (stay in loop)
+                                    }
+                                    // else: fall through to JMP exit
+                                }
+                                _ => return Err("foreach requires a list".to_string()),
+                            }
+                        }
+                    } else {
+                        return Err("list index must be a number".to_string());
+                    }
+                }
+                OP_LOADK => {
+                    let a = ((inst >> 16) & 0xFF) as usize + base;
+                    let bx = (inst & 0xFFFF) as usize;
+                    let v = unsafe { *nan_consts.get_unchecked(bx) };
+                    v.clone_rc();
+                    reg_set!(a, v);
+                }
+                OP_JMP => {
+                    let sbx = (inst & 0xFFFF) as i16;
+                    ip = (ip as isize + sbx as isize) as usize;
+                }
+                OP_JMPF => {
+                    let a = ((inst >> 16) & 0xFF) as usize + base;
+                    let sbx = (inst & 0xFFFF) as i16;
+                    if !nanval_truthy(reg!(a)) {
+                        ip = (ip as isize + sbx as isize) as usize;
+                    }
+                }
+                OP_JMPT => {
+                    let a = ((inst >> 16) & 0xFF) as usize + base;
+                    let sbx = (inst & 0xFFFF) as i16;
+                    if nanval_truthy(reg!(a)) {
+                        ip = (ip as isize + sbx as isize) as usize;
+                    }
+                }
+                OP_CALL => {
+                    let a = ((inst >> 16) & 0xFF) as u8;
+                    let bx = (inst & 0xFFFF) as usize;
+                    let func_idx = (bx >> 8) as u16;
+                    let n_args = bx & 0xFF;
+
+                    unsafe { self.frames.last_mut().unwrap_unchecked() }.ip = ip;
+
+                    let mut args = Vec::with_capacity(n_args);
+                    for i in 0..n_args {
+                        let v = reg!(base + a as usize + 1 + i);
+                        v.clone_rc();
+                        args.push(v);
+                    }
+
+                    self.setup_call(func_idx, args, a);
+
+                    let f = unsafe { self.frames.last().unwrap_unchecked() };
+                    ci = f.chunk_idx as usize;
+                    ip = f.ip;
+                    base = f.stack_base;
+                }
+                OP_RET => {
+                    let a = ((inst >> 16) & 0xFF) as usize + base;
+                    let result = reg!(a);
+                    result.clone_rc();
+
+                    let result_reg = unsafe { self.frames.last().unwrap_unchecked() }.result_reg;
+
+                    for i in base..self.stack.len() {
+                        unsafe { self.stack.get_unchecked(i) }.drop_rc();
+                    }
+                    self.stack.truncate(base);
+                    self.frames.pop();
+
+                    if self.frames.is_empty() {
+                        let val = result.to_value();
+                        result.drop_rc();
+                        return Ok(val);
+                    }
+
+                    let f = unsafe { self.frames.last().unwrap_unchecked() };
+                    ci = f.chunk_idx as usize;
+                    ip = f.ip;
+                    base = f.stack_base;
+
+                    // Store result in caller's register
+                    reg_set!(base + result_reg as usize, result);
+                }
+                OP_RECNEW => {
+                    let a = ((inst >> 16) & 0xFF) as usize + base;
+                    let bx = (inst & 0xFFFF) as usize;
+                    let desc_idx = bx >> 8;
+                    let n_fields = bx & 0xFF;
+
                     let chunk = unsafe { self.program.chunks.get_unchecked(ci) };
-                    let field_names = unpack_string_list(&chunk.constants[names_idx as usize])?;
-                    let n = n_updates as usize;
-                    let start = self.stack.len() - n;
-                    let update_vals: Vec<NanVal> = self.stack.drain(start..).collect();
-                    let old_record = self.pop();
-                    unsafe {
+                    let desc = chunk.constants[desc_idx].clone();
+                    let (type_name, field_names) = unpack_record_desc(desc)?;
+
+                    let mut fields = HashMap::new();
+                    for (i, name) in field_names.into_iter().enumerate() {
+                        let v = reg!(a + 1 + i);
+                        v.clone_rc();
+                        fields.insert(name, v);
+                    }
+
+                    reg_set!(a, NanVal::heap_record(type_name, fields));
+                    let _ = n_fields;
+                }
+                OP_RECWITH => {
+                    let a = ((inst >> 16) & 0xFF) as usize + base;
+                    let bx = (inst & 0xFFFF) as usize;
+                    let names_idx = bx >> 8;
+                    let n_updates = bx & 0xFF;
+
+                    let chunk = unsafe { self.program.chunks.get_unchecked(ci) };
+                    let field_names = unpack_string_list(&chunk.constants[names_idx])?;
+
+                    let old_record = reg!(a);
+                    let new_record = unsafe {
                         match old_record.as_heap_ref() {
                             HeapObj::Record { type_name, fields } => {
                                 let mut new_fields = HashMap::new();
@@ -1108,85 +1343,34 @@ impl<'a> VM<'a> {
                                     v.clone_rc();
                                     new_fields.insert(k.clone(), *v);
                                 }
-                                for (name, val) in field_names.into_iter().zip(update_vals) {
+                                for (i, name) in field_names.into_iter().enumerate() {
+                                    let val = reg!(a + 1 + i);
+                                    val.clone_rc();
                                     if let Some(old_val) = new_fields.insert(name, val) {
                                         old_val.drop_rc();
                                     }
                                 }
-                                let new_record = NanVal::heap_record(type_name.clone(), new_fields);
-                                old_record.drop_rc();
-                                self.stack.push(new_record);
+                                NanVal::heap_record(type_name.clone(), new_fields)
                             }
                             _ => return Err("'with' requires a record".to_string()),
                         }
-                    }
-                }
-                Op::Pop => {
-                    self.pop().drop_rc();
-                }
-                Op::Dup => {
-                    let v = *self.stack.last().expect("stack underflow");
-                    v.clone_rc();
-                    self.stack.push(v);
-                }
-                Op::IsOk => {
-                    let v = self.pop();
-                    let is_ok = (v.0 & TAG_MASK) == TAG_OK;
-                    v.drop_rc();
-                    self.stack.push(NanVal::boolean(is_ok));
-                }
-                Op::IsErr => {
-                    let v = self.pop();
-                    let is_err = (v.0 & TAG_MASK) == TAG_ERR;
-                    v.drop_rc();
-                    self.stack.push(NanVal::boolean(is_err));
-                }
-                Op::UnwrapOkErr => {
-                    let v = self.pop();
-                    let inner = unsafe {
-                        match v.as_heap_ref() {
-                            HeapObj::OkVal(inner) | HeapObj::ErrVal(inner) => {
-                                inner.clone_rc();
-                                *inner
-                            }
-                            _ => return Err("unwrap on non-Ok/Err".to_string()),
-                        }
                     };
-                    v.drop_rc();
-                    self.stack.push(inner);
+                    reg_set!(a, new_record);
+                    let _ = n_updates;
                 }
-                Op::ListNew(n) => {
-                    let start = self.stack.len() - n as usize;
-                    let items: Vec<NanVal> = self.stack.drain(start..).collect();
-                    self.stack.push(NanVal::heap_list(items));
-                }
-                Op::ListGetOrEnd(target) => {
-                    let idx_val = self.pop();
-                    let coll = self.pop();
-                    unsafe {
-                        match coll.as_heap_ref() {
-                            HeapObj::List(items) if idx_val.is_number() => {
-                                let i = idx_val.as_number() as usize;
-                                if i < items.len() {
-                                    let item = items[i];
-                                    item.clone_rc();
-                                    coll.drop_rc();
-                                    self.stack.push(item);
-                                } else {
-                                    coll.drop_rc();
-                                    ip = target as usize;
-                                }
-                            }
-                            _ => {
-                                coll.drop_rc();
-                                return Err("foreach requires a list".to_string());
-                            }
-                        }
+                OP_LISTNEW => {
+                    let a = ((inst >> 16) & 0xFF) as usize + base;
+                    let n = (inst & 0xFFFF) as usize;
+                    let mut items = Vec::with_capacity(n);
+                    for i in 0..n {
+                        let v = reg!(a + 1 + i);
+                        v.clone_rc();
+                        items.push(v);
                     }
+                    reg_set!(a, NanVal::heap_list(items));
                 }
+                _ => return Err(format!("unknown opcode: {}", op)),
             }
-            // Write ip back (most opcodes just advance it; jumps/calls already set it)
-            // We do this once at the end rather than in every branch
         }
     }
 }
@@ -1195,7 +1379,6 @@ fn nanval_equal(a: NanVal, b: NanVal) -> bool {
     if a.is_number() && b.is_number() {
         (a.as_number() - b.as_number()).abs() < f64::EPSILON
     } else if a.0 == b.0 {
-        // Identical bits: same nil, same bool, or same heap pointer
         true
     } else if a.is_string() && b.is_string() {
         unsafe {
