@@ -53,6 +53,57 @@ Not just a language — a **typed shell** for agents. Like bash discovers execut
 
 The runtime's job: discover → present → verify → execute.
 
+### What bash got right
+
+Bash commands are mini programs. Each one is self-contained, has a universal interface (stdin/stdout/exit code), is discoverable on `$PATH`, and composes with any other command via `|`. This model has lasted 50 years because it works.
+
+ilo functions follow the same shape:
+
+| Bash | ilo |
+|------|-----|
+| Self-contained binary | Self-contained function with declared deps |
+| stdin/stdout/stderr | Typed params → typed result (ok/err) |
+| `$PATH` discovery | Tool graph registration |
+| `cmd1 \| cmd2` | Sequential binding + `?` matching |
+| Exit codes | Typed error variants |
+
+The Unix philosophy maps directly: do one thing well (small units), expect output to become input (composable), don't require interactive input (agent-friendly).
+
+### What bash got wrong for agents
+
+- **No types** — everything is text. `jq` output looks the same as an error message.
+- **Silent failures** — `curl` can fail and the pipeline continues with empty input.
+- **Text parsing tax** — agents must generate `grep`, `awk`, `sed` patterns to extract structured data from text streams.
+- **Quoting hell** — escaping rules are a token tax that causes retry loops.
+
+### Where ilo already uses implicit composition
+
+ilo's `?` operator works like an implicit pipe — the result of the previous call flows directly into the match without a variable binding:
+
+```
+get-user uid;?{!e:handle-error;~data:use-data}
+```
+
+This is equivalent to `get-user uid | match` in a hypothetical typed bash. No intermediate variable needed for single-use results.
+
+Explicit binding is only needed when a value is referenced more than once or later:
+
+```
+rid=reserve items;charge pid amt;?{!e:release rid;...}
+```
+
+Here `rid` must be named because it's used in the error-compensation branch. Bash handles this with `tee` or temp files, which is worse.
+
+### The sweet spot
+
+ilo sits between bash and traditional languages:
+
+- **Bash**: implicit pipes, no types, no verification, text everywhere
+- **Traditional languages**: explicit everything, types, verbose, lots of ceremony
+- **ilo**: implicit where safe (`?` matching), explicit where needed (multi-use values), types verified before execution
+
+The composition model is Unix pipes with a type checker. Programs should feel like shell scripts — sequences of tool calls with branching — not like class hierarchies or module systems.
+
 ## Syntax Questions (Resolved by Experiments)
 
 These were open questions that the syntax experiments have now answered:

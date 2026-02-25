@@ -41,6 +41,7 @@ Each idea explores a different syntax. Every folder has a SPEC and 5 example pro
 
 | Idea | Tokens | vs Py | Chars | vs Py | Score |
 |------|--------|-------|-------|-------|-------|
+| python-baseline | 871 | 1.00x | 3635 | 1.00x | — |
 | [idea1](examples/idea1/) | 921 | 1.06x | 3108 | 0.86x | 10.0 |
 | [idea1-compact](examples/idea1-compact/) | 677 | 0.78x | 2564 | 0.71x | 10.0 |
 | [idea2-tool-calling](examples/idea2-tool-calling/) | 983 | 1.13x | 3203 | 0.88x | 10.0 |
