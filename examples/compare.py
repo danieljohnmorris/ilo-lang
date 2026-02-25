@@ -955,14 +955,21 @@ def write_summary():
                     row += f"  {'—':>9s}"
             w(row)
 
-    # Table 1: Generation from examples
+    # Table 1: Full (spec + all examples) — most realistic
+    summarise_generation(
+        EXAMPLES_DIR / "full-results.json",
+        "Full Test (spec + all examples)",
+        [i for i in TESTABLE_IDEAS if i in IDEAS_WITH_RULES],
+    )
+
+    # Table 2: Generation from examples (one-shot)
     summarise_generation(
         EXAMPLES_DIR / "test-results.json",
         "Generation from Examples (one-shot)",
         TESTABLE_IDEAS,
     )
 
-    # Table 2: Comprehension
+    # Table 3: Comprehension
     comp_path = EXAMPLES_DIR / "comprehension-results.json"
     if comp_path.exists():
         results = json.loads(comp_path.read_text())
@@ -999,17 +1006,10 @@ def write_summary():
                 if has_data:
                     w(row)
 
-    # Table 3: Generation from rules
+    # Table 4: Generation from rules
     summarise_generation(
         EXAMPLES_DIR / "rules-results.json",
         "Generation from Rules (spec only, no examples)",
-        [i for i in TESTABLE_IDEAS if i in IDEAS_WITH_RULES],
-    )
-
-    # Table 4: Full (spec + all examples)
-    summarise_generation(
-        EXAMPLES_DIR / "full-results.json",
-        "Full Test (spec + all examples)",
         [i for i in TESTABLE_IDEAS if i in IDEAS_WITH_RULES],
     )
 

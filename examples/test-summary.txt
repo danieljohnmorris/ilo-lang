@@ -16,6 +16,35 @@ Token comparison vs Python (cl100k_base)
 
 
 ======================================================================
+Full Test (spec + all examples)
+======================================================================
+
+  Idea                               Score    Tokens     Time
+  ---------------------------------------------------------
+  idea1                           10.0/10      348    3.03s
+  idea1-compact                   10.0/10      229    3.02s
+  idea2-tool-calling              10.0/10      342    2.92s
+  idea3-constrained-decoding      10.0/10      197    2.27s
+  idea4-ast-bytecode              4.5/10      221    2.49s
+  idea5-workflow-dag              10.0/10      222    1.73s
+  idea6-mcp-composition           9.8/10      319    3.42s
+  idea7-dense-wire                10.0/10      115    2.47s
+
+  Per-task scores (avg across trials):
+
+  Idea                              workflow  data_pipel  decision_l  api_orches
+  ------------------------------------------------------------------------------
+  idea1                                10.0       10.0       10.0       10.0
+  idea1-compact                        10.0       10.0       10.0       10.0
+  idea2-tool-calling                   10.0       10.0       10.0       10.0
+  idea3-constrained-decoding           10.0       10.0       10.0       10.0
+  idea4-ast-bytecode                    0.0        4.0        7.0        7.0
+  idea5-workflow-dag                   10.0       10.0       10.0       10.0
+  idea6-mcp-composition                 9.0       10.0       10.0       10.0
+  idea7-dense-wire                     10.0       10.0       10.0       10.0
+
+
+======================================================================
 Generation from Examples (one-shot)
 ======================================================================
 
@@ -102,32 +131,3 @@ Generation from Rules (spec only, no examples)
   idea5-workflow-dag                   10.0       10.0       10.0       10.0
   idea6-mcp-composition                10.0       10.0        7.0       10.0
   idea7-dense-wire                     10.0        8.0       10.0       10.0
-
-
-======================================================================
-Full Test (spec + all examples)
-======================================================================
-
-  Idea                               Score    Tokens     Time
-  ---------------------------------------------------------
-  idea1                           10.0/10      348    3.03s
-  idea1-compact                   10.0/10      229    3.02s
-  idea2-tool-calling              10.0/10      342    2.92s
-  idea3-constrained-decoding      10.0/10      197    2.27s
-  idea4-ast-bytecode              4.5/10      221    2.49s
-  idea5-workflow-dag              10.0/10      222    1.73s
-  idea6-mcp-composition           9.8/10      319    3.42s
-  idea7-dense-wire                10.0/10      115    2.47s
-
-  Per-task scores (avg across trials):
-
-  Idea                              workflow  data_pipel  decision_l  api_orches
-  ------------------------------------------------------------------------------
-  idea1                                10.0       10.0       10.0       10.0
-  idea1-compact                        10.0       10.0       10.0       10.0
-  idea2-tool-calling                   10.0       10.0       10.0       10.0
-  idea3-constrained-decoding           10.0       10.0       10.0       10.0
-  idea4-ast-bytecode                    0.0        4.0        7.0        7.0
-  idea5-workflow-dag                   10.0       10.0       10.0       10.0
-  idea6-mcp-composition                 9.0       10.0       10.0       10.0
-  idea7-dense-wire                     10.0       10.0       10.0       10.0
