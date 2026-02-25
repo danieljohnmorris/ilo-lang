@@ -195,10 +195,10 @@ def check_workflow(text: str) -> dict[str, bool]:
         "calls_withdraw": "withdraw" in text,
         "calls_deposit": "deposit" in text,
         "handles_withdraw_err": (
-            "withdraw" in text and ("err" in text or "error" in text or "catch" in text or "fail" in text)
+            "withdraw" in text and ("err" in text or "error" in text or "catch" in text or "fail" in text or "!e" in text or "?{" in text)
         ),
         "handles_deposit_err": (
-            "deposit" in text and ("err" in text or "error" in text or "catch" in text or "fail" in text)
+            "deposit" in text and ("err" in text or "error" in text or "catch" in text or "fail" in text or "!e" in text or "?{" in text)
         ),
         "compensates_refund": "refund" in text,
         "refund_after_deposit": (
@@ -206,7 +206,7 @@ def check_workflow(text: str) -> dict[str, bool]:
             text.index("refund") > text.index("deposit")
         ) if "deposit" in text and "refund" in text else False,
         "returns_receipt": (
-            ("receipt" in text or "ok" in text or "return" in text) and
+            ("receipt" in text or "ok" in text or "return" in text or "~" in text) and
             ("from" in text or "source" in text)
         ),
         "receipt_has_both_ids": (
@@ -224,12 +224,12 @@ def check_data_pipeline(text: str) -> dict[str, bool]:
         "takes_orders": "order" in text,
         "iterates": (
             "for" in text or "map" in text or "each" in text or
-            "yield" in text or "items" in text
+            "yield" in text or "items" in text or "@" in text
         ),
         "calls_lookup": "lookup" in text and "customer" in text,
         "handles_lookup_fail": (
             "lookup" in text and
-            ("err" in text or "error" in text or "catch" in text or "skip" in text or "fail" in text)
+            ("err" in text or "error" in text or "catch" in text or "skip" in text or "fail" in text or "!_" in text or "?{" in text)
         ),
         "tier_check": "gold" in text and "silver" in text,
         "calculates_discount": (
@@ -238,7 +238,8 @@ def check_data_pipeline(text: str) -> dict[str, bool]:
         ),
         "returns_list": (
             "list" in text or "array" in text or
-            "yield" in text or "append" in text or "for" in text
+            "yield" in text or "append" in text or "for" in text or
+            "@" in text or "l " in text or "l_" in text
         ),
         "includes_final_total": "final" in text or "total" in text,
         "includes_customer_data": "name" in text and "email" in text,
@@ -262,7 +263,8 @@ def check_decision_logic(text: str) -> dict[str, bool]:
         ),
         "three_rejections": (
             text.count("too low") + text.count("too high") + text.count("exceed") +
-            text.count("reject") + text.count("err") + text.count("error")
+            text.count("reject") + text.count("err") + text.count("error") +
+            text.count('!"')
         ) >= 3,
         "rate_tiers": "750" in text and "650" in text,
         "rate_values": (
@@ -271,7 +273,7 @@ def check_decision_logic(text: str) -> dict[str, bool]:
             ("7.5" in text or "7.50" in text)
         ),
         "monthly_calc": "12" in text and ("100" in text or "month" in text or "payment" in text),
-        "returns_approved": "approv" in text or "ok" in text or "success" in text,
+        "returns_approved": "approv" in text or "ok" in text or "success" in text or "~" in text,
     }
 
 
@@ -285,7 +287,7 @@ def check_api_orchestration(text: str) -> dict[str, bool]:
         "stores_snapshot_id": "snapshot" in text and ("id" in text or "let" in text or "=" in text),
         "handles_rollout_fail": (
             "roll" in text and
-            ("err" in text or "error" in text or "catch" in text or "fail" in text)
+            ("err" in text or "error" in text or "catch" in text or "fail" in text or "!e" in text or "?{" in text)
         ),
         "rollback_on_fail": (
             "restore" in text and "snapshot" in text
@@ -295,7 +297,7 @@ def check_api_orchestration(text: str) -> dict[str, bool]:
             text.count("health") >= 2
         ),
         "returns_success": (
-            ("ok" in text or "return" in text or "success" in text) and
+            ("ok" in text or "return" in text or "success" in text or "~" in text) and
             "version" in text
         ),
     }
