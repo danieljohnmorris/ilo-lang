@@ -130,7 +130,7 @@ fn run_bench(program: &ast::Program, func_name: Option<&str>, args: &[interprete
     println!("  per call:   {}ns", interp_ns);
     println!();
 
-    // -- Bytecode VM benchmark --
+    // -- Register VM benchmark --
     let compiled = vm::compile(program);
     // Warmup
     for _ in 0..100 {
@@ -145,14 +145,14 @@ fn run_bench(program: &ast::Program, func_name: Option<&str>, args: &[interprete
     let vm_dur = start.elapsed();
     let vm_ns = vm_dur.as_nanos() / iterations as u128;
 
-    println!("Bytecode VM");
+    println!("Register VM");
     println!("  result:     {}", vm_result);
     println!("  iterations: {}", iterations);
     println!("  total:      {:.2}ms", vm_dur.as_nanos() as f64 / 1e6);
     println!("  per call:   {}ns", vm_ns);
     println!();
 
-    // -- Bytecode VM (reusable) benchmark --
+    // -- Register VM (reusable) benchmark --
     let call_name = func_name.unwrap_or(compiled.func_names.first().map(|s| s.as_str()).unwrap_or("main"));
     let mut vm_state = vm::VmState::new(&compiled);
     for _ in 0..100 {
@@ -166,7 +166,7 @@ fn run_bench(program: &ast::Program, func_name: Option<&str>, args: &[interprete
     let vm_reuse_dur = start.elapsed();
     let vm_reuse_ns = vm_reuse_dur.as_nanos() / iterations as u128;
 
-    println!("Bytecode VM (reusable)");
+    println!("Register VM (reusable)");
     println!("  result:     {}", vm_result);
     println!("  iterations: {}", iterations);
     println!("  total:      {:.2}ms", vm_reuse_dur.as_nanos() as f64 / 1e6);
@@ -237,7 +237,7 @@ print(f"__NS__={{_per}}")
     println!("Summary");
     if vm_ns > 0 && interp_ns > 0 {
         if vm_ns < interp_ns {
-            println!("  Bytecode VM is {:.1}x faster than interpreter", interp_ns as f64 / vm_ns as f64);
+            println!("  Register VM is {:.1}x faster than interpreter", interp_ns as f64 / vm_ns as f64);
         } else {
             println!("  Interpreter is {:.1}x faster than bytecode VM", vm_ns as f64 / interp_ns as f64);
         }
@@ -252,9 +252,9 @@ print(f"__NS__={{_per}}")
         }
         if vm_ns > 0 && py > 0 {
             if vm_ns < py {
-                println!("  Bytecode VM is {:.1}x faster than Python", py as f64 / vm_ns as f64);
+                println!("  Register VM is {:.1}x faster than Python", py as f64 / vm_ns as f64);
             } else {
-                println!("  Python is {:.1}x faster than bytecode VM", vm_ns as f64 / py as f64);
+                println!("  Python is {:.1}x faster than Register VM", vm_ns as f64 / py as f64);
             }
         }
         if vm_reuse_ns > 0 && py > 0 {
