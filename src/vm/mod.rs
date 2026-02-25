@@ -30,6 +30,12 @@ const OP_UNWRAP: u8 = 17;
 const OP_RECFLD: u8 = 18;
 const OP_LISTGET: u8 = 19;
 
+// ABC mode — type-specialized (both operands known numeric, no type check)
+const OP_ADD_NN: u8 = 29;
+const OP_SUB_NN: u8 = 30;
+const OP_MUL_NN: u8 = 31;
+const OP_DIV_NN: u8 = 32;
+
 // ABx mode — register + 16-bit operand
 const OP_LOADK: u8 = 20;
 const OP_JMP: u8 = 21;
@@ -136,6 +142,7 @@ struct RegCompiler {
     locals: Vec<(String, u8)>,
     next_reg: u8,
     max_reg: u8,
+    reg_is_num: [bool; 256],  // track which registers are known numeric
 }
 
 impl RegCompiler {
@@ -147,6 +154,7 @@ impl RegCompiler {
             locals: Vec::new(),
             next_reg: 0,
             max_reg: 0,
+            reg_is_num: [false; 256],
         }
     }
 
@@ -156,8 +164,10 @@ impl RegCompiler {
         if self.next_reg > self.max_reg {
             self.max_reg = self.next_reg;
         }
+        self.reg_is_num[r as usize] = false;
         r
     }
+
 
     fn resolve_local(&self, name: &str) -> Option<u8> {
         self.locals.iter().rev().find(|(n, _)| n == name).map(|(_, r)| *r)
@@ -210,8 +220,12 @@ impl RegCompiler {
                 self.next_reg = params.len() as u8;
                 self.max_reg = self.next_reg;
 
+                self.reg_is_num = [false; 256];
                 for (i, p) in params.iter().enumerate() {
                     self.add_local(&p.name, i as u8);
+                    if p.ty == Type::Number {
+                        self.reg_is_num[i] = true;
+                    }
                 }
 
                 let result = self.compile_body(body);
@@ -506,16 +520,19 @@ impl RegCompiler {
     fn compile_expr(&mut self, expr: &Expr) -> u8 {
         // Try constant folding for BinOp/UnaryOp expressions
         if matches!(expr, Expr::BinOp { .. } | Expr::UnaryOp { .. }) {
-            if let Some(val) = Self::try_const_fold(expr) {
+            if let Some(ref val) = Self::try_const_fold(expr) {
+                let is_num = matches!(val, Value::Number(_));
                 let reg = self.alloc_reg();
-                let ki = self.current.add_const(val);
+                let ki = self.current.add_const(val.clone());
                 self.emit_abx(OP_LOADK, reg, ki);
+                if is_num { self.reg_is_num[reg as usize] = true; }
                 return reg;
             }
         }
 
         match expr {
             Expr::Literal(lit) => {
+                let is_num = matches!(lit, Literal::Number(_));
                 let val = match lit {
                     Literal::Number(n) => Value::Number(*n),
                     Literal::Text(s) => Value::Text(s.clone()),
@@ -524,6 +541,7 @@ impl RegCompiler {
                 let reg = self.alloc_reg();
                 let ki = self.current.add_const(val);
                 self.emit_abx(OP_LOADK, reg, ki);
+                if is_num { self.reg_is_num[reg as usize] = true; }
                 reg
             }
 
@@ -574,20 +592,28 @@ impl RegCompiler {
             Expr::BinOp { op, left, right } => {
                 let rb = self.compile_expr(left);
                 let rc = self.compile_expr(right);
-                let ra = self.alloc_reg();
-                let opcode = match op {
-                    BinOp::Add => OP_ADD,
-                    BinOp::Subtract => OP_SUB,
-                    BinOp::Multiply => OP_MUL,
-                    BinOp::Divide => OP_DIV,
-                    BinOp::Equals => OP_EQ,
-                    BinOp::NotEquals => OP_NE,
-                    BinOp::GreaterThan => OP_GT,
-                    BinOp::LessThan => OP_LT,
-                    BinOp::GreaterOrEqual => OP_GE,
-                    BinOp::LessOrEqual => OP_LE,
+                let both_num = self.reg_is_num[rb as usize] && self.reg_is_num[rc as usize];
+
+                // Use type-specialized opcodes when both operands are known numeric
+                let (opcode, result_is_num) = match op {
+                    BinOp::Add if both_num => (OP_ADD_NN, true),
+                    BinOp::Subtract if both_num => (OP_SUB_NN, true),
+                    BinOp::Multiply if both_num => (OP_MUL_NN, true),
+                    BinOp::Divide if both_num => (OP_DIV_NN, true),
+                    BinOp::Add => (OP_ADD, false),
+                    BinOp::Subtract => (OP_SUB, false),
+                    BinOp::Multiply => (OP_MUL, false),
+                    BinOp::Divide => (OP_DIV, false),
+                    BinOp::Equals => (OP_EQ, false),
+                    BinOp::NotEquals => (OP_NE, false),
+                    BinOp::GreaterThan => (OP_GT, false),
+                    BinOp::LessThan => (OP_LT, false),
+                    BinOp::GreaterOrEqual => (OP_GE, false),
+                    BinOp::LessOrEqual => (OP_LE, false),
                 };
+                let ra = self.alloc_reg();
                 self.emit_abc(opcode, ra, rb, rc);
+                if result_is_num { self.reg_is_num[ra as usize] = true; }
                 ra
             }
 
@@ -599,6 +625,9 @@ impl RegCompiler {
                     UnaryOp::Negate => OP_NEG,
                 };
                 self.emit_abc(opcode, ra, rb, 0);
+                if *op == UnaryOp::Negate && self.reg_is_num[rb as usize] {
+                    self.reg_is_num[ra as usize] = true;
+                }
                 ra
             }
 
@@ -1427,6 +1456,38 @@ impl<'a> VM<'a> {
                         items.push(v);
                     }
                     reg_set!(a, NanVal::heap_list(items));
+                }
+                OP_ADD_NN => {
+                    let a = ((inst >> 16) & 0xFF) as usize + base;
+                    let b = ((inst >> 8) & 0xFF) as usize + base;
+                    let c = (inst & 0xFF) as usize + base;
+                    let result = NanVal::number(reg!(b).as_number() + reg!(c).as_number());
+                    unsafe { *self.stack.as_mut_ptr().add(a) = result; }
+                }
+                OP_SUB_NN => {
+                    let a = ((inst >> 16) & 0xFF) as usize + base;
+                    let b = ((inst >> 8) & 0xFF) as usize + base;
+                    let c = (inst & 0xFF) as usize + base;
+                    let result = NanVal::number(reg!(b).as_number() - reg!(c).as_number());
+                    unsafe { *self.stack.as_mut_ptr().add(a) = result; }
+                }
+                OP_MUL_NN => {
+                    let a = ((inst >> 16) & 0xFF) as usize + base;
+                    let b = ((inst >> 8) & 0xFF) as usize + base;
+                    let c = (inst & 0xFF) as usize + base;
+                    let result = NanVal::number(reg!(b).as_number() * reg!(c).as_number());
+                    unsafe { *self.stack.as_mut_ptr().add(a) = result; }
+                }
+                OP_DIV_NN => {
+                    let a = ((inst >> 16) & 0xFF) as usize + base;
+                    let b = ((inst >> 8) & 0xFF) as usize + base;
+                    let c = (inst & 0xFF) as usize + base;
+                    let dv = reg!(c).as_number();
+                    if dv == 0.0 {
+                        return Err("division by zero".to_string());
+                    }
+                    let result = NanVal::number(reg!(b).as_number() / dv);
+                    unsafe { *self.stack.as_mut_ptr().add(a) = result; }
                 }
                 _ => return Err(format!("unknown opcode: {}", op)),
             }
