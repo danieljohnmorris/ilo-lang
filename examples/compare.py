@@ -6,7 +6,8 @@ Usage:
     python3 examples/compare.py --test               # generation from examples
     python3 examples/compare.py --test-comprehend    # comprehension test
     python3 examples/compare.py --test-rules         # generation from rules
-    python3 examples/compare.py --test-all           # all three tests
+    python3 examples/compare.py --test-full           # full test (spec + all examples)
+    python3 examples/compare.py --test-all           # all four tests
     python3 examples/compare.py --test-all -n 3      # 3 trials each
 
 Requires: pip install tiktoken
@@ -72,6 +73,21 @@ Task:
 {task}
 
 Output ONLY the code in the same format as the example above. No explanation, no markdown fences."""
+
+FULL_PROMPT = """You are being given the specification and examples of a programming format. Study them carefully, then write a new program in the SAME format.
+
+## Language Specification
+
+{rules}
+
+## Examples
+
+{examples}
+
+Task:
+{task}
+
+Output ONLY the code in the same format as the examples above. No explanation, no markdown fences."""
 
 RULES_PROMPT = """You are being given the specification for a programming format. Study it carefully, then write a program in that format.
 
@@ -369,6 +385,20 @@ def load_examples(idea: str) -> str:
     parts = []
     for ext in exts:
         for f in sorted(folder.glob(f"01-*{ext}")):
+            raw = f.read_text()
+            cleaned = strip_comments(raw, ext)
+            if cleaned.strip():
+                parts.append(f"Example ({f.name}):\n{cleaned}")
+    return "\n\n".join(parts)
+
+
+def load_all_examples(idea: str) -> str:
+    """Load all examples from an idea folder."""
+    folder = EXAMPLES_DIR / idea
+    exts = FOLDERS.get(idea, [".ilo"])
+    parts = []
+    for ext in exts:
+        for f in sorted(folder.glob(f"*{ext}")):
             raw = f.read_text()
             cleaned = strip_comments(raw, ext)
             if cleaned.strip():
@@ -745,6 +775,116 @@ def run_rules_tests(n_trials: int):
     return all_results
 
 
+def run_full_tests(n_trials: int):
+    """Run full tests — spec + all examples, the realistic usage scenario."""
+    client = get_client()
+
+    task_names = list(TASKS.keys())
+    testable = [i for i in TESTABLE_IDEAS if i in IDEAS_WITH_RULES]
+    total_tests = len(testable) * len(task_names) * n_trials
+    skipped = [i for i in TESTABLE_IDEAS if i not in IDEAS_WITH_RULES]
+    print("=" * 70)
+    print(f"Full test: spec + all examples (claude-haiku-4-5, {n_trials} trial(s), {len(task_names)} tasks)")
+    print(f"Ideas: {', '.join(testable)}")
+    if skipped:
+        print(f"Skipped (no README): {', '.join(skipped)}")
+    print(f"Total API calls: {total_tests}")
+    print("=" * 70)
+
+    all_results = []
+
+    for idea in testable:
+        rules = load_rules(idea)
+        examples_text = load_all_examples(idea)
+
+        print(f"\n{'=' * 50}")
+        print(f"  {idea}")
+        print(f"{'=' * 50}")
+
+        for task_name in task_names:
+            print(f"\n  [{task_name}]")
+            task_desc = TASKS[task_name]["desc"]
+            task_results = []
+
+            for trial in range(1, n_trials + 1):
+                prompt = FULL_PROMPT.format(
+                    rules=rules, examples=examples_text, task=task_desc,
+                )
+                prompt_tokens = count_tokens(prompt)
+                output, elapsed = call_haiku(client, prompt)
+                output_tokens = count_tokens(output)
+
+                checker = TASK_CHECKERS[task_name]
+                features = checker(output.lower())
+                score = sum(features.values())
+                total = len(features)
+
+                result = {
+                    "idea": idea,
+                    "test_type": "full",
+                    "task": task_name,
+                    "output": output,
+                    "prompt_tokens": prompt_tokens,
+                    "output_tokens": output_tokens,
+                    "elapsed_s": round(elapsed, 2),
+                    "features": features,
+                    "score": f"{score}/{total}",
+                }
+                all_results.append(result)
+                task_results.append(result)
+
+                failed = [k for k, v in features.items() if not v]
+                label = f"    T{trial}: {score}/{total} | {output_tokens}tok"
+                if failed:
+                    label += f" | miss: {', '.join(failed)}"
+                print(label)
+
+            scores = [sum(r["features"].values()) for r in task_results]
+            avg = sum(scores) / len(scores)
+            avg_tokens = sum(r["output_tokens"] for r in task_results) / len(task_results)
+            print(f"    avg: {avg:.1f}/10 | {avg_tokens:.0f}tok")
+
+    # Summary
+    print(f"\n{'=' * 70}")
+    print("Full Test Summary (spec + all examples)")
+    print(f"{'=' * 70}")
+    print(f"\n  {'Idea':30s}  {'Score':>8s}  {'Tokens':>8s}  {'Time':>7s}")
+    print(f"  {'-' * 57}")
+    for idea in testable:
+        idea_results = [r for r in all_results if r["idea"] == idea]
+        if not idea_results:
+            continue
+        avg_score = sum(sum(r["features"].values()) for r in idea_results) / len(idea_results)
+        avg_tokens = sum(r["output_tokens"] for r in idea_results) / len(idea_results)
+        avg_time = sum(r["elapsed_s"] for r in idea_results) / len(idea_results)
+        print(f"  {idea:30s}  {avg_score:.1f}/10  {avg_tokens:>7.0f}  {avg_time:>6.2f}s")
+
+    # Per-task breakdown
+    print(f"\n  Per-task scores (avg across trials):")
+    print(f"\n  {'Idea':30s}", end="")
+    for t in task_names:
+        print(f"  {t[:10]:>10s}", end="")
+    print()
+    print(f"  {'-' * (30 + 12 * len(task_names))}")
+    for idea in testable:
+        print(f"  {idea:30s}", end="")
+        for task_name in task_names:
+            task_results = [r for r in all_results if r["idea"] == idea and r["task"] == task_name]
+            if task_results:
+                avg = sum(sum(r["features"].values()) for r in task_results) / len(task_results)
+                print(f"  {avg:>9.1f}", end="")
+            else:
+                print(f"  {'skip':>9s}", end="")
+        print()
+
+    results_path = EXAMPLES_DIR / "full-results.json"
+    with open(results_path, "w") as f:
+        json.dump(all_results, f, indent=2)
+    print(f"\n  Raw results saved to {results_path}")
+
+    return all_results
+
+
 def write_summary():
     """Write a clean summary file with just the token table + 3 test summary tables."""
     lines = []
@@ -866,6 +1006,13 @@ def write_summary():
         [i for i in TESTABLE_IDEAS if i in IDEAS_WITH_RULES],
     )
 
+    # Table 4: Full (spec + all examples)
+    summarise_generation(
+        EXAMPLES_DIR / "full-results.json",
+        "Full Test (spec + all examples)",
+        [i for i in TESTABLE_IDEAS if i in IDEAS_WITH_RULES],
+    )
+
     w("")
 
     summary_path = EXAMPLES_DIR / "test-summary.txt"
@@ -878,7 +1025,8 @@ def main():
     parser.add_argument("--test", action="store_true", help="Run generation-from-examples test")
     parser.add_argument("--test-comprehend", action="store_true", help="Run comprehension test")
     parser.add_argument("--test-rules", action="store_true", help="Run generation-from-rules test")
-    parser.add_argument("--test-all", action="store_true", help="Run all three test modes")
+    parser.add_argument("--test-full", action="store_true", help="Run full test (spec + all examples)")
+    parser.add_argument("--test-all", action="store_true", help="Run all four test modes")
     parser.add_argument("-n", type=int, default=3, help="Number of trials per idea (default: 3)")
     args = parser.parse_args()
 
@@ -893,6 +1041,9 @@ def main():
         ran_tests = True
     if args.test_all or args.test_rules:
         run_rules_tests(args.n)
+        ran_tests = True
+    if args.test_all or args.test_full:
+        run_full_tests(args.n)
         ran_tests = True
 
     if ran_tests:

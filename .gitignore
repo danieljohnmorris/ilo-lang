@@ -4,3 +4,4 @@ examples/test-output.txt
 examples/comprehension-results.json
 examples/rules-results.json
 examples/test-results.json
+examples/full-results.json
