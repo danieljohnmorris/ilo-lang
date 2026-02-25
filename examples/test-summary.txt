@@ -1,21 +1,22 @@
 ilo syntax comparison
 ==========================================================================================
 
-  Idea                          Tokens   vs Py   Score  Out tok
-  ------------------------------------------------------------
-  python-baseline                  871   1.00x       —        —  *
-  idea1                            921   1.06x    10.0      355
-  idea1-compact                    677   0.78x    10.0      228
-  idea2-tool-calling               983   1.13x    10.0      349
-  idea3-constrained-decoding       598   0.69x    10.0      209
-  idea4-ast-bytecode               584   0.67x     9.8      318
-  idea5-workflow-dag               710   0.82x    10.0      224
-  idea6-mcp-composition            956   1.10x     9.5      333
-  idea7-dense-wire                 351   0.40x    10.0      180
-  idea8-ultra-dense                285   0.33x    10.0       88
+  Idea                          Tokens   vs Py   Chars   vs Py   Score  Out tok
+  --------------------------------------------------------------------------
+  python-baseline                  871   1.00x    3635   1.00x       —        —  *
+  idea1                            921   1.06x    3108   0.86x    10.0      355
+  idea1-compact                    677   0.78x    2564   0.71x    10.0      228
+  idea2-tool-calling               983   1.13x    3203   0.88x    10.0      349
+  idea3-constrained-decoding       598   0.69x    2187   0.60x    10.0      209
+  idea4-ast-bytecode               584   0.67x    1190   0.33x     9.8      318
+  idea5-workflow-dag               710   0.82x    2603   0.72x    10.0      224
+  idea6-mcp-composition            956   1.10x    2978   0.82x     9.5      333
+  idea7-dense-wire                 351   0.40x    1292   0.36x    10.0      180
+  idea8-ultra-dense                285   0.33x     901   0.25x    10.0       88
+  idea9-ultra-dense-short          285   0.33x     822   0.23x       —        —
 
   Tokens  = total tokens across 5 examples (cl100k_base, comments stripped)
-  vs Py   = token ratio vs python-baseline
+  Chars   = total characters
   Score   = LLM generation accuracy /10 (spec + all examples, claude-haiku-4-5)
   Out tok = avg output tokens generated
   * = baseline
