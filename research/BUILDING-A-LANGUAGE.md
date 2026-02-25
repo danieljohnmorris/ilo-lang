@@ -125,7 +125,7 @@ The verifier is the product. The runtime is an implementation detail.
 ## Recommended Path for ilo
 
 ### Step 1: Lexer + Parser (~500-1000 lines)
-Hand-written recursive descent + Pratt parser. ilo's grammar is small and sigil-based — this is straightforward. Implementation language: Rust (for the createlang.rs ecosystem and long-term performance) or TypeScript (for faster prototyping).
+Hand-written recursive descent + Pratt parser. ilo's grammar is small and sigil-based — this is straightforward. Implementation language: Rust (long-term performance, strong ecosystem for language tooling) or TypeScript (faster prototyping). [createlang.rs](https://createlang.rs/) covers building a full compiler in Rust from lexer through LLVM JIT — useful reference for the Rust path.
 
 ### Step 2: Verifier
 Walk the AST. Check: all calls resolve to known functions, all types align, all dependencies exist. Return structured errors. This is ilo's core innovation.
