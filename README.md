@@ -60,4 +60,5 @@ Score = LLM generation accuracy /10 (claude-haiku-4-5, spec + all examples as co
 | Document | Purpose |
 |----------|---------|
 | [MANIFESTO.md](MANIFESTO.md) | Design rationale |
-| [OPEN.md](OPEN.md) | Unresolved design questions |
+| [research/OPEN.md](research/OPEN.md) | Open design questions |
+| [research/BUILDING-A-LANGUAGE.md](research/BUILDING-A-LANGUAGE.md) | How to build a language — research & plan |
