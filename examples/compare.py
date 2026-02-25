@@ -42,6 +42,7 @@ FOLDERS = {
     "idea6-mcp-composition": [".json"],
     "idea7-dense-wire": [".ilo"],
     "idea8-ultra-dense": [".ilo"],
+    "idea9-ultra-dense-short": [".ilo"],
 }
 
 COMMENT_PREFIXES = {
@@ -62,6 +63,7 @@ IDEAS = [
     "idea6-mcp-composition",
     "idea7-dense-wire",
     "idea8-ultra-dense",
+    "idea9-ultra-dense-short",
 ]
 
 # All ideas including python-baseline (for comprehension tests)
