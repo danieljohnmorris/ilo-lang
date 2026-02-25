@@ -1,12 +1,3 @@
-```
-  _  _          _
- (_)| | ___    | |  __ _  _ __    __ _
- | || |/ _ \   | | / _` || '_ \  / _` |
- | || | (_) |  | || (_| || | | || (_| |
- |_||_|\___/   |_| \__,_||_| |_| \__, |
-                                   |___/
-```
-
 # ilo
 
 *ilo* — Toki Pona for "tool" ([sona.pona.la/wiki/ilo](https://sona.pona.la/wiki/ilo)). A constructed language for AI agents.
@@ -89,3 +80,12 @@ cargo test
 | [MANIFESTO.md](MANIFESTO.md) | Design rationale |
 | [research/OPEN.md](research/OPEN.md) | Open design questions |
 | [research/BUILDING-A-LANGUAGE.md](research/BUILDING-A-LANGUAGE.md) | How to build a language — research & plan |
+
+```
+  _  _          _
+ (_)| | ___    | |  __ _  _ __    __ _
+ | || |/ _ \   | | / _` || '_ \  / _` |
+ | || | (_) |  | || (_| || | | || (_| |
+ |_||_|\___/   |_| \__,_||_| |_| \__, |
+                                   |___/
+```
