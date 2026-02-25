@@ -97,6 +97,8 @@ Be specific and precise."""
 
 # Ideas that have a README.md (spec) for rules-based generation
 IDEAS_WITH_RULES = [
+    "idea1",
+    "idea1-compact",
     "idea2-tool-calling",
     "idea3-constrained-decoding",
     "idea4-ast-bytecode",
