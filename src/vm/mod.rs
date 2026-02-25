@@ -36,6 +36,13 @@ const OP_SUB_NN: u8 = 30;
 const OP_MUL_NN: u8 = 31;
 const OP_DIV_NN: u8 = 32;
 
+// ABC mode — superinstructions: register op constant (C = constant pool index)
+// These fuse LOADK + arithmetic into one dispatch, both operands known numeric
+const OP_ADDK_N: u8 = 33;  // R[A] = R[B] + K[C]
+const OP_SUBK_N: u8 = 34;  // R[A] = R[B] - K[C]
+const OP_MULK_N: u8 = 35;  // R[A] = R[B] * K[C]
+const OP_DIVK_N: u8 = 36;  // R[A] = R[B] / K[C]
+
 // ABx mode — register + 16-bit operand
 const OP_LOADK: u8 = 20;
 const OP_JMP: u8 = 21;
@@ -590,6 +597,51 @@ impl RegCompiler {
             }
 
             Expr::BinOp { op, left, right } => {
+                // Try superinstructions: register op constant (right is number literal)
+                let is_arith = matches!(op, BinOp::Add | BinOp::Subtract | BinOp::Multiply | BinOp::Divide);
+                if is_arith {
+                    if let Expr::Literal(Literal::Number(n)) = right.as_ref() {
+                        let rb = self.compile_expr(left);
+                        if self.reg_is_num[rb as usize] {
+                            let ki = self.current.add_const(Value::Number(*n));
+                            if ki <= 255 {
+                                let ra = self.alloc_reg();
+                                let opcode = match op {
+                                    BinOp::Add => OP_ADDK_N,
+                                    BinOp::Subtract => OP_SUBK_N,
+                                    BinOp::Multiply => OP_MULK_N,
+                                    BinOp::Divide => OP_DIVK_N,
+                                    _ => unreachable!(),
+                                };
+                                self.emit_abc(opcode, ra, rb, ki as u8);
+                                self.reg_is_num[ra as usize] = true;
+                                return ra;
+                            }
+                        }
+                    }
+                    // Also handle constant on left (e.g., 2 * x → MULK x, 2)
+                    // Only for commutative ops (Add, Multiply)
+                    if matches!(op, BinOp::Add | BinOp::Multiply) {
+                        if let Expr::Literal(Literal::Number(n)) = left.as_ref() {
+                            let rc = self.compile_expr(right);
+                            if self.reg_is_num[rc as usize] {
+                                let ki = self.current.add_const(Value::Number(*n));
+                                if ki <= 255 {
+                                    let ra = self.alloc_reg();
+                                    let opcode = match op {
+                                        BinOp::Add => OP_ADDK_N,
+                                        BinOp::Multiply => OP_MULK_N,
+                                        _ => unreachable!(),
+                                    };
+                                    self.emit_abc(opcode, ra, rc, ki as u8);
+                                    self.reg_is_num[ra as usize] = true;
+                                    return ra;
+                                }
+                            }
+                        }
+                    }
+                }
+
                 let rb = self.compile_expr(left);
                 let rc = self.compile_expr(right);
                 let both_num = self.reg_is_num[rb as usize] && self.reg_is_num[rc as usize];
@@ -1456,6 +1508,42 @@ impl<'a> VM<'a> {
                         items.push(v);
                     }
                     reg_set!(a, NanVal::heap_list(items));
+                }
+                OP_ADDK_N => {
+                    let a = ((inst >> 16) & 0xFF) as usize + base;
+                    let b = ((inst >> 8) & 0xFF) as usize + base;
+                    let c = (inst & 0xFF) as usize;
+                    let kv = unsafe { *nan_consts.get_unchecked(c) };
+                    let result = NanVal::number(reg!(b).as_number() + kv.as_number());
+                    unsafe { *self.stack.as_mut_ptr().add(a) = result; }
+                }
+                OP_SUBK_N => {
+                    let a = ((inst >> 16) & 0xFF) as usize + base;
+                    let b = ((inst >> 8) & 0xFF) as usize + base;
+                    let c = (inst & 0xFF) as usize;
+                    let kv = unsafe { *nan_consts.get_unchecked(c) };
+                    let result = NanVal::number(reg!(b).as_number() - kv.as_number());
+                    unsafe { *self.stack.as_mut_ptr().add(a) = result; }
+                }
+                OP_MULK_N => {
+                    let a = ((inst >> 16) & 0xFF) as usize + base;
+                    let b = ((inst >> 8) & 0xFF) as usize + base;
+                    let c = (inst & 0xFF) as usize;
+                    let kv = unsafe { *nan_consts.get_unchecked(c) };
+                    let result = NanVal::number(reg!(b).as_number() * kv.as_number());
+                    unsafe { *self.stack.as_mut_ptr().add(a) = result; }
+                }
+                OP_DIVK_N => {
+                    let a = ((inst >> 16) & 0xFF) as usize + base;
+                    let b = ((inst >> 8) & 0xFF) as usize + base;
+                    let c = (inst & 0xFF) as usize;
+                    let kv = unsafe { *nan_consts.get_unchecked(c) };
+                    let dv = kv.as_number();
+                    if dv == 0.0 {
+                        return Err("division by zero".to_string());
+                    }
+                    let result = NanVal::number(reg!(b).as_number() / dv);
+                    unsafe { *self.stack.as_mut_ptr().add(a) = result; }
                 }
                 OP_ADD_NN => {
                     let a = ((inst >> 16) & 0xFF) as usize + base;
