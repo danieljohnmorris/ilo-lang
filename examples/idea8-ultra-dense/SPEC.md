@@ -127,7 +127,25 @@ order with total:final cost:ship
 
 ## Field Access
 
-Dot notation: `data.email`, `c.spent`, `order.addr.country`.
+Dot notation: `d.email`, `c.spent`, `ord.addr.country`.
+
+## Naming Style
+
+Prefer 1-3 character variable names. Shorter names don't save tokens (the tokeniser already treats common words as single tokens) but reduce character count and reinforce the dense aesthetic.
+
+| Long | Short | Technique |
+|------|-------|-----------|
+| `order` | `ord` | truncate to 3 |
+| `customers` | `cs` | first + last consonant |
+| `data` | `d` | single letter |
+| `level` | `lv` | drop vowels |
+| `discount` | `dc` | initials |
+| `shipped` | `sh` | first 2 |
+| `final` | `fin` | first 3 |
+| `items` | `its` | first 3 |
+| `spent` | `sp` | first 2 |
+
+Function names and field names in constructors keep their full form (they define the public interface).
 
 ## Complete Example
 
