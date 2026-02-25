@@ -331,7 +331,7 @@ def count_tokens(text: str) -> int:
     return len(ENC.encode(text))
 
 
-def count_folder(folder: Path, extensions: list[str]) -> dict[str, int]:
+def count_folder(folder: Path, extensions: list[str]) -> dict[str, tuple[int, int]]:
     results = {}
     for ext in extensions:
         for f in sorted(folder.glob(f"*{ext}")):
@@ -339,36 +339,41 @@ def count_folder(folder: Path, extensions: list[str]) -> dict[str, int]:
             cleaned = strip_comments(raw, ext)
             if not cleaned.strip():
                 continue
-            results[f.name] = count_tokens(cleaned)
+            results[f.name] = (count_tokens(cleaned), len(cleaned))
     return results
 
 
 def print_token_counts():
     print("=" * 70)
-    print("Token comparison vs Python (cl100k_base)")
+    print("Token and character comparison vs Python (cl100k_base)")
     print("=" * 70)
 
     # Collect totals for all ideas
-    totals = {}
+    tok_totals = {}
+    char_totals = {}
     for folder_name, exts in FOLDERS.items():
         folder = EXAMPLES_DIR / folder_name
         if not folder.exists():
             continue
         counts = count_folder(folder, exts)
         if counts:
-            totals[folder_name] = sum(counts.values())
+            tok_totals[folder_name] = sum(t for t, c in counts.values())
+            char_totals[folder_name] = sum(c for t, c in counts.values())
 
-    py_total = totals.get("python-baseline", 1)
+    py_tok = tok_totals.get("python-baseline", 1)
+    py_char = char_totals.get("python-baseline", 1)
 
-    print(f"\n  {'Idea':30s}  {'Tokens':>7s}  {'vs Python':>10s}")
-    print(f"  {'-' * 51}")
+    print(f"\n  {'Idea':30s}  {'Tokens':>7s}  {'vs Py':>6s}  {'Chars':>7s}  {'vs Py':>6s}")
+    print(f"  {'-' * 60}")
     for folder_name in FOLDERS:
-        if folder_name not in totals:
+        if folder_name not in tok_totals:
             continue
-        total = totals[folder_name]
-        ratio = total / py_total if py_total else 0
-        marker = "" if folder_name != "python-baseline" else "  (baseline)"
-        print(f"  {folder_name:30s}  {total:7d}  {ratio:>9.2f}x{marker}")
+        tok = tok_totals[folder_name]
+        chars = char_totals[folder_name]
+        tok_r = tok / py_tok if py_tok else 0
+        char_r = chars / py_char if py_char else 0
+        marker = "" if folder_name != "python-baseline" else "  *"
+        print(f"  {folder_name:30s}  {tok:7d}  {tok_r:>5.2f}x  {chars:7d}  {char_r:>5.2f}x{marker}")
 
     print()
 
@@ -877,17 +882,20 @@ def write_summary():
     lines = []
     w = lines.append
 
-    # Token counts
-    totals = {}
+    # Token and char counts
+    tok_totals = {}
+    char_totals = {}
     for folder_name, exts in FOLDERS.items():
         folder = EXAMPLES_DIR / folder_name
         if not folder.exists():
             continue
         counts = count_folder(folder, exts)
         if counts:
-            totals[folder_name] = sum(counts.values())
+            tok_totals[folder_name] = sum(t for t, c in counts.values())
+            char_totals[folder_name] = sum(c for t, c in counts.values())
 
-    py_total = totals.get("python-baseline", 1)
+    py_tok = tok_totals.get("python-baseline", 1)
+    py_char = char_totals.get("python-baseline", 1)
 
     # Load all result files
     def load_results(filename):
@@ -915,16 +923,18 @@ def write_summary():
     w("ilo syntax comparison")
     w("=" * 90)
     w("")
-    w(f"  {'Idea':<28s}  {'Tokens':>6s}  {'vs Py':>6s}  {'Score':>6s}  {'Out tok':>7s}")
-    w(f"  {'-' * 60}")
+    w(f"  {'Idea':<28s}  {'Tokens':>6s}  {'vs Py':>6s}  {'Chars':>6s}  {'vs Py':>6s}  {'Score':>6s}  {'Out tok':>7s}")
+    w(f"  {'-' * 74}")
 
     all_ideas = list(FOLDERS.keys())
     for idea in all_ideas:
-        tok = totals.get(idea)
+        tok = tok_totals.get(idea)
         if tok is None:
             continue
 
-        ratio = f"{tok / py_total:.2f}x" if py_total else "—"
+        chars = char_totals.get(idea, 0)
+        tok_r = f"{tok / py_tok:.2f}x" if py_tok else "—"
+        char_r = f"{chars / py_char:.2f}x" if py_char else "—"
         baseline = "  *" if idea == "python-baseline" else ""
 
         full = avg_score(full_results, idea)
@@ -933,11 +943,11 @@ def write_summary():
         full_s = f"{full:.1f}" if full is not None else "—"
         out_s = f"{out:.0f}" if out is not None else "—"
 
-        w(f"  {idea:<28s}  {tok:>6d}  {ratio:>6s}  {full_s:>6s}  {out_s:>7s}{baseline}")
+        w(f"  {idea:<28s}  {tok:>6d}  {tok_r:>6s}  {chars:>6d}  {char_r:>6s}  {full_s:>6s}  {out_s:>7s}{baseline}")
 
     w("")
     w("  Tokens  = total tokens across 5 examples (cl100k_base, comments stripped)")
-    w("  vs Py   = token ratio vs python-baseline")
+    w("  Chars   = total characters")
     w("  Score   = LLM generation accuracy /10 (spec + all examples, claude-haiku-4-5)")
     w("  Out tok = avg output tokens generated")
     w("  * = baseline")
