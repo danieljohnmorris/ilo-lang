@@ -724,6 +724,31 @@ pub fn compile_and_run(program: &Program, func_name: Option<&str>, args: Vec<Val
     run(&compiled, func_name, args)
 }
 
+/// Reusable VM handle — avoids re-allocating stack/frames per call.
+pub struct VmState<'a> {
+    vm: VM<'a>,
+}
+
+impl<'a> VmState<'a> {
+    pub fn new(compiled: &'a CompiledProgram) -> Self {
+        VmState { vm: VM::new(compiled) }
+    }
+
+    pub fn call(&mut self, func_name: &str, args: Vec<Value>) -> Result<Value, String> {
+        // Drop any leaked NanVals from a prior failed call
+        for v in self.vm.stack.drain(..) {
+            v.drop_rc();
+        }
+        self.vm.frames.clear();
+
+        let func_idx = self.vm.program.func_index(func_name)
+            .ok_or_else(|| format!("undefined function: {}", func_name))?;
+        let nan_args: Vec<NanVal> = args.iter().map(|v| NanVal::from_value(v)).collect();
+        self.vm.setup_call(func_idx, nan_args);
+        self.vm.execute()
+    }
+}
+
 struct CallFrame {
     chunk_idx: u16,
     ip: usize,

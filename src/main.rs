@@ -152,6 +152,27 @@ fn run_bench(program: &ast::Program, func_name: Option<&str>, args: &[interprete
     println!("  per call:   {}ns", vm_ns);
     println!();
 
+    // -- Bytecode VM (reusable) benchmark --
+    let call_name = func_name.unwrap_or(compiled.func_names.first().map(|s| s.as_str()).unwrap_or("main"));
+    let mut vm_state = vm::VmState::new(&compiled);
+    for _ in 0..100 {
+        let _ = vm_state.call(call_name, args.to_vec());
+    }
+
+    let start = Instant::now();
+    for _ in 0..iterations {
+        vm_result = vm_state.call(call_name, args.to_vec()).unwrap();
+    }
+    let vm_reuse_dur = start.elapsed();
+    let vm_reuse_ns = vm_reuse_dur.as_nanos() / iterations as u128;
+
+    println!("Bytecode VM (reusable)");
+    println!("  result:     {}", vm_result);
+    println!("  iterations: {}", iterations);
+    println!("  total:      {:.2}ms", vm_reuse_dur.as_nanos() as f64 / 1e6);
+    println!("  per call:   {}ns", vm_reuse_ns);
+    println!();
+
     // -- Python transpiler benchmark (single invocation) --
     let py_code = codegen::python::emit(program);
     let call_func = func_name.unwrap_or("main").replace('-', "_");
@@ -234,6 +255,13 @@ print(f"__NS__={{_per}}")
                 println!("  Bytecode VM is {:.1}x faster than Python", py as f64 / vm_ns as f64);
             } else {
                 println!("  Python is {:.1}x faster than bytecode VM", vm_ns as f64 / py as f64);
+            }
+        }
+        if vm_reuse_ns > 0 && py > 0 {
+            if vm_reuse_ns < py {
+                println!("  VM (reusable) is {:.1}x faster than Python", py as f64 / vm_reuse_ns as f64);
+            } else {
+                println!("  Python is {:.1}x faster than VM (reusable)", vm_reuse_ns as f64 / py as f64);
             }
         }
     }
