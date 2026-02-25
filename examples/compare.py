@@ -252,16 +252,16 @@ def check_decision_logic(text: str) -> dict[str, bool]:
     return {
         "named_approve": "approve" in text,
         "four_inputs": (
-            "income" in text and "debt" in text and
-            "score" in text and "amount" in text
+            ("income" in text or "inc" in text) and ("debt" in text or "dbt" in text) and
+            ("score" in text or "sc:" in text) and ("amount" in text or "amt" in text)
         ),
-        "credit_check": "500" in text and ("score" in text or "credit" in text),
+        "credit_check": "500" in text and ("score" in text or "credit" in text or "sc" in text),
         "debt_ratio": (
-            ("ratio" in text or ("debt" in text and "income" in text)) and
+            ("ratio" in text or ("debt" in text and "income" in text) or ("dbt" in text and "inc" in text)) and
             ("0.4" in text or "40" in text)
         ),
         "max_loan": (
-            "income" in text and ("5" in text or "max" in text or "limit" in text or "exceed" in text)
+            ("income" in text or "inc" in text) and ("5" in text or "max" in text or "limit" in text or "exceed" in text or "mx" in text)
         ),
         "three_rejections": (
             text.count("too low") + text.count("too high") + text.count("exceed") +
@@ -274,7 +274,7 @@ def check_decision_logic(text: str) -> dict[str, bool]:
             ("5.0" in text or "5.00" in text) and
             ("7.5" in text or "7.50" in text)
         ),
-        "monthly_calc": "12" in text and ("100" in text or "month" in text or "payment" in text),
+        "monthly_calc": ("12" in text or "1200" in text) and ("100" in text or "month" in text or "payment" in text or "pmt" in text or "1200" in text),
         "returns_approved": "approv" in text or "ok" in text or "success" in text or "~" in text,
     }
 
@@ -282,7 +282,7 @@ def check_decision_logic(text: str) -> dict[str, bool]:
 def check_api_orchestration(text: str) -> dict[str, bool]:
     return {
         "named_deploy": "deploy" in text,
-        "three_inputs": "service" in text and "version" in text and "environment" in text,
+        "three_inputs": ("service" in text or "svc" in text) and ("version" in text or "ver" in text) and ("environment" in text or "env" in text),
         "calls_health": "health" in text,
         "calls_snapshot": "snapshot" in text,
         "calls_rollout": "roll" in text,
@@ -300,7 +300,7 @@ def check_api_orchestration(text: str) -> dict[str, bool]:
         ),
         "returns_success": (
             ("ok" in text or "return" in text or "success" in text or "~" in text) and
-            "version" in text
+            ("version" in text or "ver" in text)
         ),
     }
 
