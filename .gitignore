@@ -1,5 +1,6 @@
 /target
 .env
+__pycache__/
 examples/test-output.txt
 examples/comprehension-results.json
 examples/rules-results.json

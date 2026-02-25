@@ -13,6 +13,7 @@ Token comparison vs Python (cl100k_base)
   idea5-workflow-dag                  710       0.82x
   idea6-mcp-composition               956       1.10x
   idea7-dense-wire                    351       0.40x
+  idea8-ultra-dense                   293       0.34x
 
 
 ======================================================================
@@ -21,14 +22,15 @@ Full Test (spec + all examples)
 
   Idea                               Score    Tokens     Time
   ---------------------------------------------------------
-  idea1                           10.0/10      344    2.73s
-  idea1-compact                   10.0/10      226    2.44s
-  idea2-tool-calling              10.0/10      450    3.15s
-  idea3-constrained-decoding      10.0/10      204    1.83s
-  idea4-ast-bytecode              9.8/10      321    3.53s
-  idea5-workflow-dag              10.0/10      229    1.80s
-  idea6-mcp-composition           9.5/10      327    2.96s
-  idea7-dense-wire                10.0/10      221    3.01s
+  idea1                           10.0/10      360    2.87s
+  idea1-compact                   10.0/10      230    2.43s
+  idea2-tool-calling              10.0/10      345    2.46s
+  idea3-constrained-decoding      10.0/10      204    2.23s
+  idea4-ast-bytecode              9.8/10      320    3.40s
+  idea5-workflow-dag              10.0/10      227    1.91s
+  idea6-mcp-composition           9.8/10      318    2.65s
+  idea7-dense-wire                10.0/10      205    2.45s
+  idea8-ultra-dense               8.5/10      100    2.05s
 
   Per-task scores (avg across trials):
 
@@ -40,8 +42,9 @@ Full Test (spec + all examples)
   idea3-constrained-decoding           10.0       10.0       10.0       10.0
   idea4-ast-bytecode                   10.0       10.0        9.0       10.0
   idea5-workflow-dag                   10.0       10.0       10.0       10.0
-  idea6-mcp-composition                 9.0       10.0        9.0       10.0
+  idea6-mcp-composition                 9.0       10.0       10.0       10.0
   idea7-dense-wire                     10.0       10.0       10.0       10.0
+  idea8-ultra-dense                     8.0        7.0       10.0        9.0
 
 
 ======================================================================
