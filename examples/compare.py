@@ -869,11 +869,11 @@ def run_full_tests(n_trials: int):
 
 
 def write_summary():
-    """Write a clean summary file with just the token table + 3 test summary tables."""
+    """Write a consolidated summary: one row per idea with tokens + all test scores."""
     lines = []
     w = lines.append
 
-    # Token comparison table
+    # Token counts
     totals = {}
     for folder_name, exts in FOLDERS.items():
         folder = EXAMPLES_DIR / folder_name
@@ -885,116 +885,84 @@ def write_summary():
 
     py_total = totals.get("python-baseline", 1)
 
-    w("=" * 70)
-    w("Token comparison vs Python (cl100k_base)")
-    w("=" * 70)
-    w(f"\n  {'Idea':30s}  {'Tokens':>7s}  {'vs Python':>10s}")
-    w(f"  {'-' * 51}")
-    for folder_name in FOLDERS:
-        if folder_name not in totals:
+    # Load all result files
+    def load_results(filename):
+        path = EXAMPLES_DIR / filename
+        if path.exists():
+            data = json.loads(path.read_text())
+            return data if data else []
+        return []
+
+    full_results = load_results("full-results.json")
+
+    def avg_score(results, idea):
+        r = [x for x in results if x["idea"] == idea]
+        if not r:
+            return None
+        return sum(sum(x["features"].values()) for x in r) / len(r)
+
+    def avg_out_tokens(results, idea):
+        r = [x for x in results if x["idea"] == idea]
+        if not r:
+            return None
+        return sum(x["output_tokens"] for x in r) / len(r)
+
+    # Main consolidated table
+    w("ilo syntax comparison")
+    w("=" * 90)
+    w("")
+    w(f"  {'Idea':<28s}  {'Tokens':>6s}  {'vs Py':>6s}  {'Score':>6s}  {'Out tok':>7s}")
+    w(f"  {'-' * 60}")
+
+    all_ideas = list(FOLDERS.keys())
+    for idea in all_ideas:
+        tok = totals.get(idea)
+        if tok is None:
             continue
-        total = totals[folder_name]
-        ratio = total / py_total if py_total else 0
-        marker = "" if folder_name != "python-baseline" else "  (baseline)"
-        w(f"  {folder_name:30s}  {total:7d}  {ratio:>9.2f}x{marker}")
 
-    task_names = list(TASKS.keys())
+        ratio = f"{tok / py_total:.2f}x" if py_total else "—"
+        baseline = "  *" if idea == "python-baseline" else ""
 
-    # Helper to load and summarise a results JSON
-    def summarise_generation(path, title, ideas):
-        if not path.exists():
-            return
-        results = json.loads(path.read_text())
-        if not results:
-            return
-        w(f"\n\n{'=' * 70}")
-        w(f"{title}")
-        w(f"{'=' * 70}")
-        w(f"\n  {'Idea':30s}  {'Score':>8s}  {'Tokens':>8s}  {'Time':>7s}")
-        w(f"  {'-' * 57}")
-        for idea in ideas:
-            idea_results = [r for r in results if r["idea"] == idea]
-            if not idea_results:
+        full = avg_score(full_results, idea)
+        out = avg_out_tokens(full_results, idea)
+
+        full_s = f"{full:.1f}" if full is not None else "—"
+        out_s = f"{out:.0f}" if out is not None else "—"
+
+        w(f"  {idea:<28s}  {tok:>6d}  {ratio:>6s}  {full_s:>6s}  {out_s:>7s}{baseline}")
+
+    w("")
+    w("  Tokens  = total tokens across 5 examples (cl100k_base, comments stripped)")
+    w("  vs Py   = token ratio vs python-baseline")
+    w("  Score   = LLM generation accuracy /10 (spec + all examples, claude-haiku-4-5)")
+    w("  Out tok = avg output tokens generated")
+    w("  * = baseline")
+
+    # Per-task breakdown for Full test (most useful detail)
+    if full_results:
+        task_names = list(TASKS.keys())
+        w("")
+        w("")
+        w("Per-task breakdown (Full test)")
+        w("=" * 90)
+        w("")
+        w(f"  {'Idea':<28s}  {'workflow':>10s}  {'data_pipe':>10s}  {'decision':>10s}  {'api_orch':>10s}")
+        w(f"  {'-' * 72}")
+        for idea in all_ideas:
+            if idea == "python-baseline":
                 continue
-            avg_score = sum(sum(r["features"].values()) for r in idea_results) / len(idea_results)
-            avg_tokens = sum(r["output_tokens"] for r in idea_results) / len(idea_results)
-            avg_time = sum(r["elapsed_s"] for r in idea_results) / len(idea_results)
-            w(f"  {idea:30s}  {avg_score:.1f}/10  {avg_tokens:>7.0f}  {avg_time:>6.2f}s")
-
-        w(f"\n  Per-task scores (avg across trials):")
-        w(f"\n  {'Idea':30s}" + "".join(f"  {t[:10]:>10s}" for t in task_names))
-        w(f"  {'-' * (30 + 12 * len(task_names))}")
-        for idea in ideas:
-            row = f"  {idea:30s}"
-            idea_results = [r for r in results if r["idea"] == idea]
-            if not idea_results:
+            idea_r = [r for r in full_results if r["idea"] == idea]
+            if not idea_r:
                 continue
+            row = f"  {idea:<28s}"
             for task_name in task_names:
-                task_results = [r for r in idea_results if r["task"] == task_name]
-                if task_results:
-                    avg = sum(sum(r["features"].values()) for r in task_results) / len(task_results)
+                task_r = [r for r in idea_r if r["task"] == task_name]
+                if task_r:
+                    avg = sum(sum(r["features"].values()) for r in task_r) / len(task_r)
                     row += f"  {avg:>9.1f}"
                 else:
                     row += f"  {'—':>9s}"
             w(row)
-
-    # Table 1: Full (spec + all examples) — most realistic
-    summarise_generation(
-        EXAMPLES_DIR / "full-results.json",
-        "Full Test (spec + all examples)",
-        IDEAS,
-    )
-
-    # Table 2: Generation from examples (one-shot)
-    summarise_generation(
-        EXAMPLES_DIR / "test-results.json",
-        "Generation from Examples (one-shot)",
-        IDEAS,
-    )
-
-    # Table 3: Comprehension
-    comp_path = EXAMPLES_DIR / "comprehension-results.json"
-    if comp_path.exists():
-        results = json.loads(comp_path.read_text())
-        if results:
-            examples_to_test = list(COMPREHEND_EXAMPLES.keys())
-            w(f"\n\n{'=' * 70}")
-            w("Comprehension (explain what the program does)")
-            w(f"{'=' * 70}")
-            w(f"\n  {'Idea':30s}  {'Score':>8s}  {'Tokens':>8s}")
-            w(f"  {'-' * 50}")
-            for idea in ALL_IDEAS:
-                idea_results = [r for r in results if r["idea"] == idea]
-                if not idea_results:
-                    continue
-                max_score = len(list(COMPREHEND_EXAMPLES.values())[0]["checkers"])
-                avg_score = sum(sum(r["features"].values()) for r in idea_results) / len(idea_results)
-                avg_tokens = sum(r["output_tokens"] for r in idea_results) / len(idea_results)
-                w(f"  {idea:30s}  {avg_score:.1f}/{max_score}   {avg_tokens:>7.0f}")
-
-            w(f"\n  Per-example scores (avg across trials):")
-            w(f"\n  {'Idea':30s}" + "".join(f"  {ex[:15]:>15s}" for ex in examples_to_test))
-            w(f"  {'-' * (30 + 17 * len(examples_to_test))}")
-            for idea in ALL_IDEAS:
-                row = f"  {idea:30s}"
-                has_data = False
-                for example_name in examples_to_test:
-                    ex_results = [r for r in results if r["idea"] == idea and r["example"] == example_name]
-                    if ex_results:
-                        avg = sum(sum(r["features"].values()) for r in ex_results) / len(ex_results)
-                        row += f"  {avg:>14.1f}"
-                        has_data = True
-                    else:
-                        row += f"  {'—':>14s}"
-                if has_data:
-                    w(row)
-
-    # Table 4: Generation from rules
-    summarise_generation(
-        EXAMPLES_DIR / "rules-results.json",
-        "Generation from Rules (spec only, no examples)",
-        IDEAS,
-    )
 
     w("")
 

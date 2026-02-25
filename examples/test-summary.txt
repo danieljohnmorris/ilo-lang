@@ -1,136 +1,37 @@
-======================================================================
-Token comparison vs Python (cl100k_base)
-======================================================================
+ilo syntax comparison
+==========================================================================================
 
-  Idea                             Tokens   vs Python
-  ---------------------------------------------------
-  python-baseline                     871       1.00x  (baseline)
-  idea1                               921       1.06x
-  idea1-compact                       677       0.78x
-  idea2-tool-calling                  983       1.13x
-  idea3-constrained-decoding          598       0.69x
-  idea4-ast-bytecode                  584       0.67x
-  idea5-workflow-dag                  710       0.82x
-  idea6-mcp-composition               956       1.10x
-  idea7-dense-wire                    351       0.40x
-  idea8-ultra-dense                   293       0.34x
+  Idea                          Tokens   vs Py   Score  Out tok
+  ------------------------------------------------------------
+  python-baseline                  871   1.00x       —        —  *
+  idea1                            921   1.06x    10.0      360
+  idea1-compact                    677   0.78x    10.0      230
+  idea2-tool-calling               983   1.13x    10.0      345
+  idea3-constrained-decoding       598   0.69x    10.0      204
+  idea4-ast-bytecode               584   0.67x     9.8      320
+  idea5-workflow-dag               710   0.82x    10.0      227
+  idea6-mcp-composition            956   1.10x     9.8      318
+  idea7-dense-wire                 351   0.40x    10.0      205
+  idea8-ultra-dense                293   0.34x     8.5      100
 
-
-======================================================================
-Full Test (spec + all examples)
-======================================================================
-
-  Idea                               Score    Tokens     Time
-  ---------------------------------------------------------
-  idea1                           10.0/10      360    2.87s
-  idea1-compact                   10.0/10      230    2.43s
-  idea2-tool-calling              10.0/10      345    2.46s
-  idea3-constrained-decoding      10.0/10      204    2.23s
-  idea4-ast-bytecode              9.8/10      320    3.40s
-  idea5-workflow-dag              10.0/10      227    1.91s
-  idea6-mcp-composition           9.8/10      318    2.65s
-  idea7-dense-wire                10.0/10      205    2.45s
-  idea8-ultra-dense               8.5/10      100    2.05s
-
-  Per-task scores (avg across trials):
-
-  Idea                              workflow  data_pipel  decision_l  api_orches
-  ------------------------------------------------------------------------------
-  idea1                                10.0       10.0       10.0       10.0
-  idea1-compact                        10.0       10.0       10.0       10.0
-  idea2-tool-calling                   10.0       10.0       10.0       10.0
-  idea3-constrained-decoding           10.0       10.0       10.0       10.0
-  idea4-ast-bytecode                   10.0       10.0        9.0       10.0
-  idea5-workflow-dag                   10.0       10.0       10.0       10.0
-  idea6-mcp-composition                 9.0       10.0       10.0       10.0
-  idea7-dense-wire                     10.0       10.0       10.0       10.0
-  idea8-ultra-dense                     8.0        7.0       10.0        9.0
+  Tokens  = total tokens across 5 examples (cl100k_base, comments stripped)
+  vs Py   = token ratio vs python-baseline
+  Score   = LLM generation accuracy /10 (spec + all examples, claude-haiku-4-5)
+  Out tok = avg output tokens generated
+  * = baseline
 
 
-======================================================================
-Generation from Examples (one-shot)
-======================================================================
+Per-task breakdown (Full test)
+==========================================================================================
 
-  Idea                               Score    Tokens     Time
-  ---------------------------------------------------------
-  idea1                           9.8/10      242    2.17s
-  idea1-compact                   9.5/10      145    2.18s
-  idea2-tool-calling              9.8/10      357    2.49s
-  idea3-constrained-decoding      9.5/10      250    2.44s
-  idea4-ast-bytecode              7.2/10      153    2.49s
-  idea5-workflow-dag              9.8/10      250    2.15s
-  idea6-mcp-composition           10.0/10      215    2.20s
-  idea7-dense-wire                9.5/10      117    1.84s
-
-  Per-task scores (avg across trials):
-
-  Idea                              workflow  data_pipel  decision_l  api_orches
-  ------------------------------------------------------------------------------
-  idea1                                10.0        9.0       10.0       10.0
-  idea1-compact                        10.0        9.0       10.0        9.0
-  idea2-tool-calling                   10.0        9.0       10.0       10.0
-  idea3-constrained-decoding            9.0        9.0       10.0       10.0
-  idea4-ast-bytecode                    7.0        5.0        8.0        9.0
-  idea5-workflow-dag                   10.0        9.0       10.0       10.0
-  idea6-mcp-composition                10.0       10.0       10.0       10.0
-  idea7-dense-wire                     10.0        9.0       10.0        9.0
-
-
-======================================================================
-Comprehension (explain what the program does)
-======================================================================
-
-  Idea                               Score    Tokens
-  --------------------------------------------------
-  python-baseline                 8.0/8       452
-  idea1                           8.0/8       370
-  idea1-compact                   8.0/8       386
-  idea2-tool-calling              8.0/8       367
-  idea3-constrained-decoding      8.0/8       374
-  idea4-ast-bytecode              7.5/8       444
-  idea5-workflow-dag              8.0/8       364
-  idea6-mcp-composition           7.0/8       430
-  idea7-dense-wire                8.0/8       370
-
-  Per-example scores (avg across trials):
-
-  Idea                            04-tool-interac      05-workflow
-  ----------------------------------------------------------------
-  python-baseline                            8.0             8.0
-  idea1                                      8.0             8.0
-  idea1-compact                              8.0             8.0
-  idea2-tool-calling                         8.0             8.0
-  idea3-constrained-decoding                 8.0             8.0
-  idea4-ast-bytecode                         7.0             8.0
-  idea5-workflow-dag                         8.0             8.0
-  idea6-mcp-composition                      7.0             7.0
-  idea7-dense-wire                           8.0             8.0
-
-
-======================================================================
-Generation from Rules (spec only, no examples)
-======================================================================
-
-  Idea                               Score    Tokens     Time
-  ---------------------------------------------------------
-  idea1                           10.0/10      321    2.80s
-  idea1-compact                   10.0/10      260    3.90s
-  idea2-tool-calling              10.0/10      478    3.88s
-  idea3-constrained-decoding      9.8/10      192    1.97s
-  idea4-ast-bytecode              10.0/10      323    3.56s
-  idea5-workflow-dag              10.0/10      243    2.16s
-  idea6-mcp-composition           9.5/10      346    3.92s
-  idea7-dense-wire                10.0/10      216    2.98s
-
-  Per-task scores (avg across trials):
-
-  Idea                              workflow  data_pipel  decision_l  api_orches
-  ------------------------------------------------------------------------------
-  idea1                                10.0       10.0       10.0       10.0
-  idea1-compact                        10.0       10.0       10.0       10.0
-  idea2-tool-calling                   10.0       10.0       10.0       10.0
-  idea3-constrained-decoding           10.0       10.0        9.0       10.0
-  idea4-ast-bytecode                   10.0       10.0       10.0       10.0
-  idea5-workflow-dag                   10.0       10.0       10.0       10.0
-  idea6-mcp-composition                 9.0        9.0       10.0       10.0
-  idea7-dense-wire                     10.0       10.0       10.0       10.0
+  Idea                            workflow   data_pipe    decision    api_orch
+  ------------------------------------------------------------------------
+  idea1                              10.0       10.0       10.0       10.0
+  idea1-compact                      10.0       10.0       10.0       10.0
+  idea2-tool-calling                 10.0       10.0       10.0       10.0
+  idea3-constrained-decoding         10.0       10.0       10.0       10.0
+  idea4-ast-bytecode                 10.0       10.0        9.0       10.0
+  idea5-workflow-dag                 10.0       10.0       10.0       10.0
+  idea6-mcp-composition               9.0       10.0       10.0       10.0
+  idea7-dense-wire                   10.0       10.0       10.0       10.0
+  idea8-ultra-dense                   8.0        7.0       10.0        9.0
