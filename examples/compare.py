@@ -2,13 +2,9 @@
 """Token count comparison and cold-LLM testing for ilo syntax ideas.
 
 Usage:
-    python3 examples/compare.py                      # token counts only
-    python3 examples/compare.py --test               # generation from examples
-    python3 examples/compare.py --test-comprehend    # comprehension test
-    python3 examples/compare.py --test-rules         # generation from rules
-    python3 examples/compare.py --test-full           # full test (spec + all examples)
-    python3 examples/compare.py --test-all           # all four tests
-    python3 examples/compare.py --test-all -n 3      # 3 trials each
+    python3 examples/compare.py              # token counts only
+    python3 examples/compare.py --test       # full test (spec + all examples)
+    python3 examples/compare.py --test -n 3  # 3 trials each
 
 Requires: pip install tiktoken
 For tests: pip install anthropic (and set ANTHROPIC_API_KEY)
@@ -52,7 +48,6 @@ COMMENT_PREFIXES = {
     ".ast": ";",
 }
 
-# All ideas with 5 examples get tested
 IDEAS = [
     "idea1",
     "idea1-compact",
@@ -65,18 +60,6 @@ IDEAS = [
     "idea8-ultra-dense",
     "idea9-ultra-dense-short",
 ]
-
-# All ideas including python-baseline (for comprehension tests)
-ALL_IDEAS = ["python-baseline"] + IDEAS
-
-TEST_PROMPT = """You are being given ONE example of a programming format. Study it carefully, then write a new program in the SAME format.
-
-{examples}
-
-Task:
-{task}
-
-Output ONLY the code in the same format as the example above. No explanation, no markdown fences."""
 
 FULL_PROMPT = """You are being given the specification and examples of a programming format. Study them carefully, then write a new program in the SAME format.
 
@@ -93,59 +76,6 @@ Task:
 
 Output ONLY the code in the same format as the examples above. No explanation, no markdown fences."""
 
-RULES_PROMPT = """You are being given the specification for a programming format. Study it carefully, then write a program in that format.
-
-{rules}
-
-Task:
-{task}
-
-Output ONLY the code in the format described above. No explanation, no markdown fences."""
-
-COMPREHEND_PROMPT = """Here is a program written in a custom format. You have never seen this format before. Read it carefully and explain what it does.
-
-{program}
-
-What does this program do? Explain:
-1. The function name and purpose
-2. Its inputs
-3. The steps it performs (including any tool/function calls)
-4. Any error handling or conditional logic
-5. What it returns
-
-Be specific and precise."""
-
-
-# Comprehension test examples and their checkers
-COMPREHEND_EXAMPLES = {
-    "04-tool-interaction": {
-        "checkers": {
-            "mentions_notify": lambda t: "notify" in t,
-            "mentions_user_id_input": lambda t: "user" in t and "id" in t,
-            "mentions_message_input": lambda t: "message" in t,
-            "calls_get_user": lambda t: ("get" in t or "fetch" in t or "lookup" in t or "look" in t) and "user" in t,
-            "calls_send_email": lambda t: ("send" in t or "dispatch" in t) and "email" in t,
-            "checks_verified": lambda t: "verif" in t or "verified" in t or "validation" in t,
-            "handles_errors": lambda t: "error" in t or "fail" in t or "err" in t or "exception" in t,
-            "returns_result": lambda t: "return" in t or "result" in t or "success" in t or "ok" in t,
-        },
-    },
-    "05-workflow": {
-        "checkers": {
-            "mentions_checkout": lambda t: "checkout" in t or "check" in t,
-            "mentions_payment_input": lambda t: "payment" in t,
-            "mentions_items_input": lambda t: "item" in t or "inventory" in t,
-            "calls_reserve": lambda t: "reserve" in t or "reservation" in t or "inventory" in t,
-            "calls_charge": lambda t: "charge" in t or "payment" in t,
-            "compensates_release": lambda t: "release" in t or "rollback" in t or "undo" in t or "compensat" in t,
-            "handles_errors": lambda t: "error" in t or "fail" in t or "err" in t or "exception" in t,
-            "returns_result": lambda t: "return" in t or "result" in t or "order" in t,
-        },
-    },
-}
-
-# Multiple test tasks covering different use cases.
-# Each has: description, checker function.
 TASKS = {
     "workflow": {
         "desc": """Write a program called `transfer` that moves money between accounts:
@@ -188,7 +118,7 @@ TASKS = {
 
 def check_workflow(text: str) -> dict[str, bool]:
     return {
-        "named_transfer": "transfer" in text,
+        "named_transfer": "transfer" in text or "xfr" in text or "trf" in text or "tfr" in text,
         "three_inputs": (
             ("from" in text or "source" in text) and
             ("to" in text or "dest" in text) and
@@ -222,8 +152,8 @@ def check_workflow(text: str) -> dict[str, bool]:
 
 def check_data_pipeline(text: str) -> dict[str, bool]:
     return {
-        "named_enrich": "enrich" in text,
-        "takes_orders": "order" in text,
+        "named_enrich": "enrich" in text or "enr" in text,
+        "takes_orders": "order" in text or "ord" in text,
         "iterates": (
             "for" in text or "map" in text or "each" in text or
             "yield" in text or "items" in text or "@" in text
@@ -250,7 +180,7 @@ def check_data_pipeline(text: str) -> dict[str, bool]:
 
 def check_decision_logic(text: str) -> dict[str, bool]:
     return {
-        "named_approve": "approve" in text,
+        "named_approve": "approve" in text or "aprv" in text or "appr" in text,
         "four_inputs": (
             ("income" in text or "inc" in text) and ("debt" in text or "dbt" in text) and
             ("score" in text or "sc:" in text) and ("amount" in text or "amt" in text)
@@ -295,7 +225,6 @@ def check_api_orchestration(text: str) -> dict[str, bool]:
             "restore" in text and "snapshot" in text
         ),
         "post_deploy_health": (
-            # health-check appears at least twice (before and after deploy)
             text.count("health") >= 2
         ),
         "returns_success": (
@@ -348,7 +277,6 @@ def print_token_counts():
     print("Token and character comparison vs Python (cl100k_base)")
     print("=" * 70)
 
-    # Collect totals for all ideas
     tok_totals = {}
     char_totals = {}
     for folder_name, exts in FOLDERS.items():
@@ -378,20 +306,6 @@ def print_token_counts():
     print()
 
 
-def load_examples(idea: str) -> str:
-    """Load only example 01 from an idea folder — forces extrapolation."""
-    folder = EXAMPLES_DIR / idea
-    exts = FOLDERS.get(idea, [".ilo"])
-    parts = []
-    for ext in exts:
-        for f in sorted(folder.glob(f"01-*{ext}")):
-            raw = f.read_text()
-            cleaned = strip_comments(raw, ext)
-            if cleaned.strip():
-                parts.append(f"Example ({f.name}):\n{cleaned}")
-    return "\n\n".join(parts)
-
-
 def load_all_examples(idea: str) -> str:
     """Load all examples from an idea folder."""
     folder = EXAMPLES_DIR / idea
@@ -404,121 +318,6 @@ def load_all_examples(idea: str) -> str:
             if cleaned.strip():
                 parts.append(f"Example ({f.name}):\n{cleaned}")
     return "\n\n".join(parts)
-
-
-def run_test(idea: str, task_name: str, client) -> dict:
-    """Run a single cold-LLM test for an idea + task. Returns results dict."""
-    examples_text = load_examples(idea)
-    task_desc = TASKS[task_name]["desc"]
-    prompt = TEST_PROMPT.format(examples=examples_text, task=task_desc)
-
-    prompt_tokens = count_tokens(prompt)
-    output, elapsed = call_haiku(client, prompt)
-    output_tokens = count_tokens(output)
-    checker = TASK_CHECKERS[task_name]
-    features = checker(output.lower())
-    score = sum(features.values())
-    total = len(features)
-
-    return {
-        "idea": idea,
-        "test_type": "examples",
-        "task": task_name,
-        "output": output,
-        "prompt_tokens": prompt_tokens,
-        "output_tokens": output_tokens,
-        "elapsed_s": round(elapsed, 2),
-        "features": features,
-        "score": f"{score}/{total}",
-    }
-
-
-def run_tests(n_trials: int):
-    """Run cold-LLM tests across all ideas and tasks."""
-    client = get_client()
-
-    task_names = list(TASKS.keys())
-    total_tests = len(IDEAS) * len(task_names) * n_trials
-    print("=" * 70)
-    print(f"Cold-LLM test (claude-haiku-4-5, {n_trials} trial(s), {len(task_names)} tasks)")
-    print(f"Total API calls: {total_tests}")
-    print("=" * 70)
-
-    all_results = []
-
-    for idea in IDEAS:
-        print(f"\n{'=' * 50}")
-        print(f"  {idea}")
-        print(f"{'=' * 50}")
-
-        for task_name in task_names:
-            print(f"\n  [{task_name}]")
-            task_results = []
-
-            for trial in range(1, n_trials + 1):
-                result = run_test(idea, task_name, client)
-                all_results.append(result)
-                task_results.append(result)
-
-                features = result["features"]
-                failed = [k for k, v in features.items() if not v]
-
-                label = f"    T{trial}: {result['score']} | {result['output_tokens']}tok"
-                if failed:
-                    label += f" | miss: {', '.join(failed)}"
-                print(label)
-
-            scores = [sum(r["features"].values()) for r in task_results]
-            avg = sum(scores) / len(scores)
-            avg_tokens = sum(r["output_tokens"] for r in task_results) / len(task_results)
-            print(f"    avg: {avg:.1f}/10 | {avg_tokens:.0f}tok")
-
-    # Cross-idea summary
-    print(f"\n{'=' * 70}")
-    print("Summary (averaged across all tasks and trials)")
-    print(f"{'=' * 70}")
-    print(f"\n  {'Idea':30s}  {'Score':>8s}  {'Tokens':>8s}  {'Time':>7s}")
-    print(f"  {'-' * 57}")
-    for idea in IDEAS:
-        idea_results = [r for r in all_results if r["idea"] == idea]
-        avg_score = sum(sum(r["features"].values()) for r in idea_results) / len(idea_results)
-        avg_tokens = sum(r["output_tokens"] for r in idea_results) / len(idea_results)
-        avg_time = sum(r["elapsed_s"] for r in idea_results) / len(idea_results)
-        print(f"  {idea:30s}  {avg_score:.1f}/10  {avg_tokens:>7.0f}  {avg_time:>6.2f}s")
-
-    # Per-task breakdown
-    print(f"\n  Per-task scores (avg across trials):")
-    print(f"\n  {'Idea':30s}", end="")
-    for t in task_names:
-        print(f"  {t[:10]:>10s}", end="")
-    print()
-    print(f"  {'-' * (30 + 12 * len(task_names))}")
-    for idea in IDEAS:
-        print(f"  {idea:30s}", end="")
-        for task_name in task_names:
-            task_results = [r for r in all_results if r["idea"] == idea and r["task"] == task_name]
-            avg = sum(sum(r["features"].values()) for r in task_results) / len(task_results)
-            print(f"  {avg:>9.1f}", end="")
-        print()
-
-    # Save raw results
-    results_path = EXAMPLES_DIR / "test-results.json"
-    with open(results_path, "w") as f:
-        json.dump(all_results, f, indent=2)
-    print(f"\n  Raw results saved to {results_path}")
-
-
-def load_example_file(idea: str, example_name: str) -> str:
-    """Load a specific example file from an idea folder."""
-    folder = EXAMPLES_DIR / idea
-    exts = FOLDERS.get(idea, [".ilo"])
-    for ext in exts:
-        for f in sorted(folder.glob(f"{example_name}*{ext}")):
-            raw = f.read_text()
-            cleaned = strip_comments(raw, ext)
-            if cleaned.strip():
-                return cleaned
-    return ""
 
 
 def load_rules(idea: str) -> str:
@@ -566,226 +365,22 @@ def call_haiku(client, prompt: str, max_tokens: int = 1000) -> tuple[str, float]
                 raise
 
 
-def run_comprehension_tests(n_trials: int):
-    """Run comprehension tests — can Haiku explain what a program does?"""
-    client = get_client()
-
-    examples_to_test = list(COMPREHEND_EXAMPLES.keys())
-    total_tests = len(ALL_IDEAS) * len(examples_to_test) * n_trials
-    print("=" * 70)
-    print(f"Comprehension test (claude-haiku-4-5, {n_trials} trial(s))")
-    print(f"Examples: {', '.join(examples_to_test)}")
-    print(f"Total API calls: {total_tests}")
-    print("=" * 70)
-
-    all_results = []
-
-    for idea in ALL_IDEAS:
-        print(f"\n{'=' * 50}")
-        print(f"  {idea}")
-        print(f"{'=' * 50}")
-
-        for example_name in examples_to_test:
-            program = load_example_file(idea, example_name)
-            if not program:
-                print(f"\n  [{example_name}] — skipped (no file)")
-                continue
-
-            checkers = COMPREHEND_EXAMPLES[example_name]["checkers"]
-            print(f"\n  [{example_name}]")
-
-            for trial in range(1, n_trials + 1):
-                prompt = COMPREHEND_PROMPT.format(program=program)
-                prompt_tokens = count_tokens(prompt)
-                output, elapsed = call_haiku(client, prompt, max_tokens=800)
-                output_lower = output.lower()
-                output_tokens = count_tokens(output)
-
-                features = {k: fn(output_lower) for k, fn in checkers.items()}
-                score = sum(features.values())
-                total = len(features)
-
-                result = {
-                    "idea": idea,
-                    "test_type": "comprehension",
-                    "example": example_name,
-                    "output": output,
-                    "prompt_tokens": prompt_tokens,
-                    "output_tokens": output_tokens,
-                    "elapsed_s": round(elapsed, 2),
-                    "features": features,
-                    "score": f"{score}/{total}",
-                }
-                all_results.append(result)
-
-                failed = [k for k, v in features.items() if not v]
-                label = f"    T{trial}: {score}/{total} | {output_tokens}tok"
-                if failed:
-                    label += f" | miss: {', '.join(failed)}"
-                print(label)
-
-    # Summary
-    print(f"\n{'=' * 70}")
-    print("Comprehension Summary")
-    print(f"{'=' * 70}")
-    print(f"\n  {'Idea':30s}  {'Score':>8s}  {'Tokens':>8s}")
-    print(f"  {'-' * 50}")
-    for idea in ALL_IDEAS:
-        idea_results = [r for r in all_results if r["idea"] == idea]
-        if not idea_results:
-            continue
-        max_score = len(list(COMPREHEND_EXAMPLES.values())[0]["checkers"])
-        avg_score = sum(sum(r["features"].values()) for r in idea_results) / len(idea_results)
-        avg_tokens = sum(r["output_tokens"] for r in idea_results) / len(idea_results)
-        print(f"  {idea:30s}  {avg_score:.1f}/{max_score}   {avg_tokens:>7.0f}")
-
-    # Per-example breakdown
-    print(f"\n  Per-example scores (avg across trials):")
-    print(f"\n  {'Idea':30s}", end="")
-    for ex in examples_to_test:
-        print(f"  {ex[:15]:>15s}", end="")
-    print()
-    print(f"  {'-' * (30 + 17 * len(examples_to_test))}")
-    for idea in ALL_IDEAS:
-        print(f"  {idea:30s}", end="")
-        for example_name in examples_to_test:
-            ex_results = [r for r in all_results if r["idea"] == idea and r["example"] == example_name]
-            if ex_results:
-                checkers = COMPREHEND_EXAMPLES[example_name]["checkers"]
-                avg = sum(sum(r["features"].values()) for r in ex_results) / len(ex_results)
-                print(f"  {avg:>14.1f}", end="")
-            else:
-                print(f"  {'skip':>14s}", end="")
-        print()
-
-    results_path = EXAMPLES_DIR / "comprehension-results.json"
-    with open(results_path, "w") as f:
-        json.dump(all_results, f, indent=2)
-    print(f"\n  Raw results saved to {results_path}")
-
-    return all_results
-
-
-def run_rules_tests(n_trials: int):
-    """Run rules-based generation tests — can Haiku write code from just the spec?"""
-    client = get_client()
-
-    task_names = list(TASKS.keys())
-    total_tests = len(IDEAS) * len(task_names) * n_trials
-    print("=" * 70)
-    print(f"Rules-based generation test (claude-haiku-4-5, {n_trials} trial(s), {len(task_names)} tasks)")
-    print(f"Ideas: {', '.join(IDEAS)}")
-    print(f"Total API calls: {total_tests}")
-    print("=" * 70)
-
-    all_results = []
-
-    for idea in IDEAS:
-        rules = load_rules(idea)
-        if not rules:
-            continue
-
-        print(f"\n{'=' * 50}")
-        print(f"  {idea}")
-        print(f"{'=' * 50}")
-
-        for task_name in task_names:
-            print(f"\n  [{task_name}]")
-            task_desc = TASKS[task_name]["desc"]
-            task_results = []
-
-            for trial in range(1, n_trials + 1):
-                prompt = RULES_PROMPT.format(rules=rules, task=task_desc)
-                prompt_tokens = count_tokens(prompt)
-                output, elapsed = call_haiku(client, prompt)
-                output_tokens = count_tokens(output)
-
-                checker = TASK_CHECKERS[task_name]
-                features = checker(output.lower())
-                score = sum(features.values())
-                total = len(features)
-
-                result = {
-                    "idea": idea,
-                    "test_type": "rules",
-                    "task": task_name,
-                    "output": output,
-                    "prompt_tokens": prompt_tokens,
-                    "output_tokens": output_tokens,
-                    "elapsed_s": round(elapsed, 2),
-                    "features": features,
-                    "score": f"{score}/{total}",
-                }
-                all_results.append(result)
-                task_results.append(result)
-
-                failed = [k for k, v in features.items() if not v]
-                label = f"    T{trial}: {score}/{total} | {output_tokens}tok"
-                if failed:
-                    label += f" | miss: {', '.join(failed)}"
-                print(label)
-
-            scores = [sum(r["features"].values()) for r in task_results]
-            avg = sum(scores) / len(scores)
-            avg_tokens = sum(r["output_tokens"] for r in task_results) / len(task_results)
-            print(f"    avg: {avg:.1f}/10 | {avg_tokens:.0f}tok")
-
-    # Summary
-    print(f"\n{'=' * 70}")
-    print("Rules-Based Generation Summary")
-    print(f"{'=' * 70}")
-    print(f"\n  {'Idea':30s}  {'Score':>8s}  {'Tokens':>8s}  {'Time':>7s}")
-    print(f"  {'-' * 57}")
-    for idea in IDEAS:
-        idea_results = [r for r in all_results if r["idea"] == idea]
-        if not idea_results:
-            continue
-        avg_score = sum(sum(r["features"].values()) for r in idea_results) / len(idea_results)
-        avg_tokens = sum(r["output_tokens"] for r in idea_results) / len(idea_results)
-        avg_time = sum(r["elapsed_s"] for r in idea_results) / len(idea_results)
-        print(f"  {idea:30s}  {avg_score:.1f}/10  {avg_tokens:>7.0f}  {avg_time:>6.2f}s")
-
-    # Per-task breakdown
-    print(f"\n  Per-task scores (avg across trials):")
-    print(f"\n  {'Idea':30s}", end="")
-    for t in task_names:
-        print(f"  {t[:10]:>10s}", end="")
-    print()
-    print(f"  {'-' * (30 + 12 * len(task_names))}")
-    for idea in IDEAS:
-        print(f"  {idea:30s}", end="")
-        for task_name in task_names:
-            task_results = [r for r in all_results if r["idea"] == idea and r["task"] == task_name]
-            if task_results:
-                avg = sum(sum(r["features"].values()) for r in task_results) / len(task_results)
-                print(f"  {avg:>9.1f}", end="")
-            else:
-                print(f"  {'skip':>9s}", end="")
-        print()
-
-    results_path = EXAMPLES_DIR / "rules-results.json"
-    with open(results_path, "w") as f:
-        json.dump(all_results, f, indent=2)
-    print(f"\n  Raw results saved to {results_path}")
-
-    return all_results
-
-
-def run_full_tests(n_trials: int):
+def run_tests(n_trials: int, only_ideas: list[str] | None = None):
     """Run full tests — spec + all examples, the realistic usage scenario."""
     client = get_client()
 
+    ideas = [i for i in IDEAS if i in only_ideas] if only_ideas else IDEAS
     task_names = list(TASKS.keys())
-    total_tests = len(IDEAS) * len(task_names) * n_trials
+    total_tests = len(ideas) * len(task_names) * n_trials
     print("=" * 70)
     print(f"Full test: spec + all examples (claude-haiku-4-5, {n_trials} trial(s), {len(task_names)} tasks)")
-    print(f"Ideas: {', '.join(IDEAS)}")
+    print(f"Ideas: {', '.join(ideas)}")
     print(f"Total API calls: {total_tests}")
     print("=" * 70)
 
     all_results = []
 
-    for idea in IDEAS:
+    for idea in ideas:
         rules = load_rules(idea)
         examples_text = load_all_examples(idea)
 
@@ -813,7 +408,6 @@ def run_full_tests(n_trials: int):
 
                 result = {
                     "idea": idea,
-                    "test_type": "full",
                     "task": task_name,
                     "output": output,
                     "prompt_tokens": prompt_tokens,
@@ -838,7 +432,7 @@ def run_full_tests(n_trials: int):
 
     # Summary
     print(f"\n{'=' * 70}")
-    print("Full Test Summary (spec + all examples)")
+    print("Summary")
     print(f"{'=' * 70}")
     print(f"\n  {'Idea':30s}  {'Score':>8s}  {'Tokens':>8s}  {'Time':>7s}")
     print(f"  {'-' * 57}")
@@ -866,7 +460,7 @@ def run_full_tests(n_trials: int):
                 avg = sum(sum(r["features"].values()) for r in task_results) / len(task_results)
                 print(f"  {avg:>9.1f}", end="")
             else:
-                print(f"  {'skip':>9s}", end="")
+                print(f"  {'—':>9s}", end="")
         print()
 
     results_path = EXAMPLES_DIR / "full-results.json"
@@ -874,15 +468,12 @@ def run_full_tests(n_trials: int):
         json.dump(all_results, f, indent=2)
     print(f"\n  Raw results saved to {results_path}")
 
-    return all_results
-
 
 def write_summary():
-    """Write a consolidated summary: one row per idea with tokens + all test scores."""
+    """Write a consolidated summary: one row per idea with tokens + test scores."""
     lines = []
     w = lines.append
 
-    # Token and char counts
     tok_totals = {}
     char_totals = {}
     for folder_name, exts in FOLDERS.items():
@@ -897,7 +488,6 @@ def write_summary():
     py_tok = tok_totals.get("python-baseline", 1)
     py_char = char_totals.get("python-baseline", 1)
 
-    # Load all result files
     def load_results(filename):
         path = EXAMPLES_DIR / filename
         if path.exists():
@@ -907,7 +497,7 @@ def write_summary():
 
     full_results = load_results("full-results.json")
 
-    # Re-score with current checkers (in case checkers were updated after the test ran)
+    # Re-score with current checkers
     for r in full_results:
         if r.get("task") in TASK_CHECKERS:
             r["features"] = TASK_CHECKERS[r["task"]](r["output"].lower())
@@ -924,7 +514,6 @@ def write_summary():
             return None
         return sum(x["output_tokens"] for x in r) / len(r)
 
-    # Main consolidated table
     w("ilo syntax comparison")
     w("=" * 90)
     w("")
@@ -957,7 +546,6 @@ def write_summary():
     w("  Out tok = avg output tokens generated")
     w("  * = baseline")
 
-    # Per-task breakdown for Full test (most useful detail)
     if full_results:
         task_names = list(TASKS.keys())
         w("")
@@ -992,31 +580,15 @@ def write_summary():
 
 def main():
     parser = argparse.ArgumentParser(description="ilo token comparison and cold-LLM testing")
-    parser.add_argument("--test", action="store_true", help="Run generation-from-examples test")
-    parser.add_argument("--test-comprehend", action="store_true", help="Run comprehension test")
-    parser.add_argument("--test-rules", action="store_true", help="Run generation-from-rules test")
-    parser.add_argument("--test-full", action="store_true", help="Run full test (spec + all examples)")
-    parser.add_argument("--test-all", action="store_true", help="Run all four test modes")
+    parser.add_argument("--test", action="store_true", help="Run full test (spec + all examples)")
     parser.add_argument("-n", type=int, default=3, help="Number of trials per idea (default: 3)")
+    parser.add_argument("--ideas", nargs="+", help="Only test specific ideas")
     args = parser.parse_args()
 
     print_token_counts()
 
-    ran_tests = False
-    if args.test_all or args.test:
-        run_tests(args.n)
-        ran_tests = True
-    if args.test_all or args.test_comprehend:
-        run_comprehension_tests(args.n)
-        ran_tests = True
-    if args.test_all or args.test_rules:
-        run_rules_tests(args.n)
-        ran_tests = True
-    if args.test_all or args.test_full:
-        run_full_tests(args.n)
-        ran_tests = True
-
-    if ran_tests:
+    if args.test:
+        run_tests(args.n, args.ideas)
         write_summary()
 
 
