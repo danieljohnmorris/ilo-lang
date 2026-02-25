@@ -1,3 +1,12 @@
+```
+  _  _          _
+ (_)| | ___    | |  __ _  _ __    __ _
+ | || |/ _ \   | | / _` || '_ \  / _` |
+ | || | (_) |  | || (_| || | | || (_| |
+ |_||_|\___/   |_| \__,_||_| |_| \__, |
+                                   |___/
+```
+
 # ilo
 
 *ilo* — Toki Pona for "tool" ([sona.pona.la/wiki/ilo](https://sona.pona.la/wiki/ilo)). A constructed language for AI agents.
@@ -54,6 +63,24 @@ Each idea explores a different syntax. Every folder has a SPEC and 5 example pro
 | [idea9-ultra-dense-short](examples/idea9-ultra-dense-short/) | 287 | 0.33x | 787 | 0.22x | 10.0 |
 
 Score = LLM generation accuracy /10 (claude-haiku-4-5, spec + all examples as context). See [test-summary.txt](examples/test-summary.txt) for per-task breakdown.
+
+## Running
+
+**Prerequisites:** [Rust](https://rustup.rs/) installed.
+
+**Parse a `.ilo` file:**
+```bash
+./ilo examples/idea9-ultra-dense-short/01-simple-function.ilo
+```
+
+This outputs the AST as JSON. The wrapper script auto-builds on first run or when source changes.
+
+**Run tests:**
+```bash
+cargo test
+```
+
+32 tests: lexer unit tests, parser unit tests, integration tests for all 5 example files, and a round-trip serialization test.
 
 ## Documentation
 
