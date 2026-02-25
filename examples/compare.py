@@ -41,6 +41,7 @@ FOLDERS = {
     "idea5-workflow-dag": [".yaml"],
     "idea6-mcp-composition": [".json"],
     "idea7-dense-wire": [".ilo"],
+    "idea8-ultra-dense": [".ilo"],
 }
 
 COMMENT_PREFIXES = {
@@ -51,7 +52,7 @@ COMMENT_PREFIXES = {
 }
 
 # All ideas with 5 examples get tested
-TESTABLE_IDEAS = [
+IDEAS = [
     "idea1",
     "idea1-compact",
     "idea2-tool-calling",
@@ -60,10 +61,11 @@ TESTABLE_IDEAS = [
     "idea5-workflow-dag",
     "idea6-mcp-composition",
     "idea7-dense-wire",
+    "idea8-ultra-dense",
 ]
 
 # All ideas including python-baseline (for comprehension tests)
-ALL_IDEAS = ["python-baseline"] + TESTABLE_IDEAS
+ALL_IDEAS = ["python-baseline"] + IDEAS
 
 TEST_PROMPT = """You are being given ONE example of a programming format. Study it carefully, then write a new program in the SAME format.
 
@@ -111,17 +113,6 @@ What does this program do? Explain:
 
 Be specific and precise."""
 
-# Ideas that have a README.md (spec) for rules-based generation
-IDEAS_WITH_RULES = [
-    "idea1",
-    "idea1-compact",
-    "idea2-tool-calling",
-    "idea3-constrained-decoding",
-    "idea4-ast-bytecode",
-    "idea5-workflow-dag",
-    "idea6-mcp-composition",
-    "idea7-dense-wire",
-]
 
 # Comprehension test examples and their checkers
 COMPREHEND_EXAMPLES = {
@@ -438,7 +429,7 @@ def run_tests(n_trials: int):
     client = get_client()
 
     task_names = list(TASKS.keys())
-    total_tests = len(TESTABLE_IDEAS) * len(task_names) * n_trials
+    total_tests = len(IDEAS) * len(task_names) * n_trials
     print("=" * 70)
     print(f"Cold-LLM test (claude-haiku-4-5, {n_trials} trial(s), {len(task_names)} tasks)")
     print(f"Total API calls: {total_tests}")
@@ -446,7 +437,7 @@ def run_tests(n_trials: int):
 
     all_results = []
 
-    for idea in TESTABLE_IDEAS:
+    for idea in IDEAS:
         print(f"\n{'=' * 50}")
         print(f"  {idea}")
         print(f"{'=' * 50}")
@@ -479,7 +470,7 @@ def run_tests(n_trials: int):
     print(f"{'=' * 70}")
     print(f"\n  {'Idea':30s}  {'Score':>8s}  {'Tokens':>8s}  {'Time':>7s}")
     print(f"  {'-' * 57}")
-    for idea in TESTABLE_IDEAS:
+    for idea in IDEAS:
         idea_results = [r for r in all_results if r["idea"] == idea]
         avg_score = sum(sum(r["features"].values()) for r in idea_results) / len(idea_results)
         avg_tokens = sum(r["output_tokens"] for r in idea_results) / len(idea_results)
@@ -493,7 +484,7 @@ def run_tests(n_trials: int):
         print(f"  {t[:10]:>10s}", end="")
     print()
     print(f"  {'-' * (30 + 12 * len(task_names))}")
-    for idea in TESTABLE_IDEAS:
+    for idea in IDEAS:
         print(f"  {idea:30s}", end="")
         for task_name in task_names:
             task_results = [r for r in all_results if r["idea"] == idea and r["task"] == task_name]
@@ -671,20 +662,16 @@ def run_rules_tests(n_trials: int):
     client = get_client()
 
     task_names = list(TASKS.keys())
-    testable = [i for i in TESTABLE_IDEAS if i in IDEAS_WITH_RULES]
-    total_tests = len(testable) * len(task_names) * n_trials
+    total_tests = len(IDEAS) * len(task_names) * n_trials
     print("=" * 70)
     print(f"Rules-based generation test (claude-haiku-4-5, {n_trials} trial(s), {len(task_names)} tasks)")
-    print(f"Ideas with rules: {', '.join(testable)}")
-    skipped = [i for i in TESTABLE_IDEAS if i not in IDEAS_WITH_RULES]
-    if skipped:
-        print(f"Skipped (no README): {', '.join(skipped)}")
+    print(f"Ideas: {', '.join(IDEAS)}")
     print(f"Total API calls: {total_tests}")
     print("=" * 70)
 
     all_results = []
 
-    for idea in testable:
+    for idea in IDEAS:
         rules = load_rules(idea)
         if not rules:
             continue
@@ -740,7 +727,7 @@ def run_rules_tests(n_trials: int):
     print(f"{'=' * 70}")
     print(f"\n  {'Idea':30s}  {'Score':>8s}  {'Tokens':>8s}  {'Time':>7s}")
     print(f"  {'-' * 57}")
-    for idea in testable:
+    for idea in IDEAS:
         idea_results = [r for r in all_results if r["idea"] == idea]
         if not idea_results:
             continue
@@ -756,7 +743,7 @@ def run_rules_tests(n_trials: int):
         print(f"  {t[:10]:>10s}", end="")
     print()
     print(f"  {'-' * (30 + 12 * len(task_names))}")
-    for idea in testable:
+    for idea in IDEAS:
         print(f"  {idea:30s}", end="")
         for task_name in task_names:
             task_results = [r for r in all_results if r["idea"] == idea and r["task"] == task_name]
@@ -780,20 +767,16 @@ def run_full_tests(n_trials: int):
     client = get_client()
 
     task_names = list(TASKS.keys())
-    testable = [i for i in TESTABLE_IDEAS if i in IDEAS_WITH_RULES]
-    total_tests = len(testable) * len(task_names) * n_trials
-    skipped = [i for i in TESTABLE_IDEAS if i not in IDEAS_WITH_RULES]
+    total_tests = len(IDEAS) * len(task_names) * n_trials
     print("=" * 70)
     print(f"Full test: spec + all examples (claude-haiku-4-5, {n_trials} trial(s), {len(task_names)} tasks)")
-    print(f"Ideas: {', '.join(testable)}")
-    if skipped:
-        print(f"Skipped (no README): {', '.join(skipped)}")
+    print(f"Ideas: {', '.join(IDEAS)}")
     print(f"Total API calls: {total_tests}")
     print("=" * 70)
 
     all_results = []
 
-    for idea in testable:
+    for idea in IDEAS:
         rules = load_rules(idea)
         examples_text = load_all_examples(idea)
 
@@ -850,7 +833,7 @@ def run_full_tests(n_trials: int):
     print(f"{'=' * 70}")
     print(f"\n  {'Idea':30s}  {'Score':>8s}  {'Tokens':>8s}  {'Time':>7s}")
     print(f"  {'-' * 57}")
-    for idea in testable:
+    for idea in IDEAS:
         idea_results = [r for r in all_results if r["idea"] == idea]
         if not idea_results:
             continue
@@ -866,7 +849,7 @@ def run_full_tests(n_trials: int):
         print(f"  {t[:10]:>10s}", end="")
     print()
     print(f"  {'-' * (30 + 12 * len(task_names))}")
-    for idea in testable:
+    for idea in IDEAS:
         print(f"  {idea:30s}", end="")
         for task_name in task_names:
             task_results = [r for r in all_results if r["idea"] == idea and r["task"] == task_name]
@@ -959,14 +942,14 @@ def write_summary():
     summarise_generation(
         EXAMPLES_DIR / "full-results.json",
         "Full Test (spec + all examples)",
-        [i for i in TESTABLE_IDEAS if i in IDEAS_WITH_RULES],
+        IDEAS,
     )
 
     # Table 2: Generation from examples (one-shot)
     summarise_generation(
         EXAMPLES_DIR / "test-results.json",
         "Generation from Examples (one-shot)",
-        TESTABLE_IDEAS,
+        IDEAS,
     )
 
     # Table 3: Comprehension
@@ -1010,7 +993,7 @@ def write_summary():
     summarise_generation(
         EXAMPLES_DIR / "rules-results.json",
         "Generation from Rules (spec only, no examples)",
-        [i for i in TESTABLE_IDEAS if i in IDEAS_WITH_RULES],
+        IDEAS,
     )
 
     w("")
