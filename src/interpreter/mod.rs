@@ -383,7 +383,12 @@ fn eval_binop(op: &BinOp, left: &Value, right: &Value) -> Result<Value> {
             }
         }
         // String concatenation with +
-        (BinOp::Add, Value::Text(a), Value::Text(b)) => Ok(Value::Text(format!("{}{}", a, b))),
+        (BinOp::Add, Value::Text(a), Value::Text(b)) => {
+            let mut out = String::with_capacity(a.len() + b.len());
+            out.push_str(a);
+            out.push_str(b);
+            Ok(Value::Text(out))
+        }
         // Comparisons on numbers
         (BinOp::GreaterThan, Value::Number(a), Value::Number(b)) => Ok(Value::Bool(a > b)),
         (BinOp::LessThan, Value::Number(a), Value::Number(b)) => Ok(Value::Bool(a < b)),

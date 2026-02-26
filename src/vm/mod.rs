@@ -1232,7 +1232,10 @@ impl<'a> VM<'a> {
                             // pointers with live RC counts (loaded from valid registers).
                             let sb = match bv.as_heap_ref() { HeapObj::Str(s) => s, _ => unreachable!() };
                             let sc = match cv.as_heap_ref() { HeapObj::Str(s) => s, _ => unreachable!() };
-                            NanVal::heap_string(format!("{}{}", sb, sc))
+                            let mut out = String::with_capacity(sb.len() + sc.len());
+                            out.push_str(sb);
+                            out.push_str(sc);
+                            NanVal::heap_string(out)
                         };
                         reg_set!(a, result);
                     } else {
