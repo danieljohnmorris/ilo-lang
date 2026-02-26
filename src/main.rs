@@ -86,7 +86,7 @@ fn main() {
                 vec![]
             };
 
-            let compiled = vm::compile(&program);
+            let compiled = vm::compile(&program).unwrap_or_else(|e| { eprintln!("Compile error: {}", e); std::process::exit(1); });
             let target = func_name.unwrap_or(compiled.func_names.first().map(|s| s.as_str()).unwrap_or("main"));
             let func_idx = compiled.func_names.iter().position(|n| n == target)
                 .unwrap_or_else(|| { eprintln!("undefined function: {}", target); std::process::exit(1); });
@@ -123,7 +123,7 @@ fn main() {
                 vec![]
             };
 
-            let compiled = vm::compile(&program);
+            let compiled = vm::compile(&program).unwrap_or_else(|e| { eprintln!("Compile error: {}", e); std::process::exit(1); });
             let target = func_name.unwrap_or(compiled.func_names.first().map(|s| s.as_str()).unwrap_or("main"));
             let func_idx = compiled.func_names.iter().position(|n| n == target)
                 .unwrap_or_else(|| { eprintln!("undefined function: {}", target); std::process::exit(1); });
@@ -160,7 +160,7 @@ fn main() {
                 vec![]
             };
 
-            let compiled = vm::compile(&program);
+            let compiled = vm::compile(&program).unwrap_or_else(|e| { eprintln!("Compile error: {}", e); std::process::exit(1); });
             let target = func_name.unwrap_or(compiled.func_names.first().map(|s| s.as_str()).unwrap_or("main"));
             let func_idx = compiled.func_names.iter().position(|n| n == target)
                 .unwrap_or_else(|| { eprintln!("undefined function: {}", target); std::process::exit(1); });
@@ -195,7 +195,7 @@ fn main() {
             vec![]
         };
 
-        let compiled = vm::compile(&program);
+        let compiled = vm::compile(&program).unwrap_or_else(|e| { eprintln!("Compile error: {}", e); std::process::exit(1); });
         match vm::run(&compiled, func_name, run_args) {
             Ok(val) => println!("{}", val),
             Err(e) => {
@@ -281,7 +281,7 @@ fn run_bench(program: &ast::Program, func_name: Option<&str>, args: &[interprete
     println!();
 
     // -- Register VM benchmark --
-    let compiled = vm::compile(program);
+    let compiled = vm::compile(program).expect("compile error in benchmark");
     // Warmup
     for _ in 0..100 {
         let _ = vm::run(&compiled, func_name, args.to_vec());
