@@ -47,7 +47,7 @@ Benchmark: tot(10, 20, 30) — p*q + p*q*r = 6200
   Rust interpreter           1,602 ns          1.0x
   Register VM                  160 ns         10.0x
   Register VM (reused)         112 ns         14.3x
-  ARM64 JIT                      3 ns        534.0x
+  Custom JIT (arm64)                       3 ns        534.0x
 
   External runtimes          Per call     vs Interpreter
   ----------------------------------------------------------
@@ -59,8 +59,8 @@ Benchmark: tot(10, 20, 30) — p*q + p*q*r = 6200
 
   Notes:
   - 10,000 iterations, release build, Apple Silicon (aarch64)
-  - ARM64 JIT is 37.3x faster than VM (reusable), 29.3x faster than Python
-  - ARM64 JIT within striking distance of LuaJIT (3ns vs 2ns)
-  - V8 JIT at 16ns — ilo ARM64 JIT is 5.3x faster
+  - Custom JIT (arm64) is 37.3x faster than VM (reusable), 29.3x faster than Python
+  - Custom JIT (arm64) within striking distance of LuaJIT (3ns vs 2ns)
+  - V8 JIT at 16ns — ilo Custom JIT (arm64) is 5.3x faster
   - Python competitive with VM due to CPython's optimized numeric path
   - Cranelift/LLVM JIT not enabled in this run
