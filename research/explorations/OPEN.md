@@ -1,6 +1,6 @@
 # Open Questions
 
-Unresolved design questions and lessons from syntax exploration. For design rationale, see [MANIFESTO.md](MANIFESTO.md). For syntax variants, see [examples/](examples/).
+Unresolved design questions and lessons from syntax exploration. For design rationale, see [MANIFESTO.md](MANIFESTO.md). For syntax variants, see [research/explorations/](research/explorations/).
 
 ## Lessons From Syntax Experiments
 

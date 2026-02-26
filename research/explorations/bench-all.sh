@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-cd "$(dirname "$0")/.."
+cd "$(dirname "$0")/../.."
 
 # ── Ensure cargo/rustc are in PATH ──────────────────────────────────
 if [[ -f "$HOME/.cargo/env" ]]; then
@@ -52,21 +52,21 @@ fi
 section "Compiling AOT benchmarks"
 
 if check_cmd cc; then
-    cc -O2 -o /tmp/bench-c examples/bench-native.c
+    cc -O2 -o /tmp/bench-c research/explorations/baselines/external-c.c
     echo "  C      → /tmp/bench-c"
 else
     echo "  [SKIP] cc not found"
 fi
 
 if check_cmd rustc; then
-    rustc -O -o /tmp/bench-rs examples/bench-native.rs
+    rustc -O -o /tmp/bench-rs research/explorations/baselines/external-rust.rs
     echo "  Rust   → /tmp/bench-rs"
 else
     echo "  [SKIP] rustc not found"
 fi
 
 if check_cmd go; then
-    go build -o /tmp/bench-go examples/bench-go.go
+    go build -o /tmp/bench-go research/explorations/baselines/external-go.go
     echo "  Go     → /tmp/bench-go"
 else
     echo "  [SKIP] go not found"
@@ -74,10 +74,10 @@ fi
 
 # ── Section 1: ilo ideas ───────────────────────────────────────────
 section "ilo — idea8 (ultra-dense)"
-$ILO examples/idea8-ultra-dense/01-simple-function.ilo --bench total $ARGS
+$ILO research/explorations/idea8-ultra-dense/01-simple-function.ilo --bench total $ARGS
 
 section "ilo — idea9 (ultra-dense-short)"
-$ILO examples/idea9-ultra-dense-short/01-simple-function.ilo --bench tot $ARGS
+$ILO research/explorations/idea9-ultra-dense-short/01-simple-function.ilo --bench tot $ARGS
 
 # ── Section 2: Interpreted ─────────────────────────────────────────
 section "External — Interpreted"
@@ -109,7 +109,7 @@ echo ""
 
 echo "--- Ruby ---"
 if check_cmd ruby; then
-    ruby examples/bench-ruby.rb
+    ruby research/explorations/baselines/external-ruby.rb
 else
     skip "ruby"
 fi
@@ -117,7 +117,7 @@ echo ""
 
 echo "--- PHP ---"
 if check_cmd php; then
-    php examples/bench-php.php
+    php research/explorations/baselines/external-php.php
 else
     skip "php"
 fi
@@ -125,7 +125,7 @@ echo ""
 
 echo "--- Lua ---"
 if check_cmd lua; then
-    lua examples/bench-lua.lua
+    lua research/explorations/baselines/external-lua.lua
 else
     skip "lua"
 fi
@@ -135,7 +135,7 @@ section "External — JIT"
 
 echo "--- Node.js (V8) ---"
 if check_cmd node; then
-    node examples/bench-v8.js
+    node research/explorations/baselines/external-v8.js
 else
     skip "node"
 fi
@@ -143,7 +143,7 @@ echo ""
 
 echo "--- LuaJIT ---"
 if check_cmd luajit; then
-    luajit examples/bench-luajit.lua
+    luajit research/explorations/baselines/external-luajit.lua
 else
     skip "luajit"
 fi

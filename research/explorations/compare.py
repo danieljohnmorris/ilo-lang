@@ -2,9 +2,9 @@
 """Token count comparison and cold-LLM testing for ilo syntax ideas.
 
 Usage:
-    python3 examples/compare.py              # token counts only
-    python3 examples/compare.py --test       # full test (spec + all examples)
-    python3 examples/compare.py --test -n 3  # 3 trials each
+    python3 research/explorations/compare.py              # token counts only
+    python3 research/explorations/compare.py --test       # full test (spec + all examples)
+    python3 research/explorations/compare.py --test -n 3  # 3 trials each
 
 Requires: pip install tiktoken
 For tests: pip install anthropic (and set ANTHROPIC_API_KEY)
@@ -29,7 +29,7 @@ EXAMPLES_DIR = Path(__file__).parent
 
 FOLDERS = {
     "python-baseline": [".py"],
-    "idea1": [".ilo"],
+    "idea1-basic": [".ilo"],
     "idea1-compact": [".ilo"],
     "idea2-tool-calling": [".json"],
     "idea3-constrained-decoding": [".json"],
@@ -49,7 +49,7 @@ COMMENT_PREFIXES = {
 }
 
 IDEAS = [
-    "idea1",
+    "idea1-basic",
     "idea1-compact",
     "idea2-tool-calling",
     "idea3-constrained-decoding",

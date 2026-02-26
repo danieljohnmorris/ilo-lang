@@ -41,26 +41,45 @@ Per-task breakdown (Full test)
 
 Benchmark: tot(10, 20, 30) — p*q + p*q*r = 6200
 ==========================================================================================
+10,000 iterations, release build, Apple Silicon (aarch64)
 
-  ilo backends               Per call     vs Interpreter
+  INTERPRETED                Per call
   ----------------------------------------------------------
-  Rust interpreter           1,602 ns          1.0x
-  Register VM                  160 ns         10.0x
-  Register VM (reused)         112 ns         14.3x
-  Custom JIT (arm64)                       3 ns        534.0x
+  ilo interpreter            1,390 ns
+  CPython                      226 ns
+  ilo Register VM              139 ns
+  ilo Python transpiled         92 ns
+  ilo Register VM (reused)      69 ns
+  Ruby                          43 ns
+  PHP                           40 ns
+  Lua                           30 ns
 
-  External runtimes          Per call     vs Interpreter
+  JIT-COMPILED               Per call
   ----------------------------------------------------------
-  CPython (equivalent)         226 ns          7.1x
-  Python transpiled             88 ns         18.2x
-  PyPy3 (JIT)                  125 ns         12.8x
-  V8 / Node.js (JIT)            16 ns        100.1x
-  LuaJIT                         2 ns        801.0x
+  Node.js / V8                  16 ns
+  ilo Custom JIT (arm64)         2 ns
+  ilo Cranelift JIT              2 ns
+  LuaJIT                         2 ns
+  PyPy3                        1.1 ns
+
+  AOT-COMPILED               Per call
+  ----------------------------------------------------------
+  Go                             2 ns
+  C (clang -O2)                0.4 ns
+  Rust (rustc -O)              0.4 ns
+
+  PER-IDEA (ilo backends only, all using tot/total with args 10 20 30 = 6200)
+  ----------------------------------------------------------
+  Idea                   Interpreter    Reg VM    VM reused    Custom JIT    Cranelift
+  idea8-ultra-dense        1,401 ns     144 ns       74 ns         2 ns         2 ns
+  idea9-ultra-dense-short  1,390 ns     139 ns       69 ns         2 ns         2 ns
+
+  (idea1, idea1-compact, idea7 use syntax not yet supported by current parser)
+  (idea8 and idea9 compile to identical bytecode — differences are run-to-run noise)
 
   Notes:
-  - 10,000 iterations, release build, Apple Silicon (aarch64)
-  - Custom JIT (arm64) is 37.3x faster than VM (reusable), 29.3x faster than Python
-  - Custom JIT (arm64) within striking distance of LuaJIT (3ns vs 2ns)
-  - V8 JIT at 16ns — ilo Custom JIT (arm64) is 5.3x faster
-  - Python competitive with VM due to CPython's optimized numeric path
-  - Cranelift/LLVM JIT not enabled in this run
+  - ilo Custom JIT and Cranelift JIT match LuaJIT and Go at ~2ns
+  - Only C/Rust beat ilo JIT backends (compiler can eliminate the function call)
+  - PyPy3 at 1.1ns after proper warmup (1M iterations, 10k warmup)
+  - ilo Register VM (reused) competitive with Ruby/PHP/Lua interpreters
+  - TypeScript runs on V8, same result as Node.js (16ns)

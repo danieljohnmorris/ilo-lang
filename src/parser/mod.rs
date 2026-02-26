@@ -1002,7 +1002,7 @@ mod tests {
 
     #[test]
     fn parse_example_01_simple_function() {
-        let prog = parse_file("examples/idea9-ultra-dense-short/01-simple-function.ilo");
+        let prog = parse_file("research/explorations/idea9-ultra-dense-short/01-simple-function.ilo");
         assert_eq!(prog.declarations.len(), 1);
         match &prog.declarations[0] {
             Decl::Function { name, params, return_type, body } => {
@@ -1017,7 +1017,7 @@ mod tests {
 
     #[test]
     fn parse_example_02_with_dependencies() {
-        let prog = parse_file("examples/idea9-ultra-dense-short/02-with-dependencies.ilo");
+        let prog = parse_file("research/explorations/idea9-ultra-dense-short/02-with-dependencies.ilo");
         assert_eq!(prog.declarations.len(), 1);
         match &prog.declarations[0] {
             Decl::Function { name, return_type, .. } => {
@@ -1030,7 +1030,7 @@ mod tests {
 
     #[test]
     fn parse_example_03_data_transform() {
-        let prog = parse_file("examples/idea9-ultra-dense-short/03-data-transform.ilo");
+        let prog = parse_file("research/explorations/idea9-ultra-dense-short/03-data-transform.ilo");
         assert_eq!(prog.declarations.len(), 2);
         match &prog.declarations[0] {
             Decl::Function { name, .. } => assert_eq!(name, "cls"),
@@ -1044,7 +1044,7 @@ mod tests {
 
     #[test]
     fn parse_example_04_tool_interaction() {
-        let prog = parse_file("examples/idea9-ultra-dense-short/04-tool-interaction.ilo");
+        let prog = parse_file("research/explorations/idea9-ultra-dense-short/04-tool-interaction.ilo");
         assert_eq!(prog.declarations.len(), 1);
         match &prog.declarations[0] {
             Decl::Function { name, .. } => assert_eq!(name, "ntf"),
@@ -1054,7 +1054,7 @@ mod tests {
 
     #[test]
     fn parse_example_05_workflow() {
-        let prog = parse_file("examples/idea9-ultra-dense-short/05-workflow.ilo");
+        let prog = parse_file("research/explorations/idea9-ultra-dense-short/05-workflow.ilo");
         assert_eq!(prog.declarations.len(), 1);
         match &prog.declarations[0] {
             Decl::Function { name, .. } => assert_eq!(name, "chk"),
@@ -1064,7 +1064,7 @@ mod tests {
 
     #[test]
     fn roundtrip_serialize_deserialize() {
-        let prog = parse_file("examples/idea9-ultra-dense-short/01-simple-function.ilo");
+        let prog = parse_file("research/explorations/idea9-ultra-dense-short/01-simple-function.ilo");
         let json = serde_json::to_string(&prog).unwrap();
         let deserialized: Program = serde_json::from_str(&json).unwrap();
         assert_eq!(prog, deserialized);
