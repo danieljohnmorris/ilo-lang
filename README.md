@@ -78,8 +78,8 @@ cargo test
 | Document | Purpose |
 |----------|---------|
 | [MANIFESTO.md](MANIFESTO.md) | Design rationale |
-| [research/explorations/OPEN.md](research/explorations/OPEN.md) | Open design questions |
-| [research/explorations/BUILDING-A-LANGUAGE.md](research/explorations/BUILDING-A-LANGUAGE.md) | How to build a language — research & plan |
+| [research/OPEN.md](research/OPEN.md) | Open design questions |
+| [research/BUILDING-A-LANGUAGE.md](research/BUILDING-A-LANGUAGE.md) | How to build a language — research & plan |
 
 ```
   _  _          _

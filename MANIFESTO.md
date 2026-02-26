@@ -116,5 +116,5 @@ A **minimal, verified action space** — the smallest set of constructs an agent
 ## Further Reading
 
 - [README.md](README.md) — project overview and results
-- [OPEN.md](research/explorations/OPEN.md) — unresolved design questions
+- [OPEN.md](research/OPEN.md) — unresolved design questions
 - [research/explorations/](research/explorations/) — all syntax variants and test harness
