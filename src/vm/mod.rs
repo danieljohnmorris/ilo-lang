@@ -21,6 +21,15 @@ pub enum VmError {
 
 type VmResult<T> = Result<T, VmError>;
 
+#[derive(Debug, thiserror::Error)]
+pub enum CompileError {
+    #[error("undefined variable: {name}")]
+    UndefinedVariable { name: String },
+    #[error("undefined function: {name}")]
+    UndefinedFunction { name: String },
+}
+
+
 #[cfg(target_arch = "aarch64")]
 pub(crate) mod jit_arm64;
 #[cfg(feature = "cranelift")]
@@ -175,6 +184,7 @@ struct RegCompiler {
     next_reg: u8,
     max_reg: u8,
     reg_is_num: [bool; 256],  // track which registers are known numeric
+    errors: Vec<CompileError>,
 }
 
 impl RegCompiler {
@@ -187,6 +197,7 @@ impl RegCompiler {
             next_reg: 0,
             max_reg: 0,
             reg_is_num: [false; 256],
+            errors: Vec::new(),
         }
     }
 
@@ -235,7 +246,7 @@ impl RegCompiler {
         self.emit_abx(OP_JMP, 0, offset as u16);
     }
 
-    fn compile_program(mut self, program: &Program) -> CompiledProgram {
+    fn compile_program(mut self, program: &Program) -> Result<CompiledProgram, CompileError> {
         for decl in &program.declarations {
             match decl {
                 Decl::Function { name, .. } | Decl::Tool { name, .. } => {
@@ -284,7 +295,10 @@ impl RegCompiler {
             }
         }
 
-        CompiledProgram { chunks: self.chunks, func_names: self.func_names, nan_constants: Vec::new() }
+        if let Some(e) = self.errors.into_iter().next() {
+            return Err(e);
+        }
+        Ok(CompiledProgram { chunks: self.chunks, func_names: self.func_names, nan_constants: Vec::new() })
     }
 
     fn compile_body(&mut self, stmts: &[Stmt]) -> Option<u8> {
@@ -581,7 +595,8 @@ impl RegCompiler {
                 if let Some(reg) = self.resolve_local(name) {
                     reg // FREE — no instruction needed!
                 } else {
-                    panic!("undefined variable in compiler: {}", name);
+                    self.errors.push(CompileError::UndefinedVariable { name: name.clone() });
+                    0 // dummy register; compile continues to surface more errors
                 }
             }
 
@@ -596,7 +611,10 @@ impl RegCompiler {
             Expr::Call { function, args } => {
                 let arg_regs: Vec<u8> = args.iter().map(|a| self.compile_expr(a)).collect();
                 let func_idx = self.func_names.iter().position(|n| n == function)
-                    .unwrap_or_else(|| panic!("undefined function in compiler: {}", function));
+                    .unwrap_or_else(|| {
+                        self.errors.push(CompileError::UndefinedFunction { name: function.clone() });
+                        0 // dummy index; compile continues to surface more errors
+                    });
 
                 let a = self.alloc_reg(); // result register
                 // Reserve slots for args
@@ -1033,12 +1051,12 @@ impl NanVal {
 
 // ── VM ───────────────────────────────────────────────────────────────
 
-pub fn compile(program: &Program) -> CompiledProgram {
-    let mut prog = RegCompiler::new().compile_program(program);
+pub fn compile(program: &Program) -> Result<CompiledProgram, CompileError> {
+    let mut prog = RegCompiler::new().compile_program(program)?;
     prog.nan_constants = prog.chunks.iter()
         .map(|chunk| chunk.constants.iter().map(|v| NanVal::from_value(v)).collect())
         .collect();
-    prog
+    Ok(prog)
 }
 
 pub fn run(compiled: &CompiledProgram, func_name: Option<&str>, args: Vec<Value>) -> VmResult<Value> {
@@ -1052,9 +1070,9 @@ pub fn run(compiled: &CompiledProgram, func_name: Option<&str>, args: Vec<Value>
 }
 
 #[cfg(test)]
-pub fn compile_and_run(program: &Program, func_name: Option<&str>, args: Vec<Value>) -> VmResult<Value> {
-    let compiled = compile(program);
-    run(&compiled, func_name, args)
+pub fn compile_and_run(program: &Program, func_name: Option<&str>, args: Vec<Value>) -> Result<Value, Box<dyn std::error::Error>> {
+    let compiled = compile(program)?;
+    Ok(run(&compiled, func_name, args)?)
 }
 
 /// Reusable VM handle — avoids re-allocating stack/frames per call.
