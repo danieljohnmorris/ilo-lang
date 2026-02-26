@@ -144,7 +144,12 @@ impl Chunk {
 
     fn patch_jump(&mut self, jump_pos: usize) {
         let target = self.code.len();
-        let offset = (target as i32 - jump_pos as i32 - 1) as i16;
+        let offset_i32 = target as i32 - jump_pos as i32 - 1;
+        assert!(
+            offset_i32 >= i16::MIN as i32 && offset_i32 <= i16::MAX as i32,
+            "jump offset {offset_i32} exceeds i16 range — function body too large (max ~32K instructions)"
+        );
+        let offset = offset_i32 as i16;
         let inst = self.code[jump_pos];
         self.code[jump_pos] = (inst & 0xFFFF0000) | (offset as u16 as u32);
     }
@@ -243,8 +248,12 @@ impl RegCompiler {
 
     fn emit_jump_to(&mut self, target: usize) {
         let pos = self.current.code.len();
-        let offset = (target as i32 - pos as i32 - 1) as i16;
-        self.emit_abx(OP_JMP, 0, offset as u16);
+        let offset_i32 = target as i32 - pos as i32 - 1;
+        assert!(
+            offset_i32 >= i16::MIN as i32 && offset_i32 <= i16::MAX as i32,
+            "jump offset {offset_i32} exceeds i16 range — function body too large (max ~32K instructions)"
+        );
+        self.emit_abx(OP_JMP, 0, offset_i32 as i16 as u16);
     }
 
     fn compile_program(mut self, program: &Program) -> Result<CompiledProgram, CompileError> {
