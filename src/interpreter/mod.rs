@@ -98,7 +98,7 @@ impl Env {
         Err(RuntimeError::new(format!("undefined variable: {}", name)))
     }
 
-    fn get_function(&self, name: &str) -> Result<Decl> {
+    fn function(&self, name: &str) -> Result<Decl> {
         self.functions.get(name).cloned().ok_or_else(|| {
             RuntimeError::new(format!("undefined function: {}", name))
         })
@@ -144,7 +144,7 @@ pub fn run(program: &Program, func_name: Option<&str>, args: Vec<Value>) -> Resu
 }
 
 fn call_function(env: &mut Env, name: &str, args: Vec<Value>) -> Result<Value> {
-    let decl = env.get_function(name)?;
+    let decl = env.function(name)?;
     match decl {
         Decl::Function { params, body, .. } => {
             if args.len() != params.len() {
