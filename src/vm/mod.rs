@@ -125,15 +125,17 @@ impl Chunk {
                 _ => {}
             }
         }
-        let idx = self.constants.len() as u16;
+        let idx = self.constants.len();
+        assert!(idx <= u16::MAX as usize, "constant pool overflow: more than 65535 constants in one function");
         self.constants.push(val);
-        idx
+        idx as u16
     }
 
     fn add_const_raw(&mut self, val: Value) -> u16 {
-        let idx = self.constants.len() as u16;
+        let idx = self.constants.len();
+        assert!(idx <= u16::MAX as usize, "constant pool overflow: more than 65535 constants in one function");
         self.constants.push(val);
-        idx
+        idx as u16
     }
 
     fn emit(&mut self, inst: u32) -> usize {
