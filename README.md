@@ -59,19 +59,36 @@ Score = LLM generation accuracy /10 (claude-haiku-4-5, spec + all examples as co
 
 **Prerequisites:** [Rust](https://rustup.rs/) installed.
 
-**Parse a `.ilo` file:**
+**Run inline code:**
 ```bash
-./ilo research/explorations/idea9-ultra-dense-short/01-simple-function.ilo
+ilo 'tot p:n q:n r:n>n;s=*p q;t=*s r;+s t' 10 20 30
+# → 6200
 ```
 
-This outputs the AST as JSON. The wrapper script auto-builds on first run or when source changes.
+No flags needed. The first arg is code (or a file path — auto-detected). Remaining args are passed to the first function. To select a specific function in multi-function programs, name it:
+
+```bash
+ilo 'dbl x:n>n;s=*x 2;+s 0 tot p:n q:n r:n>n;s=*p q;t=*s r;+s t' tot 10 20 30
+```
+
+**Run from a file:**
+```bash
+ilo program.ilo 10 20 30
+```
+
+**Other modes:**
+```bash
+ilo 'code' --emit python     # transpile to Python
+ilo 'code'                    # no args → AST JSON
+ilo program.ilo --bench tot 10 20 30  # benchmark
+```
 
 **Run tests:**
 ```bash
 cargo test
 ```
 
-32 tests: lexer unit tests, parser unit tests, integration tests for all 5 example files, and a round-trip serialization test.
+100 tests: lexer, parser, interpreter, VM, codegen, and CLI integration tests.
 
 ## Documentation
 

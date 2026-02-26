@@ -9,17 +9,34 @@ fn main() {
     let args: Vec<String> = std::env::args().collect();
 
     if args.len() < 2 {
-        eprintln!("Usage: ilo <file.ilo> [--emit python | --run [func] [args...] | --bench [func] [args...]]");
+        eprintln!("Usage: ilo <file-or-code> [args... | --run func args... | --bench func args... | --emit python]");
         std::process::exit(1);
     }
 
-    let path = &args[1];
-    let source = match std::fs::read_to_string(path) {
-        Ok(s) => s,
-        Err(e) => {
-            eprintln!("Error reading {}: {}", path, e);
+    // If args[1] is a file that exists, read it. Otherwise treat it as inline code.
+    let (source, mode_args_start) = if std::path::Path::new(&args[1]).is_file() {
+        let s = match std::fs::read_to_string(&args[1]) {
+            Ok(s) => s,
+            Err(e) => {
+                eprintln!("Error reading {}: {}", args[1], e);
+                std::process::exit(1);
+            }
+        };
+        (s, 2)
+    } else if args[1] == "-e" {
+        // Legacy -e flag: skip it, use args[2] as code
+        if args.len() < 3 || args[2].is_empty() {
+            eprintln!("Usage: ilo <file-or-code> [args... | --run func args... | --emit python]");
             std::process::exit(1);
         }
+        (args[2].clone(), 3)
+    } else {
+        let code = &args[1];
+        if code.is_empty() {
+            eprintln!("Error: empty code string");
+            std::process::exit(1);
+        }
+        (code.clone(), 2)
     };
 
     let tokens = match lexer::lex(&source) {
@@ -41,29 +58,30 @@ fn main() {
     };
 
     // Determine mode from args
-    if args.len() > 2 && args[2] == "--bench" {
+    let m = mode_args_start;
+    if args.len() > m && args[m] == "--bench" {
         // --bench [func] [args...]
-        let func_name = if args.len() > 3 { Some(args[3].as_str()) } else { None };
-        let run_args: Vec<interpreter::Value> = if args.len() > 4 {
-            args[4..].iter().map(|a| parse_cli_arg(a)).collect()
+        let func_name = if args.len() > m + 1 { Some(args[m + 1].as_str()) } else { None };
+        let run_args: Vec<interpreter::Value> = if args.len() > m + 2 {
+            args[m + 2..].iter().map(|a| parse_cli_arg(a)).collect()
         } else {
             vec![]
         };
         run_bench(&program, func_name, &run_args);
-    } else if args.len() > 2 && args[2] == "--emit" {
-        if args.len() > 3 && args[3] == "python" {
+    } else if args.len() > m && args[m] == "--emit" {
+        if args.len() > m + 1 && args[m + 1] == "python" {
             println!("{}", codegen::python::emit(&program));
         } else {
             eprintln!("Unknown emit target. Supported: python");
             std::process::exit(1);
         }
-    } else if args.len() > 2 && args[2] == "--run-jit" {
+    } else if args.len() > m && args[m] == "--run-jit" {
         // --run-jit [func] [args...] — ARM64 JIT (aarch64 only)
         #[cfg(target_arch = "aarch64")]
         {
-            let func_name = if args.len() > 3 { Some(args[3].as_str()) } else { None };
-            let run_args: Vec<f64> = if args.len() > 4 {
-                args[4..].iter().map(|a| a.parse::<f64>().expect("JIT args must be numbers")).collect()
+            let func_name = if args.len() > m + 1 { Some(args[m + 1].as_str()) } else { None };
+            let run_args: Vec<f64> = if args.len() > m + 2 {
+                args[m + 2..].iter().map(|a| a.parse::<f64>().expect("JIT args must be numbers")).collect()
             } else {
                 vec![]
             };
@@ -94,13 +112,13 @@ fn main() {
             eprintln!("Custom JIT (arm64) is only available on aarch64");
             std::process::exit(1);
         }
-    } else if args.len() > 2 && args[2] == "--run-cranelift" {
+    } else if args.len() > m && args[m] == "--run-cranelift" {
         // --run-cranelift [func] [args...]
         #[cfg(feature = "cranelift")]
         {
-            let func_name = if args.len() > 3 { Some(args[3].as_str()) } else { None };
-            let run_args: Vec<f64> = if args.len() > 4 {
-                args[4..].iter().map(|a| a.parse::<f64>().expect("JIT args must be numbers")).collect()
+            let func_name = if args.len() > m + 1 { Some(args[m + 1].as_str()) } else { None };
+            let run_args: Vec<f64> = if args.len() > m + 2 {
+                args[m + 2..].iter().map(|a| a.parse::<f64>().expect("JIT args must be numbers")).collect()
             } else {
                 vec![]
             };
@@ -131,13 +149,13 @@ fn main() {
             eprintln!("Cranelift JIT not enabled. Build with: cargo build --features cranelift");
             std::process::exit(1);
         }
-    } else if args.len() > 2 && args[2] == "--run-llvm" {
+    } else if args.len() > m && args[m] == "--run-llvm" {
         // --run-llvm [func] [args...]
         #[cfg(feature = "llvm")]
         {
-            let func_name = if args.len() > 3 { Some(args[3].as_str()) } else { None };
-            let run_args: Vec<f64> = if args.len() > 4 {
-                args[4..].iter().map(|a| a.parse::<f64>().expect("JIT args must be numbers")).collect()
+            let func_name = if args.len() > m + 1 { Some(args[m + 1].as_str()) } else { None };
+            let run_args: Vec<f64> = if args.len() > m + 2 {
+                args[m + 2..].iter().map(|a| a.parse::<f64>().expect("JIT args must be numbers")).collect()
             } else {
                 vec![]
             };
@@ -168,11 +186,11 @@ fn main() {
             eprintln!("LLVM JIT not enabled. Build with: cargo build --features llvm");
             std::process::exit(1);
         }
-    } else if args.len() > 2 && args[2] == "--run-vm" {
+    } else if args.len() > m && args[m] == "--run-vm" {
         // --run-vm [func] [args...]
-        let func_name = if args.len() > 3 { Some(args[3].as_str()) } else { None };
-        let run_args: Vec<interpreter::Value> = if args.len() > 4 {
-            args[4..].iter().map(|a| parse_cli_arg(a)).collect()
+        let func_name = if args.len() > m + 1 { Some(args[m + 1].as_str()) } else { None };
+        let run_args: Vec<interpreter::Value> = if args.len() > m + 2 {
+            args[m + 2..].iter().map(|a| parse_cli_arg(a)).collect()
         } else {
             vec![]
         };
@@ -185,11 +203,11 @@ fn main() {
                 std::process::exit(1);
             }
         }
-    } else if args.len() > 2 && args[2] == "--run" {
+    } else if args.len() > m && args[m] == "--run" {
         // --run [func] [args...]
-        let func_name = if args.len() > 3 { Some(args[3].as_str()) } else { None };
-        let run_args: Vec<interpreter::Value> = if args.len() > 4 {
-            args[4..].iter().map(|a| parse_cli_arg(a)).collect()
+        let func_name = if args.len() > m + 1 { Some(args[m + 1].as_str()) } else { None };
+        let run_args: Vec<interpreter::Value> = if args.len() > m + 2 {
+            args[m + 2..].iter().map(|a| parse_cli_arg(a)).collect()
         } else {
             vec![]
         };
@@ -201,8 +219,29 @@ fn main() {
                 std::process::exit(1);
             }
         }
+    } else if args.len() > m {
+        // Bare args: if first arg matches a function name, select it; otherwise run first function
+        let func_names: Vec<&str> = program.declarations.iter().filter_map(|d| match d {
+            ast::Decl::Function { name, .. } => Some(name.as_str()),
+            _ => None,
+        }).collect();
+
+        let (func_name, run_args_start) = if func_names.contains(&args[m].as_str()) {
+            (Some(args[m].as_str()), m + 1)
+        } else {
+            (None, m)
+        };
+
+        let run_args: Vec<interpreter::Value> = args[run_args_start..].iter().map(|a| parse_cli_arg(a)).collect();
+        match interpreter::run(&program, func_name, run_args) {
+            Ok(val) => println!("{}", val),
+            Err(e) => {
+                eprintln!("{}", e);
+                std::process::exit(1);
+            }
+        }
     } else {
-        // Default: AST JSON
+        // No args: AST JSON
         match serde_json::to_string_pretty(&program) {
             Ok(json) => println!("{}", json),
             Err(e) => {
