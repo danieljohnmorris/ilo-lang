@@ -185,7 +185,7 @@ struct RegCompiler {
     next_reg: u8,
     max_reg: u8,
     reg_is_num: [bool; 256],  // track which registers are known numeric
-    errors: Vec<CompileError>,
+    first_error: Option<CompileError>,
 }
 
 impl RegCompiler {
@@ -198,7 +198,7 @@ impl RegCompiler {
             next_reg: 0,
             max_reg: 0,
             reg_is_num: [false; 256],
-            errors: Vec::new(),
+            first_error: None,
         }
     }
 
@@ -297,7 +297,7 @@ impl RegCompiler {
             }
         }
 
-        if let Some(e) = self.errors.into_iter().next() {
+        if let Some(e) = self.first_error {
             return Err(e);
         }
         Ok(CompiledProgram { chunks: self.chunks, func_names: self.func_names, nan_constants: Vec::new() })
@@ -537,7 +537,12 @@ impl RegCompiler {
                         _ => return None,
                     }),
                     (Value::Text(a), Value::Text(b)) => match op {
-                        BinOp::Add => Some(Value::Text(format!("{}{}", a, b))),
+                        BinOp::Add => {
+                            let mut out = String::with_capacity(a.len() + b.len());
+                            out.push_str(a);
+                            out.push_str(b);
+                            Some(Value::Text(out))
+                        }
                         _ => None,
                     },
                     (Value::Bool(a), Value::Bool(b)) => match op {
@@ -591,7 +596,7 @@ impl RegCompiler {
                 if let Some(reg) = self.resolve_local(name) {
                     reg // FREE — no instruction needed!
                 } else {
-                    self.errors.push(CompileError::UndefinedVariable { name: name.clone() });
+                    self.first_error.get_or_insert(CompileError::UndefinedVariable { name: name.clone() });
                     0 // dummy register; compile continues to surface more errors
                 }
             }
@@ -608,7 +613,7 @@ impl RegCompiler {
                 let arg_regs: Vec<u8> = args.iter().map(|a| self.compile_expr(a)).collect();
                 let func_idx = self.func_names.iter().position(|n| n == function)
                     .unwrap_or_else(|| {
-                        self.errors.push(CompileError::UndefinedFunction { name: function.clone() });
+                        self.first_error.get_or_insert(CompileError::UndefinedFunction { name: function.clone() });
                         0 // dummy index; compile continues to surface more errors
                     });
 
@@ -1060,7 +1065,7 @@ pub fn run(compiled: &CompiledProgram, func_name: Option<&str>, args: Vec<Value>
         None => compiled.func_names.first().ok_or(VmError::NoFunctionsDefined)?.clone(),
     };
     let func_idx = compiled.func_index(&target)
-        .ok_or_else(|| VmError::UndefinedFunction { name: target })?;
+        .ok_or(VmError::UndefinedFunction { name: target })?;
     VM::new(compiled).call(func_idx, args)
 }
 
