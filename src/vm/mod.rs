@@ -203,6 +203,7 @@ impl RegCompiler {
     }
 
     fn alloc_reg(&mut self) -> u8 {
+        assert!(self.next_reg < 255, "register overflow: function uses more than 255 registers");
         let r = self.next_reg;
         self.next_reg += 1;
         if self.next_reg > self.max_reg {
