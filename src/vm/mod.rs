@@ -268,6 +268,11 @@ impl RegCompiler {
 
         for decl in &program.declarations {
             if let Decl::Function { params, body, .. } = decl {
+                assert!(
+                    params.len() <= 255,
+                    "function has {} parameters; maximum is 255",
+                    params.len()
+                );
                 self.current = Chunk::new(params.len() as u8);
                 self.locals.clear();
                 self.next_reg = params.len() as u8;
