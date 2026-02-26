@@ -91,7 +91,7 @@ fn main() {
         }
         #[cfg(not(target_arch = "aarch64"))]
         {
-            eprintln!("ARM64 JIT is only available on aarch64");
+            eprintln!("Custom JIT (arm64) is only available on aarch64");
             std::process::exit(1);
         }
     } else if args.len() > 2 && args[2] == "--run-cranelift" {
@@ -315,7 +315,7 @@ fn run_bench(program: &ast::Program, func_name: Option<&str>, args: &[interprete
                 let ns = jit_dur.as_nanos() / iterations as u128;
                 jit_arm64_ns = Some(ns);
 
-                println!("ARM64 JIT");
+                println!("Custom JIT (arm64)");
                 if jit_result == (jit_result as i64) as f64 {
                     println!("  result:     {}", jit_result as i64);
                 } else {
@@ -470,7 +470,7 @@ print(f"__NS__={{_per}}")
     }
     if let Some(jit_ns) = jit_arm64_ns {
         if jit_ns > 0 && vm_reuse_ns > 0 {
-            println!("  ARM64 JIT is {:.1}x faster than VM (reusable)", vm_reuse_ns as f64 / jit_ns as f64);
+            println!("  Custom JIT (arm64) is {:.1}x faster than VM (reusable)", vm_reuse_ns as f64 / jit_ns as f64);
         }
     }
     if let Some(jit_ns) = jit_cranelift_ns {
@@ -507,7 +507,7 @@ print(f"__NS__={{_per}}")
         }
         if let Some(jit_ns) = jit_arm64_ns {
             if jit_ns > 0 && py > 0 {
-                println!("  ARM64 JIT is {:.1}x faster than Python", py as f64 / jit_ns as f64);
+                println!("  Custom JIT (arm64) is {:.1}x faster than Python", py as f64 / jit_ns as f64);
             }
         }
         if let Some(jit_ns) = jit_cranelift_ns {
