@@ -268,7 +268,7 @@ fn run_bench(program: &ast::Program, func_name: Option<&str>, args: &[interprete
     let start = Instant::now();
     let mut result = interpreter::Value::Nil;
     for _ in 0..iterations {
-        result = interpreter::run(program, func_name, args.to_vec()).unwrap();
+        result = interpreter::run(program, func_name, args.to_vec()).expect("interpreter error during benchmark");
     }
     let interp_dur = start.elapsed();
     let interp_ns = interp_dur.as_nanos() / iterations as u128;
@@ -290,7 +290,7 @@ fn run_bench(program: &ast::Program, func_name: Option<&str>, args: &[interprete
     let start = Instant::now();
     let mut vm_result = interpreter::Value::Nil;
     for _ in 0..iterations {
-        vm_result = vm::run(&compiled, func_name, args.to_vec()).unwrap();
+        vm_result = vm::run(&compiled, func_name, args.to_vec()).expect("VM error during benchmark");
     }
     let vm_dur = start.elapsed();
     let vm_ns = vm_dur.as_nanos() / iterations as u128;
@@ -311,7 +311,7 @@ fn run_bench(program: &ast::Program, func_name: Option<&str>, args: &[interprete
 
     let start = Instant::now();
     for _ in 0..iterations {
-        vm_result = vm_state.call(call_name, args.to_vec()).unwrap();
+        vm_result = vm_state.call(call_name, args.to_vec()).expect("VM reusable error during benchmark");
     }
     let vm_reuse_dur = start.elapsed();
     let vm_reuse_ns = vm_reuse_dur.as_nanos() / iterations as u128;
@@ -348,7 +348,7 @@ fn run_bench(program: &ast::Program, func_name: Option<&str>, args: &[interprete
                 let start = Instant::now();
                 let mut jit_result = 0.0f64;
                 for _ in 0..iterations {
-                    jit_result = vm::jit_arm64::call(&jit_func, &jit_args).unwrap();
+                    jit_result = vm::jit_arm64::call(&jit_func, &jit_args).expect("arm64 JIT error during benchmark");
                 }
                 let jit_dur = start.elapsed();
                 let ns = jit_dur.as_nanos() / iterations as u128;
@@ -383,7 +383,7 @@ fn run_bench(program: &ast::Program, func_name: Option<&str>, args: &[interprete
                 let start = Instant::now();
                 let mut jit_result = 0.0f64;
                 for _ in 0..iterations {
-                    jit_result = vm::jit_cranelift::call(&jit_func, &jit_args).unwrap();
+                    jit_result = vm::jit_cranelift::call(&jit_func, &jit_args).expect("Cranelift JIT error during benchmark");
                 }
                 let jit_dur = start.elapsed();
                 let ns = jit_dur.as_nanos() / iterations as u128;
@@ -418,7 +418,7 @@ fn run_bench(program: &ast::Program, func_name: Option<&str>, args: &[interprete
                 let start = Instant::now();
                 let mut jit_result = 0.0f64;
                 for _ in 0..iterations {
-                    jit_result = vm::jit_llvm::call(&jit_func, &jit_args).unwrap();
+                    jit_result = vm::jit_llvm::call(&jit_func, &jit_args).expect("LLVM JIT error during benchmark");
                 }
                 let jit_dur = start.elapsed();
                 let ns = jit_dur.as_nanos() / iterations as u128;
@@ -491,7 +491,7 @@ print(f"__NS__={{_per}}")
                     println!("  {}", line);
                 }
             }
-            std::io::stderr().write_all(&out.stderr).unwrap();
+            std::io::stderr().write_all(&out.stderr).expect("write to stderr");
         }
         Err(e) => eprintln!("  failed to run python3: {}", e),
     }
