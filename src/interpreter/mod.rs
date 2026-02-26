@@ -156,9 +156,9 @@ fn call_function(env: &mut Env, name: &str, args: Vec<Value>) -> Result<Value> {
             for (param, arg) in params.iter().zip(args) {
                 env.set(&param.name, arg);
             }
-            let result = eval_body(env, &body)?;
+            let result = eval_body(env, &body);
             env.pop_scope();
-            match result {
+            match result? {
                 BodyResult::Value(v) | BodyResult::Return(v) => Ok(v),
             }
         }
@@ -198,11 +198,13 @@ fn eval_stmt(env: &mut Env, stmt: &Stmt, is_last: bool) -> Result<Option<BodyRes
             let truth = is_truthy(&cond);
             let should_run = if *negated { !truth } else { truth };
             if should_run {
-                let result = eval_body(env, body)?;
-                match result {
-                    BodyResult::Value(v) => Ok(Some(BodyResult::Return(v))),
-                    BodyResult::Return(v) => Ok(Some(BodyResult::Return(v))),
-                }
+                env.push_scope();
+                let result = eval_body(env, body);
+                env.pop_scope();
+                let v = match result? {
+                    BodyResult::Value(v) | BodyResult::Return(v) => v,
+                };
+                Ok(Some(BodyResult::Return(v)))
             } else {
                 Ok(None)
             }
@@ -218,9 +220,9 @@ fn eval_stmt(env: &mut Env, stmt: &Stmt, is_last: bool) -> Result<Option<BodyRes
                     for (name, val) in bindings {
                         env.set(&name, val);
                     }
-                    let result = eval_body(env, &arm.body)?;
+                    let result = eval_body(env, &arm.body);
                     env.pop_scope();
-                    match result {
+                    match result? {
                         BodyResult::Return(v) => return Ok(Some(BodyResult::Return(v))),
                         BodyResult::Value(v) => {
                             if is_last {
@@ -241,14 +243,14 @@ fn eval_stmt(env: &mut Env, stmt: &Stmt, is_last: bool) -> Result<Option<BodyRes
                     for item in items {
                         env.push_scope();
                         env.set(binding, item);
-                        match eval_body(env, body)? {
+                        let result = eval_body(env, body);
+                        env.pop_scope();
+                        match result? {
                             BodyResult::Return(v) => {
-                                env.pop_scope();
                                 return Ok(Some(BodyResult::Return(v)));
                             }
                             BodyResult::Value(v) => last = v,
                         }
-                        env.pop_scope();
                     }
                     Ok(Some(BodyResult::Value(last)))
                 }
@@ -257,11 +259,7 @@ fn eval_stmt(env: &mut Env, stmt: &Stmt, is_last: bool) -> Result<Option<BodyRes
         }
         Stmt::Expr(expr) => {
             let val = eval_expr(env, expr)?;
-            if is_last {
-                Ok(Some(BodyResult::Value(val)))
-            } else {
-                Ok(Some(BodyResult::Value(val)))
-            }
+            Ok(Some(BodyResult::Value(val)))
         }
     }
 }
@@ -339,9 +337,9 @@ fn eval_expr(env: &mut Env, expr: &Expr) -> Result<Value> {
                     for (name, val) in bindings {
                         env.set(&name, val);
                     }
-                    let result = eval_body(env, &arm.body)?;
+                    let result = eval_body(env, &arm.body);
                     env.pop_scope();
-                    return match result {
+                    return match result? {
                         BodyResult::Value(v) | BodyResult::Return(v) => Ok(v),
                     };
                 }

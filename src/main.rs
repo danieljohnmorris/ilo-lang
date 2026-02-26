@@ -525,8 +525,11 @@ print(f"__NS__={{_per}}")
 
 fn parse_cli_arg(s: &str) -> interpreter::Value {
     if let Ok(n) = s.parse::<f64>() {
-        interpreter::Value::Number(n)
-    } else if s == "true" {
+        if n.is_finite() {
+            return interpreter::Value::Number(n);
+        }
+    }
+    if s == "true" {
         interpreter::Value::Bool(true)
     } else if s == "false" {
         interpreter::Value::Bool(false)

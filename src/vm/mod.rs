@@ -1059,6 +1059,14 @@ struct VM<'a> {
     frames: Vec<CallFrame>,
 }
 
+impl<'a> Drop for VM<'a> {
+    fn drop(&mut self) {
+        for v in &self.stack {
+            v.drop_rc();
+        }
+    }
+}
+
 impl<'a> VM<'a> {
     fn new(program: &'a CompiledProgram) -> Self {
         VM { program, stack: Vec::with_capacity(256), frames: Vec::with_capacity(64) }

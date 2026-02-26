@@ -231,26 +231,16 @@ fn emit_match_expr(subject: &Option<Box<Expr>>, arms: &[MatchArm]) -> String {
             Pattern::Literal(lit) => {
                 parts.push(format!("{} if {} == {} else", arm_val, subj, emit_literal(lit)));
             }
-            Pattern::Ok(binding) => {
-                let bind_note = if binding != "_" {
-                    format!("# binds {} = {}[1]", py_name(binding), subj)
-                } else {
-                    String::new()
-                };
+            Pattern::Ok(_) => {
                 parts.push(format!(
-                    "{}[1] if isinstance({}, tuple) and {}[0] == \"ok\" else {}",
-                    subj, subj, subj, bind_note
+                    "{} if isinstance({}, tuple) and {}[0] == \"ok\" else",
+                    arm_val, subj, subj
                 ));
             }
-            Pattern::Err(binding) => {
-                let bind_note = if binding != "_" {
-                    format!("# binds {} = {}[1]", py_name(binding), subj)
-                } else {
-                    String::new()
-                };
+            Pattern::Err(_) => {
                 parts.push(format!(
-                    "{}[1] if isinstance({}, tuple) and {}[0] == \"err\" else {}",
-                    subj, subj, subj, bind_note
+                    "{} if isinstance({}, tuple) and {}[0] == \"err\" else",
+                    arm_val, subj, subj
                 ));
             }
         }
@@ -284,7 +274,14 @@ fn emit_literal(lit: &Literal) -> String {
                 format!("{}", n)
             }
         }
-        Literal::Text(s) => format!("\"{}\"", s),
+        Literal::Text(s) => {
+            let escaped = s
+                .replace('\\', "\\\\")
+                .replace('"', "\\\"")
+                .replace('\n', "\\n")
+                .replace('\r', "\\r");
+            format!("\"{}\"", escaped)
+        }
         Literal::Bool(b) => if *b { "True".to_string() } else { "False".to_string() },
     }
 }
