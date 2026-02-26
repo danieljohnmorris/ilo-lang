@@ -22,7 +22,7 @@ ARM64 native:  fmul d3,d0,d1   | fmul d4,d3,d2   | fadd d0,d3,d4   | ret
 
 ## Three backends
 
-### 1. Hand-rolled ARM64
+### 1. Custom JIT (arm64)
 
 Raw AArch64 machine code. No compiler framework, no IR, no dependencies beyond `libc` for `mmap`. VM registers R0-R30 map 1:1 to hardware FP registers d0-d30. Function args arrive in d0-d7 per AAPCS64 — perfectly aligned with VM params, so zero shuffling.
 
@@ -71,29 +71,56 @@ Non-eligible functions (strings, records, lists, control flow, function calls) f
 
 ## Benchmarks
 
-All measurements on Apple M4 Pro, `cargo build --release`, `tot(10, 20, 30)` = 6200, 10k iterations after warmup.
+All measurements on Apple M4 Pro, `cargo build --release --features cranelift`, `tot(10, 20, 30)` = 6200, 10k iterations after warmup.
 
-| Backend | Per call | vs Python | vs VM |
-|---------|----------|-----------|-------|
-| Python (CPython) | 85ns | 1.0x | — |
-| Register VM (reusable) | 67ns | 1.3x faster | 1.0x |
-| V8 (Node.js) | 16ns | 5.3x faster | 4.2x faster |
-| **ARM64 JIT** | **2ns** | **42x faster** | **33x faster** |
-| **Cranelift JIT** | **2ns** | **42x faster** | **33x faster** |
-| LuaJIT | 1ns | 85x faster | 67x faster |
+### ilo backends
 
-The ARM64 and Cranelift backends produce essentially identical performance for this function — both emit the same 4 floating-point instructions. LuaJIT still wins by ~1ns, likely from its trace-compiled calling convention having even less overhead than a raw function pointer call through `extern "C"`.
+| Backend | Per call | vs Interpreter |
+|---------|----------|----------------|
+| Rust interpreter | 1,383ns | 1.0x |
+| Register VM | 129ns | 10.7x faster |
+| Register VM (reusable) | 66ns | 20.9x faster |
+| Python transpiled | 80ns | 17.3x faster |
+| **Custom JIT (arm64)** | **2ns** | **691x faster** |
+| **Cranelift JIT** | **2ns** | **691x faster** |
+
+### External runtimes — interpreted
+
+| Runtime | Per call |
+|---------|----------|
+| CPython | 80ns |
+| Ruby | 42ns |
+| PHP | 35ns |
+| Lua | 28ns |
+
+### External runtimes — JIT
+
+| Runtime | Per call |
+|---------|----------|
+| Node.js / V8 | 18ns |
+| LuaJIT | 1ns |
+| PyPy3 | 117ns |
+
+### External runtimes — AOT (compiled)
+
+| Runtime | Per call |
+|---------|----------|
+| Go | 2ns |
+| C (cc -O2) | 0.4ns |
+| Rust (rustc -O) | 0.5ns |
 
 ### The full stack
 
 | Layer | Per call | Speedup over previous |
 |-------|----------|-----------------------|
-| Rust interpreter | 1330ns | — |
-| Register VM | 129ns | 10x |
-| Register VM (reusable) | 67ns | 2x |
-| ARM64/Cranelift JIT | 2ns | 33x |
+| Rust interpreter | 1,383ns | — |
+| Register VM | 129ns | 10.7x |
+| Register VM (reusable) | 66ns | 2.0x |
+| Custom JIT / Cranelift | 2ns | 33x |
 
-Total speedup from interpreter to JIT: **665x**.
+Total speedup from interpreter to JIT: **~690x**.
+
+The Custom JIT (arm64) and Cranelift backends produce essentially identical performance for this function — both emit the same 4 floating-point instructions. ilo's JIT backends match Go and LuaJIT at ~2ns. Only C and Rust AOT beat them (0.4-0.5ns), where the compiler can eliminate the function call entirely.
 
 ## Usage
 
