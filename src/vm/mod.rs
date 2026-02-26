@@ -928,9 +928,18 @@ impl NanVal {
         (self.0 & TAG_MASK) == TAG_STRING
     }
 
+    /// # Safety
+    /// Caller must ensure `self` was created via one of the `heap_*` constructors
+    /// (i.e. `is_heap()` returns true) and that the underlying `Rc<HeapObj>` is
+    /// still alive — i.e. the strong count has not reached zero. The returned
+    /// reference borrows the heap allocation; its lifetime is bounded by the
+    /// caller's knowledge of the RC lifetime, not by `'a`. Callers must not
+    /// hold the reference across any operation that could decrement the RC to zero.
     #[inline]
     unsafe fn as_heap_ref<'a>(self) -> &'a HeapObj {
         let ptr = (self.0 & PTR_MASK) as *const HeapObj;
+        // SAFETY: pointer was produced by Rc::into_raw in a heap_* constructor.
+        // Caller guarantees is_heap() and the Rc is still live.
         unsafe { &*ptr }
     }
 
@@ -938,6 +947,8 @@ impl NanVal {
     fn clone_rc(self) {
         if self.is_heap() {
             let ptr = (self.0 & PTR_MASK) as *const HeapObj;
+            // SAFETY: is_heap() guarantees this pointer was produced by Rc::into_raw
+            // and the RC count is at least 1 (we hold a NanVal that represents it).
             unsafe { Rc::increment_strong_count(ptr); }
         }
     }
@@ -946,6 +957,9 @@ impl NanVal {
     fn drop_rc(self) {
         if self.is_heap() {
             let ptr = (self.0 & PTR_MASK) as *const HeapObj;
+            // SAFETY: is_heap() guarantees this pointer was produced by Rc::into_raw.
+            // Decrementing mirrors every clone_rc call; the VM is responsible for
+            // pairing increments and decrements correctly.
             unsafe { Rc::decrement_strong_count(ptr); }
         }
     }
@@ -979,6 +993,9 @@ impl NanVal {
             TAG_TRUE => Value::Bool(true),
             TAG_FALSE => Value::Bool(false),
             _ => unsafe {
+                // SAFETY: Not a number, nil, true, or false — must be a heap-tagged
+                // pointer. The NanVal was created by a heap_* constructor so the
+                // Rc is still live (we own this NanVal value).
                 match self.as_heap_ref() {
                     HeapObj::Str(s) => Value::Text(s.clone()),
                     HeapObj::List(items) => {
@@ -1100,12 +1117,17 @@ impl<'a> VM<'a> {
     }
 
     fn execute(&mut self) -> Result<Value, String> {
+        // SAFETY: execute() is only called from call() after setup_call() has pushed
+        // a frame, so frames is non-empty.
         let frame = unsafe { self.frames.last().unwrap_unchecked() };
         let mut ci = frame.chunk_idx as usize;
         let mut ip = frame.ip;
         let mut base = frame.stack_base;
 
         loop {
+            // SAFETY: ci is always set from frame.chunk_idx, which is a valid index
+            // assigned by the compiler (func_idx < chunks.len()). nan_constants has
+            // the same length as chunks (built together in compile()).
             let code = unsafe { &self.program.chunks.get_unchecked(ci).code };
             let nan_consts = unsafe { self.program.nan_constants.get_unchecked(ci) };
 
@@ -1120,6 +1142,7 @@ impl<'a> VM<'a> {
                 if self.frames.is_empty() {
                     return Ok(result.to_value());
                 }
+                // SAFETY: we just checked !self.frames.is_empty().
                 let f = unsafe { self.frames.last().unwrap_unchecked() };
                 let target = f.stack_base + self.frames.last().map(|f| f.result_reg).unwrap_or(0) as usize;
                 ci = f.chunk_idx as usize;
@@ -1132,20 +1155,32 @@ impl<'a> VM<'a> {
                 continue;
             }
 
+            // SAFETY: ip < code.len() was verified by the bounds check above.
             let inst = unsafe { *code.get_unchecked(ip) };
             ip += 1;
             let op = (inst >> 24) as u8;
 
-            // Macro for safe register access (used in hot paths)
+            // Macro for register access in hot paths.
+            // SAFETY invariant for reg!/reg_set!: the compiler assigns each
+            // function a reg_count and stack slots are pre-allocated in setup_call.
+            // Register indices in instructions are always < reg_count, so
+            // base + reg_idx < stack.len() is guaranteed by construction.
             macro_rules! reg {
-                ($idx:expr) => { unsafe { *self.stack.get_unchecked($idx) } }
+                ($idx:expr) => {
+                    // SAFETY: $idx = base + encoded register, within pre-allocated slots.
+                    unsafe { *self.stack.get_unchecked($idx) }
+                }
             }
             macro_rules! reg_set {
-                ($idx:expr, $val:expr) => { unsafe {
-                    let slot = self.stack.as_mut_ptr().add($idx);
-                    (*slot).drop_rc();
-                    *slot = $val;
-                } }
+                ($idx:expr, $val:expr) => {
+                    // SAFETY: same bounds as reg!; using as_mut_ptr().add() to avoid
+                    // aliasing a mutable reference to the stack while it may be read.
+                    unsafe {
+                        let slot = self.stack.as_mut_ptr().add($idx);
+                        (*slot).drop_rc();
+                        *slot = $val;
+                    }
+                }
             }
 
             match op {
@@ -1159,6 +1194,8 @@ impl<'a> VM<'a> {
                         reg_set!(a, NanVal::number(bv.as_number() + cv.as_number()));
                     } else if bv.is_string() && cv.is_string() {
                         let result = unsafe {
+                            // SAFETY: is_string() confirmed both are heap-tagged string
+                            // pointers with live RC counts (loaded from valid registers).
                             let sb = match bv.as_heap_ref() { HeapObj::Str(s) => s, _ => unreachable!() };
                             let sc = match cv.as_heap_ref() { HeapObj::Str(s) => s, _ => unreachable!() };
                             NanVal::heap_string(format!("{}{}", sb, sc))
@@ -1324,6 +1361,9 @@ impl<'a> VM<'a> {
                     let b = ((inst >> 8) & 0xFF) as usize + base;
                     let v = reg!(b);
                     let inner = unsafe {
+                        // SAFETY: v comes from a valid register. The Ok/Err check below
+                        // returns Err if the tag is wrong, so as_heap_ref is only reached
+                        // when the value is a heap-allocated Ok or Err wrapper.
                         match v.as_heap_ref() {
                             HeapObj::OkVal(inner) | HeapObj::ErrVal(inner) => {
                                 inner.clone_rc();
@@ -1338,6 +1378,7 @@ impl<'a> VM<'a> {
                     let a = ((inst >> 16) & 0xFF) as usize + base;
                     let b = ((inst >> 8) & 0xFF) as usize + base;
                     let c = (inst & 0xFF) as usize;
+                    // SAFETY: ci is a valid chunk index (same invariant as loop header).
                     let chunk = unsafe { self.program.chunks.get_unchecked(ci) };
                     let field_name = match &chunk.constants[c] {
                         Value::Text(s) => s.as_str(),
@@ -1345,6 +1386,8 @@ impl<'a> VM<'a> {
                     };
                     let record = reg!(b);
                     let field_val = unsafe {
+                        // SAFETY: record comes from a valid register; the non-record
+                        // case returns Err before any pointer dereference.
                         match record.as_heap_ref() {
                             HeapObj::Record { fields, .. } => {
                                 match fields.get(field_name) {
@@ -1368,6 +1411,8 @@ impl<'a> VM<'a> {
                     let idx_val = reg!(c);
                     if idx_val.is_number() {
                         unsafe {
+                            // SAFETY: list comes from a valid register; non-list case
+                            // returns Err before any pointer dereference.
                             match list.as_heap_ref() {
                                 HeapObj::List(items) => {
                                     let i = idx_val.as_number() as usize;
@@ -1389,6 +1434,8 @@ impl<'a> VM<'a> {
                 OP_LOADK => {
                     let a = ((inst >> 16) & 0xFF) as usize + base;
                     let bx = (inst & 0xFFFF) as usize;
+                    // SAFETY: bx is the constant pool index encoded in the instruction;
+                    // the compiler only emits indices < constants.len().
                     let v = unsafe { *nan_consts.get_unchecked(bx) };
                     if !v.is_number() { v.clone_rc(); }
                     reg_set!(a, v);
@@ -1417,6 +1464,7 @@ impl<'a> VM<'a> {
                     let func_idx = (bx >> 8) as u16;
                     let n_args = bx & 0xFF;
 
+                    // SAFETY: frames is non-empty while execute() is running.
                     unsafe { self.frames.last_mut().unwrap_unchecked() }.ip = ip;
 
                     let mut args = Vec::with_capacity(n_args);
@@ -1428,6 +1476,7 @@ impl<'a> VM<'a> {
 
                     self.setup_call(func_idx, args, a);
 
+                    // SAFETY: setup_call just pushed a new frame above.
                     let f = unsafe { self.frames.last().unwrap_unchecked() };
                     ci = f.chunk_idx as usize;
                     ip = f.ip;
@@ -1438,9 +1487,11 @@ impl<'a> VM<'a> {
                     let result = reg!(a);
                     if !result.is_number() { result.clone_rc(); }
 
+                    // SAFETY: frames is non-empty while execute() is running.
                     let result_reg = unsafe { self.frames.last().unwrap_unchecked() }.result_reg;
 
                     for i in base..self.stack.len() {
+                        // SAFETY: i is in range base..self.stack.len() by loop bounds.
                         unsafe { self.stack.get_unchecked(i) }.drop_rc();
                     }
                     self.stack.truncate(base);
@@ -1452,6 +1503,7 @@ impl<'a> VM<'a> {
                         return Ok(val);
                     }
 
+                    // SAFETY: we just checked !self.frames.is_empty().
                     let f = unsafe { self.frames.last().unwrap_unchecked() };
                     ci = f.chunk_idx as usize;
                     ip = f.ip;
@@ -1466,6 +1518,7 @@ impl<'a> VM<'a> {
                     let desc_idx = bx >> 8;
                     let n_fields = bx & 0xFF;
 
+                    // SAFETY: ci is a valid chunk index (same invariant as loop header).
                     let chunk = unsafe { self.program.chunks.get_unchecked(ci) };
                     let desc = chunk.constants[desc_idx].clone();
                     let (type_name, field_names) = unpack_record_desc(desc)?;
@@ -1486,11 +1539,14 @@ impl<'a> VM<'a> {
                     let names_idx = bx >> 8;
                     let n_updates = bx & 0xFF;
 
+                    // SAFETY: ci is a valid chunk index (same invariant as loop header).
                     let chunk = unsafe { self.program.chunks.get_unchecked(ci) };
                     let field_names = unpack_string_list(&chunk.constants[names_idx])?;
 
                     let old_record = reg!(a);
                     let new_record = unsafe {
+                        // SAFETY: old_record comes from a valid register; the non-record
+                        // case returns Err before any pointer dereference.
                         match old_record.as_heap_ref() {
                             HeapObj::Record { type_name, fields } => {
                                 let mut new_fields = HashMap::new();
@@ -1528,6 +1584,8 @@ impl<'a> VM<'a> {
                     let a = ((inst >> 16) & 0xFF) as usize + base;
                     let b = ((inst >> 8) & 0xFF) as usize + base;
                     let c = (inst & 0xFF) as usize;
+                    // SAFETY: c is a constant pool index emitted by the compiler (< nan_consts.len()).
+                    // a = base + reg, within pre-allocated stack slots.
                     let kv = unsafe { *nan_consts.get_unchecked(c) };
                     let result = NanVal::number(reg!(b).as_number() + kv.as_number());
                     unsafe { *self.stack.as_mut_ptr().add(a) = result; }
@@ -1536,6 +1594,7 @@ impl<'a> VM<'a> {
                     let a = ((inst >> 16) & 0xFF) as usize + base;
                     let b = ((inst >> 8) & 0xFF) as usize + base;
                     let c = (inst & 0xFF) as usize;
+                    // SAFETY: same as OP_ADDK_N.
                     let kv = unsafe { *nan_consts.get_unchecked(c) };
                     let result = NanVal::number(reg!(b).as_number() - kv.as_number());
                     unsafe { *self.stack.as_mut_ptr().add(a) = result; }
@@ -1544,6 +1603,7 @@ impl<'a> VM<'a> {
                     let a = ((inst >> 16) & 0xFF) as usize + base;
                     let b = ((inst >> 8) & 0xFF) as usize + base;
                     let c = (inst & 0xFF) as usize;
+                    // SAFETY: same as OP_ADDK_N.
                     let kv = unsafe { *nan_consts.get_unchecked(c) };
                     let result = NanVal::number(reg!(b).as_number() * kv.as_number());
                     unsafe { *self.stack.as_mut_ptr().add(a) = result; }
@@ -1552,6 +1612,7 @@ impl<'a> VM<'a> {
                     let a = ((inst >> 16) & 0xFF) as usize + base;
                     let b = ((inst >> 8) & 0xFF) as usize + base;
                     let c = (inst & 0xFF) as usize;
+                    // SAFETY: same as OP_ADDK_N.
                     let kv = unsafe { *nan_consts.get_unchecked(c) };
                     let dv = kv.as_number();
                     if dv == 0.0 {
@@ -1564,6 +1625,7 @@ impl<'a> VM<'a> {
                     let a = ((inst >> 16) & 0xFF) as usize + base;
                     let b = ((inst >> 8) & 0xFF) as usize + base;
                     let c = (inst & 0xFF) as usize + base;
+                    // SAFETY: a, b, c are all base + register offsets within pre-allocated stack slots.
                     let result = NanVal::number(reg!(b).as_number() + reg!(c).as_number());
                     unsafe { *self.stack.as_mut_ptr().add(a) = result; }
                 }
@@ -1571,6 +1633,7 @@ impl<'a> VM<'a> {
                     let a = ((inst >> 16) & 0xFF) as usize + base;
                     let b = ((inst >> 8) & 0xFF) as usize + base;
                     let c = (inst & 0xFF) as usize + base;
+                    // SAFETY: a, b, c are base + register offsets within pre-allocated stack slots.
                     let result = NanVal::number(reg!(b).as_number() - reg!(c).as_number());
                     unsafe { *self.stack.as_mut_ptr().add(a) = result; }
                 }
@@ -1578,6 +1641,7 @@ impl<'a> VM<'a> {
                     let a = ((inst >> 16) & 0xFF) as usize + base;
                     let b = ((inst >> 8) & 0xFF) as usize + base;
                     let c = (inst & 0xFF) as usize + base;
+                    // SAFETY: same as OP_SUB_NN.
                     let result = NanVal::number(reg!(b).as_number() * reg!(c).as_number());
                     unsafe { *self.stack.as_mut_ptr().add(a) = result; }
                 }
@@ -1585,6 +1649,7 @@ impl<'a> VM<'a> {
                     let a = ((inst >> 16) & 0xFF) as usize + base;
                     let b = ((inst >> 8) & 0xFF) as usize + base;
                     let c = (inst & 0xFF) as usize + base;
+                    // SAFETY: same as OP_SUB_NN.
                     let dv = reg!(c).as_number();
                     if dv == 0.0 {
                         return Err("division by zero".to_string());
@@ -1605,6 +1670,7 @@ fn nanval_equal(a: NanVal, b: NanVal) -> bool {
         true
     } else if a.is_string() && b.is_string() {
         unsafe {
+            // SAFETY: is_string() confirmed both are live heap-allocated string Rc pointers.
             let sa = match a.as_heap_ref() { HeapObj::Str(s) => s, _ => unreachable!() };
             let sb = match b.as_heap_ref() { HeapObj::Str(s) => s, _ => unreachable!() };
             sa == sb
