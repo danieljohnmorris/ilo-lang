@@ -69,11 +69,7 @@ impl Parser {
 
     /// Check if we're at a body terminator (end of input, `}`, or end of declaration)
     fn at_body_end(&self) -> bool {
-        match self.peek() {
-            None => true,
-            Some(Token::RBrace) => true,
-            _ => false,
-        }
+        matches!(self.peek(), None | Some(Token::RBrace))
     }
 
     // ---- Top-level parsing ----
@@ -396,12 +392,7 @@ impl Parser {
     }
 
     fn at_arm_end(&self) -> bool {
-        match self.peek() {
-            None => true,
-            Some(Token::RBrace) => true,
-            Some(Token::Semi) => true,
-            _ => false,
-        }
+        matches!(self.peek(), None | Some(Token::RBrace) | Some(Token::Semi))
     }
 
     fn parse_pattern(&mut self) -> Result<Pattern> {
@@ -657,12 +648,11 @@ impl Parser {
 
     /// Check if next tokens look like `ident:expr` (named field)
     fn is_named_field_ahead(&self) -> bool {
-        if let Some(Token::Ident(_)) = self.peek() {
-            if self.pos + 1 < self.tokens.len() && self.tokens[self.pos + 1] == Token::Colon {
+        if let Some(Token::Ident(_)) = self.peek()
+            && self.pos + 1 < self.tokens.len() && self.tokens[self.pos + 1] == Token::Colon {
                 // Make sure it's not a param pattern (type follows colon)
                 return true;
             }
-        }
         false
     }
 

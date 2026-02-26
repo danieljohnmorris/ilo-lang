@@ -1,3 +1,5 @@
+#![warn(clippy::all)]
+
 mod ast;
 mod codegen;
 mod interpreter;
@@ -335,8 +337,8 @@ fn run_bench(program: &ast::Program, func_name: Option<&str>, args: &[interprete
 
     let mut jit_arm64_ns: Option<u128> = None;
     #[cfg(target_arch = "aarch64")]
-    if let Some(fi) = func_idx_jit {
-        if all_numeric {
+    if let Some(fi) = func_idx_jit
+        && all_numeric {
             let chunk = &compiled.chunks[fi];
             let nan_consts = &compiled.nan_constants[fi];
             if let Some(jit_func) = vm::jit_arm64::compile(chunk, nan_consts) {
@@ -366,10 +368,9 @@ fn run_bench(program: &ast::Program, func_name: Option<&str>, args: &[interprete
                 println!();
             }
         }
-    }
 
     #[allow(unused_variables)]
-    let mut jit_cranelift_ns: Option<u128> = None;
+    let jit_cranelift_ns: Option<u128> = None;
     #[cfg(feature = "cranelift")]
     if let Some(fi) = func_idx_jit {
         if all_numeric {
@@ -404,7 +405,7 @@ fn run_bench(program: &ast::Program, func_name: Option<&str>, args: &[interprete
     }
 
     #[allow(unused_variables)]
-    let mut jit_llvm_ns: Option<u128> = None;
+    let jit_llvm_ns: Option<u128> = None;
     #[cfg(feature = "llvm")]
     if let Some(fi) = func_idx_jit {
         if all_numeric {
@@ -507,21 +508,18 @@ print(f"__NS__={{_per}}")
             println!("  Interpreter is {:.1}x faster than bytecode VM", vm_ns as f64 / interp_ns as f64);
         }
     }
-    if let Some(jit_ns) = jit_arm64_ns {
-        if jit_ns > 0 && vm_reuse_ns > 0 {
+    if let Some(jit_ns) = jit_arm64_ns
+        && jit_ns > 0 && vm_reuse_ns > 0 {
             println!("  Custom JIT (arm64) is {:.1}x faster than VM (reusable)", vm_reuse_ns as f64 / jit_ns as f64);
         }
-    }
-    if let Some(jit_ns) = jit_cranelift_ns {
-        if jit_ns > 0 && vm_reuse_ns > 0 {
+    if let Some(jit_ns) = jit_cranelift_ns
+        && jit_ns > 0 && vm_reuse_ns > 0 {
             println!("  Cranelift JIT is {:.1}x faster than VM (reusable)", vm_reuse_ns as f64 / jit_ns as f64);
         }
-    }
-    if let Some(jit_ns) = jit_llvm_ns {
-        if jit_ns > 0 && vm_reuse_ns > 0 {
+    if let Some(jit_ns) = jit_llvm_ns
+        && jit_ns > 0 && vm_reuse_ns > 0 {
             println!("  LLVM JIT is {:.1}x faster than VM (reusable)", vm_reuse_ns as f64 / jit_ns as f64);
         }
-    }
     if let Some(py) = py_ns {
         if interp_ns > 0 && py > 0 {
             if interp_ns < py {
@@ -544,30 +542,26 @@ print(f"__NS__={{_per}}")
                 println!("  Python is {:.1}x faster than VM (reusable)", vm_reuse_ns as f64 / py as f64);
             }
         }
-        if let Some(jit_ns) = jit_arm64_ns {
-            if jit_ns > 0 && py > 0 {
+        if let Some(jit_ns) = jit_arm64_ns
+            && jit_ns > 0 && py > 0 {
                 println!("  Custom JIT (arm64) is {:.1}x faster than Python", py as f64 / jit_ns as f64);
             }
-        }
-        if let Some(jit_ns) = jit_cranelift_ns {
-            if jit_ns > 0 && py > 0 {
+        if let Some(jit_ns) = jit_cranelift_ns
+            && jit_ns > 0 && py > 0 {
                 println!("  Cranelift JIT is {:.1}x faster than Python", py as f64 / jit_ns as f64);
             }
-        }
-        if let Some(jit_ns) = jit_llvm_ns {
-            if jit_ns > 0 && py > 0 {
+        if let Some(jit_ns) = jit_llvm_ns
+            && jit_ns > 0 && py > 0 {
                 println!("  LLVM JIT is {:.1}x faster than Python", py as f64 / jit_ns as f64);
             }
-        }
     }
 }
 
 fn parse_cli_arg(s: &str) -> interpreter::Value {
-    if let Ok(n) = s.parse::<f64>() {
-        if n.is_finite() {
+    if let Ok(n) = s.parse::<f64>()
+        && n.is_finite() {
             return interpreter::Value::Number(n);
         }
-    }
     if s == "true" {
         interpreter::Value::Bool(true)
     } else if s == "false" {

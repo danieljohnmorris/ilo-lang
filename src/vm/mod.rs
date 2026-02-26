@@ -106,6 +106,7 @@ fn encode_abx(op: u8, a: u8, bx: u16) -> u32 {
 pub struct Chunk {
     pub code: Vec<u32>,
     pub constants: Vec<Value>,
+    #[allow(dead_code)] // available for introspection/debugging tools
     pub param_count: u8,
     pub reg_count: u8,
 }
@@ -387,11 +388,10 @@ impl RegCompiler {
                 let body_result = self.compile_body(body);
                 self.locals.truncate(saved_locals);
 
-                if let Some(br) = body_result {
-                    if br != last_reg {
+                if let Some(br) = body_result
+                    && br != last_reg {
                         self.emit_abc(OP_MOVE, last_reg, br, 0);
                     }
-                }
 
                 // idx += 1
                 self.emit_abc(OP_ADD, idx_reg, idx_reg, one_reg);
@@ -422,11 +422,10 @@ impl RegCompiler {
             match &arm.pattern {
                 Pattern::Wildcard => {
                     let body_result = self.compile_body(&arm.body);
-                    if let Some(br) = body_result {
-                        if br != result_reg {
+                    if let Some(br) = body_result
+                        && br != result_reg {
                             self.emit_abc(OP_MOVE, result_reg, br, 0);
                         }
-                    }
                     self.next_reg = saved_next;
                     self.locals.truncate(saved_locals);
                     for j in end_jumps {
@@ -447,11 +446,10 @@ impl RegCompiler {
                     }
 
                     let body_result = self.compile_body(&arm.body);
-                    if let Some(br) = body_result {
-                        if br != result_reg {
+                    if let Some(br) = body_result
+                        && br != result_reg {
                             self.emit_abc(OP_MOVE, result_reg, br, 0);
                         }
-                    }
                     end_jumps.push(self.emit_jmp_placeholder());
                     self.current.patch_jump(skip);
                 }
@@ -468,11 +466,10 @@ impl RegCompiler {
                     }
 
                     let body_result = self.compile_body(&arm.body);
-                    if let Some(br) = body_result {
-                        if br != result_reg {
+                    if let Some(br) = body_result
+                        && br != result_reg {
                             self.emit_abc(OP_MOVE, result_reg, br, 0);
                         }
-                    }
                     end_jumps.push(self.emit_jmp_placeholder());
                     self.current.patch_jump(skip);
                 }
@@ -491,11 +488,10 @@ impl RegCompiler {
                     let skip = self.emit_jmpf(eq_reg);
 
                     let body_result = self.compile_body(&arm.body);
-                    if let Some(br) = body_result {
-                        if br != result_reg {
+                    if let Some(br) = body_result
+                        && br != result_reg {
                             self.emit_abc(OP_MOVE, result_reg, br, 0);
                         }
-                    }
                     end_jumps.push(self.emit_jmp_placeholder());
                     self.current.patch_jump(skip);
                 }
@@ -565,8 +561,8 @@ impl RegCompiler {
 
     fn compile_expr(&mut self, expr: &Expr) -> u8 {
         // Try constant folding for BinOp/UnaryOp expressions
-        if matches!(expr, Expr::BinOp { .. } | Expr::UnaryOp { .. }) {
-            if let Some(ref val) = Self::try_const_fold(expr) {
+        if matches!(expr, Expr::BinOp { .. } | Expr::UnaryOp { .. })
+            && let Some(ref val) = Self::try_const_fold(expr) {
                 let is_num = matches!(val, Value::Number(_));
                 let reg = self.alloc_reg();
                 let ki = self.current.add_const(val.clone());
@@ -574,7 +570,6 @@ impl RegCompiler {
                 if is_num { self.reg_is_num[reg as usize] = true; }
                 return reg;
             }
-        }
 
         match expr {
             Expr::Literal(lit) => {
@@ -664,8 +659,8 @@ impl RegCompiler {
                     }
                     // Also handle constant on left (e.g., 2 * x → MULK x, 2)
                     // Only for commutative ops (Add, Multiply)
-                    if matches!(op, BinOp::Add | BinOp::Multiply) {
-                        if let Expr::Literal(Literal::Number(n)) = left.as_ref() {
+                    if matches!(op, BinOp::Add | BinOp::Multiply)
+                        && let Expr::Literal(Literal::Number(n)) = left.as_ref() {
                             let rc = self.compile_expr(right);
                             if self.reg_is_num[rc as usize] {
                                 let ki = self.current.add_const(Value::Number(*n));
@@ -682,7 +677,6 @@ impl RegCompiler {
                                 }
                             }
                         }
-                    }
                 }
 
                 let rb = self.compile_expr(left);
@@ -838,7 +832,7 @@ impl RegCompiler {
                     }
                 }
 
-                let bx = ((names_idx as u16) << 8) | updates.len() as u16;
+                let bx = (names_idx << 8) | updates.len() as u16;
                 self.emit_abx(OP_RECWITH, a, bx);
                 a
             }
@@ -1007,7 +1001,7 @@ impl NanVal {
             Value::Nil => NanVal::nil(),
             Value::Text(s) => NanVal::heap_string(s.clone()),
             Value::List(items) => {
-                NanVal::heap_list(items.iter().map(|v| NanVal::from_value(v)).collect())
+                NanVal::heap_list(items.iter().map(NanVal::from_value).collect())
             }
             Value::Record { type_name, fields } => {
                 NanVal::heap_record(
@@ -1054,7 +1048,7 @@ impl NanVal {
 pub fn compile(program: &Program) -> Result<CompiledProgram, CompileError> {
     let mut prog = RegCompiler::new().compile_program(program)?;
     prog.nan_constants = prog.chunks.iter()
-        .map(|chunk| chunk.constants.iter().map(|v| NanVal::from_value(v)).collect())
+        .map(|chunk| chunk.constants.iter().map(NanVal::from_value).collect())
         .collect();
     Ok(prog)
 }
@@ -1093,7 +1087,7 @@ impl<'a> VmState<'a> {
 
         let func_idx = self.vm.program.func_index(func_name)
             .ok_or_else(|| VmError::UndefinedFunction { name: func_name.to_string() })?;
-        let nan_args: Vec<NanVal> = args.iter().map(|v| NanVal::from_value(v)).collect();
+        let nan_args: Vec<NanVal> = args.iter().map(NanVal::from_value).collect();
         self.vm.setup_call(func_idx, nan_args, 0);
         self.vm.execute()
     }
@@ -1147,11 +1141,15 @@ impl<'a> VM<'a> {
     }
 
     fn call(&mut self, func_idx: u16, args: Vec<Value>) -> VmResult<Value> {
-        let nan_args: Vec<NanVal> = args.iter().map(|v| NanVal::from_value(v)).collect();
+        let nan_args: Vec<NanVal> = args.iter().map(NanVal::from_value).collect();
         self.setup_call(func_idx, nan_args, 0);
         self.execute()
     }
 
+    // reg!/reg_set! carry their own unsafe {} — clippy flags them as redundant when
+    // expanded inside an outer unsafe {} site. The inner unsafe is intentional as
+    // documentation; allow the lint here.
+    #[allow(unused_unsafe)]
     fn execute(&mut self) -> VmResult<Value> {
         // SAFETY: execute() is only called from call() after setup_call() has pushed
         // a frame, so frames is non-empty.

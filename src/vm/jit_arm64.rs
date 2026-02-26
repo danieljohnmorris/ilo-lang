@@ -229,7 +229,7 @@ impl Arm64Emitter {
 
     fn finalize(mut self) -> Option<JitFunction> {
         // Align code to 8 bytes for const pool (code is 4-byte aligned, add NOP if odd)
-        if self.code.len() % 2 != 0 {
+        if !self.code.len().is_multiple_of(2) {
             self.emit(0xD503201F); // NOP
         }
 
@@ -327,10 +327,12 @@ impl JitFunction {
         let f: extern "C" fn(f64, f64, f64, f64, f64, f64) -> f64 = unsafe { std::mem::transmute(self.ptr) };
         f(a0, a1, a2, a3, a4, a5)
     }
+    #[allow(clippy::too_many_arguments)]
     fn call_7(&self, a0: f64, a1: f64, a2: f64, a3: f64, a4: f64, a5: f64, a6: f64) -> f64 {
         let f: extern "C" fn(f64, f64, f64, f64, f64, f64, f64) -> f64 = unsafe { std::mem::transmute(self.ptr) };
         f(a0, a1, a2, a3, a4, a5, a6)
     }
+    #[allow(clippy::too_many_arguments)]
     fn call_8(&self, a0: f64, a1: f64, a2: f64, a3: f64, a4: f64, a5: f64, a6: f64, a7: f64) -> f64 {
         let f: extern "C" fn(f64, f64, f64, f64, f64, f64, f64, f64) -> f64 = unsafe { std::mem::transmute(self.ptr) };
         f(a0, a1, a2, a3, a4, a5, a6, a7)
