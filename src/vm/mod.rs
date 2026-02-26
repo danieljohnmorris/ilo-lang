@@ -1398,10 +1398,12 @@ impl<'a> VM<'a> {
                     let a = ((inst >> 16) & 0xFF) as usize + base;
                     let b = ((inst >> 8) & 0xFF) as usize + base;
                     let v = reg!(b);
+                    // SAFETY: OP_UNWRAP is only emitted by the compiler immediately
+                    // after a passed OP_ISOK or OP_ISERR branch, which guarantees the
+                    // value in register b is a heap-allocated Ok or Err wrapper.
+                    // The debug_assert catches compiler bugs in debug builds.
+                    debug_assert!(v.is_heap(), "OP_UNWRAP on non-heap value");
                     let inner = unsafe {
-                        // SAFETY: v comes from a valid register. The Ok/Err check below
-                        // returns Err if the tag is wrong, so as_heap_ref is only reached
-                        // when the value is a heap-allocated Ok or Err wrapper.
                         match v.as_heap_ref() {
                             HeapObj::OkVal(inner) | HeapObj::ErrVal(inner) => {
                                 inner.clone_rc();
@@ -1423,9 +1425,12 @@ impl<'a> VM<'a> {
                         _ => return Err(VmError::Type("RecordField expects string constant")),
                     };
                     let record = reg!(b);
+                    // SAFETY: OP_RECFLD is only emitted by the compiler for record
+                    // field accesses on values the type-checker knows are records.
+                    // The debug_assert catches compiler bugs; the runtime _ arm
+                    // provides a safe fallback for release builds with malformed bytecode.
+                    debug_assert!(record.is_heap(), "OP_RECFLD on non-heap value");
                     let field_val = unsafe {
-                        // SAFETY: record comes from a valid register; the non-record
-                        // case returns Err before any pointer dereference.
                         match record.as_heap_ref() {
                             HeapObj::Record { fields, .. } => {
                                 match fields.get(field_name) {
@@ -1582,9 +1587,12 @@ impl<'a> VM<'a> {
                     let field_names = unpack_string_list(&chunk.constants[names_idx])?;
 
                     let old_record = reg!(a);
+                    // SAFETY: OP_RECWITH is only emitted by the compiler for `with`
+                    // expressions on values the type-checker knows are records.
+                    // The debug_assert catches compiler bugs; the runtime _ arm
+                    // provides a safe fallback for release builds with malformed bytecode.
+                    debug_assert!(old_record.is_heap(), "OP_RECWITH on non-heap value");
                     let new_record = unsafe {
-                        // SAFETY: old_record comes from a valid register; the non-record
-                        // case returns Err before any pointer dereference.
                         match old_record.as_heap_ref() {
                             HeapObj::Record { type_name, fields } => {
                                 let mut new_fields = HashMap::new();
@@ -1726,6 +1734,11 @@ fn nanval_truthy(v: NanVal) -> bool {
             TAG_NIL | TAG_FALSE => false,
             TAG_TRUE => true,
             _ => unsafe {
+                // SAFETY: the outer `if v.is_number()` guard eliminated all
+                // plain f64 values. The match arms above exhausted nil, true,
+                // and false (the only non-heap non-number tags). Therefore
+                // any remaining value must be a live heap pointer created by
+                // a heap_* constructor, making as_heap_ref() sound here.
                 match v.as_heap_ref() {
                     HeapObj::Str(s) => !s.is_empty(),
                     HeapObj::List(l) => !l.is_empty(),
