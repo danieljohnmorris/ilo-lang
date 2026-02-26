@@ -3,6 +3,24 @@ use std::rc::Rc;
 use crate::ast::*;
 use crate::interpreter::Value;
 
+#[derive(Debug, thiserror::Error)]
+pub enum VmError {
+    #[error("no functions defined")]
+    NoFunctionsDefined,
+    #[error("undefined function: {name}")]
+    UndefinedFunction { name: String },
+    #[error("division by zero")]
+    DivisionByZero,
+    #[error("no field '{field}' on record")]
+    FieldNotFound { field: String },
+    #[error("unknown opcode: {op}")]
+    UnknownOpcode { op: u8 },
+    #[error("{0}")]
+    Type(&'static str),
+}
+
+type VmResult<T> = Result<T, VmError>;
+
 #[cfg(target_arch = "aarch64")]
 pub(crate) mod jit_arm64;
 #[cfg(feature = "cranelift")]
@@ -1023,18 +1041,18 @@ pub fn compile(program: &Program) -> CompiledProgram {
     prog
 }
 
-pub fn run(compiled: &CompiledProgram, func_name: Option<&str>, args: Vec<Value>) -> Result<Value, String> {
+pub fn run(compiled: &CompiledProgram, func_name: Option<&str>, args: Vec<Value>) -> VmResult<Value> {
     let target = match func_name {
         Some(name) => name.to_string(),
-        None => compiled.func_names.first().ok_or("no functions defined")?.clone(),
+        None => compiled.func_names.first().ok_or(VmError::NoFunctionsDefined)?.clone(),
     };
     let func_idx = compiled.func_index(&target)
-        .ok_or_else(|| format!("undefined function: {}", target))?;
+        .ok_or_else(|| VmError::UndefinedFunction { name: target })?;
     VM::new(compiled).call(func_idx, args)
 }
 
 #[cfg(test)]
-pub fn compile_and_run(program: &Program, func_name: Option<&str>, args: Vec<Value>) -> Result<Value, String> {
+pub fn compile_and_run(program: &Program, func_name: Option<&str>, args: Vec<Value>) -> VmResult<Value> {
     let compiled = compile(program);
     run(&compiled, func_name, args)
 }
@@ -1049,14 +1067,14 @@ impl<'a> VmState<'a> {
         VmState { vm: VM::new(compiled) }
     }
 
-    pub fn call(&mut self, func_name: &str, args: Vec<Value>) -> Result<Value, String> {
+    pub fn call(&mut self, func_name: &str, args: Vec<Value>) -> VmResult<Value> {
         for v in self.vm.stack.drain(..) {
             v.drop_rc();
         }
         self.vm.frames.clear();
 
         let func_idx = self.vm.program.func_index(func_name)
-            .ok_or_else(|| format!("undefined function: {}", func_name))?;
+            .ok_or_else(|| VmError::UndefinedFunction { name: func_name.to_string() })?;
         let nan_args: Vec<NanVal> = args.iter().map(|v| NanVal::from_value(v)).collect();
         self.vm.setup_call(func_idx, nan_args, 0);
         self.vm.execute()
@@ -1110,13 +1128,13 @@ impl<'a> VM<'a> {
         });
     }
 
-    fn call(&mut self, func_idx: u16, args: Vec<Value>) -> Result<Value, String> {
+    fn call(&mut self, func_idx: u16, args: Vec<Value>) -> VmResult<Value> {
         let nan_args: Vec<NanVal> = args.iter().map(|v| NanVal::from_value(v)).collect();
         self.setup_call(func_idx, nan_args, 0);
         self.execute()
     }
 
-    fn execute(&mut self) -> Result<Value, String> {
+    fn execute(&mut self) -> VmResult<Value> {
         // SAFETY: execute() is only called from call() after setup_call() has pushed
         // a frame, so frames is non-empty.
         let frame = unsafe { self.frames.last().unwrap_unchecked() };
@@ -1202,7 +1220,7 @@ impl<'a> VM<'a> {
                         };
                         reg_set!(a, result);
                     } else {
-                        return Err("cannot add non-matching types".to_string());
+                        return Err(VmError::Type("cannot add non-matching types"));
                     }
                 }
                 OP_SUB => {
@@ -1214,7 +1232,7 @@ impl<'a> VM<'a> {
                     if bv.is_number() && cv.is_number() {
                         reg_set!(a, NanVal::number(bv.as_number() - cv.as_number()));
                     } else {
-                        return Err("cannot subtract non-numbers".to_string());
+                        return Err(VmError::Type("cannot subtract non-numbers"));
                     }
                 }
                 OP_MUL => {
@@ -1226,7 +1244,7 @@ impl<'a> VM<'a> {
                     if bv.is_number() && cv.is_number() {
                         reg_set!(a, NanVal::number(bv.as_number() * cv.as_number()));
                     } else {
-                        return Err("cannot multiply non-numbers".to_string());
+                        return Err(VmError::Type("cannot multiply non-numbers"));
                     }
                 }
                 OP_DIV => {
@@ -1238,11 +1256,11 @@ impl<'a> VM<'a> {
                     if bv.is_number() && cv.is_number() {
                         let dv = cv.as_number();
                         if dv == 0.0 {
-                            return Err("division by zero".to_string());
+                            return Err(VmError::DivisionByZero);
                         }
                         reg_set!(a, NanVal::number(bv.as_number() / dv));
                     } else {
-                        return Err("cannot divide non-numbers".to_string());
+                        return Err(VmError::Type("cannot divide non-numbers"));
                     }
                 }
                 OP_EQ => {
@@ -1268,7 +1286,7 @@ impl<'a> VM<'a> {
                     if bv.is_number() && cv.is_number() {
                         reg_set!(a, NanVal::boolean(bv.as_number() > cv.as_number()));
                     } else {
-                        return Err("cannot compare > non-numbers".to_string());
+                        return Err(VmError::Type("cannot compare > non-numbers"));
                     }
                 }
                 OP_LT => {
@@ -1280,7 +1298,7 @@ impl<'a> VM<'a> {
                     if bv.is_number() && cv.is_number() {
                         reg_set!(a, NanVal::boolean(bv.as_number() < cv.as_number()));
                     } else {
-                        return Err("cannot compare < non-numbers".to_string());
+                        return Err(VmError::Type("cannot compare < non-numbers"));
                     }
                 }
                 OP_GE => {
@@ -1292,7 +1310,7 @@ impl<'a> VM<'a> {
                     if bv.is_number() && cv.is_number() {
                         reg_set!(a, NanVal::boolean(bv.as_number() >= cv.as_number()));
                     } else {
-                        return Err("cannot compare >= non-numbers".to_string());
+                        return Err(VmError::Type("cannot compare >= non-numbers"));
                     }
                 }
                 OP_LE => {
@@ -1304,7 +1322,7 @@ impl<'a> VM<'a> {
                     if bv.is_number() && cv.is_number() {
                         reg_set!(a, NanVal::boolean(bv.as_number() <= cv.as_number()));
                     } else {
-                        return Err("cannot compare <= non-numbers".to_string());
+                        return Err(VmError::Type("cannot compare <= non-numbers"));
                     }
                 }
                 OP_MOVE => {
@@ -1327,7 +1345,7 @@ impl<'a> VM<'a> {
                     if v.is_number() {
                         reg_set!(a, NanVal::number(-v.as_number()));
                     } else {
-                        return Err("cannot negate non-number".to_string());
+                        return Err(VmError::Type("cannot negate non-number"));
                     }
                 }
                 OP_WRAPOK => {
@@ -1369,7 +1387,7 @@ impl<'a> VM<'a> {
                                 inner.clone_rc();
                                 *inner
                             }
-                            _ => return Err("unwrap on non-Ok/Err".to_string()),
+                            _ => return Err(VmError::Type("unwrap on non-Ok/Err")),
                         }
                     };
                     reg_set!(a, inner);
@@ -1382,7 +1400,7 @@ impl<'a> VM<'a> {
                     let chunk = unsafe { self.program.chunks.get_unchecked(ci) };
                     let field_name = match &chunk.constants[c] {
                         Value::Text(s) => s.as_str(),
-                        _ => return Err("RecordField expects string constant".to_string()),
+                        _ => return Err(VmError::Type("RecordField expects string constant")),
                     };
                     let record = reg!(b);
                     let field_val = unsafe {
@@ -1395,10 +1413,10 @@ impl<'a> VM<'a> {
                                         val.clone_rc();
                                         val
                                     }
-                                    None => return Err(format!("no field '{}' on record", field_name)),
+                                    None => return Err(VmError::FieldNotFound { field: field_name.to_string() }),
                                 }
                             }
-                            _ => return Err("field access on non-record".to_string()),
+                            _ => return Err(VmError::Type("field access on non-record")),
                         }
                     };
                     reg_set!(a, field_val);
@@ -1424,11 +1442,11 @@ impl<'a> VM<'a> {
                                     }
                                     // else: fall through to JMP exit
                                 }
-                                _ => return Err("foreach requires a list".to_string()),
+                                _ => return Err(VmError::Type("foreach requires a list")),
                             }
                         }
                     } else {
-                        return Err("list index must be a number".to_string());
+                        return Err(VmError::Type("list index must be a number"));
                     }
                 }
                 OP_LOADK => {
@@ -1563,7 +1581,7 @@ impl<'a> VM<'a> {
                                 }
                                 NanVal::heap_record(type_name.clone(), new_fields)
                             }
-                            _ => return Err("'with' requires a record".to_string()),
+                            _ => return Err(VmError::Type("'with' requires a record")),
                         }
                     };
                     reg_set!(a, new_record);
@@ -1616,7 +1634,7 @@ impl<'a> VM<'a> {
                     let kv = unsafe { *nan_consts.get_unchecked(c) };
                     let dv = kv.as_number();
                     if dv == 0.0 {
-                        return Err("division by zero".to_string());
+                        return Err(VmError::DivisionByZero);
                     }
                     let result = NanVal::number(reg!(b).as_number() / dv);
                     unsafe { *self.stack.as_mut_ptr().add(a) = result; }
@@ -1652,12 +1670,12 @@ impl<'a> VM<'a> {
                     // SAFETY: same as OP_SUB_NN.
                     let dv = reg!(c).as_number();
                     if dv == 0.0 {
-                        return Err("division by zero".to_string());
+                        return Err(VmError::DivisionByZero);
                     }
                     let result = NanVal::number(reg!(b).as_number() / dv);
                     unsafe { *self.stack.as_mut_ptr().add(a) = result; }
                 }
-                _ => return Err(format!("unknown opcode: {}", op)),
+                _ => return Err(VmError::UnknownOpcode { op }),
             }
         }
     }
@@ -1698,29 +1716,29 @@ fn nanval_truthy(v: NanVal) -> bool {
     }
 }
 
-fn unpack_record_desc(desc: Value) -> Result<(String, Vec<String>), String> {
+fn unpack_record_desc(desc: Value) -> VmResult<(String, Vec<String>)> {
     match desc {
         Value::List(items) if items.len() == 2 => {
             let tn = match &items[0] {
                 Value::Text(s) => s.clone(),
-                _ => return Err("invalid record descriptor".to_string()),
+                _ => return Err(VmError::Type("invalid record descriptor")),
             };
             let fns = unpack_string_list(&items[1])?;
             Ok((tn, fns))
         }
-        _ => Err("invalid record descriptor".to_string()),
+        _ => Err(VmError::Type("invalid record descriptor")),
     }
 }
 
-fn unpack_string_list(val: &Value) -> Result<Vec<String>, String> {
+fn unpack_string_list(val: &Value) -> VmResult<Vec<String>> {
     match val {
         Value::List(items) => {
             items.iter().map(|v| match v {
                 Value::Text(s) => Ok(s.clone()),
-                _ => Err("expected string in list".to_string()),
+                _ => Err(VmError::Type("expected string in list")),
             }).collect()
         }
-        _ => Err("expected list".to_string()),
+        _ => Err(VmError::Type("expected list")),
     }
 }
 
