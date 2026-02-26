@@ -3,6 +3,11 @@ set -euo pipefail
 
 cd "$(dirname "$0")/.."
 
+# ── Ensure cargo/rustc are in PATH ──────────────────────────────────
+if [[ -f "$HOME/.cargo/env" ]]; then
+    source "$HOME/.cargo/env"
+fi
+
 # ── Config ──────────────────────────────────────────────────────────
 ILO=./target/release/ilo
 ARGS="10 20 30"
