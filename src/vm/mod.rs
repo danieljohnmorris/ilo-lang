@@ -29,7 +29,6 @@ pub enum CompileError {
     UndefinedFunction { name: String },
 }
 
-
 #[cfg(target_arch = "aarch64")]
 pub(crate) mod jit_arm64;
 #[cfg(feature = "cranelift")]
@@ -414,7 +413,7 @@ impl RegCompiler {
     }
 
     fn compile_match_arms(&mut self, sub_reg: u8, result_reg: u8, arms: &[MatchArm]) {
-        let mut end_jumps = Vec::new();
+        let mut end_jumps = Vec::with_capacity(arms.len());
 
         for arm in arms {
             let saved_next = self.next_reg;
@@ -1564,7 +1563,8 @@ impl<'a> VM<'a> {
                     let a = ((inst >> 16) & 0xFF) as usize + base;
                     let bx = (inst & 0xFFFF) as usize;
                     let desc_idx = bx >> 8;
-                    let n_fields = bx & 0xFF;
+                    // n_fields (bx & 0xFF) is encoded for future validation; field count
+                    // is derived at runtime from field_names returned by unpack_record_desc.
 
                     // SAFETY: ci is a valid chunk index (same invariant as loop header).
                     let chunk = unsafe { self.program.chunks.get_unchecked(ci) };
@@ -1579,13 +1579,13 @@ impl<'a> VM<'a> {
                     }
 
                     reg_set!(a, NanVal::heap_record(type_name, fields));
-                    let _ = n_fields;
                 }
                 OP_RECWITH => {
                     let a = ((inst >> 16) & 0xFF) as usize + base;
                     let bx = (inst & 0xFFFF) as usize;
                     let names_idx = bx >> 8;
-                    let n_updates = bx & 0xFF;
+                    // n_updates (bx & 0xFF) is encoded for future validation; update count
+                    // is derived at runtime from field_names returned by unpack_string_list.
 
                     // SAFETY: ci is a valid chunk index (same invariant as loop header).
                     let chunk = unsafe { self.program.chunks.get_unchecked(ci) };
@@ -1618,7 +1618,6 @@ impl<'a> VM<'a> {
                         }
                     };
                     reg_set!(a, new_record);
-                    let _ = n_updates;
                 }
                 OP_LISTNEW => {
                     let a = ((inst >> 16) & 0xFF) as usize + base;
