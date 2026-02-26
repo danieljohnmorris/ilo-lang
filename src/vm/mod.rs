@@ -125,15 +125,17 @@ impl Chunk {
                 _ => {}
             }
         }
-        let idx = self.constants.len() as u16;
+        let idx = self.constants.len();
+        assert!(idx <= u16::MAX as usize, "constant pool overflow: more than 65535 constants in one function");
         self.constants.push(val);
-        idx
+        idx as u16
     }
 
     fn add_const_raw(&mut self, val: Value) -> u16 {
-        let idx = self.constants.len() as u16;
+        let idx = self.constants.len();
+        assert!(idx <= u16::MAX as usize, "constant pool overflow: more than 65535 constants in one function");
         self.constants.push(val);
-        idx
+        idx as u16
     }
 
     fn emit(&mut self, inst: u32) -> usize {
@@ -144,7 +146,12 @@ impl Chunk {
 
     fn patch_jump(&mut self, jump_pos: usize) {
         let target = self.code.len();
-        let offset = (target as i32 - jump_pos as i32 - 1) as i16;
+        let offset_i32 = target as i32 - jump_pos as i32 - 1;
+        assert!(
+            offset_i32 >= i16::MIN as i32 && offset_i32 <= i16::MAX as i32,
+            "jump offset {offset_i32} exceeds i16 range — function body too large (max ~32K instructions)"
+        );
+        let offset = offset_i32 as i16;
         let inst = self.code[jump_pos];
         self.code[jump_pos] = (inst & 0xFFFF0000) | (offset as u16 as u32);
     }
@@ -243,8 +250,12 @@ impl RegCompiler {
 
     fn emit_jump_to(&mut self, target: usize) {
         let pos = self.current.code.len();
-        let offset = (target as i32 - pos as i32 - 1) as i16;
-        self.emit_abx(OP_JMP, 0, offset as u16);
+        let offset_i32 = target as i32 - pos as i32 - 1;
+        assert!(
+            offset_i32 >= i16::MIN as i32 && offset_i32 <= i16::MAX as i32,
+            "jump offset {offset_i32} exceeds i16 range — function body too large (max ~32K instructions)"
+        );
+        self.emit_abx(OP_JMP, 0, offset_i32 as i16 as u16);
     }
 
     fn compile_program(mut self, program: &Program) -> Result<CompiledProgram, CompileError> {
@@ -259,6 +270,11 @@ impl RegCompiler {
 
         for decl in &program.declarations {
             if let Decl::Function { params, body, .. } = decl {
+                assert!(
+                    params.len() <= 255,
+                    "function has {} parameters; maximum is 255",
+                    params.len()
+                );
                 self.current = Chunk::new(params.len() as u8);
                 self.locals.clear();
                 self.next_reg = params.len() as u8;
