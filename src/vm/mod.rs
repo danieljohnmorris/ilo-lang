@@ -620,6 +620,7 @@ impl RegCompiler {
                 let obj_reg = self.compile_expr(object);
                 let ra = self.alloc_reg();
                 let ki = self.current.add_const(Value::Text(field.clone()));
+                assert!(ki <= 255, "constant pool overflow: field name index {} exceeds 8-bit limit in OP_RECFLD", ki);
                 self.emit_abc(OP_RECFLD, ra, obj_reg, ki as u8);
                 ra
             }
