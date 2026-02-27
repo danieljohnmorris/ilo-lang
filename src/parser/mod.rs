@@ -569,7 +569,7 @@ impl Parser {
             // Logical NOT: !x
             Some(Token::Bang) => {
                 self.advance();
-                let operand = self.parse_atom()?;
+                let operand = self.parse_operand()?;
                 Ok(Expr::UnaryOp {
                     op: UnaryOp::Not,
                     operand: Box::new(operand),
@@ -607,9 +607,9 @@ impl Parser {
     /// binary subtract (`-a b`) when two atoms follow.
     fn parse_minus(&mut self) -> Result<Expr> {
         self.advance(); // consume `-`
-        let first = self.parse_atom()?;
-        if self.can_start_atom() {
-            let second = self.parse_atom()?;
+        let first = self.parse_operand()?;
+        if self.can_start_operand() {
+            let second = self.parse_operand()?;
             Ok(Expr::BinOp {
                 op: BinOp::Subtract,
                 left: Box::new(first),
@@ -640,8 +640,8 @@ impl Parser {
             Some(Token::PlusEq) => BinOp::Append,
             _ => unreachable!(),
         };
-        let left = self.parse_atom()?;
-        let right = self.parse_atom()?;
+        let left = self.parse_operand()?;
+        let right = self.parse_operand()?;
         Ok(Expr::BinOp {
             op,
             left: Box::new(left),
@@ -728,6 +728,64 @@ impl Parser {
                 | Some(Token::LParen)
                 | Some(Token::LBracket)
         )
+    }
+
+    /// Can the next token start an operand? (atom or prefix operator)
+    fn can_start_operand(&self) -> bool {
+        self.can_start_atom()
+            || matches!(
+                self.peek(),
+                Some(Token::Plus)
+                    | Some(Token::Minus)
+                    | Some(Token::Star)
+                    | Some(Token::Slash)
+                    | Some(Token::Greater)
+                    | Some(Token::Less)
+                    | Some(Token::GreaterEq)
+                    | Some(Token::LessEq)
+                    | Some(Token::Eq)
+                    | Some(Token::NotEq)
+                    | Some(Token::Amp)
+                    | Some(Token::Pipe)
+                    | Some(Token::PlusEq)
+                    | Some(Token::Bang)
+                    | Some(Token::Tilde)
+                    | Some(Token::Caret)
+            )
+    }
+
+    /// Parse an operand — an atom or a nested prefix operator.
+    /// This sits between `parse_atom` (terminals only) and `parse_expr_inner`
+    /// (which includes function calls). Prefix operators use this so that
+    /// `+*a b c` works without greedy call parsing.
+    fn parse_operand(&mut self) -> Result<Expr> {
+        match self.peek() {
+            Some(Token::Plus) | Some(Token::Star) | Some(Token::Slash)
+            | Some(Token::Greater) | Some(Token::Less) | Some(Token::GreaterEq)
+            | Some(Token::LessEq) | Some(Token::Eq) | Some(Token::NotEq)
+            | Some(Token::Amp) | Some(Token::Pipe)
+            | Some(Token::PlusEq) => self.parse_prefix_binop(),
+            Some(Token::Minus) => self.parse_minus(),
+            Some(Token::Bang) => {
+                self.advance();
+                let operand = self.parse_operand()?;
+                Ok(Expr::UnaryOp {
+                    op: UnaryOp::Not,
+                    operand: Box::new(operand),
+                })
+            }
+            Some(Token::Tilde) => {
+                self.advance();
+                let inner = self.parse_operand()?;
+                Ok(Expr::Ok(Box::new(inner)))
+            }
+            Some(Token::Caret) => {
+                self.advance();
+                let inner = self.parse_operand()?;
+                Ok(Expr::Err(Box::new(inner)))
+            }
+            _ => self.parse_atom(),
+        }
     }
 
     /// Parse an atom — the smallest expression unit
@@ -1324,6 +1382,122 @@ mod tests {
                         assert_eq!(*op, BinOp::Or);
                     }
                     other => panic!("expected BinOp Or, got {:?}", other),
+                }
+            }
+            _ => panic!("expected function"),
+        }
+    }
+
+    #[test]
+    fn parse_nested_prefix_binops() {
+        // +*a b c → BinOp(Add, BinOp(Mul, a, b), c)
+        let prog = parse_str("f a:n b:n c:n>n;+*a b c");
+        match &prog.declarations[0] {
+            Decl::Function { body, .. } => {
+                match &body[0] {
+                    Stmt::Expr(Expr::BinOp { op, left, right }) => {
+                        assert_eq!(*op, BinOp::Add);
+                        assert!(matches!(left.as_ref(), Expr::BinOp { op: BinOp::Multiply, .. }));
+                        assert!(matches!(right.as_ref(), Expr::Ref(name) if name == "c"));
+                    }
+                    _ => panic!("expected nested binop, got {:?}", body[0]),
+                }
+            }
+            _ => panic!("expected function"),
+        }
+    }
+
+    #[test]
+    fn parse_deep_nesting() {
+        // >=*+a b c 100 → BinOp(GreaterOrEqual, BinOp(Mul, BinOp(Add, a, b), c), 100)
+        let prog = parse_str("f a:n b:n c:n>b;>=*+a b c 100");
+        match &prog.declarations[0] {
+            Decl::Function { body, .. } => {
+                match &body[0] {
+                    Stmt::Expr(Expr::BinOp { op, left, .. }) => {
+                        assert_eq!(*op, BinOp::GreaterOrEqual);
+                        match left.as_ref() {
+                            Expr::BinOp { op, left: inner_left, .. } => {
+                                assert_eq!(*op, BinOp::Multiply);
+                                assert!(matches!(inner_left.as_ref(), Expr::BinOp { op: BinOp::Add, .. }));
+                            }
+                            _ => panic!("expected nested mul"),
+                        }
+                    }
+                    _ => panic!("expected nested binop, got {:?}", body[0]),
+                }
+            }
+            _ => panic!("expected function"),
+        }
+    }
+
+    #[test]
+    fn parse_not_as_binop_operand() {
+        // &!x y → BinOp(And, UnaryOp(Not, x), y)
+        let prog = parse_str("f x:b y:b>b;&!x y");
+        match &prog.declarations[0] {
+            Decl::Function { body, .. } => {
+                match &body[0] {
+                    Stmt::Expr(Expr::BinOp { op, left, right }) => {
+                        assert_eq!(*op, BinOp::And);
+                        assert!(matches!(left.as_ref(), Expr::UnaryOp { op: UnaryOp::Not, .. }));
+                        assert!(matches!(right.as_ref(), Expr::Ref(name) if name == "y"));
+                    }
+                    _ => panic!("expected and-not, got {:?}", body[0]),
+                }
+            }
+            _ => panic!("expected function"),
+        }
+    }
+
+    #[test]
+    fn parse_negate_binop() {
+        // -*a b → UnaryOp(Negate, BinOp(Mul, a, b))
+        let prog = parse_str("f a:n b:n>n;-*a b");
+        match &prog.declarations[0] {
+            Decl::Function { body, .. } => {
+                match &body[0] {
+                    Stmt::Expr(Expr::UnaryOp { op, operand }) => {
+                        assert_eq!(*op, UnaryOp::Negate);
+                        assert!(matches!(operand.as_ref(), Expr::BinOp { op: BinOp::Multiply, .. }));
+                    }
+                    _ => panic!("expected negate-product, got {:?}", body[0]),
+                }
+            }
+            _ => panic!("expected function"),
+        }
+    }
+
+    #[test]
+    fn parse_ok_as_operand() {
+        // +~a b → BinOp(Add, Ok(a), b)
+        let prog = parse_str("f a:n b:n>n;+~a b");
+        match &prog.declarations[0] {
+            Decl::Function { body, .. } => {
+                match &body[0] {
+                    Stmt::Expr(Expr::BinOp { op, left, .. }) => {
+                        assert_eq!(*op, BinOp::Add);
+                        assert!(matches!(left.as_ref(), Expr::Ok(_)));
+                    }
+                    _ => panic!("expected binop with Ok operand, got {:?}", body[0]),
+                }
+            }
+            _ => panic!("expected function"),
+        }
+    }
+
+    #[test]
+    fn parse_err_as_operand() {
+        // +^a b → BinOp(Add, Err(a), b)
+        let prog = parse_str("f a:n b:n>n;+^a b");
+        match &prog.declarations[0] {
+            Decl::Function { body, .. } => {
+                match &body[0] {
+                    Stmt::Expr(Expr::BinOp { op, left, .. }) => {
+                        assert_eq!(*op, BinOp::Add);
+                        assert!(matches!(left.as_ref(), Expr::Err(_)));
+                    }
+                    _ => panic!("expected binop with Err operand, got {:?}", body[0]),
                 }
             }
             _ => panic!("expected function"),

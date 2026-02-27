@@ -130,6 +130,18 @@ fn file_no_args_outputs_ast() {
     assert!(stdout.contains("\"name\""), "expected AST JSON, got: {}", stdout);
 }
 
+// --- Nested prefix operators ---
+
+#[test]
+fn inline_nested_prefix() {
+    let out = ilo()
+        .args(["f a:n b:n c:n>n;+*a b c", "2", "3", "4"])
+        .output()
+        .expect("failed to run ilo");
+    assert!(out.status.success(), "stderr: {}", String::from_utf8_lossy(&out.stderr));
+    assert_eq!(String::from_utf8_lossy(&out.stdout).trim(), "10");
+}
+
 // --- Legacy -e flag ---
 
 #[test]

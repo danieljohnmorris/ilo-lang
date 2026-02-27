@@ -549,4 +549,11 @@ mod tests {
         let py = parse_and_emit("f n:n>n;cel n");
         assert!(py.contains("__import__('math').ceil(n)"));
     }
+
+    #[test]
+    fn emit_nested_prefix() {
+        // +*a b c → (a * b) + c
+        let py = parse_and_emit("f a:n b:n c:n>n;+*a b c");
+        assert!(py.contains("((a * b) + c)"), "got: {}", py);
+    }
 }
