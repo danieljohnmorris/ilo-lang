@@ -108,6 +108,12 @@ Comma-separated expressions in brackets. Trailing comma allowed. Use with `@` to
 @x xs{+x 1}
 ```
 
+Index by integer literal (dot notation):
+```
+xs.0     # first element
+xs.2     # third element
+```
+
 ---
 
 ## Statements
