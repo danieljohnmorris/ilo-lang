@@ -23,13 +23,20 @@ fn main() {
         } else {
             println!("ilo — a constructed language for AI agents\n");
             println!("Usage:");
-            println!("  ilo <code> [args...]              Run inline code");
+            println!("  ilo <code> [args...]              Run (Cranelift JIT, falls back to interpreter)");
             println!("  ilo <file.ilo> [args...]          Run from file");
             println!("  ilo <code> func [args...]         Run a specific function");
             println!("  ilo <code> --emit python          Transpile to Python");
             println!("  ilo <code>                        Print AST as JSON (no args)");
             println!("  ilo <code> --bench func [args...] Benchmark a function");
             println!("  ilo help lang                     Show language specification\n");
+            println!("Backends:");
+            println!("  (default)        Cranelift JIT → interpreter fallback");
+            println!("  --run-interp     Tree-walking interpreter");
+            println!("  --run-vm         Register VM");
+            println!("  --run-cranelift  Cranelift JIT");
+            println!("  --run-jit        Custom ARM64 JIT (macOS Apple Silicon only)");
+            println!("  --run-llvm       LLVM JIT (requires --features llvm build)\n");
             println!("Examples:");
             println!("  ilo 'f x:n>n;*x 2' 5             Define and call f(5) → 10");
             println!("  ilo program.ilo 10 20             Run file with arguments");
@@ -228,8 +235,8 @@ fn main() {
                 std::process::exit(1);
             }
         }
-    } else if args.len() > m && args[m] == "--run" {
-        // --run [func] [args...]
+    } else if args.len() > m && (args[m] == "--run" || args[m] == "--run-interp") {
+        // --run / --run-interp [func] [args...]
         let func_name = if args.len() > m + 1 { Some(args[m + 1].as_str()) } else { None };
         let run_args: Vec<interpreter::Value> = if args.len() > m + 2 {
             args[m + 2..].iter().map(|a| parse_cli_arg(a)).collect()
@@ -245,7 +252,7 @@ fn main() {
             }
         }
     } else if args.len() > m {
-        // Bare args: if first arg matches a function name, select it; otherwise run first function
+        // Bare args: default = Cranelift JIT, fall back to interpreter
         let func_names: Vec<&str> = program.declarations.iter().filter_map(|d| match d {
             ast::Decl::Function { name, .. } => Some(name.as_str()),
             _ => None,
@@ -258,13 +265,7 @@ fn main() {
         };
 
         let run_args: Vec<interpreter::Value> = args[run_args_start..].iter().map(|a| parse_cli_arg(a)).collect();
-        match interpreter::run(&program, func_name, run_args) {
-            Ok(val) => println!("{}", val),
-            Err(e) => {
-                eprintln!("{}", e);
-                std::process::exit(1);
-            }
-        }
+        run_default(&program, func_name, run_args);
     } else {
         // No args: AST JSON
         match serde_json::to_string_pretty(&program) {
@@ -273,6 +274,44 @@ fn main() {
                 eprintln!("Serialization error: {}", e);
                 std::process::exit(1);
             }
+        }
+    }
+}
+
+fn run_default(program: &ast::Program, func_name: Option<&str>, args: Vec<interpreter::Value>) {
+    // Try Cranelift JIT first: requires all-numeric args and JIT-eligible function
+    #[cfg(feature = "cranelift")]
+    {
+        let jit_args: Vec<f64> = args.iter().filter_map(|a| match a {
+            interpreter::Value::Number(n) => Some(*n),
+            _ => None,
+        }).collect();
+
+        if jit_args.len() == args.len() {
+            if let Ok(compiled) = vm::compile(program) {
+                let target = func_name.unwrap_or(compiled.func_names.first().map(|s| s.as_str()).unwrap_or("main"));
+                if let Some(func_idx) = compiled.func_names.iter().position(|n| n == target) {
+                    let chunk = &compiled.chunks[func_idx];
+                    let nan_consts = &compiled.nan_constants[func_idx];
+                    if let Some(result) = vm::jit_cranelift::compile_and_call(chunk, nan_consts, &jit_args) {
+                        if result == (result as i64) as f64 {
+                            println!("{}", result as i64);
+                        } else {
+                            println!("{}", result);
+                        }
+                        return;
+                    }
+                }
+            }
+        }
+    }
+
+    // Fall back to interpreter
+    match interpreter::run(program, func_name, args) {
+        Ok(val) => println!("{}", val),
+        Err(e) => {
+            eprintln!("{}", e);
+            std::process::exit(1);
         }
     }
 }
