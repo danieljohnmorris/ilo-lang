@@ -51,4 +51,4 @@ Manifesto principle: "Verification before execution. All calls resolve, all type
 
 ## Python codegen
 
-- [ ] Fix lossy match arm codegen — let bindings in match arms are silently dropped when emitted as ternaries
+- [x] Fix lossy match arm codegen — let bindings in match arms are silently dropped when emitted as ternaries
