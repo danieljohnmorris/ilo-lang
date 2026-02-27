@@ -45,14 +45,6 @@ impl Parser {
         tok
     }
 
-    fn advance_span(&mut self) -> Span {
-        let span = self.peek_span();
-        if self.pos < self.tokens.len() {
-            self.pos += 1;
-        }
-        span
-    }
-
     fn expect(&mut self, expected: &Token) -> Result<Span> {
         match self.peek() {
             Some(tok) if tok == expected => {
@@ -1577,9 +1569,7 @@ mod tests {
 
     #[test]
     fn parse_example_03_data_transform() {
-        let source = std::fs::read_to_string("research/explorations/idea9-ultra-dense-short/03-data-transform.ilo")
-            .expect("cannot read example 03");
-        let prog = parse_str(&source);
+        let prog = parse_file("research/explorations/idea9-ultra-dense-short/03-data-transform.ilo");
         assert!(prog.declarations.len() >= 2, "expected multiple declarations");
         match &prog.declarations[0] {
             Decl::Function { name, .. } => assert_eq!(name, "cls"),
@@ -1589,17 +1579,13 @@ mod tests {
 
     #[test]
     fn parse_example_04_tool_interaction() {
-        let source = std::fs::read_to_string("research/explorations/idea9-ultra-dense-short/04-tool-interaction.ilo")
-            .expect("cannot read example 04");
-        let prog = parse_str(&source);
+        let prog = parse_file("research/explorations/idea9-ultra-dense-short/04-tool-interaction.ilo");
         assert!(!prog.declarations.is_empty());
     }
 
     #[test]
     fn parse_example_05_workflow() {
-        let source = std::fs::read_to_string("research/explorations/idea9-ultra-dense-short/05-workflow.ilo")
-            .expect("cannot read example 05");
-        let prog = parse_str(&source);
+        let prog = parse_file("research/explorations/idea9-ultra-dense-short/05-workflow.ilo");
         assert!(!prog.declarations.is_empty());
     }
 
