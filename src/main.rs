@@ -71,7 +71,8 @@ fn report_diagnostic(d: &Diagnostic, mode: OutputMode) {
     let s = match mode {
         OutputMode::Ansi => AnsiRenderer { use_color: true }.render(d),
         OutputMode::Text => AnsiRenderer { use_color: false }.render(d),
-        OutputMode::Json => json::render(d),
+        // JSON mode: one object per line (NDJSON) so multiple errors are parseable.
+        OutputMode::Json => format!("{}\n", json::render(d)),
     };
     eprint!("{}", s);
 }
@@ -174,19 +175,26 @@ fn main() {
         .map(|(t, r)| (t, ast::Span { start: r.start, end: r.end }))
         .collect();
 
-    let mut program = match parser::parse(token_spans) {
-        Ok(p) => p,
-        Err(e) => {
-            report_diagnostic(&Diagnostic::from(&e).with_source(source.clone()), mode);
-            std::process::exit(1);
-        }
-    };
+    let (mut program, parse_errors) = parser::parse(token_spans);
     program.source = Some(source.clone());
 
-    if let Err(errors) = verify::verify(&program) {
-        for e in &errors {
+    let mut had_errors = false;
+
+    for e in &parse_errors {
+        report_diagnostic(&Diagnostic::from(e).with_source(source.clone()), mode);
+        had_errors = true;
+    }
+
+    // Always run the verifier — it skips Decl::Error poison nodes and reports
+    // problems in any functions that did parse successfully.
+    if let Err(verify_errors) = verify::verify(&program) {
+        for e in &verify_errors {
             report_diagnostic(&Diagnostic::from(e).with_source(source.clone()), mode);
         }
+        had_errors = true;
+    }
+
+    if had_errors {
         std::process::exit(1);
     }
 

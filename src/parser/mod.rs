@@ -92,12 +92,79 @@ impl Parser {
 
     // ---- Top-level parsing ----
 
-    pub fn parse_program(&mut self) -> Result<Program> {
+    pub fn parse_program(&mut self) -> (Program, Vec<ParseError>) {
         let mut declarations = Vec::new();
+        let mut errors: Vec<ParseError> = Vec::new();
+        const MAX_ERRORS: usize = 20;
+
         while !self.at_end() {
-            declarations.push(self.parse_decl()?);
+            if errors.len() >= MAX_ERRORS {
+                break;
+            }
+            match self.parse_decl() {
+                Ok(decl) => declarations.push(decl),
+                Err(e) => {
+                    let err_span = e.span;
+                    errors.push(e);
+                    let end_span = self.sync_to_decl_boundary();
+                    declarations.push(Decl::Error { span: err_span.merge(end_span) });
+                }
+            }
         }
-        Ok(Program { declarations, source: None })
+
+        (Program { declarations, source: None }, errors)
+    }
+
+    /// Return true if the tokens at `pos` look like the start of a function declaration:
+    /// `Ident` followed by `>` (no-param function) OR `Ident Ident :` (has params).
+    fn is_fn_decl_start(&self, pos: usize) -> bool {
+        if !matches!(self.token_at(pos), Some(Token::Ident(_))) {
+            return false;
+        }
+        match self.token_at(pos + 1) {
+            // name>return — zero-param function
+            Some(Token::Greater) => true,
+            // name param:type ... — has params
+            Some(Token::Ident(_)) => matches!(self.token_at(pos + 2), Some(Token::Colon)),
+            _ => false,
+        }
+    }
+
+    /// Advance past tokens until we reach what looks like the start of the next
+    /// declaration (or EOF). Returns the span of the last token consumed.
+    /// Tracks brace depth so nested `{…}` blocks are skipped atomically.
+    fn sync_to_decl_boundary(&mut self) -> Span {
+        let mut depth: usize = 0;
+        let mut last_span = self.peek_span();
+
+        loop {
+            match self.peek() {
+                None => break,
+                Some(Token::LBrace) => {
+                    depth += 1;
+                    last_span = self.peek_span();
+                    self.advance();
+                }
+                Some(Token::RBrace) => {
+                    if depth == 0 {
+                        break;
+                    }
+                    depth -= 1;
+                    last_span = self.peek_span();
+                    self.advance();
+                }
+                // Unambiguous declaration starters
+                Some(Token::Type) | Some(Token::Tool) if depth == 0 => break,
+                // An identifier that looks like a function header
+                _ if depth == 0 && self.is_fn_decl_start(self.pos) => break,
+                _ => {
+                    last_span = self.peek_span();
+                    self.advance();
+                }
+            }
+        }
+
+        last_span
     }
 
     fn parse_decl(&mut self) -> Result<Decl> {
@@ -926,19 +993,27 @@ impl Parser {
     }
 }
 
-/// Convenience: parse from token+span pairs (new API)
-pub fn parse(tokens: Vec<(Token, Span)>) -> Result<Program> {
+/// Parse from token+span pairs.
+/// Returns `(program, errors)`. The program may contain `Decl::Error` poison nodes
+/// for declarations that failed to parse. Check `errors.is_empty()` before using
+/// the program for execution — error nodes are skipped by the verifier but not
+/// by the backends.
+pub fn parse(tokens: Vec<(Token, Span)>) -> (Program, Vec<ParseError>) {
     let mut parser = Parser::new(tokens);
     parser.parse_program()
 }
 
-/// Convenience: parse from bare tokens (legacy API, uses UNKNOWN spans)
-pub fn parse_tokens(tokens: Vec<Token>) -> Result<Program> {
+/// Parse from bare tokens (no span information, UNKNOWN spans).
+/// Returns `Err` if any parse errors are present (first error).
+/// Used by test helpers in interpreter, vm, and codegen modules.
+#[cfg(test)]
+pub fn parse_tokens(tokens: Vec<Token>) -> std::result::Result<Program, Vec<ParseError>> {
     let pairs: Vec<(Token, Span)> = tokens
         .into_iter()
         .map(|t| (t, Span::UNKNOWN))
         .collect();
-    parse(pairs)
+    let (prog, errors) = parse(pairs);
+    if errors.is_empty() { Ok(prog) } else { Err(errors) }
 }
 
 #[cfg(test)]
@@ -952,7 +1027,18 @@ mod tests {
             .into_iter()
             .map(|(t, r)| (t, Span { start: r.start, end: r.end }))
             .collect();
-        parse(token_spans).unwrap()
+        let (prog, errors) = parse(token_spans);
+        assert!(errors.is_empty(), "parse errors: {:?}", errors);
+        prog
+    }
+
+    fn parse_str_errors(source: &str) -> (Program, Vec<ParseError>) {
+        let tokens = lexer::lex(source).unwrap();
+        let token_spans: Vec<(Token, Span)> = tokens
+            .into_iter()
+            .map(|(t, r)| (t, Span { start: r.start, end: r.end }))
+            .collect();
+        parse(token_spans)
     }
 
     fn parse_file(path: &str) -> Program {
@@ -1473,7 +1559,8 @@ mod tests {
             .into_iter()
             .map(|(t, r)| (t, Span { start: r.start, end: r.end }))
             .collect();
-        let err = parse(token_spans).unwrap_err();
+        let (_prog, errors) = parse(token_spans);
+        let err = errors.into_iter().next().expect("expected parse error");
         // Error message should mention the problem
         assert!(!err.message.is_empty());
         // Position should be non-zero (error is after the initial tokens)
@@ -1575,7 +1662,8 @@ mod tests {
             .into_iter()
             .map(|(t, r)| (t, Span { start: r.start, end: r.end }))
             .collect();
-        let err = parse(token_spans).unwrap_err();
+        let (_prog, errors) = parse(token_spans);
+        let err = errors.into_iter().next().expect("expected parse error");
         assert!(err.message.contains("expected declaration"), "got: {}", err.message);
     }
 
@@ -1631,5 +1719,72 @@ mod tests {
             .collect();
         let prog = parse_tokens(tokens).unwrap();
         assert_eq!(prog.declarations.len(), 1);
+    }
+
+    // ---- Error recovery tests ----
+
+    #[test]
+    fn recovery_second_function_parsed_after_first_error() {
+        // First function has missing `>` (no params, hits `;` instead of `>`)
+        // Second function should still parse correctly.
+        let (prog, errors) = parse_str_errors("f x:n n;bad g y:n>n;y");
+        // One error from `f`, one valid `g`
+        assert!(!errors.is_empty(), "expected parse error from f");
+        let valid: Vec<_> = prog.declarations.iter().filter(|d| !matches!(d, Decl::Error { .. })).collect();
+        assert_eq!(valid.len(), 1, "g should parse successfully");
+        match valid[0] {
+            Decl::Function { name, .. } => assert_eq!(name, "g"),
+            _ => panic!("expected function g"),
+        }
+    }
+
+    #[test]
+    fn recovery_error_node_in_declarations() {
+        let (prog, errors) = parse_str_errors("f x:n n;bad g y:n>n;y");
+        assert!(!errors.is_empty());
+        // Program.declarations has two entries: an Error and a Function
+        assert_eq!(prog.declarations.len(), 2);
+        assert!(matches!(prog.declarations[0], Decl::Error { .. }));
+        assert!(matches!(prog.declarations[1], Decl::Function { .. }));
+    }
+
+    #[test]
+    fn recovery_two_errors_both_reported() {
+        // Both functions have bad signatures
+        let (prog, errors) = parse_str_errors("f x:n n;bad g y:n n;bad");
+        assert_eq!(errors.len(), 2, "expected two errors");
+        assert_eq!(prog.declarations.len(), 2);
+        assert!(prog.declarations.iter().all(|d| matches!(d, Decl::Error { .. })));
+    }
+
+    #[test]
+    fn recovery_error_node_not_in_json() {
+        // Decl::Error nodes must be filtered from JSON AST output
+        let (prog, _errors) = parse_str_errors("f x:n n;bad g y:n>n;y");
+        let json = serde_json::to_string(&prog).unwrap();
+        // Only g should appear; the error node is suppressed
+        let parsed: serde_json::Value = serde_json::from_str(&json).unwrap();
+        let decls = parsed["declarations"].as_array().unwrap();
+        assert_eq!(decls.len(), 1, "only valid declarations should appear in JSON");
+    }
+
+    #[test]
+    fn recovery_stops_at_20_errors() {
+        // Build a string with 25 bad single-token "functions" followed by a valid one
+        let bad: String = (0..25).map(|i| format!("f{i} x:n n;bad ")).collect();
+        let good = "g y:n>n;y";
+        let source = format!("{bad}{good}");
+        let (_prog, errors) = parse_str_errors(&source);
+        assert!(errors.len() <= 20, "should cap at 20 errors, got {}", errors.len());
+    }
+
+    #[test]
+    fn recovery_type_decl_after_error() {
+        // A type declaration after a broken function should be recovered
+        let (prog, errors) = parse_str_errors("f x:n n;bad type point{x:n;y:n}");
+        assert!(!errors.is_empty());
+        let valid: Vec<_> = prog.declarations.iter().filter(|d| !matches!(d, Decl::Error { .. })).collect();
+        assert_eq!(valid.len(), 1);
+        assert!(matches!(valid[0], Decl::TypeDef { .. }));
     }
 }

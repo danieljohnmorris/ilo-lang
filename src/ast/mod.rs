@@ -24,12 +24,14 @@ impl Span {
 }
 
 /// Wraps a node with its source span. Transparent to serde (serializes as inner node only).
+#[allow(dead_code)] // forward infrastructure for PR 2 (parser-spans)
 #[derive(Debug, Clone, PartialEq)]
 pub struct Spanned<T> {
     pub node: T,
     pub span: Span,
 }
 
+#[allow(dead_code)] // forward infrastructure for PR 2 (parser-spans)
 impl<T> Spanned<T> {
     pub fn new(node: T, span: Span) -> Self {
         Spanned { node, span }
@@ -109,6 +111,14 @@ pub enum Decl {
         return_type: Type,
         timeout: Option<f64>,
         retry: Option<f64>,
+        #[serde(skip)]
+        span: Span,
+    },
+
+    /// Poison node inserted during parser error recovery.
+    /// Suppressed by the verifier; omitted from JSON AST output
+    /// (filtered by the custom serializer on Program.declarations).
+    Error {
         #[serde(skip)]
         span: Span,
     },
@@ -253,9 +263,19 @@ pub enum UnaryOp {
     Negate,
 }
 
+fn serialize_decls<S: serde::Serializer>(decls: &[Decl], s: S) -> Result<S::Ok, S::Error> {
+    use serde::ser::SerializeSeq;
+    let mut seq = s.serialize_seq(None)?;
+    for d in decls.iter().filter(|d| !matches!(d, Decl::Error { .. })) {
+        seq.serialize_element(d)?;
+    }
+    seq.end()
+}
+
 /// A complete program is a list of declarations
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct Program {
+    #[serde(serialize_with = "serialize_decls")]
     pub declarations: Vec<Decl>,
     #[serde(skip)]
     pub source: Option<String>,

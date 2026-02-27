@@ -289,6 +289,7 @@ impl VerifyContext {
                     self.functions.insert(name.clone(), FuncSig { params, return_type: ret });
                 }
                 Decl::TypeDef { .. } => {} // already handled
+                Decl::Error { .. } => {}   // poison node — skip silently
             }
         }
 
@@ -851,7 +852,8 @@ mod tests {
             .into_iter()
             .map(|(t, r)| (t, crate::ast::Span { start: r.start, end: r.end }))
             .collect();
-        let program = crate::parser::parse(token_spans).expect("parse failed");
+        let (program, parse_errors) = crate::parser::parse(token_spans);
+        assert!(parse_errors.is_empty(), "parse failed: {:?}", parse_errors);
         verify(&program)
     }
 
