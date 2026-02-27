@@ -130,6 +130,38 @@ fn file_no_args_outputs_ast() {
     assert!(stdout.contains("\"name\""), "expected AST JSON, got: {}", stdout);
 }
 
+// --- Logical NOT ---
+
+#[test]
+fn inline_logical_not_true() {
+    let out = ilo()
+        .args(["f x:b>b;!x", "true"])
+        .output()
+        .expect("failed to run ilo");
+    assert!(out.status.success(), "stderr: {}", String::from_utf8_lossy(&out.stderr));
+    assert_eq!(String::from_utf8_lossy(&out.stdout).trim(), "false");
+}
+
+#[test]
+fn inline_logical_not_false() {
+    let out = ilo()
+        .args(["f x:b>b;!x", "false"])
+        .output()
+        .expect("failed to run ilo");
+    assert!(out.status.success(), "stderr: {}", String::from_utf8_lossy(&out.stderr));
+    assert_eq!(String::from_utf8_lossy(&out.stdout).trim(), "true");
+}
+
+#[test]
+fn inline_negated_guard_still_works() {
+    let out = ilo()
+        .args([r#"f x:b>t;!x{"nope"};"yep""#, "false"])
+        .output()
+        .expect("failed to run ilo");
+    assert!(out.status.success(), "stderr: {}", String::from_utf8_lossy(&out.stderr));
+    assert_eq!(String::from_utf8_lossy(&out.stdout).trim(), "nope");
+}
+
 // --- Legacy -e flag ---
 
 #[test]

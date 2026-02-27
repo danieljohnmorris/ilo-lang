@@ -1210,6 +1210,47 @@ mod tests {
     }
 
     #[test]
+    fn parse_not_with_binop_via_let() {
+        // NOT combined with AND requires binding: n=!x;&n y
+        let prog = parse_str("f x:b y:b>b;n=!x;&n y");
+        match &prog.declarations[0] {
+            Decl::Function { body, .. } => {
+                match &body[0] {
+                    Stmt::Let { name, value } => {
+                        assert_eq!(name, "n");
+                        assert!(matches!(value, Expr::UnaryOp { op: UnaryOp::Not, .. }));
+                    }
+                    _ => panic!("expected let with NOT, got {:?}", body[0]),
+                }
+                match &body[1] {
+                    Stmt::Expr(Expr::BinOp { op, .. }) => {
+                        assert_eq!(*op, BinOp::And);
+                    }
+                    _ => panic!("expected AND, got {:?}", body[1]),
+                }
+            }
+            _ => panic!("expected function"),
+        }
+    }
+
+    #[test]
+    fn parse_not_still_allows_negated_guard() {
+        // !x{body} is negated guard, not logical NOT
+        let prog = parse_str(r#"f x:b>t;!x{"no"};"yes""#);
+        match &prog.declarations[0] {
+            Decl::Function { body, .. } => {
+                match &body[0] {
+                    Stmt::Guard { negated, .. } => {
+                        assert!(negated, "expected negated guard");
+                    }
+                    _ => panic!("expected negated guard, got {:?}", body[0]),
+                }
+            }
+            _ => panic!("expected function"),
+        }
+    }
+
+    #[test]
     fn parse_multi_stmt_match_arm() {
         let prog = parse_str(r#"f>R _ t;?{^e:^"fail";~d:call d;~_}"#);
         match &prog.declarations[0] {

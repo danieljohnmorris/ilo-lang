@@ -2212,6 +2212,75 @@ mod tests {
     }
 
     #[test]
+    fn vm_not_truthy_number() {
+        let source = "f x:n>b;!x";
+        assert_eq!(
+            vm_run(source, Some("f"), vec![Value::Number(0.0)]),
+            Value::Bool(true)
+        );
+        assert_eq!(
+            vm_run(source, Some("f"), vec![Value::Number(42.0)]),
+            Value::Bool(false)
+        );
+        assert_eq!(
+            vm_run(source, Some("f"), vec![Value::Number(-1.0)]),
+            Value::Bool(false)
+        );
+    }
+
+    #[test]
+    fn vm_not_truthy_text() {
+        let source = "f x:t>b;!x";
+        assert_eq!(
+            vm_run(source, Some("f"), vec![Value::Text("".to_string())]),
+            Value::Bool(true)
+        );
+        assert_eq!(
+            vm_run(source, Some("f"), vec![Value::Text("hi".to_string())]),
+            Value::Bool(false)
+        );
+    }
+
+    #[test]
+    fn vm_not_double_negation() {
+        let source = "f x:b>b;y=!x;!y";
+        assert_eq!(
+            vm_run(source, Some("f"), vec![Value::Bool(true)]),
+            Value::Bool(true)
+        );
+        assert_eq!(
+            vm_run(source, Some("f"), vec![Value::Bool(false)]),
+            Value::Bool(false)
+        );
+    }
+
+    #[test]
+    fn vm_not_with_and() {
+        let source = "f x:b y:b>b;n=!x;&n y";
+        assert_eq!(
+            vm_run(source, Some("f"), vec![Value::Bool(false), Value::Bool(true)]),
+            Value::Bool(true)
+        );
+        assert_eq!(
+            vm_run(source, Some("f"), vec![Value::Bool(true), Value::Bool(true)]),
+            Value::Bool(false)
+        );
+    }
+
+    #[test]
+    fn vm_not_in_guard() {
+        let source = r#"f x:b>t;!x{"was false"};"was true""#;
+        assert_eq!(
+            vm_run(source, Some("f"), vec![Value::Bool(false)]),
+            Value::Text("was false".to_string())
+        );
+        assert_eq!(
+            vm_run(source, Some("f"), vec![Value::Bool(true)]),
+            Value::Text("was true".to_string())
+        );
+    }
+
+    #[test]
     fn vm_unary_negate() {
         let source = "f x:n>n;-x";
         assert_eq!(

@@ -477,6 +477,19 @@ mod tests {
     }
 
     #[test]
+    fn emit_not_in_let() {
+        let py = parse_and_emit("f x:b>b;y=!x;y");
+        assert!(py.contains("(not x)"));
+    }
+
+    #[test]
+    fn emit_not_with_and() {
+        let py = parse_and_emit("f x:b y:b>b;n=!x;&n y");
+        assert!(py.contains("(not x)"));
+        assert!(py.contains("and"));
+    }
+
+    #[test]
     fn emit_kebab_to_snake() {
         let py = parse_and_emit("f>t;make-id()");
         assert!(py.contains("make_id()"));

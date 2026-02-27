@@ -706,6 +706,80 @@ mod tests {
     }
 
     #[test]
+    fn interpret_not_truthy_number() {
+        // 0 is falsy, non-zero is truthy
+        let source = "f x:n>b;!x";
+        assert_eq!(
+            run_str(source, Some("f"), vec![Value::Number(0.0)]),
+            Value::Bool(true)
+        );
+        assert_eq!(
+            run_str(source, Some("f"), vec![Value::Number(42.0)]),
+            Value::Bool(false)
+        );
+        assert_eq!(
+            run_str(source, Some("f"), vec![Value::Number(-1.0)]),
+            Value::Bool(false)
+        );
+    }
+
+    #[test]
+    fn interpret_not_truthy_text() {
+        // empty string is falsy, non-empty is truthy
+        let source = "f x:t>b;!x";
+        assert_eq!(
+            run_str(source, Some("f"), vec![Value::Text("".to_string())]),
+            Value::Bool(true)
+        );
+        assert_eq!(
+            run_str(source, Some("f"), vec![Value::Text("hi".to_string())]),
+            Value::Bool(false)
+        );
+    }
+
+    #[test]
+    fn interpret_not_double_negation() {
+        // !!x should equal the truthy value of x
+        let source = "f x:b>b;y=!x;!y";
+        assert_eq!(
+            run_str(source, Some("f"), vec![Value::Bool(true)]),
+            Value::Bool(true)
+        );
+        assert_eq!(
+            run_str(source, Some("f"), vec![Value::Bool(false)]),
+            Value::Bool(false)
+        );
+    }
+
+    #[test]
+    fn interpret_not_with_and() {
+        // NOT combined with AND requires binding: n=!x;&n y
+        let source = "f x:b y:b>b;n=!x;&n y";
+        assert_eq!(
+            run_str(source, Some("f"), vec![Value::Bool(false), Value::Bool(true)]),
+            Value::Bool(true)
+        );
+        assert_eq!(
+            run_str(source, Some("f"), vec![Value::Bool(true), Value::Bool(true)]),
+            Value::Bool(false)
+        );
+    }
+
+    #[test]
+    fn interpret_not_in_guard() {
+        // !cond{body} negated guard still works alongside !x NOT
+        let source = r#"f x:b>t;!x{"was false"};"was true""#;
+        assert_eq!(
+            run_str(source, Some("f"), vec![Value::Bool(false)]),
+            Value::Text("was false".to_string())
+        );
+        assert_eq!(
+            run_str(source, Some("f"), vec![Value::Bool(true)]),
+            Value::Text("was true".to_string())
+        );
+    }
+
+    #[test]
     fn interpret_record_and_field() {
         let source = "f x:n>n;r=point x:x y:10;r.y";
         let result = run_str(source, Some("f"), vec![Value::Number(5.0)]);
