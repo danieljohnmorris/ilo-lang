@@ -369,31 +369,31 @@ fn legacy_e_flag_missing_code() {
 #[test]
 fn verify_undefined_variable() {
     let out = ilo()
-        .args(["f x:n>n;*y 2", "5"])
+        .args(["--text", "f x:n>n;*y 2", "5"])
         .output()
         .expect("failed to run ilo");
     assert!(!out.status.success());
     let stderr = String::from_utf8_lossy(&out.stderr);
-    assert!(stderr.contains("verify:"), "expected verify error, got: {}", stderr);
+    assert!(stderr.contains("error:"), "expected error in stderr, got: {}", stderr);
     assert!(stderr.contains("undefined variable 'y'"), "expected undefined var error, got: {}", stderr);
 }
 
 #[test]
 fn verify_undefined_function() {
     let out = ilo()
-        .args(["f x:n>n;foo x", "5"])
+        .args(["--text", "f x:n>n;foo x", "5"])
         .output()
         .expect("failed to run ilo");
     assert!(!out.status.success());
     let stderr = String::from_utf8_lossy(&out.stderr);
-    assert!(stderr.contains("verify:"), "expected verify error, got: {}", stderr);
+    assert!(stderr.contains("error:"), "expected error in stderr, got: {}", stderr);
     assert!(stderr.contains("undefined function 'foo'"), "expected undefined func error, got: {}", stderr);
 }
 
 #[test]
 fn verify_arity_mismatch() {
     let out = ilo()
-        .args(["g a:n b:n>n;+a b f x:n>n;g x", "5"])
+        .args(["--text", "g a:n b:n>n;+a b f x:n>n;g x", "5"])
         .output()
         .expect("failed to run ilo");
     assert!(!out.status.success());
@@ -404,12 +404,12 @@ fn verify_arity_mismatch() {
 #[test]
 fn verify_type_mismatch() {
     let out = ilo()
-        .args(["f x:t>n;*x 2", "hello"])
+        .args(["--text", "f x:t>n;*x 2", "hello"])
         .output()
         .expect("failed to run ilo");
     assert!(!out.status.success());
     let stderr = String::from_utf8_lossy(&out.stderr);
-    assert!(stderr.contains("verify:"), "expected verify error, got: {}", stderr);
+    assert!(stderr.contains("error:"), "expected error in stderr, got: {}", stderr);
 }
 
 #[test]
@@ -455,4 +455,97 @@ fn inline_call_with_nested_prefix_unchanged() {
         .expect("failed to run ilo");
     assert!(out.status.success(), "stderr: {}", String::from_utf8_lossy(&out.stderr));
     assert_eq!(String::from_utf8_lossy(&out.stdout).trim(), "10");
+}
+
+// --- Output format flags ---
+
+#[test]
+fn json_flag_produces_json_error() {
+    let out = ilo()
+        .args(["--json", "not-valid-ilo!!!"])
+        .output()
+        .expect("failed to run ilo");
+    assert!(!out.status.success());
+    let stderr = String::from_utf8_lossy(&out.stderr);
+    // Should be parseable JSON with severity field
+    let v: serde_json::Value = serde_json::from_str(stderr.trim())
+        .unwrap_or_else(|_| panic!("expected JSON on stderr, got: {}", stderr));
+    assert_eq!(v["severity"], "error");
+}
+
+#[test]
+fn text_flag_produces_plain_error() {
+    let out = ilo()
+        .args(["--text", "f x:n>n;+x \"hi\""])
+        .output()
+        .expect("failed to run ilo");
+    assert!(!out.status.success());
+    let stderr = String::from_utf8_lossy(&out.stderr);
+    assert!(stderr.contains("error:"), "expected 'error:' in stderr: {}", stderr);
+    // No ANSI codes
+    assert!(!stderr.contains("\x1b["), "unexpected ANSI codes in text mode: {}", stderr);
+}
+
+#[test]
+fn ansi_flag_produces_colored_error() {
+    let out = ilo()
+        .args(["--ansi", "f x:n>n;+x \"hi\""])
+        .output()
+        .expect("failed to run ilo");
+    assert!(!out.status.success());
+    let stderr = String::from_utf8_lossy(&out.stderr);
+    assert!(stderr.contains("error"), "expected error in stderr: {}", stderr);
+    // Should contain ANSI escape codes
+    assert!(stderr.contains("\x1b["), "expected ANSI codes in ansi mode: {}", stderr);
+}
+
+#[test]
+fn json_flag_parse_error_has_span() {
+    let out = ilo()
+        .args(["--json", "42 x:n>n;x"])
+        .output()
+        .expect("failed to run ilo");
+    assert!(!out.status.success());
+    let stderr = String::from_utf8_lossy(&out.stderr);
+    let v: serde_json::Value = serde_json::from_str(stderr.trim())
+        .unwrap_or_else(|_| panic!("expected JSON on stderr, got: {}", stderr));
+    assert_eq!(v["severity"], "error");
+    // Should have labels with span info
+    assert!(v["labels"].as_array().is_some_and(|l| !l.is_empty()),
+        "expected labels in: {}", stderr);
+}
+
+#[test]
+fn text_flag_verify_error_has_function_note() {
+    let out = ilo()
+        .args(["--text", "f x:n>n;+x \"hi\""])
+        .output()
+        .expect("failed to run ilo");
+    assert!(!out.status.success());
+    let stderr = String::from_utf8_lossy(&out.stderr);
+    assert!(stderr.contains("note:"), "expected note in stderr: {}", stderr);
+    assert!(stderr.contains("'f'"), "expected function name in stderr: {}", stderr);
+}
+
+#[test]
+fn mutual_exclusion_json_text() {
+    let out = ilo()
+        .args(["--json", "--text", "f x:n>n;x"])
+        .output()
+        .expect("failed to run ilo");
+    assert!(!out.status.success());
+    let stderr = String::from_utf8_lossy(&out.stderr);
+    assert!(stderr.contains("mutually exclusive"), "expected mutual exclusion error: {}", stderr);
+}
+
+#[test]
+fn no_color_env_produces_no_ansi() {
+    let out = ilo()
+        .args(["f x:n>n;+x \"hi\""])
+        .env("NO_COLOR", "1")
+        .output()
+        .expect("failed to run ilo");
+    assert!(!out.status.success());
+    let stderr = String::from_utf8_lossy(&out.stderr);
+    assert!(!stderr.contains("\x1b["), "unexpected ANSI codes with NO_COLOR: {}", stderr);
 }
