@@ -82,11 +82,11 @@ Gives spans, structured diagnostics, and dual-mode output (human + machine).
 
 After language features settle. 
 
-### C1. Error recovery
-- [ ] Parser: continue after errors using panic-mode recovery (sync on `;`, `}`, `>`, next decl keyword)
-- [ ] Poison AST nodes: mark failed parses as error nodes, suppress cascading errors in verifier
-- [ ] Report multiple errors per file (cap at ~20 to avoid noise)
-- [ ] Verifier: analyse all functions even if earlier ones have errors
+### C1. Error recovery ✓
+- [x] Parser: continue after errors using panic-mode recovery (sync on `;`, `}`, `>`, next decl keyword)
+- [x] Poison AST nodes: mark failed parses as error nodes, suppress cascading errors in verifier
+- [x] Report multiple errors per file (cap at ~20 to avoid noise)
+- [x] Verifier: analyse all functions even if earlier ones have errors
 
 ### C2. Error codes
 - [ ] Assign stable codes: `ILO-L___` (lexer), `ILO-P___` (parser), `ILO-T___` (type/verifier), `ILO-R___` (runtime)
