@@ -1472,10 +1472,15 @@ impl<'a> VM<'a> {
                     let c = (inst & 0xFF) as usize + base;
                     let list = reg!(b);
                     let idx_val = reg!(c);
+                    if !list.is_heap() {
+                        return Err(VmError::Type("foreach requires a list"));
+                    }
                     if idx_val.is_number() {
+                        // SAFETY: is_heap() was checked above; list is a live heap pointer
+                        // created by a heap_* constructor. The non-List arm returns Err
+                        // without any dereference of a different type.
+                        debug_assert!(list.is_heap(), "OP_LISTGET on non-heap value");
                         unsafe {
-                            // SAFETY: list comes from a valid register; non-list case
-                            // returns Err before any pointer dereference.
                             match list.as_heap_ref() {
                                 HeapObj::List(items) => {
                                     let i = idx_val.as_number() as usize;
