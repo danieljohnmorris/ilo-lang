@@ -92,6 +92,7 @@ Called like functions, compiled to dedicated opcodes.
 | Call | Meaning | Returns |
 |------|---------|---------|
 | `len x` | length of string (bytes) or list (elements) | `n` |
+| `str n` | number to text (integers format without `.0`) | `t` |
 
 ---
 
