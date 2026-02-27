@@ -85,6 +85,8 @@ pub(crate) const OP_NUM: u8 = 41;        // R[A] = num(R[B])  (text to number, r
 pub(crate) const OP_ABS: u8 = 42;        // R[A] = abs(R[B])
 pub(crate) const OP_MIN: u8 = 43;        // R[A] = min(R[B], R[C])
 pub(crate) const OP_MAX: u8 = 44;        // R[A] = max(R[B], R[C])
+pub(crate) const OP_FLR: u8 = 45;        // R[A] = floor(R[B])
+pub(crate) const OP_CEL: u8 = 46;        // R[A] = ceil(R[B])
 
 // ABx mode — register + 16-bit operand
 pub(crate) const OP_LOADK: u8 = 20;
@@ -679,6 +681,14 @@ impl RegCompiler {
                     let ra = self.alloc_reg();
                     let op = if function == "min" { OP_MIN } else { OP_MAX };
                     self.emit_abc(op, ra, rb, rc);
+                    self.reg_is_num[ra as usize] = true;
+                    return ra;
+                }
+                if (function == "flr" || function == "cel") && args.len() == 1 {
+                    let rb = self.compile_expr(&args[0]);
+                    let ra = self.alloc_reg();
+                    let op = if function == "flr" { OP_FLR } else { OP_CEL };
+                    self.emit_abc(op, ra, rb, 0);
                     self.reg_is_num[ra as usize] = true;
                     return ra;
                 }
@@ -1941,6 +1951,17 @@ impl<'a> VM<'a> {
                     let result = if op == OP_MIN { nb.min(nc) } else { nb.max(nc) };
                     reg_set!(a, NanVal::number(result));
                 }
+                OP_FLR | OP_CEL => {
+                    let a = ((inst >> 16) & 0xFF) as usize + base;
+                    let b = ((inst >> 8) & 0xFF) as usize + base;
+                    let v = reg!(b);
+                    if !v.is_number() {
+                        return Err(VmError::Type("flr/cel requires a number"));
+                    }
+                    let n = v.as_number();
+                    let result = if op == OP_FLR { n.floor() } else { n.ceil() };
+                    reg_set!(a, NanVal::number(result));
+                }
                 OP_LISTAPPEND => {
                     let a = ((inst >> 16) & 0xFF) as usize + base;
                     let b = ((inst >> 8) & 0xFF) as usize + base;
@@ -2498,6 +2519,30 @@ mod tests {
     fn vm_min_negative() {
         let source = "f>n;min -5 2";
         assert_eq!(vm_run(source, Some("f"), vec![]), Value::Number(-5.0));
+    }
+
+    #[test]
+    fn vm_flr() {
+        let source = "f>n;flr 3.7";
+        assert_eq!(vm_run(source, Some("f"), vec![]), Value::Number(3.0));
+    }
+
+    #[test]
+    fn vm_flr_negative() {
+        let source = "f>n;flr -2.3";
+        assert_eq!(vm_run(source, Some("f"), vec![]), Value::Number(-3.0));
+    }
+
+    #[test]
+    fn vm_cel() {
+        let source = "f>n;cel 3.2";
+        assert_eq!(vm_run(source, Some("f"), vec![]), Value::Number(4.0));
+    }
+
+    #[test]
+    fn vm_cel_negative() {
+        let source = "f>n;cel -2.7";
+        assert_eq!(vm_run(source, Some("f"), vec![]), Value::Number(-2.0));
     }
 
     #[test]
