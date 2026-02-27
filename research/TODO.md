@@ -13,7 +13,7 @@
 - [ ] List literals `[a, b, c]` — `Expr::List` and `OP_LISTNEW` exist, parser has no `[` production
   - Homogeneous typed only: `L n`, `L t`, `L order` etc.
   - No mixed/untyped lists for now
-- [ ] Unary negation `-x` — `UnaryOp::Negate` in AST, but `-` always parsed as binary subtract
+- [x] Unary negation `-x` — `UnaryOp::Negate` in AST, parser now disambiguates: `-x` = negate, `-x y` = subtract
 - [ ] Logical NOT `!x` — blocked on sigil change above
 
 ### Missing fundamental operators

@@ -1938,6 +1938,28 @@ mod tests {
     }
 
     #[test]
+    fn vm_unary_negate() {
+        let source = "f x:n>n;-x";
+        assert_eq!(
+            vm_run(source, Some("f"), vec![Value::Number(5.0)]),
+            Value::Number(-5.0)
+        );
+        assert_eq!(
+            vm_run(source, Some("f"), vec![Value::Number(-3.0)]),
+            Value::Number(3.0)
+        );
+    }
+
+    #[test]
+    fn vm_unary_negate_in_expr() {
+        let source = "f x:n>n;y=-x;+y 10";
+        assert_eq!(
+            vm_run(source, Some("f"), vec![Value::Number(5.0)]),
+            Value::Number(5.0)
+        );
+    }
+
+    #[test]
     fn vm_record_and_field() {
         let source = "f x:n>n;r=point x:x y:10;r.y";
         let result = vm_run(source, Some("f"), vec![Value::Number(5.0)]);
