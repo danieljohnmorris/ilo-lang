@@ -577,7 +577,7 @@ mod tests {
             .into_iter()
             .map(|(t, _)| t)
             .collect();
-        parser::parse(tokens).unwrap()
+        parser::parse_tokens(tokens).unwrap()
     }
 
     fn run_str(source: &str, func: Option<&str>, args: Vec<Value>) -> Value {

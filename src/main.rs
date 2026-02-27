@@ -86,15 +86,19 @@ fn main() {
         }
     };
 
-    let token_values: Vec<lexer::Token> = tokens.into_iter().map(|(t, _)| t).collect();
+    let token_spans: Vec<(lexer::Token, ast::Span)> = tokens
+        .into_iter()
+        .map(|(t, r)| (t, ast::Span { start: r.start, end: r.end }))
+        .collect();
 
-    let program = match parser::parse(token_values) {
+    let mut program = match parser::parse(token_spans) {
         Ok(p) => p,
         Err(e) => {
             eprintln!("Parse error: {}", e);
             std::process::exit(1);
         }
     };
+    program.source = Some(source.clone());
 
     if let Err(errors) = verify::verify(&program) {
         for e in &errors {
