@@ -394,6 +394,11 @@ fn eval_binop(op: &BinOp, left: &Value, right: &Value) -> Result<Value> {
         (BinOp::LessThan, Value::Number(a), Value::Number(b)) => Ok(Value::Bool(a < b)),
         (BinOp::GreaterOrEqual, Value::Number(a), Value::Number(b)) => Ok(Value::Bool(a >= b)),
         (BinOp::LessOrEqual, Value::Number(a), Value::Number(b)) => Ok(Value::Bool(a <= b)),
+        // Comparisons on text (lexicographic)
+        (BinOp::GreaterThan, Value::Text(a), Value::Text(b)) => Ok(Value::Bool(a > b)),
+        (BinOp::LessThan, Value::Text(a), Value::Text(b)) => Ok(Value::Bool(a < b)),
+        (BinOp::GreaterOrEqual, Value::Text(a), Value::Text(b)) => Ok(Value::Bool(a >= b)),
+        (BinOp::LessOrEqual, Value::Text(a), Value::Text(b)) => Ok(Value::Bool(a <= b)),
         // Equality
         (BinOp::Equals, a, b) => Ok(Value::Bool(values_equal(a, b))),
         (BinOp::NotEquals, a, b) => Ok(Value::Bool(!values_equal(a, b))),
@@ -610,6 +615,37 @@ mod tests {
             vec![Value::Text("hello ".to_string()), Value::Text("world".to_string())],
         );
         assert_eq!(result, Value::Text("hello world".to_string()));
+    }
+
+    #[test]
+    fn interpret_string_comparison() {
+        let gt = r#"f a:t b:t>b;>a b"#;
+        assert_eq!(
+            run_str(gt, Some("f"), vec![Value::Text("banana".into()), Value::Text("apple".into())]),
+            Value::Bool(true)
+        );
+        assert_eq!(
+            run_str(gt, Some("f"), vec![Value::Text("apple".into()), Value::Text("banana".into())]),
+            Value::Bool(false)
+        );
+
+        let lt = r#"f a:t b:t>b;<a b"#;
+        assert_eq!(
+            run_str(lt, Some("f"), vec![Value::Text("apple".into()), Value::Text("banana".into())]),
+            Value::Bool(true)
+        );
+
+        let ge = r#"f a:t b:t>b;>=a b"#;
+        assert_eq!(
+            run_str(ge, Some("f"), vec![Value::Text("apple".into()), Value::Text("apple".into())]),
+            Value::Bool(true)
+        );
+
+        let le = r#"f a:t b:t>b;<=a b"#;
+        assert_eq!(
+            run_str(le, Some("f"), vec![Value::Text("zebra".into()), Value::Text("banana".into())]),
+            Value::Bool(false)
+        );
     }
 
     #[test]

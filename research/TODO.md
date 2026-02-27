@@ -20,7 +20,7 @@
 
 - [ ] Logical AND `a & b` — compile to short-circuit jump sequence (JMPF), no new opcode needed
 - [ ] Logical OR `a | b` — compile to short-circuit jump sequence (JMPT), no new opcode needed
-- [ ] String comparison `<` `>` `<=` `>=` — extend existing comparison ops to handle text
+- [x] String comparison `<` `>` `<=` `>=` — lexicographic comparison on text values in VM + interpreter
 
 ### Builtins (new opcodes — keep dispatch O(1), JIT-eligible where numeric)
 
