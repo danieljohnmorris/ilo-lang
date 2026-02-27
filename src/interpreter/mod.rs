@@ -935,4 +935,36 @@ mod tests {
         let result = run_str(source, Some("f"), vec![Value::Number(5.0)]);
         assert_eq!(result, Value::Number(10.0));
     }
+
+    #[test]
+    fn interpret_nested_multiply_add() {
+        // +*a b c → (a * b) + c
+        let source = "f a:n b:n c:n>n;+*a b c";
+        let result = run_str(source, Some("f"), vec![Value::Number(2.0), Value::Number(3.0), Value::Number(4.0)]);
+        assert_eq!(result, Value::Number(10.0));
+    }
+
+    #[test]
+    fn interpret_nested_compare() {
+        // >=+x y 100 → (x + y) >= 100
+        let source = "f x:n y:n>b;>=+x y 100";
+        let result = run_str(source, Some("f"), vec![Value::Number(60.0), Value::Number(50.0)]);
+        assert_eq!(result, Value::Bool(true));
+    }
+
+    #[test]
+    fn interpret_not_as_and_operand() {
+        // &!x y → (!x) & y
+        let source = "f x:b y:b>b;&!x y";
+        let result = run_str(source, Some("f"), vec![Value::Bool(false), Value::Bool(true)]);
+        assert_eq!(result, Value::Bool(true));
+    }
+
+    #[test]
+    fn interpret_negate_product() {
+        // -*a b → -(a * b)
+        let source = "f a:n b:n>n;-*a b";
+        let result = run_str(source, Some("f"), vec![Value::Number(3.0), Value::Number(4.0)]);
+        assert_eq!(result, Value::Number(-12.0));
+    }
 }
