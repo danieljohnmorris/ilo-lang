@@ -162,24 +162,12 @@ fn emit_match_stmt(out: &mut String, subject: &Option<Expr>, arms: &[MatchArm], 
 
 /// Returns true if the match arm needs statement-level codegen (can't be a simple ternary value).
 fn arm_needs_statements(arm: &MatchArm) -> bool {
-    // Ok/Err patterns with non-wildcard bindings need assignment statements
     match &arm.pattern {
-        Pattern::Ok(binding) | Pattern::Err(binding) if binding != "_" => {
-            // Check if the binding is actually used in the body
-            return true;
-        }
+        Pattern::Ok(binding) | Pattern::Err(binding) if binding != "_" => return true,
         _ => {}
     }
-    // Multiple statements or Let bindings mean we need statement-level codegen
-    if arm.body.len() > 1 {
-        return true;
-    }
-    for stmt in &arm.body {
-        if matches!(stmt, Stmt::Let { .. }) {
-            return true;
-        }
-    }
-    false
+    arm.body.len() > 1
+        || arm.body.first().is_some_and(|s| matches!(s, Stmt::Let { .. }))
 }
 
 /// Emit an expression, potentially writing preamble statements to `out`.
