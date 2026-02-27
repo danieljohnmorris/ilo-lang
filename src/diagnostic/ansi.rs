@@ -10,10 +10,6 @@ impl AnsiRenderer {
         if self.use_color { format!("\x1b[1m{s}\x1b[0m") } else { s.to_string() }
     }
 
-    fn red(&self, s: &str) -> String {
-        if self.use_color { format!("\x1b[31m{s}\x1b[0m") } else { s.to_string() }
-    }
-
     fn bold_red(&self, s: &str) -> String {
         if self.use_color { format!("\x1b[1;31m{s}\x1b[0m") } else { s.to_string() }
     }
