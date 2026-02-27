@@ -5,7 +5,7 @@ edition = "2024"
 description = "ilo — a constructed language for AI agents"
 
 [features]
-default = []
+default = ["cranelift"]
 cranelift = ["dep:cranelift-codegen", "dep:cranelift-frontend", "dep:cranelift-jit", "dep:cranelift-module", "dep:cranelift-native", "dep:target-lexicon"]
 llvm = ["dep:inkwell"]
 

@@ -108,6 +108,18 @@ ilo help                     # usage and examples
 ilo help lang                # print the full language specification
 ```
 
+**Backends:**
+
+By default, ilo uses Cranelift JIT and falls back to the interpreter for non-JIT-eligible functions.
+
+```bash
+ilo 'code' args              # default: Cranelift JIT → interpreter fallback
+ilo 'code' --run-interp ...  # tree-walking interpreter
+ilo 'code' --run-vm ...      # register VM
+ilo 'code' --run-cranelift . # Cranelift JIT
+ilo 'code' --run-jit ...     # custom ARM64 JIT (macOS Apple Silicon only)
+```
+
 **Other modes:**
 ```bash
 ilo 'code' --emit python     # transpile to Python

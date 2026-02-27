@@ -83,15 +83,15 @@ pub(crate) fn compile(chunk: &Chunk, nan_consts: &[NanVal]) -> Option<JitFunctio
     builder.seal_block(entry_block);
 
     // Initialize params
-    for i in 0..chunk.param_count as usize {
+    for (i, var) in vars.iter().enumerate().take(chunk.param_count as usize) {
         let val = builder.block_params(entry_block)[i];
-        builder.def_var(vars[i], val);
+        builder.def_var(*var, val);
     }
 
     // Initialize non-param registers to 0.0
-    for i in chunk.param_count as usize..reg_count {
+    for var in vars.iter().take(reg_count).skip(chunk.param_count as usize) {
         let zero = builder.ins().f64const(0.0);
-        builder.def_var(vars[i], zero);
+        builder.def_var(*var, zero);
     }
 
     // Translate bytecode
