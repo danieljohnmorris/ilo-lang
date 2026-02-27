@@ -155,6 +155,22 @@ fn call_function(env: &mut Env, name: &str, args: Vec<Value>) -> Result<Value> {
             other => Err(RuntimeError::new(format!("len requires string or list, got {:?}", other))),
         };
     }
+    if name == "str" {
+        if args.len() != 1 {
+            return Err(RuntimeError::new(format!("str: expected 1 arg, got {}", args.len())));
+        }
+        return match &args[0] {
+            Value::Number(n) => {
+                let s = if n.fract() == 0.0 && n.abs() < 1e15 {
+                    format!("{}", *n as i64)
+                } else {
+                    format!("{}", n)
+                };
+                Ok(Value::Text(s))
+            }
+            other => Err(RuntimeError::new(format!("str requires a number, got {:?}", other))),
+        };
+    }
 
     let decl = env.function(name)?;
     match decl {
@@ -793,6 +809,18 @@ mod tests {
             run_str(source, Some("f"), vec![]),
             Value::List(vec![Value::Number(1.0), Value::Number(2.0), Value::Number(3.0), Value::Number(4.0)])
         );
+    }
+
+    #[test]
+    fn interpret_str_integer() {
+        let source = "f>t;str 42";
+        assert_eq!(run_str(source, Some("f"), vec![]), Value::Text("42".into()));
+    }
+
+    #[test]
+    fn interpret_str_float() {
+        let source = "f>t;str 3.14";
+        assert_eq!(run_str(source, Some("f"), vec![]), Value::Text("3.14".into()));
     }
 
     #[test]
