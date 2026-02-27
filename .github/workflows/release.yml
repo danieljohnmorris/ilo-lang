@@ -31,6 +31,8 @@ jobs:
         with:
           sparse-checkout: |
             src
+            build.rs
+            SPEC.md
             Cargo.toml
             Cargo.lock
 
