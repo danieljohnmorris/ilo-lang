@@ -47,6 +47,8 @@ fn detect_output_mode(args: Vec<String>) -> (OutputMode, Vec<String>) {
 
     let resolved = mode.unwrap_or_else(|| {
         // Auto-detect: isatty(stderr) && !NO_COLOR → Ansi; isatty && NO_COLOR → Text; !isatty → Json
+        // SAFETY: isatty(2) is always safe to call with any fd value; it returns 0 on
+        // error or if the fd is not a terminal. STDERR_FILENO is a well-known constant.
         let is_tty = unsafe { libc::isatty(libc::STDERR_FILENO) } != 0;
         let no_color = std::env::var("NO_COLOR").is_ok();
         if is_tty && !no_color {
