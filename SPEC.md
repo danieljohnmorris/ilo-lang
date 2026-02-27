@@ -55,7 +55,9 @@ Function names follow the same rules. Field names in constructors and external t
 
 ## Operators
 
-Prefix notation. All binary.
+Prefix notation.
+
+### Binary
 
 | Op | Meaning | Types |
 |----|---------|-------|
@@ -70,6 +72,14 @@ Prefix notation. All binary.
 | `<a b` | less than | `n` |
 | `>=a b` | greater or equal | `n` |
 | `<=a b` | less or equal | `n` |
+
+### Unary
+
+| Op | Meaning | Types |
+|----|---------|-------|
+| `-x` | negate | `n` |
+
+Disambiguation: `-` followed by one atom is unary negate, followed by two atoms is binary subtract.
 
 ---
 
