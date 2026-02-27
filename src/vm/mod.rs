@@ -78,6 +78,7 @@ pub(crate) const OP_DIVK_N: u8 = 36;  // R[A] = R[B] / K[C]
 
 // ABC mode — builtins
 pub(crate) const OP_LEN: u8 = 37;     // R[A] = len(R[B])
+pub(crate) const OP_LISTAPPEND: u8 = 38; // R[A] = R[B] ++ [R[C]]
 
 // ABx mode — register + 16-bit operand
 pub(crate) const OP_LOADK: u8 = 20;
@@ -755,6 +756,7 @@ impl RegCompiler {
                     BinOp::LessThan => (OP_LT, false),
                     BinOp::GreaterOrEqual => (OP_GE, false),
                     BinOp::LessOrEqual => (OP_LE, false),
+                    BinOp::Append => (OP_LISTAPPEND, false),
                     BinOp::And | BinOp::Or => unreachable!("handled above"),
                 };
                 let ra = self.alloc_reg();
@@ -1801,6 +1803,30 @@ impl<'a> VM<'a> {
                     };
                     reg_set!(a, NanVal::number(length));
                 }
+                OP_LISTAPPEND => {
+                    let a = ((inst >> 16) & 0xFF) as usize + base;
+                    let b = ((inst >> 8) & 0xFF) as usize + base;
+                    let c = (inst & 0xFF) as usize + base;
+                    let list_val = reg!(b);
+                    let item_val = reg!(c);
+                    if !list_val.is_heap() {
+                        return Err(VmError::Type("+= requires a list"));
+                    }
+                    // SAFETY: is_heap() confirmed heap-tagged with live RC.
+                    match unsafe { list_val.as_heap_ref() } {
+                        HeapObj::List(items) => {
+                            let mut new_items = Vec::with_capacity(items.len() + 1);
+                            for v in items {
+                                v.clone_rc();
+                                new_items.push(*v);
+                            }
+                            item_val.clone_rc();
+                            new_items.push(item_val);
+                            reg_set!(a, NanVal::heap_list(new_items));
+                        }
+                        _ => return Err(VmError::Type("+= requires a list")),
+                    }
+                }
                 _ => return Err(VmError::UnknownOpcode { op }),
             }
         }
@@ -2226,6 +2252,24 @@ mod tests {
     fn vm_len_empty_list() {
         let source = "f>n;xs=[];len xs";
         assert_eq!(vm_run(source, Some("f"), vec![]), Value::Number(0.0));
+    }
+
+    #[test]
+    fn vm_list_append() {
+        let source = "f>L n;xs=[1, 2];+=xs 3";
+        assert_eq!(
+            vm_run(source, Some("f"), vec![]),
+            Value::List(vec![Value::Number(1.0), Value::Number(2.0), Value::Number(3.0)])
+        );
+    }
+
+    #[test]
+    fn vm_list_append_empty() {
+        let source = "f>L n;xs=[];+=xs 42";
+        assert_eq!(
+            vm_run(source, Some("f"), vec![]),
+            Value::List(vec![Value::Number(42.0)])
+        );
     }
 
     #[test]

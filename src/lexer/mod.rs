@@ -35,6 +35,8 @@ pub enum Token {
     LessEq,
     #[token("!=")]
     NotEq,
+    #[token("+=")]
+    PlusEq,
 
     // Single-char operators
     #[token("+")]
