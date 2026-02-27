@@ -967,4 +967,511 @@ mod tests {
         let result = run_str(source, Some("f"), vec![Value::Number(3.0), Value::Number(4.0)]);
         assert_eq!(result, Value::Number(-12.0));
     }
+
+    // ── Helper for error tests ──────────────────────────────────────────
+
+    fn run_str_err(source: &str, func: Option<&str>, args: Vec<Value>) -> String {
+        let prog = parse_program(source);
+        run(&prog, func, args).unwrap_err().to_string()
+    }
+
+    // ── Value::fmt Display tests ────────────────────────────────────────
+
+    #[test]
+    fn display_float() {
+        assert_eq!(format!("{}", Value::Number(3.14)), "3.14");
+    }
+
+    #[test]
+    fn display_integer_number() {
+        assert_eq!(format!("{}", Value::Number(42.0)), "42");
+    }
+
+    #[test]
+    fn display_text() {
+        assert_eq!(format!("{}", Value::Text("hello".into())), "hello");
+    }
+
+    #[test]
+    fn display_bool() {
+        assert_eq!(format!("{}", Value::Bool(true)), "true");
+        assert_eq!(format!("{}", Value::Bool(false)), "false");
+    }
+
+    #[test]
+    fn display_nil() {
+        assert_eq!(format!("{}", Value::Nil), "nil");
+    }
+
+    #[test]
+    fn display_list() {
+        let list = Value::List(vec![
+            Value::Number(1.0),
+            Value::Number(2.0),
+            Value::Number(3.0),
+        ]);
+        assert_eq!(format!("{}", list), "[1, 2, 3]");
+    }
+
+    #[test]
+    fn display_list_empty() {
+        assert_eq!(format!("{}", Value::List(vec![])), "[]");
+    }
+
+    #[test]
+    fn display_record() {
+        let mut fields = HashMap::new();
+        fields.insert("x".to_string(), Value::Number(1.0));
+        let rec = Value::Record {
+            type_name: "point".into(),
+            fields,
+        };
+        assert_eq!(format!("{}", rec), "point {x: 1}");
+    }
+
+    #[test]
+    fn display_record_multiple_fields() {
+        let mut fields = HashMap::new();
+        fields.insert("a".to_string(), Value::Number(1.0));
+        fields.insert("b".to_string(), Value::Number(2.0));
+        let rec = Value::Record {
+            type_name: "pair".into(),
+            fields,
+        };
+        let s = format!("{}", rec);
+        assert!(s.starts_with("pair {"));
+        assert!(s.contains("a: 1"));
+        assert!(s.contains("b: 2"));
+        assert!(s.ends_with("}"));
+    }
+
+    #[test]
+    fn display_ok() {
+        assert_eq!(
+            format!("{}", Value::Ok(Box::new(Value::Number(42.0)))),
+            "~42"
+        );
+    }
+
+    #[test]
+    fn display_err() {
+        assert_eq!(
+            format!("{}", Value::Err(Box::new(Value::Text("bad".into())))),
+            "^bad"
+        );
+    }
+
+    // ── Error path tests ────────────────────────────────────────────────
+
+    #[test]
+    fn err_undefined_variable() {
+        let err = run_str_err("f>n;x", Some("f"), vec![]);
+        assert!(err.contains("undefined variable"));
+    }
+
+    #[test]
+    fn err_undefined_function() {
+        let err = run_str_err("f>n;nope 1", Some("f"), vec![]);
+        assert!(err.contains("undefined function"));
+    }
+
+    #[test]
+    fn err_wrong_arity() {
+        let err = run_str_err("f x:n>n;x", Some("f"), vec![]);
+        assert!(err.contains("expected 1 args, got 0"));
+    }
+
+    #[test]
+    fn err_len_wrong_arg_count() {
+        let err = run_str_err("f>n;len 1 2", Some("f"), vec![]);
+        assert!(err.contains("len: expected 1 arg"));
+    }
+
+    #[test]
+    fn err_len_wrong_type() {
+        let err = run_str_err("f x:n>n;len x", Some("f"), vec![Value::Number(1.0)]);
+        assert!(err.contains("len requires string or list"));
+    }
+
+    #[test]
+    fn err_str_wrong_arg_count() {
+        let err = run_str_err("f>t;str 1 2", Some("f"), vec![]);
+        assert!(err.contains("str: expected 1 arg"));
+    }
+
+    #[test]
+    fn err_str_wrong_type() {
+        let err = run_str_err(r#"f x:t>t;str x"#, Some("f"), vec![Value::Text("hi".into())]);
+        assert!(err.contains("str requires a number"));
+    }
+
+    #[test]
+    fn err_num_wrong_arg_count() {
+        let err = run_str_err(r#"f>R n t;num "1" "2""#, Some("f"), vec![]);
+        assert!(err.contains("num: expected 1 arg"));
+    }
+
+    #[test]
+    fn err_num_wrong_type() {
+        let err = run_str_err("f x:n>R n t;num x", Some("f"), vec![Value::Number(1.0)]);
+        assert!(err.contains("num requires text"));
+    }
+
+    #[test]
+    fn err_abs_wrong_arg_count() {
+        let err = run_str_err("f>n;abs 1 2", Some("f"), vec![]);
+        assert!(err.contains("abs: expected 1 arg"));
+    }
+
+    #[test]
+    fn err_abs_wrong_type() {
+        let err = run_str_err(r#"f x:t>n;abs x"#, Some("f"), vec![Value::Text("hi".into())]);
+        assert!(err.contains("abs requires a number"));
+    }
+
+    #[test]
+    fn err_min_non_number() {
+        let err = run_str_err(
+            r#"f a:t b:t>n;min a b"#,
+            Some("f"),
+            vec![Value::Text("a".into()), Value::Text("b".into())],
+        );
+        assert!(err.contains("min requires two numbers"));
+    }
+
+    #[test]
+    fn err_max_non_number() {
+        let err = run_str_err(
+            r#"f a:t b:t>n;max a b"#,
+            Some("f"),
+            vec![Value::Text("a".into()), Value::Text("b".into())],
+        );
+        assert!(err.contains("max requires two numbers"));
+    }
+
+    #[test]
+    fn err_flr_non_number() {
+        let err = run_str_err(r#"f x:t>n;flr x"#, Some("f"), vec![Value::Text("a".into())]);
+        assert!(err.contains("flr requires a number"));
+    }
+
+    #[test]
+    fn err_cel_non_number() {
+        let err = run_str_err(r#"f x:t>n;cel x"#, Some("f"), vec![Value::Text("a".into())]);
+        assert!(err.contains("cel requires a number"));
+    }
+
+    #[test]
+    fn err_field_not_found_on_record() {
+        let err = run_str_err("f>n;r=point x:1 y:2;r.z", Some("f"), vec![]);
+        assert!(err.contains("no field 'z' on record"));
+    }
+
+    #[test]
+    fn err_field_access_on_non_record() {
+        let err = run_str_err("f x:n>n;x.y", Some("f"), vec![Value::Number(1.0)]);
+        assert!(err.contains("cannot access field"));
+    }
+
+    #[test]
+    fn err_index_out_of_bounds() {
+        let err = run_str_err("f>n;xs=[1, 2];xs.5", Some("f"), vec![]);
+        assert!(err.contains("out of bounds"));
+    }
+
+    #[test]
+    fn err_index_on_non_list() {
+        let err = run_str_err("f x:n>n;x.0", Some("f"), vec![Value::Number(1.0)]);
+        // x.0 is an index access; on a number it should error
+        assert!(
+            err.contains("index access on non-list") || err.contains("cannot access field"),
+            "got: {}", err
+        );
+    }
+
+    #[test]
+    fn err_negate_non_number() {
+        let err = run_str_err(r#"f>n;-"hello""#, Some("f"), vec![]);
+        assert!(err.contains("cannot negate non-number"));
+    }
+
+    #[test]
+    fn err_with_on_non_record() {
+        let err = run_str_err("f x:n>n;x with y:1", Some("f"), vec![Value::Number(1.0)]);
+        assert!(err.contains("'with' requires a record"));
+    }
+
+    // ── Missing operational tests ───────────────────────────────────────
+
+    #[test]
+    fn interpret_foreach() {
+        // Sum the list by calling an accumulator pattern
+        // Simple: foreach that returns last value (last element * 2)
+        let source = "f>n;s=0;@x [1, 2, 3]{+s x}";
+        let result = run_str(source, Some("f"), vec![]);
+        // ForEach returns the last body value: 0 + 3 = 3
+        // (each iteration: s is still 0 because we don't reassign, body is +s x)
+        // iteration 1: +0 1 = 1, iteration 2: +0 2 = 2, iteration 3: +0 3 = 3
+        assert_eq!(result, Value::Number(3.0));
+    }
+
+    #[test]
+    fn interpret_subtract() {
+        let source = "f a:n b:n>n;-a b";
+        let result = run_str(
+            source,
+            Some("f"),
+            vec![Value::Number(10.0), Value::Number(3.0)],
+        );
+        assert_eq!(result, Value::Number(7.0));
+    }
+
+    #[test]
+    fn interpret_divide() {
+        let source = "f a:n b:n>n;/a b";
+        let result = run_str(
+            source,
+            Some("f"),
+            vec![Value::Number(10.0), Value::Number(4.0)],
+        );
+        assert_eq!(result, Value::Number(2.5));
+    }
+
+    #[test]
+    fn interpret_equals() {
+        let source = "f a:n b:n>b;=a b";
+        assert_eq!(
+            run_str(source, Some("f"), vec![Value::Number(1.0), Value::Number(1.0)]),
+            Value::Bool(true)
+        );
+        assert_eq!(
+            run_str(source, Some("f"), vec![Value::Number(1.0), Value::Number(2.0)]),
+            Value::Bool(false)
+        );
+    }
+
+    #[test]
+    fn interpret_not_equals() {
+        let source = "f a:n b:n>b;!=a b";
+        assert_eq!(
+            run_str(source, Some("f"), vec![Value::Number(1.0), Value::Number(2.0)]),
+            Value::Bool(true)
+        );
+        assert_eq!(
+            run_str(source, Some("f"), vec![Value::Number(1.0), Value::Number(1.0)]),
+            Value::Bool(false)
+        );
+    }
+
+    #[test]
+    fn values_equal_numbers() {
+        assert!(values_equal(&Value::Number(1.0), &Value::Number(1.0)));
+        assert!(!values_equal(&Value::Number(1.0), &Value::Number(2.0)));
+    }
+
+    #[test]
+    fn values_equal_bools() {
+        assert!(values_equal(&Value::Bool(true), &Value::Bool(true)));
+        assert!(!values_equal(&Value::Bool(true), &Value::Bool(false)));
+    }
+
+    #[test]
+    fn values_equal_nil() {
+        assert!(values_equal(&Value::Nil, &Value::Nil));
+    }
+
+    #[test]
+    fn values_equal_mismatched() {
+        assert!(!values_equal(&Value::Number(1.0), &Value::Text("1".into())));
+        assert!(!values_equal(&Value::Nil, &Value::Bool(false)));
+    }
+
+    #[test]
+    fn is_truthy_nil() {
+        assert!(!is_truthy(&Value::Nil));
+    }
+
+    #[test]
+    fn is_truthy_number_zero() {
+        assert!(!is_truthy(&Value::Number(0.0)));
+    }
+
+    #[test]
+    fn is_truthy_number_nonzero() {
+        assert!(is_truthy(&Value::Number(1.0)));
+        assert!(is_truthy(&Value::Number(-5.0)));
+    }
+
+    #[test]
+    fn is_truthy_text() {
+        assert!(!is_truthy(&Value::Text("".into())));
+        assert!(is_truthy(&Value::Text("hello".into())));
+    }
+
+    #[test]
+    fn is_truthy_list() {
+        assert!(!is_truthy(&Value::List(vec![])));
+        assert!(is_truthy(&Value::List(vec![Value::Number(1.0)])));
+    }
+
+    #[test]
+    fn is_truthy_other() {
+        // Records, Ok, Err are always truthy
+        assert!(is_truthy(&Value::Ok(Box::new(Value::Nil))));
+        assert!(is_truthy(&Value::Err(Box::new(Value::Nil))));
+    }
+
+    #[test]
+    fn interpret_literal_bool() {
+        let source = "f>b;true";
+        assert_eq!(run_str(source, Some("f"), vec![]), Value::Bool(true));
+        let source2 = "f>b;false";
+        assert_eq!(run_str(source2, Some("f"), vec![]), Value::Bool(false));
+    }
+
+    #[test]
+    fn interpret_match_no_subject() {
+        // ?{...} — match with no subject means subject is Nil
+        let source = r#"f>n;?{_:42}"#;
+        let result = run_str(source, Some("f"), vec![]);
+        assert_eq!(result, Value::Number(42.0));
+    }
+
+    #[test]
+    fn interpret_match_expr_with_bindings() {
+        // Match expression that binds a value from Ok pattern
+        let source = "f x:R n t>n;y=?x{~v:v;_:0};y";
+        let result = run_str(
+            source,
+            Some("f"),
+            vec![Value::Ok(Box::new(Value::Number(99.0)))],
+        );
+        assert_eq!(result, Value::Number(99.0));
+    }
+
+    #[test]
+    fn interpret_match_expr_no_arm_matches() {
+        // No arm matches in a match expression → returns Nil
+        let source = r#"f>n;y=?1{2:99};y"#;
+        let result = run_str(source, Some("f"), vec![]);
+        assert_eq!(result, Value::Nil);
+    }
+
+    #[test]
+    fn interpret_typedef_in_declarations() {
+        // TypeDef should be silently skipped during registration
+        let source = "type point{x:n;y:n}\nf>n;42";
+        let result = run_str(source, None, vec![]);
+        assert_eq!(result, Value::Number(42.0));
+    }
+
+    #[test]
+    fn interpret_pattern_literal_no_match() {
+        // A literal pattern that does not match falls through
+        let source = r#"f x:n>n;?x{1:10;2:20;_:0}"#;
+        let result = run_str(source, Some("f"), vec![Value::Number(5.0)]);
+        assert_eq!(result, Value::Number(0.0));
+    }
+
+    #[test]
+    fn interpret_foreach_on_non_list() {
+        let err = run_str_err("f x:n>n;@i x{i}", Some("f"), vec![Value::Number(1.0)]);
+        assert!(err.contains("foreach requires a list"));
+    }
+
+    #[test]
+    fn interpret_tool_call() {
+        let source = "tool fetch\"HTTP GET\" url:t>R _ t timeout:30\nf>R _ t;fetch \"http://example.com\"";
+        let result = run_str(source, Some("f"), vec![]);
+        assert_eq!(result, Value::Ok(Box::new(Value::Nil)));
+    }
+
+    #[test]
+    fn interpret_typedef_not_callable() {
+        // TypeDef names are not registered as functions, so calling one
+        // results in an "undefined function" error
+        let source = "type point{x:n;y:n}\nf>n;point 1 2";
+        let err = run_str_err(source, Some("f"), vec![]);
+        assert!(
+            err.contains("undefined function") || err.contains("type") || err.contains("not callable"),
+            "unexpected error: {}", err
+        );
+    }
+
+    #[test]
+    fn interpret_greater_than() {
+        let source = "f a:n b:n>b;>a b";
+        assert_eq!(
+            run_str(source, Some("f"), vec![Value::Number(5.0), Value::Number(3.0)]),
+            Value::Bool(true)
+        );
+    }
+
+    #[test]
+    fn interpret_less_than() {
+        let source = "f a:n b:n>b;<a b";
+        assert_eq!(
+            run_str(source, Some("f"), vec![Value::Number(3.0), Value::Number(5.0)]),
+            Value::Bool(true)
+        );
+    }
+
+    #[test]
+    fn interpret_less_or_equal() {
+        let source = "f a:n b:n>b;<=a b";
+        assert_eq!(
+            run_str(source, Some("f"), vec![Value::Number(3.0), Value::Number(3.0)]),
+            Value::Bool(true)
+        );
+    }
+
+    #[test]
+    fn interpret_unsupported_binop() {
+        let source = "f a:b b:b>b;-a b";
+        let err = run_str_err(
+            source,
+            Some("f"),
+            vec![Value::Bool(true), Value::Bool(false)],
+        );
+        assert!(
+            err.contains("unsupported operation"),
+            "unexpected error: {}", err
+        );
+    }
+
+    #[test]
+    fn interpret_foreach_early_return() {
+        let source = "f xs:L n>n;@x xs{>=x 3{x}};0";
+        let result = run_str(
+            source,
+            Some("f"),
+            vec![Value::List(vec![
+                Value::Number(1.0),
+                Value::Number(5.0),
+                Value::Number(2.0),
+            ])],
+        );
+        assert_eq!(result, Value::Number(5.0));
+    }
+
+    #[test]
+    fn interpret_match_not_last_stmt() {
+        let source = "f x:n>n;?x{0:x;_:x};+x 1";
+        let result = run_str(source, Some("f"), vec![Value::Number(5.0)]);
+        assert_eq!(result, Value::Number(6.0));
+    }
+
+    #[test]
+    fn interpret_match_expr_no_subject() {
+        let source = r#"f>t;x=?{_:"always"};x"#;
+        let result = run_str(source, Some("f"), vec![]);
+        assert_eq!(result, Value::Text("always".to_string()));
+    }
+
+    #[test]
+    fn interpret_pattern_ok_no_match() {
+        let source = r#"f>t;x=^"err";?x{~v:v;_:"default"}"#;
+        let result = run_str(source, Some("f"), vec![]);
+        assert_eq!(result, Value::Text("default".to_string()));
+    }
 }

@@ -142,6 +142,81 @@ fn inline_nested_prefix() {
     assert_eq!(String::from_utf8_lossy(&out.stdout).trim(), "10");
 }
 
+// --- CLI modes ---
+
+#[test]
+fn inline_run_vm_mode() {
+    let out = ilo()
+        .args(["f x:n>n;*x 2", "--run-vm", "f", "5"])
+        .output()
+        .expect("failed to run ilo");
+    assert!(out.status.success(), "stderr: {}", String::from_utf8_lossy(&out.stderr));
+    assert_eq!(String::from_utf8_lossy(&out.stdout).trim(), "10");
+}
+
+#[test]
+fn inline_run_with_func_name() {
+    let out = ilo()
+        .args(["f x:n>n;*x 2", "--run", "f", "5"])
+        .output()
+        .expect("failed to run ilo");
+    assert!(out.status.success(), "stderr: {}", String::from_utf8_lossy(&out.stderr));
+    assert_eq!(String::from_utf8_lossy(&out.stdout).trim(), "10");
+}
+
+#[test]
+fn inline_emit_unknown_target() {
+    let out = ilo()
+        .args(["f x:n>n;*x 2", "--emit", "javascript"])
+        .output()
+        .expect("failed to run ilo");
+    assert!(!out.status.success());
+    let stderr = String::from_utf8_lossy(&out.stderr);
+    assert!(stderr.contains("Unknown emit target"), "expected emit error, got: {}", stderr);
+}
+
+#[test]
+fn inline_parse_bool_arg() {
+    let out = ilo()
+        .args(["f x:b>b;!x", "true"])
+        .output()
+        .expect("failed to run ilo");
+    assert!(out.status.success(), "stderr: {}", String::from_utf8_lossy(&out.stderr));
+    assert_eq!(String::from_utf8_lossy(&out.stdout).trim(), "false");
+}
+
+#[test]
+fn inline_parse_text_arg() {
+    let out = ilo()
+        .args(["f x:t>t;x", "hello"])
+        .output()
+        .expect("failed to run ilo");
+    assert!(out.status.success(), "stderr: {}", String::from_utf8_lossy(&out.stderr));
+    assert_eq!(String::from_utf8_lossy(&out.stdout).trim(), "hello");
+}
+
+#[test]
+fn inline_parse_error() {
+    let out = ilo()
+        .args(["f x:>n;x", "5"])
+        .output()
+        .expect("failed to run ilo");
+    assert!(!out.status.success());
+    let stderr = String::from_utf8_lossy(&out.stderr);
+    assert!(stderr.contains("Parse error") || stderr.contains("error"), "expected parse error, got: {}", stderr);
+}
+
+#[test]
+fn inline_bench_mode() {
+    let out = ilo()
+        .args(["f x:n>n;*x 2", "--bench", "f", "5"])
+        .output()
+        .expect("failed to run ilo");
+    assert!(out.status.success(), "stderr: {}", String::from_utf8_lossy(&out.stderr));
+    let stdout = String::from_utf8_lossy(&out.stdout);
+    assert!(stdout.contains("interpreter") || stdout.contains("vm"), "expected benchmark output, got: {}", stdout);
+}
+
 // --- Legacy -e flag ---
 
 #[test]

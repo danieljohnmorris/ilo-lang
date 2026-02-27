@@ -1511,4 +1511,488 @@ mod tests {
         let deserialized: Program = serde_json::from_str(&json).unwrap();
         assert_eq!(prog, deserialized);
     }
+
+    // --- Helper for error tests ---
+
+    fn parse_str_err(source: &str) -> ParseError {
+        let tokens: Vec<Token> = lexer::lex(source)
+            .unwrap()
+            .into_iter()
+            .map(|(t, _)| t)
+            .collect();
+        parse(tokens).unwrap_err()
+    }
+
+    fn parse_tokens_err(tokens: Vec<Token>) -> ParseError {
+        parse(tokens).unwrap_err()
+    }
+
+    // === Error path tests ===
+
+    // 1. expect: wrong token
+    #[test]
+    fn error_expect_wrong_token() {
+        // Function decl expects > after params, giving it something else
+        // "f x:n n" — after type 'n', parser expects '>' but gets 'n' (Ident)
+        let err = parse_str_err("f x:n n");
+        assert!(err.message.contains("expected"), "got: {}", err.message);
+    }
+
+    // 1. expect: EOF
+    #[test]
+    fn error_expect_eof() {
+        // "f x:n" — after type, parser expects '>' but hits EOF
+        let err = parse_str_err("f x:n");
+        assert!(err.message.contains("EOF"), "got: {}", err.message);
+    }
+
+    // 2. expect_ident: wrong token
+    #[test]
+    fn error_expect_ident_wrong_token() {
+        // "type 123" — after 'type', parser expects ident but gets number
+        let err = parse_tokens_err(vec![Token::Type, Token::Number(123.0)]);
+        assert!(err.message.contains("expected identifier"), "got: {}", err.message);
+    }
+
+    // 2. expect_ident: EOF
+    #[test]
+    fn error_expect_ident_eof() {
+        // "type" — after 'type', parser expects ident but hits EOF
+        let err = parse_tokens_err(vec![Token::Type]);
+        assert!(err.message.contains("expected identifier") && err.message.contains("EOF"), "got: {}", err.message);
+    }
+
+    // 3. parse_decl: unknown token
+    #[test]
+    fn error_parse_decl_unknown_token() {
+        let err = parse_tokens_err(vec![Token::Plus]);
+        assert!(err.message.contains("expected declaration"), "got: {}", err.message);
+    }
+
+    // 3. parse_decl: EOF — this shouldn't happen normally since parse_program checks at_end,
+    //    but we can test it by calling parse_decl directly
+    #[test]
+    fn error_parse_decl_eof() {
+        // Construct a parser that's already at the end, then call parse_decl
+        let mut parser = Parser::new(vec![]);
+        let err = parser.parse_program();
+        // Empty program is valid, so test via parse_decl directly
+        // We need a situation where parse_program calls parse_decl at EOF.
+        // Actually an empty token list produces an empty program, which is fine.
+        // Instead, test with a token that causes parse_decl to be called when at EOF.
+        // We can't easily trigger this via parse_program, but parse_decl itself handles None.
+        assert!(err.is_ok()); // empty program is valid
+
+        // Direct test of parse_decl at EOF
+        let mut parser = Parser::new(vec![]);
+        let err = parser.parse_decl().unwrap_err();
+        assert!(err.message.contains("EOF"), "got: {}", err.message);
+    }
+
+    // 4. parse_type: unexpected token
+    #[test]
+    fn error_parse_type_unexpected_token() {
+        // "f>+" — after '>', parser expects type but gets '+'
+        let err = parse_str_err("f>+");
+        assert!(err.message.contains("expected type"), "got: {}", err.message);
+    }
+
+    // 4. parse_type: EOF
+    #[test]
+    fn error_parse_type_eof() {
+        // "f>" — after '>', parser expects type but hits EOF
+        let err = parse_str_err("f>");
+        assert!(err.message.contains("expected type") && err.message.contains("EOF"), "got: {}", err.message);
+    }
+
+    // 5. parse_atom: unexpected token
+    #[test]
+    fn error_parse_atom_unexpected_token() {
+        // Inside expression context, hit an unexpected token
+        // "f>n;>" — body starts, parser tries to parse expr/atom, gets '>'
+        let err = parse_str_err("f>n;>");
+        assert!(err.message.contains("expected expression"), "got: {}", err.message);
+    }
+
+    // 5. parse_atom: EOF
+    #[test]
+    fn error_parse_atom_eof() {
+        // "f>n;+x" — binary add needs two operands, second one hits EOF
+        let err = parse_str_err("f>n;+x");
+        assert!(err.message.contains("expected expression") && err.message.contains("EOF"), "got: {}", err.message);
+    }
+
+    // 6. parse_number: wrong token
+    #[test]
+    fn error_parse_number_wrong_token() {
+        // Tool with timeout but non-number value: tool name"desc">n timeout:abc
+        // We need to construct tokens manually since lexer would lex "abc" as ident
+        let err = parse_tokens_err(vec![
+            Token::Tool,
+            Token::Ident("fetch".into()),
+            Token::Text("desc".into()),
+            Token::Greater,
+            Token::Ident("n".into()),
+            Token::Timeout,
+            Token::Colon,
+            Token::Ident("abc".into()),
+        ]);
+        assert!(err.message.contains("expected number"), "got: {}", err.message);
+    }
+
+    // 6. parse_number: EOF
+    #[test]
+    fn error_parse_number_eof() {
+        let err = parse_tokens_err(vec![
+            Token::Tool,
+            Token::Ident("fetch".into()),
+            Token::Text("desc".into()),
+            Token::Greater,
+            Token::Ident("n".into()),
+            Token::Timeout,
+            Token::Colon,
+            // EOF here
+        ]);
+        assert!(err.message.contains("expected number") && err.message.contains("EOF"), "got: {}", err.message);
+    }
+
+    // 7. parse_tool_decl: missing description string
+    #[test]
+    fn error_tool_missing_description() {
+        // "tool fetch" followed by non-string
+        let err = parse_tokens_err(vec![
+            Token::Tool,
+            Token::Ident("fetch".into()),
+            Token::Ident("x".into()),
+        ]);
+        assert!(err.message.contains("expected tool description"), "got: {}", err.message);
+    }
+
+    // === Edge case tests ===
+
+    // 8. Number literal pattern in match
+    #[test]
+    fn parse_match_number_pattern() {
+        let prog = parse_str(r#"f x:n>t;?x{1:"one";_:"other"}"#);
+        match &prog.declarations[0] {
+            Decl::Function { body, .. } => {
+                match &body[0] {
+                    Stmt::Match { subject, arms } => {
+                        assert!(subject.is_some());
+                        assert_eq!(arms.len(), 2);
+                        assert!(matches!(&arms[0].pattern, Pattern::Literal(Literal::Number(n)) if *n == 1.0));
+                        assert!(matches!(&arms[1].pattern, Pattern::Wildcard));
+                    }
+                    _ => panic!("expected match"),
+                }
+            }
+            _ => panic!("expected function"),
+        }
+    }
+
+    // 9. Boolean literal pattern in match
+    #[test]
+    fn parse_match_bool_pattern() {
+        let prog = parse_str(r#"f x:b>t;?x{true:"yes";false:"no"}"#);
+        match &prog.declarations[0] {
+            Decl::Function { body, .. } => {
+                match &body[0] {
+                    Stmt::Match { arms, .. } => {
+                        assert_eq!(arms.len(), 2);
+                        assert!(matches!(&arms[0].pattern, Pattern::Literal(Literal::Bool(true))));
+                        assert!(matches!(&arms[1].pattern, Pattern::Literal(Literal::Bool(false))));
+                    }
+                    _ => panic!("expected match"),
+                }
+            }
+            _ => panic!("expected function"),
+        }
+    }
+
+    // 10. Trailing semicolon in body
+    #[test]
+    fn parse_trailing_semicolon_in_body() {
+        let prog = parse_str("f x:n>n;+x 1;");
+        match &prog.declarations[0] {
+            Decl::Function { body, .. } => {
+                assert_eq!(body.len(), 1);
+            }
+            _ => panic!("expected function"),
+        }
+    }
+
+    // 10. Trailing semicolon in match arm body (line 342)
+    #[test]
+    fn parse_trailing_semicolon_in_match_arm() {
+        let prog = parse_str(r#"f x:n>t;?x{1:"one";}"#);
+        match &prog.declarations[0] {
+            Decl::Function { body, .. } => {
+                match &body[0] {
+                    Stmt::Match { arms, .. } => {
+                        assert_eq!(arms.len(), 1);
+                    }
+                    _ => panic!("expected match"),
+                }
+            }
+            _ => panic!("expected function"),
+        }
+    }
+
+    // 10. Trailing semicolon between match arms (line 318)
+    #[test]
+    fn parse_trailing_semicolon_between_arms() {
+        // A trailing semi before } in the arms list
+        let prog = parse_str(r#"f x:n>t;?x{1:"one";_:"other";}"#);
+        match &prog.declarations[0] {
+            Decl::Function { body, .. } => {
+                match &body[0] {
+                    Stmt::Match { arms, .. } => {
+                        assert_eq!(arms.len(), 2);
+                    }
+                    _ => panic!("expected match"),
+                }
+            }
+            _ => panic!("expected function"),
+        }
+    }
+
+    // 11. Empty body (guard with empty brace body)
+    #[test]
+    fn parse_empty_brace_body() {
+        let prog = parse_str(r#"f x:b>n;x{};1"#);
+        match &prog.declarations[0] {
+            Decl::Function { body, .. } => {
+                match &body[0] {
+                    Stmt::Guard { body: guard_body, .. } => {
+                        assert!(guard_body.is_empty());
+                    }
+                    _ => panic!("expected guard, got {:?}", body[0]),
+                }
+            }
+            _ => panic!("expected function"),
+        }
+    }
+
+    // 12. Prefix equals operator: =a b
+    #[test]
+    fn parse_prefix_equals() {
+        let prog = parse_str("f a:n b:n>b;=a b");
+        match &prog.declarations[0] {
+            Decl::Function { body, .. } => {
+                match &body[0] {
+                    Stmt::Expr(Expr::BinOp { op, .. }) => {
+                        assert_eq!(*op, BinOp::Equals);
+                    }
+                    _ => panic!("expected equals binop, got {:?}", body[0]),
+                }
+            }
+            _ => panic!("expected function"),
+        }
+    }
+
+    // 12. Prefix not-equals operator: !=a b
+    #[test]
+    fn parse_prefix_not_equals() {
+        let prog = parse_str("f a:n b:n>b;!=a b");
+        match &prog.declarations[0] {
+            Decl::Function { body, .. } => {
+                match &body[0] {
+                    Stmt::Expr(Expr::BinOp { op, .. }) => {
+                        assert_eq!(*op, BinOp::NotEquals);
+                    }
+                    _ => panic!("expected not-equals binop, got {:?}", body[0]),
+                }
+            }
+            _ => panic!("expected function"),
+        }
+    }
+
+    // 13. Minus as operand in another prefix op: +-a b c
+    #[test]
+    fn parse_minus_as_operand() {
+        // +-a b c → BinOp(Add, BinOp(Subtract, a, b), c)
+        let prog = parse_str("f a:n b:n c:n>n;+-a b c");
+        match &prog.declarations[0] {
+            Decl::Function { body, .. } => {
+                match &body[0] {
+                    Stmt::Expr(Expr::BinOp { op, left, .. }) => {
+                        assert_eq!(*op, BinOp::Add);
+                        assert!(matches!(left.as_ref(), Expr::BinOp { op: BinOp::Subtract, .. }));
+                    }
+                    _ => panic!("expected nested binop, got {:?}", body[0]),
+                }
+            }
+            _ => panic!("expected function"),
+        }
+    }
+
+    // 14. ^expr in expression context (not statement) — in a let binding
+    #[test]
+    fn parse_caret_in_let_binding() {
+        let prog = parse_str(r#"f x:n>R n t;y=^x;y"#);
+        match &prog.declarations[0] {
+            Decl::Function { body, .. } => {
+                match &body[0] {
+                    Stmt::Let { name, value } => {
+                        assert_eq!(name, "y");
+                        assert!(matches!(value, Expr::Err(_)));
+                    }
+                    _ => panic!("expected let with err, got {:?}", body[0]),
+                }
+            }
+            _ => panic!("expected function"),
+        }
+    }
+
+    // 15. Identifier-started guard: cond{body}
+    #[test]
+    fn parse_ident_guard() {
+        let prog = parse_str(r#"f x:b>t;x{"yes"};"no""#);
+        match &prog.declarations[0] {
+            Decl::Function { body, .. } => {
+                match &body[0] {
+                    Stmt::Guard { condition, negated, body: guard_body } => {
+                        assert!(!negated);
+                        assert!(matches!(condition, Expr::Ref(name) if name == "x"));
+                        assert_eq!(guard_body.len(), 1);
+                    }
+                    _ => panic!("expected guard, got {:?}", body[0]),
+                }
+            }
+            _ => panic!("expected function"),
+        }
+    }
+
+    // 16. Subject-less ?{...} match in expression position (let binding)
+    #[test]
+    fn parse_subjectless_match_in_let() {
+        let prog = parse_str(r#"f x:n>t;y=?{_:"all"};y"#);
+        match &prog.declarations[0] {
+            Decl::Function { body, .. } => {
+                match &body[0] {
+                    Stmt::Let { name, value } => {
+                        assert_eq!(name, "y");
+                        match value {
+                            Expr::Match { subject, arms } => {
+                                assert!(subject.is_none());
+                                assert_eq!(arms.len(), 1);
+                            }
+                            _ => panic!("expected match expr in let"),
+                        }
+                    }
+                    _ => panic!("expected let"),
+                }
+            }
+            _ => panic!("expected function"),
+        }
+    }
+
+    // 17. Trailing comma in list literal
+    #[test]
+    fn parse_list_trailing_comma() {
+        let prog = parse_str("f>L n;[1, 2,]");
+        match &prog.declarations[0] {
+            Decl::Function { body, .. } => {
+                match &body[0] {
+                    Stmt::Expr(Expr::List(items)) => {
+                        assert_eq!(items.len(), 2);
+                    }
+                    _ => panic!("expected list, got {:?}", body[0]),
+                }
+            }
+            _ => panic!("expected function"),
+        }
+    }
+
+    // 18. with block where field list ends due to non-colon token
+    #[test]
+    fn parse_with_field_list_ends_non_colon() {
+        // "x with a:1" followed by something that's not "ident:"
+        // The `with` parser stops when it can't find ident:value pairs
+        let prog = parse_str("f x:order y:n>order;x with total:100");
+        match &prog.declarations[0] {
+            Decl::Function { body, .. } => {
+                match &body[0] {
+                    Stmt::Expr(Expr::With { updates, .. }) => {
+                        assert_eq!(updates.len(), 1);
+                    }
+                    _ => panic!("expected with expr, got {:?}", body[0]),
+                }
+            }
+            _ => panic!("expected function"),
+        }
+    }
+
+    // 18b. with block with multiple fields, parsing stops at non-field
+    #[test]
+    fn parse_with_stops_at_non_field_ident() {
+        // After "with a:1", if next token is ident without colon, with stops
+        // We test by having the with in a let, so parser continues to next stmt
+        let prog = parse_str("f x:order>order;y=x with total:100;y");
+        match &prog.declarations[0] {
+            Decl::Function { body, .. } => {
+                assert_eq!(body.len(), 2);
+                match &body[0] {
+                    Stmt::Let { value, .. } => {
+                        assert!(matches!(value, Expr::With { .. }));
+                    }
+                    _ => panic!("expected let with with-expr"),
+                }
+            }
+            _ => panic!("expected function"),
+        }
+    }
+
+    // Additional: ^expr as statement (caret_stmt)
+    #[test]
+    fn parse_caret_stmt_standalone() {
+        let prog = parse_str(r#"f x:n>R n t;^"error""#);
+        match &prog.declarations[0] {
+            Decl::Function { body, .. } => {
+                match &body[0] {
+                    Stmt::Expr(Expr::Err(inner)) => {
+                        assert!(matches!(inner.as_ref(), Expr::Literal(Literal::Text(s)) if s == "error"));
+                    }
+                    _ => panic!("expected err expr stmt, got {:?}", body[0]),
+                }
+            }
+            _ => panic!("expected function"),
+        }
+    }
+
+    // Additional: guard from non-ident expression (line 274-286)
+    #[test]
+    fn parse_non_ident_expr_guard() {
+        // A comparison expression followed by {body} triggers guard from the _ branch of parse_stmt
+        let prog = parse_str(r#"f x:n>t;>=x 10{"big"};"small""#);
+        match &prog.declarations[0] {
+            Decl::Function { body, .. } => {
+                match &body[0] {
+                    Stmt::Guard { condition, negated, .. } => {
+                        assert!(!negated);
+                        assert!(matches!(condition, Expr::BinOp { op: BinOp::GreaterOrEqual, .. }));
+                    }
+                    _ => panic!("expected guard, got {:?}", body[0]),
+                }
+            }
+            _ => panic!("expected function"),
+        }
+    }
+
+    // Additional: prefix append operator +=
+    #[test]
+    fn parse_prefix_append() {
+        let prog = parse_str("f a:L n b:L n>L n;+=a b");
+        match &prog.declarations[0] {
+            Decl::Function { body, .. } => {
+                match &body[0] {
+                    Stmt::Expr(Expr::BinOp { op, .. }) => {
+                        assert_eq!(*op, BinOp::Append);
+                    }
+                    _ => panic!("expected append binop, got {:?}", body[0]),
+                }
+            }
+            _ => panic!("expected function"),
+        }
+    }
 }

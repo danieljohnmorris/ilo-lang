@@ -268,4 +268,32 @@ mod tests {
         let tokens = lex(source).unwrap();
         assert!(tokens.len() > 5);
     }
+
+    #[test]
+    fn lex_error_invalid_char() {
+        let result = lex("$");
+        assert!(result.is_err());
+        let err = result.unwrap_err();
+        assert_eq!(err.snippet, "$");
+        assert!(err.suggestion.contains("Unexpected character"));
+    }
+
+    #[test]
+    fn lex_suggest_fix_underscore() {
+        // suggest_fix is called with the bad token snippet — test it directly
+        let suggestion = super::suggest_fix("my_func");
+        assert!(suggestion.contains("my-func"), "got: {}", suggestion);
+    }
+
+    #[test]
+    fn lex_suggest_fix_uppercase() {
+        let suggestion = super::suggest_fix("MyFunc");
+        assert!(suggestion.contains("myfunc"), "got: {}", suggestion);
+    }
+
+    #[test]
+    fn lex_suggest_fix_generic() {
+        let suggestion = super::suggest_fix("$");
+        assert!(suggestion.contains("Unexpected character"), "got: {}", suggestion);
+    }
 }
