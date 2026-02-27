@@ -59,7 +59,8 @@ Prefix notation. All binary.
 
 | Op | Meaning | Types |
 |----|---------|-------|
-| `+a b` | add / concat | `n`, `t` |
+| `+a b` | add / concat / list concat | `n`, `t`, `L` |
+| `+=a v` | append to list | `L` |
 | `-a b` | subtract | `n` |
 | `*a b` | multiply | `n` |
 | `/a b` | divide | `n` |
