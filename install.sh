@@ -33,7 +33,8 @@ fi
 curl -fsSL "$URL" -o "${INSTALL_DIR}/ilo"
 chmod +x "${INSTALL_DIR}/ilo"
 
-echo "Installed ilo to ${INSTALL_DIR}/ilo"
+VERSION=$("${INSTALL_DIR}/ilo" --version 2>/dev/null || echo "ilo (unknown version)")
+echo "Installed ${VERSION} to ${INSTALL_DIR}/ilo"
 
 if ! echo "$PATH" | tr ':' '\n' | grep -qx "$INSTALL_DIR"; then
   echo "Add ${INSTALL_DIR} to your PATH to use ilo"
