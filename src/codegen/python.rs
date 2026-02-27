@@ -74,15 +74,17 @@ fn emit_body(out: &mut String, stmts: &[Stmt], level: usize, is_fn_body: bool) {
 fn emit_stmt(out: &mut String, stmt: &Stmt, level: usize, implicit_return: bool) {
     match stmt {
         Stmt::Let { name, value } => {
+            let val = emit_expr(out, level, value);
             indent(out, level);
-            out.push_str(&format!("{} = {}\n", py_name(name), emit_expr(value)));
+            out.push_str(&format!("{} = {}\n", py_name(name), val));
         }
         Stmt::Guard { condition, negated, body } => {
+            let cond = emit_expr(out, level, condition);
             indent(out, level);
             if *negated {
-                out.push_str(&format!("if not ({}):\n", emit_expr(condition)));
+                out.push_str(&format!("if not ({}):\n", cond));
             } else {
-                out.push_str(&format!("if {}:\n", emit_expr(condition)));
+                out.push_str(&format!("if {}:\n", cond));
             }
             // Guard bodies in ilo typically do early returns
             emit_body(out, body, level + 1, true);
@@ -91,16 +93,18 @@ fn emit_stmt(out: &mut String, stmt: &Stmt, level: usize, implicit_return: bool)
             emit_match_stmt(out, subject, arms, level);
         }
         Stmt::ForEach { binding, collection, body } => {
+            let coll = emit_expr(out, level, collection);
             indent(out, level);
-            out.push_str(&format!("for {} in {}:\n", py_name(binding), emit_expr(collection)));
+            out.push_str(&format!("for {} in {}:\n", py_name(binding), coll));
             emit_body(out, body, level + 1, false);
         }
         Stmt::Expr(expr) => {
+            let val = emit_expr(out, level, expr);
             indent(out, level);
             if implicit_return {
-                out.push_str(&format!("return {}\n", emit_expr(expr)));
+                out.push_str(&format!("return {}\n", val));
             } else {
-                out.push_str(&format!("{}\n", emit_expr(expr)));
+                out.push_str(&format!("{}\n", val));
             }
         }
     }
@@ -108,7 +112,7 @@ fn emit_stmt(out: &mut String, stmt: &Stmt, level: usize, implicit_return: bool)
 
 fn emit_match_stmt(out: &mut String, subject: &Option<Expr>, arms: &[MatchArm], level: usize) {
     let subj_str = match subject {
-        Some(e) => emit_expr(e),
+        Some(e) => emit_expr(out, level, e),
         None => "_subject".to_string(),
     };
 
@@ -156,28 +160,42 @@ fn emit_match_stmt(out: &mut String, subject: &Option<Expr>, arms: &[MatchArm], 
     }
 }
 
-fn emit_expr(expr: &Expr) -> String {
+/// Returns true if the match arm needs statement-level codegen (can't be a simple ternary value).
+fn arm_needs_statements(arm: &MatchArm) -> bool {
+    match &arm.pattern {
+        Pattern::Ok(binding) | Pattern::Err(binding) if binding != "_" => return true,
+        _ => {}
+    }
+    arm.body.len() > 1
+        || arm.body.first().is_some_and(|s| matches!(s, Stmt::Let { .. }))
+}
+
+/// Emit an expression, potentially writing preamble statements to `out`.
+/// Returns the inline expression string.
+fn emit_expr(out: &mut String, level: usize, expr: &Expr) -> String {
     match expr {
         Expr::Literal(lit) => emit_literal(lit),
         Expr::Ref(name) => py_name(name),
         Expr::Field { object, field } => {
-            format!("{}[\"{}\"]", emit_expr(object), field)
+            let obj = emit_expr(out, level, object);
+            format!("{}[\"{}\"]", obj, field)
         }
         Expr::Index { object, index } => {
-            format!("{}[{}]", emit_expr(object), index)
+            let obj = emit_expr(out, level, object);
+            format!("{}[{}]", obj, index)
         }
         Expr::Call { function, args } => {
             if function == "num" && args.len() == 1 {
-                let arg = emit_expr(&args[0]);
+                let arg = emit_expr(out, level, &args[0]);
                 return format!("(lambda s: (\"ok\", float(s)) if s.replace('.','',1).replace('-','',1).isdigit() else (\"err\", s))({})", arg);
             }
             if function == "flr" && args.len() == 1 {
-                return format!("float(__import__('math').floor({}))", emit_expr(&args[0]));
+                return format!("float(__import__('math').floor({}))", emit_expr(out, level, &args[0]));
             }
             if function == "cel" && args.len() == 1 {
-                return format!("float(__import__('math').ceil({}))", emit_expr(&args[0]));
+                return format!("float(__import__('math').ceil({}))", emit_expr(out, level, &args[0]));
             }
-            let args_str: Vec<String> = args.iter().map(emit_expr).collect();
+            let args_str: Vec<String> = args.iter().map(|a| emit_expr(out, level, a)).collect();
             format!("{}({})", py_name(function), args_str.join(", "))
         }
         Expr::BinOp { op, left, right } => {
@@ -195,45 +213,59 @@ fn emit_expr(expr: &Expr) -> String {
                 BinOp::And => "and",
                 BinOp::Or => "or",
                 BinOp::Append => {
-                    return format!("({} + [{}])", emit_expr(left), emit_expr(right));
+                    let l = emit_expr(out, level, left);
+                    let r = emit_expr(out, level, right);
+                    return format!("({} + [{}])", l, r);
                 }
             };
-            format!("({} {} {})", emit_expr(left), op_str, emit_expr(right))
+            let l = emit_expr(out, level, left);
+            let r = emit_expr(out, level, right);
+            format!("({} {} {})", l, op_str, r)
         }
-        Expr::UnaryOp { op, operand } => match op {
-            UnaryOp::Not => format!("(not {})", emit_expr(operand)),
-            UnaryOp::Negate => format!("(-{})", emit_expr(operand)),
-        },
-        Expr::Ok(inner) => format!("(\"ok\", {})", emit_expr(inner)),
-        Expr::Err(inner) => format!("(\"err\", {})", emit_expr(inner)),
+        Expr::UnaryOp { op, operand } => {
+            let val = emit_expr(out, level, operand);
+            match op {
+                UnaryOp::Not => format!("(not {})", val),
+                UnaryOp::Negate => format!("(-{})", val),
+            }
+        }
+        Expr::Ok(inner) => format!("(\"ok\", {})", emit_expr(out, level, inner)),
+        Expr::Err(inner) => format!("(\"err\", {})", emit_expr(out, level, inner)),
         Expr::List(items) => {
-            let items_str: Vec<String> = items.iter().map(emit_expr).collect();
+            let items_str: Vec<String> = items.iter().map(|i| emit_expr(out, level, i)).collect();
             format!("[{}]", items_str.join(", "))
         }
         Expr::Record { type_name, fields } => {
             let mut parts = vec![format!("\"_type\": \"{}\"", type_name)];
             for (name, val) in fields {
-                parts.push(format!("\"{}\": {}", name, emit_expr(val)));
+                parts.push(format!("\"{}\": {}", name, emit_expr(out, level, val)));
             }
             format!("{{{}}}", parts.join(", "))
         }
         Expr::Match { subject, arms } => {
-            emit_match_expr(subject, arms)
+            emit_match_expr(out, level, subject, arms)
         }
         Expr::With { object, updates } => {
-            let mut parts = vec![format!("**{}", emit_expr(object))];
+            let obj = emit_expr(out, level, object);
+            let mut parts = vec![format!("**{}", obj)];
             for (name, val) in updates {
-                parts.push(format!("\"{}\": {}", name, emit_expr(val)));
+                parts.push(format!("\"{}\": {}", name, emit_expr(out, level, val)));
             }
             format!("{{{}}}", parts.join(", "))
         }
     }
 }
 
-fn emit_match_expr(subject: &Option<Box<Expr>>, arms: &[MatchArm]) -> String {
-    // Emit as a chained ternary expression
+fn emit_match_expr(out: &mut String, level: usize, subject: &Option<Box<Expr>>, arms: &[MatchArm]) -> String {
+    let needs_statements = arms.iter().any(arm_needs_statements);
+
+    if needs_statements {
+        return emit_match_expr_complex(out, level, subject, arms);
+    }
+
+    // Simple path: emit as a chained ternary expression
     let subj = match subject {
-        Some(e) => emit_expr(e),
+        Some(e) => emit_expr(out, level, e),
         None => "_subject".to_string(),
     };
 
@@ -241,7 +273,7 @@ fn emit_match_expr(subject: &Option<Box<Expr>>, arms: &[MatchArm]) -> String {
     let mut default = "None".to_string();
 
     for arm in arms {
-        let arm_val = emit_arm_value(&arm.body);
+        let arm_val = emit_arm_value(out, level, &arm.body);
         match &arm.pattern {
             Pattern::Wildcard => {
                 default = arm_val;
@@ -272,10 +304,94 @@ fn emit_match_expr(subject: &Option<Box<Expr>>, arms: &[MatchArm]) -> String {
     format!("({} {})", parts.join(" "), default)
 }
 
-fn emit_arm_value(body: &[Stmt]) -> String {
+/// Emit a complex match expression using if/elif chain with a temp variable.
+/// Writes statements to `out` and returns the temp variable name.
+fn emit_match_expr_complex(out: &mut String, level: usize, subject: &Option<Box<Expr>>, arms: &[MatchArm]) -> String {
+    let subj_str = match subject {
+        Some(e) => emit_expr(out, level, e),
+        None => "_subject".to_string(),
+    };
+    let tmp = "_m".to_string();
+
+    for (i, arm) in arms.iter().enumerate() {
+        indent(out, level);
+        let keyword = if i == 0 { "if" } else { "elif" };
+        match &arm.pattern {
+            Pattern::Wildcard => {
+                if i == 0 {
+                    // Wildcard as first arm — emit body and assign last expr to tmp
+                    emit_match_arm_body_to_tmp(out, &arm.body, level, &tmp);
+                    return tmp;
+                }
+                out.push_str("else:\n");
+            }
+            Pattern::Ok(binding) => {
+                out.push_str(&format!(
+                    "{} isinstance({}, tuple) and {}[0] == \"ok\":\n",
+                    keyword, subj_str, subj_str
+                ));
+                if binding != "_" {
+                    indent(out, level + 1);
+                    out.push_str(&format!("{} = {}[1]\n", py_name(binding), subj_str));
+                }
+            }
+            Pattern::Err(binding) => {
+                out.push_str(&format!(
+                    "{} isinstance({}, tuple) and {}[0] == \"err\":\n",
+                    keyword, subj_str, subj_str
+                ));
+                if binding != "_" {
+                    indent(out, level + 1);
+                    out.push_str(&format!("{} = {}[1]\n", py_name(binding), subj_str));
+                }
+            }
+            Pattern::Literal(lit) => {
+                out.push_str(&format!(
+                    "{} {} == {}:\n",
+                    keyword, subj_str, emit_literal(lit)
+                ));
+            }
+        }
+        emit_match_arm_body_to_tmp(out, &arm.body, level + 1, &tmp);
+    }
+
+    tmp
+}
+
+/// Emit a match arm body, assigning the last expression to a temp variable.
+fn emit_match_arm_body_to_tmp(out: &mut String, body: &[Stmt], level: usize, tmp: &str) {
+    if body.is_empty() {
+        indent(out, level);
+        out.push_str(&format!("{} = None\n", tmp));
+        return;
+    }
+    for (i, stmt) in body.iter().enumerate() {
+        let is_last = i == body.len() - 1;
+        if is_last {
+            // Last statement: assign its value to tmp instead of emitting as-is
+            match stmt {
+                Stmt::Expr(expr) => {
+                    let val = emit_expr(out, level, expr);
+                    indent(out, level);
+                    out.push_str(&format!("{} = {}\n", tmp, val));
+                }
+                _ => {
+                    // Non-expression last stmt (e.g. Let) — emit it, then assign None
+                    emit_stmt(out, stmt, level, false);
+                    indent(out, level);
+                    out.push_str(&format!("{} = None\n", tmp));
+                }
+            }
+        } else {
+            emit_stmt(out, stmt, level, false);
+        }
+    }
+}
+
+fn emit_arm_value(out: &mut String, level: usize, body: &[Stmt]) -> String {
     if let Some(last) = body.last() {
         match last {
-            Stmt::Expr(e) => emit_expr(e),
+            Stmt::Expr(e) => emit_expr(out, level, e),
             _ => "None".to_string(),
         }
     } else {
@@ -649,5 +765,35 @@ mod tests {
         // Wildcard as first arm emits body directly without if/elif
         assert!(!py.contains("if"), "got: {}", py);
         assert!(py.contains("\"always\""), "got: {}", py);
+    }
+
+    #[test]
+    fn emit_match_expr_ok_binding_used() {
+        // Match expr where Ok binding `v` is used in the body
+        let py = parse_and_emit(r#"f x:R n t>n;y=?x{~v:v;^e:0};y"#);
+        // Should use complex path with if/elif and temp var
+        assert!(py.contains("v = x[1]"), "should bind v: got: {}", py);
+        assert!(py.contains("_m = v"), "should assign v to temp: got: {}", py);
+        assert!(py.contains("_m = 0"), "should assign 0 to temp: got: {}", py);
+        assert!(py.contains("y = _m"), "should assign temp to y: got: {}", py);
+    }
+
+    #[test]
+    fn emit_match_expr_let_in_arm() {
+        // Match expr with Let binding inside arm body
+        let py = parse_and_emit(r#"f x:R n t>n;y=?x{~v:z=+v 1;z;^e:0};y"#);
+        // Should use complex path
+        assert!(py.contains("v = x[1]"), "should bind v: got: {}", py);
+        assert!(py.contains("z = (v + 1)"), "should emit let binding: got: {}", py);
+        assert!(py.contains("_m = z"), "should assign z to temp: got: {}", py);
+        assert!(py.contains("y = _m"), "should assign temp to y: got: {}", py);
+    }
+
+    #[test]
+    fn emit_match_expr_simple_stays_ternary() {
+        // Match expr with simple arms (no bindings needed) should still use ternary
+        let py = parse_and_emit(r#"f x:R n t>n;y=?x{~_:1;^_:0};y"#);
+        // Wildcard bindings — should use simple ternary path
+        assert!(py.contains("1 if isinstance(x, tuple)"), "should use ternary: got: {}", py);
     }
 }
