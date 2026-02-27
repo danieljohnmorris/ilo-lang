@@ -9,8 +9,72 @@ mod parser;
 mod verify;
 mod vm;
 
+use diagnostic::{Diagnostic, ansi::AnsiRenderer, json};
+
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum OutputMode {
+    Ansi,
+    Text,
+    Json,
+}
+
+/// Scan args for --json/-j, --text/-t, --ansi/-a. Return (mode, remaining_args).
+/// Multiple format flags → error + exit(1).
+fn detect_output_mode(args: Vec<String>) -> (OutputMode, Vec<String>) {
+    let mut mode: Option<OutputMode> = None;
+    let mut remaining = Vec::with_capacity(args.len());
+    let mut conflict = false;
+
+    for arg in args {
+        match arg.as_str() {
+            "--json" | "-j" => {
+                if mode.is_some() { conflict = true; } else { mode = Some(OutputMode::Json); }
+            }
+            "--text" | "-t" => {
+                if mode.is_some() { conflict = true; } else { mode = Some(OutputMode::Text); }
+            }
+            "--ansi" | "-a" => {
+                if mode.is_some() { conflict = true; } else { mode = Some(OutputMode::Ansi); }
+            }
+            _ => remaining.push(arg),
+        }
+    }
+
+    if conflict {
+        eprintln!("error: --json, --text, and --ansi are mutually exclusive");
+        std::process::exit(1);
+    }
+
+    let resolved = mode.unwrap_or_else(|| {
+        // Auto-detect: isatty(stderr) && !NO_COLOR → Ansi; isatty && NO_COLOR → Text; !isatty → Json
+        // SAFETY: isatty(2) is always safe to call with any fd value; it returns 0 on
+        // error or if the fd is not a terminal. STDERR_FILENO is a well-known constant.
+        let is_tty = unsafe { libc::isatty(libc::STDERR_FILENO) } != 0;
+        let no_color = std::env::var("NO_COLOR").is_ok();
+        if is_tty && !no_color {
+            OutputMode::Ansi
+        } else if is_tty {
+            OutputMode::Text
+        } else {
+            OutputMode::Json
+        }
+    });
+
+    (resolved, remaining)
+}
+
+fn report_diagnostic(d: &Diagnostic, mode: OutputMode) {
+    let s = match mode {
+        OutputMode::Ansi => AnsiRenderer { use_color: true }.render(d),
+        OutputMode::Text => AnsiRenderer { use_color: false }.render(d),
+        OutputMode::Json => json::render(d),
+    };
+    eprint!("{}", s);
+}
+
 fn main() {
-    let args: Vec<String> = std::env::args().collect();
+    let raw_args: Vec<String> = std::env::args().collect();
+    let (mode, args) = detect_output_mode(raw_args);
 
     if args.len() < 2 {
         eprintln!("Usage: ilo <file-or-code> [args... | --run func args... | --bench func args... | --emit python]");
@@ -37,6 +101,11 @@ fn main() {
             println!("  ilo <code>                        Print AST as JSON (no args)");
             println!("  ilo <code> --bench func [args...] Benchmark a function");
             println!("  ilo help lang                     Show language specification\n");
+            println!("Output format (errors):");
+            println!("  --ansi / -a   Force ANSI colour output (default when stderr is a TTY)");
+            println!("  --text / -t   Force plain text output (no colour)");
+            println!("  --json / -j   Force JSON output (default when stderr is not a TTY)");
+            println!("  NO_COLOR=1    Disable colour (same as --text)\n");
             println!("Backends:");
             println!("  (default)        Cranelift JIT → interpreter fallback");
             println!("  --run-interp     Tree-walking interpreter");
@@ -82,7 +151,7 @@ fn main() {
     let tokens = match lexer::lex(&source) {
         Ok(t) => t,
         Err(e) => {
-            eprintln!("Lex error: {}", e);
+            report_diagnostic(&Diagnostic::from(&e).with_source(source.clone()), mode);
             std::process::exit(1);
         }
     };
@@ -95,7 +164,7 @@ fn main() {
     let mut program = match parser::parse(token_spans) {
         Ok(p) => p,
         Err(e) => {
-            eprintln!("Parse error: {}", e);
+            report_diagnostic(&Diagnostic::from(&e).with_source(source.clone()), mode);
             std::process::exit(1);
         }
     };
@@ -103,7 +172,7 @@ fn main() {
 
     if let Err(errors) = verify::verify(&program) {
         for e in &errors {
-            eprintln!("{}", e);
+            report_diagnostic(&Diagnostic::from(e).with_source(source.clone()), mode);
         }
         std::process::exit(1);
     }
@@ -250,7 +319,7 @@ fn main() {
         match vm::run(&compiled, func_name, run_args) {
             Ok(val) => println!("{}", val),
             Err(e) => {
-                eprintln!("VM error: {}", e);
+                report_diagnostic(&Diagnostic::from(&e).with_source(source.clone()), mode);
                 std::process::exit(1);
             }
         }
@@ -266,7 +335,7 @@ fn main() {
         match interpreter::run(&program, func_name, run_args) {
             Ok(val) => println!("{}", val),
             Err(e) => {
-                eprintln!("{}", e);
+                report_diagnostic(&Diagnostic::from(&e).with_source(source.clone()), mode);
                 std::process::exit(1);
             }
         }
@@ -284,7 +353,7 @@ fn main() {
         };
 
         let run_args: Vec<interpreter::Value> = args[run_args_start..].iter().map(|a| parse_cli_arg(a)).collect();
-        run_default(&program, func_name, run_args);
+        run_default(&program, func_name, run_args, &source, mode);
     } else {
         // No args: AST JSON
         match serde_json::to_string_pretty(&program) {
@@ -297,7 +366,7 @@ fn main() {
     }
 }
 
-fn run_default(program: &ast::Program, func_name: Option<&str>, args: Vec<interpreter::Value>) {
+fn run_default(program: &ast::Program, func_name: Option<&str>, args: Vec<interpreter::Value>, source: &str, mode: OutputMode) {
     // Try Cranelift JIT first: requires all-numeric args and JIT-eligible function
     #[cfg(feature = "cranelift")]
     {
@@ -328,7 +397,7 @@ fn run_default(program: &ast::Program, func_name: Option<&str>, args: Vec<interp
     match interpreter::run(program, func_name, args) {
         Ok(val) => println!("{}", val),
         Err(e) => {
-            eprintln!("{}", e);
+            report_diagnostic(&Diagnostic::from(&e).with_source(source.to_string()), mode);
             std::process::exit(1);
         }
     }
