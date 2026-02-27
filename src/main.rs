@@ -52,19 +52,8 @@ fn detect_output_mode(args: Vec<String>) -> (OutputMode, Vec<String>) {
 
     let resolved = mode.unwrap_or_else(|| {
         // Auto-detect: isatty(stderr) && !NO_COLOR → Ansi; isatty && NO_COLOR → Text; !isatty → Json
-        #[cfg(unix)]
-        let is_tty = {
-            // SAFETY: isatty(2) is always safe to call; returns 0 if not a tty.
-            // STDERR_FILENO (= 2) is a POSIX constant, available on all Unix targets.
-            unsafe { libc::isatty(libc::STDERR_FILENO) != 0 }
-        };
-        #[cfg(windows)]
-        let is_tty = {
-            // SAFETY: _isatty(2) is safe to call with any fd value.
-            unsafe { libc::_isatty(2) != 0 }
-        };
-        #[cfg(not(any(unix, windows)))]
-        let is_tty = false;
+        use std::io::IsTerminal;
+        let is_tty = std::io::stderr().is_terminal();
         let no_color = std::env::var("NO_COLOR").is_ok();
         if is_tty && !no_color {
             OutputMode::Ansi
