@@ -1334,8 +1334,11 @@ impl<'a> VM<'a> {
                     let cv = reg!(c);
                     if bv.is_number() && cv.is_number() {
                         reg_set!(a, NanVal::boolean(bv.as_number() > cv.as_number()));
+                    } else if bv.is_string() && cv.is_string() {
+                        let result = unsafe { nanval_str_cmp(bv, cv) == std::cmp::Ordering::Greater };
+                        reg_set!(a, NanVal::boolean(result));
                     } else {
-                        return Err(VmError::Type("cannot compare > non-numbers"));
+                        return Err(VmError::Type("cannot compare > : operands must be same type (n or t)"));
                     }
                 }
                 OP_LT => {
@@ -1346,8 +1349,11 @@ impl<'a> VM<'a> {
                     let cv = reg!(c);
                     if bv.is_number() && cv.is_number() {
                         reg_set!(a, NanVal::boolean(bv.as_number() < cv.as_number()));
+                    } else if bv.is_string() && cv.is_string() {
+                        let result = unsafe { nanval_str_cmp(bv, cv) == std::cmp::Ordering::Less };
+                        reg_set!(a, NanVal::boolean(result));
                     } else {
-                        return Err(VmError::Type("cannot compare < non-numbers"));
+                        return Err(VmError::Type("cannot compare < : operands must be same type (n or t)"));
                     }
                 }
                 OP_GE => {
@@ -1358,8 +1364,11 @@ impl<'a> VM<'a> {
                     let cv = reg!(c);
                     if bv.is_number() && cv.is_number() {
                         reg_set!(a, NanVal::boolean(bv.as_number() >= cv.as_number()));
+                    } else if bv.is_string() && cv.is_string() {
+                        let result = unsafe { nanval_str_cmp(bv, cv) != std::cmp::Ordering::Less };
+                        reg_set!(a, NanVal::boolean(result));
                     } else {
-                        return Err(VmError::Type("cannot compare >= non-numbers"));
+                        return Err(VmError::Type("cannot compare >= : operands must be same type (n or t)"));
                     }
                 }
                 OP_LE => {
@@ -1370,8 +1379,11 @@ impl<'a> VM<'a> {
                     let cv = reg!(c);
                     if bv.is_number() && cv.is_number() {
                         reg_set!(a, NanVal::boolean(bv.as_number() <= cv.as_number()));
+                    } else if bv.is_string() && cv.is_string() {
+                        let result = unsafe { nanval_str_cmp(bv, cv) != std::cmp::Ordering::Greater };
+                        reg_set!(a, NanVal::boolean(result));
                     } else {
-                        return Err(VmError::Type("cannot compare <= non-numbers"));
+                        return Err(VmError::Type("cannot compare <= : operands must be same type (n or t)"));
                     }
                 }
                 OP_MOVE => {
@@ -1743,6 +1755,18 @@ impl<'a> VM<'a> {
     }
 }
 
+/// Lexicographic comparison of two NanVal strings.
+/// # Safety
+/// Caller must ensure both `a` and `b` satisfy `is_string()`.
+unsafe fn nanval_str_cmp(a: NanVal, b: NanVal) -> std::cmp::Ordering {
+    // SAFETY: caller guarantees is_string() for both values.
+    unsafe {
+        let sa = match a.as_heap_ref() { HeapObj::Str(s) => s, _ => unreachable!() };
+        let sb = match b.as_heap_ref() { HeapObj::Str(s) => s, _ => unreachable!() };
+        sa.cmp(sb)
+    }
+}
+
 fn nanval_equal(a: NanVal, b: NanVal) -> bool {
     if a.is_number() && b.is_number() {
         (a.as_number() - b.as_number()).abs() < f64::EPSILON
@@ -1982,6 +2006,49 @@ mod tests {
             vec![Value::Text("hello ".to_string()), Value::Text("world".to_string())],
         );
         assert_eq!(result, Value::Text("hello world".to_string()));
+    }
+
+    #[test]
+    fn vm_string_comparison() {
+        // "banana" > "apple" (lexicographic)
+        let source = r#"f a:t b:t>b;>a b"#;
+        assert_eq!(
+            vm_run(source, Some("f"), vec![Value::Text("banana".into()), Value::Text("apple".into())]),
+            Value::Bool(true)
+        );
+        assert_eq!(
+            vm_run(source, Some("f"), vec![Value::Text("apple".into()), Value::Text("banana".into())]),
+            Value::Bool(false)
+        );
+
+        // <
+        let source = r#"f a:t b:t>b;<a b"#;
+        assert_eq!(
+            vm_run(source, Some("f"), vec![Value::Text("apple".into()), Value::Text("banana".into())]),
+            Value::Bool(true)
+        );
+
+        // >=
+        let source = r#"f a:t b:t>b;>=a b"#;
+        assert_eq!(
+            vm_run(source, Some("f"), vec![Value::Text("apple".into()), Value::Text("apple".into())]),
+            Value::Bool(true)
+        );
+        assert_eq!(
+            vm_run(source, Some("f"), vec![Value::Text("apple".into()), Value::Text("banana".into())]),
+            Value::Bool(false)
+        );
+
+        // <=
+        let source = r#"f a:t b:t>b;<=a b"#;
+        assert_eq!(
+            vm_run(source, Some("f"), vec![Value::Text("banana".into()), Value::Text("banana".into())]),
+            Value::Bool(true)
+        );
+        assert_eq!(
+            vm_run(source, Some("f"), vec![Value::Text("zebra".into()), Value::Text("banana".into())]),
+            Value::Bool(false)
+        );
     }
 
     #[test]
