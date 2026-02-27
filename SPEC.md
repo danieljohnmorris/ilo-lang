@@ -95,6 +95,15 @@ Each nested operator saves 2 tokens (no `(` `)` needed). Flat expressions like `
 
 Disambiguation: `-` followed by one atom is unary negate, followed by two atoms is binary subtract.
 
+### Operands
+
+Operator operands are **atoms** (literals, refs, field access) or **nested prefix operators**. Function calls are NOT operands — bind call results to a variable first:
+
+```
+-- DON'T: *n fac p  →  parses as Multiply(n, fac) with p dangling
+-- DO:    r=fac p;*n r
+```
+
 ---
 
 ## Builtins
@@ -182,6 +191,23 @@ send-email d.email "Notification" msg
 charge pid amt
 ```
 
+### Call Arguments
+
+Call arguments can be atoms or prefix expressions:
+
+```
+fac -n 1       -- Call(fac, [Subtract(n, 1)])
+fac +a b       -- Call(fac, [Add(a, b)])
+g +a b c       -- Call(g, [Add(a,b), c])  — 2 args
+fac p           -- Call(fac, [Ref(p)])
+```
+
+Use parentheses when you need a full expression (including another call) as an argument:
+
+```
+f (g x)        -- Call(f, [Call(g, [x])])
+```
+
 ---
 
 ## Records
@@ -237,6 +263,73 @@ charge pid amt;?{^e:release rid;^+"Payment failed: "e;~cid:continue}
 
 ---
 
+## Patterns (for LLM generators)
+
+### Bind-first pattern
+
+Always bind complex expressions to variables before using them in operators. Operators only accept atoms and nested operators as operands — not function calls.
+
+```
+-- DON'T: *n fac -n 1     (fac is an operand of *, not a call)
+-- DO:    r=fac -n 1;*n r  (bind call result, then use in operator)
+```
+
+### Recursion template
+
+```
+<name> <params>><return>;<guard>;...;<recursive-calls>;combine
+```
+
+1. **Guard**: base case returns early — `<=n 1{1}`
+2. **Bind**: bind recursive call results — `r=fac -n 1`
+3. **Combine**: use bound results in final expression — `*n r`
+
+### Factorial
+
+```
+fac n:n>n;<=n 1{1};r=fac -n 1;*n r
+```
+
+- `<=n 1{1}` — guard: if n <= 1, return 1
+- `r=fac -n 1` — recursive call with prefix subtract as argument
+- `*n r` — multiply n by result
+
+### Fibonacci
+
+```
+fib n:n>n;<=n 1{n};a=fib -n 1;b=fib -n 2;+a b
+```
+
+- `<=n 1{n}` — base case: return n for 0 and 1
+- `a=fib -n 1;b=fib -n 2` — two recursive calls, each with prefix arg
+- `+a b` — add results
+
+### Multi-statement bodies
+
+Semicolons separate statements. Last expression is the return value.
+
+```
+f x:n>n;a=*x 2;b=+a 1;*b b    -- (x*2 + 1)^2
+```
+
+### DO / DON'T
+
+```
+-- DON'T: fac n:n>n;<=n 1{1};*n fac -n 1
+--   ↑ *n sees fac as an atom operand, not a call
+
+-- DO:    fac n:n>n;<=n 1{1};r=fac -n 1;*n r
+--   ↑ bind-first: call result goes into r, then *n r works
+
+-- DON'T: +fac -n 1 fac -n 2
+--   ↑ + takes two operands; fac is just an atom ref
+
+-- DO:    a=fac -n 1;b=fac -n 2;+a b
+--   ↑ bind both calls, then combine
+```
+
+---
+
 ## Complete Example
 
 ```
@@ -244,4 +337,16 @@ tool get-user"Retrieve user by ID" uid:t>R profile t timeout:5,retry:2
 tool send-email"Send an email" to:t subject:t body:t>R _ t timeout:10,retry:1
 type profile{id:t;name:t;email:t;verified:b}
 ntf uid:t msg:t>R _ t;get-user uid;?{^e:^+"Lookup failed: "e;~d:!d.verified{^"Email not verified"};send-email d.email "Notification" msg;?{^e:^+"Send failed: "e;~_:~_}}
+```
+
+### Recursive Example
+
+Factorial and Fibonacci as standalone functions:
+
+```
+fac n:n>n;<=n 1{1};r=fac -n 1;*n r
+```
+
+```
+fib n:n>n;<=n 1{n};a=fib -n 1;b=fib -n 2;+a b
 ```

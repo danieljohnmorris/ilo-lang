@@ -299,3 +299,96 @@ fn legacy_e_flag_missing_code() {
     let stderr = String::from_utf8_lossy(&out.stderr);
     assert!(stderr.contains("Usage"), "expected usage message, got: {}", stderr);
 }
+
+// --- Static verifier errors ---
+
+#[test]
+fn verify_undefined_variable() {
+    let out = ilo()
+        .args(["f x:n>n;*y 2", "5"])
+        .output()
+        .expect("failed to run ilo");
+    assert!(!out.status.success());
+    let stderr = String::from_utf8_lossy(&out.stderr);
+    assert!(stderr.contains("verify:"), "expected verify error, got: {}", stderr);
+    assert!(stderr.contains("undefined variable 'y'"), "expected undefined var error, got: {}", stderr);
+}
+
+#[test]
+fn verify_undefined_function() {
+    let out = ilo()
+        .args(["f x:n>n;foo x", "5"])
+        .output()
+        .expect("failed to run ilo");
+    assert!(!out.status.success());
+    let stderr = String::from_utf8_lossy(&out.stderr);
+    assert!(stderr.contains("verify:"), "expected verify error, got: {}", stderr);
+    assert!(stderr.contains("undefined function 'foo'"), "expected undefined func error, got: {}", stderr);
+}
+
+#[test]
+fn verify_arity_mismatch() {
+    let out = ilo()
+        .args(["g a:n b:n>n;+a b f x:n>n;g x", "5"])
+        .output()
+        .expect("failed to run ilo");
+    assert!(!out.status.success());
+    let stderr = String::from_utf8_lossy(&out.stderr);
+    assert!(stderr.contains("arity mismatch"), "expected arity error, got: {}", stderr);
+}
+
+#[test]
+fn verify_type_mismatch() {
+    let out = ilo()
+        .args(["f x:t>n;*x 2", "hello"])
+        .output()
+        .expect("failed to run ilo");
+    assert!(!out.status.success());
+    let stderr = String::from_utf8_lossy(&out.stderr);
+    assert!(stderr.contains("verify:"), "expected verify error, got: {}", stderr);
+}
+
+#[test]
+fn verify_valid_program_runs() {
+    let out = ilo()
+        .args(["f x:n>n;*x 2", "5"])
+        .output()
+        .expect("failed to run ilo");
+    assert!(out.status.success(), "stderr: {}", String::from_utf8_lossy(&out.stderr));
+    assert_eq!(String::from_utf8_lossy(&out.stdout).trim(), "10");
+}
+
+// --- Prefix expressions as call arguments ---
+
+#[test]
+fn inline_factorial_with_prefix_call_arg() {
+    // fac -n 1 as a call with prefix arg, result bound then used in operator
+    let out = ilo()
+        .args(["fac n:n>n;<=n 1{1};r=fac -n 1;*n r", "5"])
+        .output()
+        .expect("failed to run ilo");
+    assert!(out.status.success(), "stderr: {}", String::from_utf8_lossy(&out.stderr));
+    assert_eq!(String::from_utf8_lossy(&out.stdout).trim(), "120");
+}
+
+#[test]
+fn inline_fibonacci_with_prefix_call_args() {
+    // fib -n 1 and fib -n 2 as direct calls with prefix args
+    let out = ilo()
+        .args(["fib n:n>n;<=n 1{n};a=fib -n 1;b=fib -n 2;+a b", "10"])
+        .output()
+        .expect("failed to run ilo");
+    assert!(out.status.success(), "stderr: {}", String::from_utf8_lossy(&out.stderr));
+    assert_eq!(String::from_utf8_lossy(&out.stdout).trim(), "55");
+}
+
+#[test]
+fn inline_call_with_nested_prefix_unchanged() {
+    // +*a b c should still work as nested prefix: (a*b) + c
+    let out = ilo()
+        .args(["f a:n b:n c:n>n;+*a b c", "2", "3", "4"])
+        .output()
+        .expect("failed to run ilo");
+    assert!(out.status.success(), "stderr: {}", String::from_utf8_lossy(&out.stderr));
+    assert_eq!(String::from_utf8_lossy(&out.stdout).trim(), "10");
+}

@@ -120,6 +120,21 @@ ilo 'code' --run-cranelift . # Cranelift JIT
 ilo 'code' --run-jit ...     # custom ARM64 JIT (macOS Apple Silicon only)
 ```
 
+**Static verification:**
+
+All programs are verified before execution. The verifier checks function existence, arity, variable scope, type compatibility, record fields, and more — reporting all errors at once:
+
+```bash
+ilo 'f x:n>n;*y 2' 5
+# verify: undefined variable 'y' in 'f'
+#   hint: did you mean 'x'?
+
+ilo 'f x:t>n;*x 2' hello
+# verify: '*' expects n and n, got t and n in 'f'
+```
+
+This matches the manifesto: "verification before execution — all calls resolve, all types align, all dependencies exist."
+
 **Other modes:**
 ```bash
 ilo 'code' --emit python     # transpile to Python
@@ -132,7 +147,7 @@ ilo program.ilo --bench tot 10 20 30  # benchmark
 cargo test
 ```
 
-366 tests: lexer, parser, interpreter, VM, codegen, and CLI integration tests.
+408 tests: lexer, parser, interpreter, VM, verifier, codegen, and CLI integration tests.
 
 ## Documentation
 

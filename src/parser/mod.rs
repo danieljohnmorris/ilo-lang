@@ -87,7 +87,19 @@ impl Parser {
             Some(Token::Type) => self.parse_type_decl(),
             Some(Token::Tool) => self.parse_tool_decl(),
             Some(Token::Ident(_)) => self.parse_fn_decl(),
-            Some(tok) => Err(self.error(format!("expected declaration, got {:?}", tok))),
+            Some(tok) => {
+                let hint = if matches!(tok,
+                    Token::Plus | Token::Minus | Token::Star | Token::Slash
+                    | Token::Greater | Token::Less | Token::GreaterEq | Token::LessEq
+                    | Token::Eq | Token::NotEq | Token::Amp | Token::Pipe
+                    | Token::Bang | Token::Tilde | Token::Caret
+                ) {
+                    "\n  hint: prefix operators can't start a declaration.\n        Bind call results to variables: r=fac -n 1;*n r"
+                } else {
+                    ""
+                };
+                Err(self.error(format!("expected declaration, got {:?}{}", tok, hint)))
+            }
             None => Err(self.error("expected declaration, got EOF".into())),
         }
     }
@@ -678,10 +690,12 @@ impl Parser {
             }
 
             // Check for function call: name followed by args
-            if self.can_start_atom() {
+            // Use can_start_operand/parse_operand so prefix expressions work as args:
+            //   fac -n 1  →  Call(fac, [Subtract(n, 1)])
+            if self.can_start_operand() {
                 let mut args = Vec::new();
-                while self.can_start_atom() {
-                    args.push(self.parse_atom()?);
+                while self.can_start_operand() {
+                    args.push(self.parse_operand()?);
                 }
                 return Ok(Expr::Call {
                     function: name,
@@ -1990,6 +2004,72 @@ mod tests {
                         assert_eq!(*op, BinOp::Append);
                     }
                     _ => panic!("expected append binop, got {:?}", body[0]),
+                }
+            }
+            _ => panic!("expected function"),
+        }
+    }
+
+    // --- Prefix expressions as call arguments ---
+
+    #[test]
+    fn parse_call_with_prefix_arg() {
+        // fac -n 1 should parse as Call(fac, [Subtract(n, 1)])
+        let prog = parse_str("fac n:n>n;<=n 1{1};p=-n 1;r=fac -n 1;*n r");
+        match &prog.declarations[0] {
+            Decl::Function { body, .. } => {
+                // body[2]: r=fac -n 1
+                match &body[2] {
+                    Stmt::Let { name, value } => {
+                        assert_eq!(name, "r");
+                        match value {
+                            Expr::Call { function, args } => {
+                                assert_eq!(function, "fac");
+                                assert_eq!(args.len(), 1);
+                                assert!(matches!(&args[0], Expr::BinOp { op: BinOp::Subtract, .. }));
+                            }
+                            _ => panic!("expected call, got {:?}", value),
+                        }
+                    }
+                    _ => panic!("expected let, got {:?}", body[2]),
+                }
+            }
+            _ => panic!("expected function"),
+        }
+    }
+
+    #[test]
+    fn parse_call_with_two_prefix_args() {
+        // g +a b c should parse as Call(g, [Add(a,b), Ref(c)])
+        let prog = parse_str("g a:n b:n c:n>n;f +a b c");
+        match &prog.declarations[0] {
+            Decl::Function { body, .. } => {
+                match &body[0] {
+                    Stmt::Expr(Expr::Call { function, args }) => {
+                        assert_eq!(function, "f");
+                        assert_eq!(args.len(), 2);
+                        assert!(matches!(&args[0], Expr::BinOp { op: BinOp::Add, .. }));
+                        assert!(matches!(&args[1], Expr::Ref(name) if name == "c"));
+                    }
+                    _ => panic!("expected call, got {:?}", body[0]),
+                }
+            }
+            _ => panic!("expected function"),
+        }
+    }
+
+    #[test]
+    fn parse_nested_prefix_still_works() {
+        // +*a b c should still parse as Add(Mul(a,b), c)
+        let prog = parse_str("f a:n b:n c:n>n;+*a b c");
+        match &prog.declarations[0] {
+            Decl::Function { body, .. } => {
+                match &body[0] {
+                    Stmt::Expr(Expr::BinOp { op: BinOp::Add, left, right }) => {
+                        assert!(matches!(left.as_ref(), Expr::BinOp { op: BinOp::Multiply, .. }));
+                        assert!(matches!(right.as_ref(), Expr::Ref(name) if name == "c"));
+                    }
+                    _ => panic!("expected nested prefix, got {:?}", body[0]),
                 }
             }
             _ => panic!("expected function"),

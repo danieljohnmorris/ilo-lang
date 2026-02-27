@@ -5,6 +5,7 @@ mod codegen;
 mod interpreter;
 mod lexer;
 mod parser;
+mod verify;
 mod vm;
 
 fn main() {
@@ -15,6 +16,11 @@ fn main() {
         eprintln!("       ilo help          Show usage and examples");
         eprintln!("       ilo help lang     Show language specification");
         std::process::exit(1);
+    }
+
+    if args[1] == "--version" || args[1] == "-V" {
+        println!("ilo {}", env!("CARGO_PKG_VERSION"));
+        std::process::exit(0);
     }
 
     if args[1] == "help" {
@@ -88,6 +94,13 @@ fn main() {
             std::process::exit(1);
         }
     };
+
+    if let Err(errors) = verify::verify(&program) {
+        for e in &errors {
+            eprintln!("{}", e);
+        }
+        std::process::exit(1);
+    }
 
     // Determine mode from args
     let m = mode_args_start;
