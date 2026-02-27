@@ -469,6 +469,12 @@ mod tests {
     }
 
     #[test]
+    fn emit_len_builtin() {
+        let py = parse_and_emit(r#"f s:t>n;len s"#);
+        assert!(py.contains("len(s)"));
+    }
+
+    #[test]
     fn emit_zero_arg_call() {
         let py = parse_and_emit("f>t;make-id()");
         assert!(py.contains("make_id()"));

@@ -144,6 +144,18 @@ pub fn run(program: &Program, func_name: Option<&str>, args: Vec<Value>) -> Resu
 }
 
 fn call_function(env: &mut Env, name: &str, args: Vec<Value>) -> Result<Value> {
+    // Builtins
+    if name == "len" {
+        if args.len() != 1 {
+            return Err(RuntimeError::new(format!("len: expected 1 arg, got {}", args.len())));
+        }
+        return match &args[0] {
+            Value::Text(s) => Ok(Value::Number(s.len() as f64)),
+            Value::List(l) => Ok(Value::Number(l.len() as f64)),
+            other => Err(RuntimeError::new(format!("len requires string or list, got {:?}", other))),
+        };
+    }
+
     let decl = env.function(name)?;
     match decl {
         Decl::Function { params, body, .. } => {
@@ -711,6 +723,25 @@ mod tests {
             run_str(source, Some("f"), vec![Value::Bool(false), Value::Bool(true)]),
             Value::Bool(true)
         );
+    }
+
+    #[test]
+    fn interpret_len_string() {
+        let source = r#"f s:t>n;len s"#;
+        assert_eq!(
+            run_str(source, Some("f"), vec![Value::Text("hello".to_string())]),
+            Value::Number(5.0)
+        );
+        assert_eq!(
+            run_str(source, Some("f"), vec![Value::Text("".to_string())]),
+            Value::Number(0.0)
+        );
+    }
+
+    #[test]
+    fn interpret_len_list() {
+        let source = "f>n;xs=[1, 2, 3];len xs";
+        assert_eq!(run_str(source, Some("f"), vec![]), Value::Number(3.0));
     }
 
     #[test]
