@@ -56,6 +56,7 @@ fn emit_decl(out: &mut String, decl: &Decl, level: usize) {
             indent(out, level + 1);
             out.push_str("raise NotImplementedError\n");
         }
+        Decl::Error { .. } => {} // poison node — skip
     }
 }
 

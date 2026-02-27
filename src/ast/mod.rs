@@ -112,6 +112,14 @@ pub enum Decl {
         #[serde(skip)]
         span: Span,
     },
+
+    /// Poison node inserted during parser error recovery.
+    /// Suppressed by the verifier; omitted from JSON AST output
+    /// (filtered by the custom serializer on Program.declarations).
+    Error {
+        #[serde(skip)]
+        span: Span,
+    },
 }
 
 /// Statements
@@ -253,9 +261,20 @@ pub enum UnaryOp {
     Negate,
 }
 
+fn serialize_decls<S: serde::Serializer>(decls: &[Decl], s: S) -> Result<S::Ok, S::Error> {
+    use serde::ser::SerializeSeq;
+    let valid: Vec<&Decl> = decls.iter().filter(|d| !matches!(d, Decl::Error { .. })).collect();
+    let mut seq = s.serialize_seq(Some(valid.len()))?;
+    for d in valid {
+        seq.serialize_element(d)?;
+    }
+    seq.end()
+}
+
 /// A complete program is a list of declarations
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct Program {
+    #[serde(serialize_with = "serialize_decls")]
     pub declarations: Vec<Decl>,
     #[serde(skip)]
     pub source: Option<String>,

@@ -507,8 +507,11 @@ fn json_flag_parse_error_has_span() {
         .expect("failed to run ilo");
     assert!(!out.status.success());
     let stderr = String::from_utf8_lossy(&out.stderr);
-    let v: serde_json::Value = serde_json::from_str(stderr.trim())
-        .unwrap_or_else(|_| panic!("expected JSON on stderr, got: {}", stderr));
+    // JSON mode emits one object per line (NDJSON). Check the first line.
+    let first_line = stderr.lines().next()
+        .unwrap_or_else(|| panic!("expected output on stderr, got empty"));
+    let v: serde_json::Value = serde_json::from_str(first_line)
+        .unwrap_or_else(|_| panic!("expected JSON on first line of stderr, got: {}", stderr));
     assert_eq!(v["severity"], "error");
     // Should have labels with span info
     assert!(v["labels"].as_array().is_some_and(|l| !l.is_empty()),

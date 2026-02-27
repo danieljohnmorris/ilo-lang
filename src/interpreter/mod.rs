@@ -122,7 +122,7 @@ pub fn run(program: &Program, func_name: Option<&str>, args: Vec<Value>) -> Resu
             Decl::Function { name, .. } | Decl::Tool { name, .. } => {
                 env.functions.insert(name.clone(), decl.clone());
             }
-            Decl::TypeDef { .. } => {}
+            Decl::TypeDef { .. } | Decl::Error { .. } => {}
         }
     }
 
@@ -236,6 +236,9 @@ fn call_function(env: &mut Env, name: &str, args: Vec<Value>) -> Result<Value> {
         }
         Decl::TypeDef { .. } => {
             Err(RuntimeError::new(format!("{} is a type, not callable", name)))
+        }
+        Decl::Error { .. } => {
+            Err(RuntimeError::new(format!("{} failed to parse", name)))
         }
     }
 }
