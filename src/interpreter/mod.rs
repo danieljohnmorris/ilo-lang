@@ -192,6 +192,15 @@ fn call_function(env: &mut Env, name: &str, args: Vec<Value>) -> Result<Value> {
             other => Err(RuntimeError::new(format!("abs requires a number, got {:?}", other))),
         };
     }
+    if (name == "min" || name == "max") && args.len() == 2 {
+        return match (&args[0], &args[1]) {
+            (Value::Number(a), Value::Number(b)) => {
+                let result = if name == "min" { a.min(*b) } else { a.max(*b) };
+                Ok(Value::Number(result))
+            }
+            _ => Err(RuntimeError::new(format!("{} requires two numbers", name))),
+        };
+    }
 
     let decl = env.function(name)?;
     match decl {
@@ -859,6 +868,18 @@ mod tests {
     #[test]
     fn interpret_abs() {
         let source = "f>n;abs -7";
+        assert_eq!(run_str(source, Some("f"), vec![]), Value::Number(7.0));
+    }
+
+    #[test]
+    fn interpret_min() {
+        let source = "f>n;min 3 7";
+        assert_eq!(run_str(source, Some("f"), vec![]), Value::Number(3.0));
+    }
+
+    #[test]
+    fn interpret_max() {
+        let source = "f>n;max 3 7";
         assert_eq!(run_str(source, Some("f"), vec![]), Value::Number(7.0));
     }
 
