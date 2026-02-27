@@ -97,6 +97,8 @@ Called like functions, compiled to dedicated opcodes.
 | `abs n` | absolute value | `n` |
 | `min a b` | minimum of two numbers | `n` |
 | `max a b` | maximum of two numbers | `n` |
+| `flr n` | floor (round toward negative infinity) | `n` |
+| `cel n` | ceiling (round toward positive infinity) | `n` |
 
 ---
 
