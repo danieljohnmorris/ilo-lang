@@ -392,8 +392,8 @@ fn run_bench(program: &ast::Program, func_name: Option<&str>, args: &[interprete
             }
         }
 
-    #[allow(unused_variables)]
-    let jit_cranelift_ns: Option<u128> = None;
+    #[allow(unused_mut, unused_variables)]
+    let mut jit_cranelift_ns: Option<u128> = None;
     #[cfg(feature = "cranelift")]
     if let Some(fi) = func_idx_jit {
         if all_numeric {
