@@ -263,9 +263,8 @@ pub enum UnaryOp {
 
 fn serialize_decls<S: serde::Serializer>(decls: &[Decl], s: S) -> Result<S::Ok, S::Error> {
     use serde::ser::SerializeSeq;
-    let valid: Vec<&Decl> = decls.iter().filter(|d| !matches!(d, Decl::Error { .. })).collect();
-    let mut seq = s.serialize_seq(Some(valid.len()))?;
-    for d in valid {
+    let mut seq = s.serialize_seq(None)?;
+    for d in decls.iter().filter(|d| !matches!(d, Decl::Error { .. })) {
         seq.serialize_element(d)?;
     }
     seq.end()
