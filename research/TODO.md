@@ -29,7 +29,7 @@ Note: all builtin names are single tokens (no hyphens — manifesto: "every hyph
 - [x] `+a b` — extend to lists: concatenate two lists (already handles `n` add and `t` concat)
 - [x] Index access `x.0`, `x.1` — by integer literal (dot notation, consistent with field access)
 - [x] `str n` — number to text
-- [ ] `num t` — text to number (returns `R n t`, Err if unparseable)
+- [x] `num t` — text to number (returns `R n t`, Err if unparseable)
 - [ ] `abs n` — absolute value
 - [ ] `min a b` — minimum of two numbers
 - [ ] `max a b` — maximum of two numbers
