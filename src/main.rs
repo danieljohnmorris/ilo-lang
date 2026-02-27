@@ -287,8 +287,8 @@ fn run_default(program: &ast::Program, func_name: Option<&str>, args: Vec<interp
             _ => None,
         }).collect();
 
-        if jit_args.len() == args.len() {
-            if let Ok(compiled) = vm::compile(program) {
+        if jit_args.len() == args.len()
+            && let Ok(compiled) = vm::compile(program) {
                 let target = func_name.unwrap_or(compiled.func_names.first().map(|s| s.as_str()).unwrap_or("main"));
                 if let Some(func_idx) = compiled.func_names.iter().position(|n| n == target) {
                     let chunk = &compiled.chunks[func_idx];
@@ -303,7 +303,6 @@ fn run_default(program: &ast::Program, func_name: Option<&str>, args: Vec<interp
                     }
                 }
             }
-        }
     }
 
     // Fall back to interpreter
