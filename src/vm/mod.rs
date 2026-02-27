@@ -1055,6 +1055,7 @@ impl NanVal {
                 // SAFETY: Not a number, nil, true, or false — must be a heap-tagged
                 // pointer. The NanVal was created by a heap_* constructor so the
                 // Rc is still live (we own this NanVal value).
+                debug_assert!(self.is_heap(), "to_value: unexpected non-heap NanVal tag {:#018x}", self.0);
                 match self.as_heap_ref() {
                     HeapObj::Str(s) => Value::Text(s.clone()),
                     HeapObj::List(items) => {
@@ -1772,6 +1773,7 @@ fn nanval_truthy(v: NanVal) -> bool {
                 // and false (the only non-heap non-number tags). Therefore
                 // any remaining value must be a live heap pointer created by
                 // a heap_* constructor, making as_heap_ref() sound here.
+                debug_assert!(v.is_heap(), "nanval_truthy: unexpected non-heap NanVal tag {:#018x}", v.0);
                 match v.as_heap_ref() {
                     HeapObj::Str(s) => !s.is_empty(),
                     HeapObj::List(l) => !l.is_empty(),
