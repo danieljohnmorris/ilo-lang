@@ -517,6 +517,14 @@ mod tests {
     }
 
     #[test]
+    fn emit_min_max_builtin() {
+        let py = parse_and_emit("f a:n b:n>n;min a b");
+        assert!(py.contains("min(a, b)"));
+        let py = parse_and_emit("f a:n b:n>n;max a b");
+        assert!(py.contains("max(a, b)"));
+    }
+
+    #[test]
     fn emit_zero_arg_call() {
         let py = parse_and_emit("f>t;make-id()");
         assert!(py.contains("make_id()"));

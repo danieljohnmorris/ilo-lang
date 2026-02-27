@@ -83,6 +83,8 @@ pub(crate) const OP_INDEX: u8 = 39;      // R[A] = R[B][C]  (C = literal index)
 pub(crate) const OP_STR: u8 = 40;        // R[A] = str(R[B])  (number to text)
 pub(crate) const OP_NUM: u8 = 41;        // R[A] = num(R[B])  (text to number, returns R n t)
 pub(crate) const OP_ABS: u8 = 42;        // R[A] = abs(R[B])
+pub(crate) const OP_MIN: u8 = 43;        // R[A] = min(R[B], R[C])
+pub(crate) const OP_MAX: u8 = 44;        // R[A] = max(R[B], R[C])
 
 // ABx mode — register + 16-bit operand
 pub(crate) const OP_LOADK: u8 = 20;
@@ -668,6 +670,15 @@ impl RegCompiler {
                     let rb = self.compile_expr(&args[0]);
                     let ra = self.alloc_reg();
                     self.emit_abc(OP_ABS, ra, rb, 0);
+                    self.reg_is_num[ra as usize] = true;
+                    return ra;
+                }
+                if (function == "min" || function == "max") && args.len() == 2 {
+                    let rb = self.compile_expr(&args[0]);
+                    let rc = self.compile_expr(&args[1]);
+                    let ra = self.alloc_reg();
+                    let op = if function == "min" { OP_MIN } else { OP_MAX };
+                    self.emit_abc(op, ra, rb, rc);
                     self.reg_is_num[ra as usize] = true;
                     return ra;
                 }
@@ -1916,6 +1927,20 @@ impl<'a> VM<'a> {
                     }
                     reg_set!(a, NanVal::number(v.as_number().abs()));
                 }
+                OP_MIN | OP_MAX => {
+                    let a = ((inst >> 16) & 0xFF) as usize + base;
+                    let b = ((inst >> 8) & 0xFF) as usize + base;
+                    let c = (inst & 0xFF) as usize + base;
+                    let vb = reg!(b);
+                    let vc = reg!(c);
+                    if !vb.is_number() || !vc.is_number() {
+                        return Err(VmError::Type("min/max require numbers"));
+                    }
+                    let nb = vb.as_number();
+                    let nc = vc.as_number();
+                    let result = if op == OP_MIN { nb.min(nc) } else { nb.max(nc) };
+                    reg_set!(a, NanVal::number(result));
+                }
                 OP_LISTAPPEND => {
                     let a = ((inst >> 16) & 0xFF) as usize + base;
                     let b = ((inst >> 8) & 0xFF) as usize + base;
@@ -2455,6 +2480,24 @@ mod tests {
     fn vm_abs_negative() {
         let source = "f>n;abs -3";
         assert_eq!(vm_run(source, Some("f"), vec![]), Value::Number(3.0));
+    }
+
+    #[test]
+    fn vm_min() {
+        let source = "f>n;min 3 7";
+        assert_eq!(vm_run(source, Some("f"), vec![]), Value::Number(3.0));
+    }
+
+    #[test]
+    fn vm_max() {
+        let source = "f>n;max 3 7";
+        assert_eq!(vm_run(source, Some("f"), vec![]), Value::Number(7.0));
+    }
+
+    #[test]
+    fn vm_min_negative() {
+        let source = "f>n;min -5 2";
+        assert_eq!(vm_run(source, Some("f"), vec![]), Value::Number(-5.0));
     }
 
     #[test]
