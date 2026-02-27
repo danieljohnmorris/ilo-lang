@@ -97,6 +97,12 @@ No flags needed. The first arg is code (or a file path — auto-detected). Remai
 ilo 'dbl x:n>n;s=*x 2;+s 0 tot p:n q:n r:n>n;s=*p q;t=*s r;+s t' tot 10 20 30
 ```
 
+**Pass list arguments** with commas:
+```bash
+ilo 'f xs:L n>n;len xs' 1,2,3         # → 3
+ilo 'f xs:L t>t;xs.0' 'a,b,c'         # → a
+```
+
 **Run from a file:**
 ```bash
 ilo program.ilo 10 20 30
@@ -105,6 +111,7 @@ ilo program.ilo 10 20 30
 **Help & language spec:**
 ```bash
 ilo help                     # usage and examples
+ilo -h                       # same as ilo help
 ilo help lang                # print the full language specification
 ```
 

@@ -142,6 +142,12 @@ xs.0     # first element
 xs.2     # third element
 ```
 
+**CLI list arguments:** Pass lists from the command line with commas (brackets also accepted):
+```
+ilo 'f xs:L n>n;len xs' 1,2,3       → 3
+ilo 'f xs:L t>t;xs.0' 'a,b,c'       → a
+```
+
 ---
 
 ## Statements

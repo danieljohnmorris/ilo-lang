@@ -222,6 +222,70 @@ fn inline_bench_mode() {
 // --- Help ---
 
 #[test]
+fn help_flag_shows_usage() {
+    let out = ilo()
+        .args(["--help"])
+        .output()
+        .expect("failed to run ilo");
+    assert!(out.status.success());
+    let stdout = String::from_utf8_lossy(&out.stdout);
+    assert!(stdout.contains("Backends:"), "expected backends section, got: {}", stdout);
+}
+
+#[test]
+fn help_short_flag_shows_usage() {
+    let out = ilo()
+        .args(["-h"])
+        .output()
+        .expect("failed to run ilo");
+    assert!(out.status.success());
+    let stdout = String::from_utf8_lossy(&out.stdout);
+    assert!(stdout.contains("Backends:"), "expected backends section, got: {}", stdout);
+}
+
+// --- List arguments ---
+
+#[test]
+fn inline_list_arg_bracketed() {
+    let out = ilo()
+        .args(["f xs:L n>n;len xs", "[1,2,3]"])
+        .output()
+        .expect("failed to run ilo");
+    assert!(out.status.success(), "stderr: {}", String::from_utf8_lossy(&out.stderr));
+    assert_eq!(String::from_utf8_lossy(&out.stdout).trim(), "3");
+}
+
+#[test]
+fn inline_list_arg_bracketed_index() {
+    let out = ilo()
+        .args(["f xs:L n>n;xs.0", "[10,20,30]"])
+        .output()
+        .expect("failed to run ilo");
+    assert!(out.status.success(), "stderr: {}", String::from_utf8_lossy(&out.stderr));
+    assert_eq!(String::from_utf8_lossy(&out.stdout).trim(), "10");
+}
+
+#[test]
+fn inline_list_arg_bare_comma() {
+    let out = ilo()
+        .args(["f xs:L n>n;len xs", "1,2,3"])
+        .output()
+        .expect("failed to run ilo");
+    assert!(out.status.success(), "stderr: {}", String::from_utf8_lossy(&out.stderr));
+    assert_eq!(String::from_utf8_lossy(&out.stdout).trim(), "3");
+}
+
+#[test]
+fn inline_list_arg_bare_comma_index() {
+    let out = ilo()
+        .args(["f xs:L n>n;xs.0", "10,20,30"])
+        .output()
+        .expect("failed to run ilo");
+    assert!(out.status.success(), "stderr: {}", String::from_utf8_lossy(&out.stderr));
+    assert_eq!(String::from_utf8_lossy(&out.stdout).trim(), "10");
+}
+
+#[test]
 fn help_shows_usage() {
     let out = ilo()
         .args(["help"])
