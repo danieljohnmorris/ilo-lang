@@ -9,3 +9,4 @@ research/explorations/full-results.json
 ilo
 *.png
 .playwright-mcp/
+.worktrees
