@@ -287,6 +287,15 @@ fn eval_expr(env: &mut Env, expr: &Expr) -> Result<Value> {
             call_function(env, function, arg_vals)
         }
         Expr::BinOp { op, left, right } => {
+            // Short-circuit for logical ops
+            if *op == BinOp::And {
+                let l = eval_expr(env, left)?;
+                return if !is_truthy(&l) { Ok(l) } else { eval_expr(env, right) };
+            }
+            if *op == BinOp::Or {
+                let l = eval_expr(env, left)?;
+                return if is_truthy(&l) { Ok(l) } else { eval_expr(env, right) };
+            }
             let l = eval_expr(env, left)?;
             let r = eval_expr(env, right)?;
             eval_binop(op, &l, &r)
@@ -668,6 +677,40 @@ mod tests {
         let prog = parse_program(source);
         let result = run(&prog, Some("f"), vec![Value::Number(10.0)]);
         assert!(result.is_err());
+    }
+
+    #[test]
+    fn interpret_logical_and() {
+        let source = "f a:b b:b>b;&a b";
+        assert_eq!(
+            run_str(source, Some("f"), vec![Value::Bool(true), Value::Bool(true)]),
+            Value::Bool(true)
+        );
+        assert_eq!(
+            run_str(source, Some("f"), vec![Value::Bool(true), Value::Bool(false)]),
+            Value::Bool(false)
+        );
+        assert_eq!(
+            run_str(source, Some("f"), vec![Value::Bool(false), Value::Bool(true)]),
+            Value::Bool(false)
+        );
+    }
+
+    #[test]
+    fn interpret_logical_or() {
+        let source = "f a:b b:b>b;|a b";
+        assert_eq!(
+            run_str(source, Some("f"), vec![Value::Bool(false), Value::Bool(false)]),
+            Value::Bool(false)
+        );
+        assert_eq!(
+            run_str(source, Some("f"), vec![Value::Bool(true), Value::Bool(false)]),
+            Value::Bool(true)
+        );
+        assert_eq!(
+            run_str(source, Some("f"), vec![Value::Bool(false), Value::Bool(true)]),
+            Value::Bool(true)
+        );
     }
 
     #[test]

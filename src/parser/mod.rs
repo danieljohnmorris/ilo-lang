@@ -558,7 +558,8 @@ impl Parser {
             // Prefix binary operators: +a b, *a b, etc.
             Some(Token::Plus) | Some(Token::Star) | Some(Token::Slash)
             | Some(Token::Greater) | Some(Token::Less) | Some(Token::GreaterEq)
-            | Some(Token::LessEq) | Some(Token::Eq) | Some(Token::NotEq) => {
+            | Some(Token::LessEq) | Some(Token::Eq) | Some(Token::NotEq)
+            | Some(Token::Amp) | Some(Token::Pipe) => {
                 self.parse_prefix_binop()
             }
             // Match expression: ?expr{...} or ?{...}
@@ -613,6 +614,8 @@ impl Parser {
             Some(Token::LessEq) => BinOp::LessOrEqual,
             Some(Token::Eq) => BinOp::Equals,
             Some(Token::NotEq) => BinOp::NotEquals,
+            Some(Token::Amp) => BinOp::And,
+            Some(Token::Pipe) => BinOp::Or,
             _ => unreachable!(),
         };
         let left = self.parse_atom()?;
@@ -1189,6 +1192,40 @@ mod tests {
         assert_eq!(prog.declarations.len(), 1);
         match &prog.declarations[0] {
             Decl::Function { name, .. } => assert_eq!(name, "chk"),
+            _ => panic!("expected function"),
+        }
+    }
+
+    #[test]
+    fn parse_logical_and() {
+        let prog = parse_str("f a:b b:b>b;&a b");
+        match &prog.declarations[0] {
+            Decl::Function { body, .. } => {
+                assert_eq!(body.len(), 1);
+                match &body[0] {
+                    Stmt::Expr(Expr::BinOp { op, .. }) => {
+                        assert_eq!(*op, BinOp::And);
+                    }
+                    other => panic!("expected BinOp And, got {:?}", other),
+                }
+            }
+            _ => panic!("expected function"),
+        }
+    }
+
+    #[test]
+    fn parse_logical_or() {
+        let prog = parse_str("f a:b b:b>b;|a b");
+        match &prog.declarations[0] {
+            Decl::Function { body, .. } => {
+                assert_eq!(body.len(), 1);
+                match &body[0] {
+                    Stmt::Expr(Expr::BinOp { op, .. }) => {
+                        assert_eq!(*op, BinOp::Or);
+                    }
+                    other => panic!("expected BinOp Or, got {:?}", other),
+                }
+            }
             _ => panic!("expected function"),
         }
     }

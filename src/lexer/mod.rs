@@ -51,6 +51,10 @@ pub enum Token {
     Less,
     #[token("=")]
     Eq,
+    #[token("&")]
+    Amp,
+    #[token("|")]
+    Pipe,
 
     // Special
     #[token("?")]
