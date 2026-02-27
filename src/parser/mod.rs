@@ -1005,7 +1005,8 @@ pub fn parse(tokens: Vec<(Token, Span)>) -> (Program, Vec<ParseError>) {
 
 /// Parse from bare tokens (no span information, UNKNOWN spans).
 /// Returns `Err` if any parse errors are present (first error).
-/// Primarily for test helpers in other modules.
+/// Used by test helpers in interpreter, vm, and codegen modules.
+#[cfg(test)]
 pub fn parse_tokens(tokens: Vec<Token>) -> std::result::Result<Program, Vec<ParseError>> {
     let pairs: Vec<(Token, Span)> = tokens
         .into_iter()

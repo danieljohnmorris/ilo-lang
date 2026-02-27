@@ -6,6 +6,7 @@ use crate::ast::Span;
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum Severity {
     Error,
+    #[allow(dead_code)] // forward infrastructure for future warning diagnostics
     Warning,
 }
 
@@ -43,6 +44,7 @@ impl Diagnostic {
         self
     }
 
+    #[allow(dead_code)] // forward infrastructure for multi-label diagnostics (C3+)
     pub fn with_secondary_span(mut self, span: Span, label: impl Into<String>) -> Self {
         self.labels.push(Label { span, message: label.into(), is_primary: false });
         self

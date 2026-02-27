@@ -24,12 +24,14 @@ impl Span {
 }
 
 /// Wraps a node with its source span. Transparent to serde (serializes as inner node only).
+#[allow(dead_code)] // forward infrastructure for PR 2 (parser-spans)
 #[derive(Debug, Clone, PartialEq)]
 pub struct Spanned<T> {
     pub node: T,
     pub span: Span,
 }
 
+#[allow(dead_code)] // forward infrastructure for PR 2 (parser-spans)
 impl<T> Spanned<T> {
     pub fn new(node: T, span: Span) -> Self {
         Spanned { node, span }
