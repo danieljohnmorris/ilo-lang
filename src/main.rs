@@ -11,6 +11,11 @@ mod vm;
 
 use diagnostic::{Diagnostic, ansi::AnsiRenderer, json};
 
+/// Compact spec for LLM consumption — generated from SPEC.md at compile time.
+fn compact_spec() -> &'static str {
+    include_str!(concat!(env!("OUT_DIR"), "/spec_ai.txt"))
+}
+
 #[derive(Clone, Copy, PartialEq, Eq)]
 enum OutputMode {
     Ansi,
@@ -80,6 +85,7 @@ fn main() {
         eprintln!("Usage: ilo <file-or-code> [args... | --run func args... | --bench func args... | --emit python]");
         eprintln!("       ilo help | -h     Show usage and examples");
         eprintln!("       ilo help lang     Show language specification");
+        eprintln!("       ilo help ai | -ai Compact spec for LLM consumption");
         std::process::exit(1);
     }
 
@@ -88,9 +94,16 @@ fn main() {
         std::process::exit(0);
     }
 
+    if args[1] == "-ai" {
+        print!("{}", compact_spec());
+        std::process::exit(0);
+    }
+
     if args[1] == "help" || args[1] == "--help" || args[1] == "-h" {
         if args.len() > 2 && args[2] == "lang" {
             print!("{}", include_str!("../SPEC.md"));
+        } else if args.len() > 2 && args[2] == "ai" {
+            print!("{}", compact_spec());
         } else {
             println!("ilo — a constructed language for AI agents\n");
             println!("Usage:");
@@ -100,7 +113,8 @@ fn main() {
             println!("  ilo <code> --emit python          Transpile to Python");
             println!("  ilo <code>                        Print AST as JSON (no args)");
             println!("  ilo <code> --bench func [args...] Benchmark a function");
-            println!("  ilo help lang                     Show language specification\n");
+            println!("  ilo help lang                     Show language specification");
+            println!("  ilo help ai | ilo -ai             Compact spec for LLM consumption\n");
             println!("Output format (errors):");
             println!("  --ansi / -a   Force ANSI colour output (default when stderr is a TTY)");
             println!("  --text / -t   Force plain text output (no colour)");
