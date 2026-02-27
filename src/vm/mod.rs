@@ -649,6 +649,7 @@ impl RegCompiler {
                     }
                 }
 
+                assert!(func_idx <= 255, "too many functions: function index {} exceeds 8-bit limit in OP_CALL", func_idx);
                 let bx = ((func_idx as u16) << 8) | args.len() as u16;
                 self.emit_abx(OP_CALL, a, bx);
 
@@ -806,6 +807,7 @@ impl RegCompiler {
                     }
                 }
 
+                assert!(desc_idx <= 255, "constant pool overflow: record descriptor index {} exceeds 8-bit limit in OP_RECNEW", desc_idx);
                 let bx = ((desc_idx as u16) << 8) | fields.len() as u16;
                 self.emit_abx(OP_RECNEW, a, bx);
                 a
@@ -858,6 +860,7 @@ impl RegCompiler {
                     }
                 }
 
+                assert!(names_idx <= 255, "constant pool overflow: field names index {} exceeds 8-bit limit in OP_RECWITH", names_idx);
                 let bx = (names_idx << 8) | updates.len() as u16;
                 self.emit_abx(OP_RECWITH, a, bx);
                 a
