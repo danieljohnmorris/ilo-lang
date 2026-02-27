@@ -79,7 +79,7 @@ impl Parser {
         while !self.at_end() {
             declarations.push(self.parse_decl()?);
         }
-        Ok(Program { declarations })
+        Ok(Program { declarations, source: None })
     }
 
     fn parse_decl(&mut self) -> Result<Decl> {
@@ -120,7 +120,7 @@ impl Parser {
             fields.push(Param { name: fname, ty });
         }
         self.expect(&Token::RBrace)?;
-        Ok(Decl::TypeDef { name, fields })
+        Ok(Decl::TypeDef { name, fields, span: Span::default() })
     }
 
     /// `tool name"desc" params>return timeout:n,retry:n`
@@ -168,6 +168,7 @@ impl Parser {
             return_type,
             timeout,
             retry,
+            span: Span::default(),
         })
     }
 
@@ -184,6 +185,7 @@ impl Parser {
             params,
             return_type,
             body,
+            span: Span::default(),
         })
     }
 
@@ -943,7 +945,7 @@ mod tests {
     fn parse_type_def() {
         let prog = parse_str("type point{x:n;y:n}");
         match &prog.declarations[0] {
-            Decl::TypeDef { name, fields } => {
+            Decl::TypeDef { name, fields, .. } => {
                 assert_eq!(name, "point");
                 assert_eq!(fields.len(), 2);
             }
@@ -1311,7 +1313,7 @@ mod tests {
         let prog = parse_file("research/explorations/idea9-ultra-dense-short/01-simple-function.ilo");
         assert_eq!(prog.declarations.len(), 1);
         match &prog.declarations[0] {
-            Decl::Function { name, params, return_type, body } => {
+            Decl::Function { name, params, return_type, body, .. } => {
                 assert_eq!(name, "tot");
                 assert_eq!(params.len(), 3);
                 assert_eq!(*return_type, Type::Number);

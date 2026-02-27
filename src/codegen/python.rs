@@ -17,7 +17,7 @@ fn indent(out: &mut String, level: usize) {
 
 fn emit_decl(out: &mut String, decl: &Decl, level: usize) {
     match decl {
-        Decl::Function { name, params, return_type, body } => {
+        Decl::Function { name, params, return_type, body, .. } => {
             indent(out, level);
             out.push_str(&format!("def {}(", py_name(name)));
             for (i, p) in params.iter().enumerate() {
@@ -29,7 +29,7 @@ fn emit_decl(out: &mut String, decl: &Decl, level: usize) {
             out.push_str(&format!(") -> {}:\n", emit_type(return_type)));
             emit_body(out, body, level + 1, true);
         }
-        Decl::TypeDef { name, fields } => {
+        Decl::TypeDef { name, fields, .. } => {
             indent(out, level);
             out.push_str(&format!("# type {} = {{", name));
             for (i, f) in fields.iter().enumerate() {

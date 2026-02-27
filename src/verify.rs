@@ -246,7 +246,7 @@ impl VerifyContext {
     fn collect_declarations(&mut self, program: &Program) {
         // First pass: collect type names
         for decl in &program.declarations {
-            if let Decl::TypeDef { name, fields } = decl {
+            if let Decl::TypeDef { name, fields, .. } = decl {
                 if self.types.contains_key(name) {
                     self.err("<global>", format!("duplicate type definition '{name}'"), None);
                 } else {
@@ -294,7 +294,7 @@ impl VerifyContext {
 
         // Validate Named types in type def fields
         for decl in &program.declarations {
-            if let Decl::TypeDef { name, fields } = decl {
+            if let Decl::TypeDef { name, fields, .. } = decl {
                 for field in fields {
                     self.validate_named_type_recursive(&convert_type(&field.ty), name);
                 }
@@ -330,7 +330,7 @@ impl VerifyContext {
     /// Phase 2: verify all function bodies.
     fn verify_bodies(&mut self, program: &Program) {
         for decl in &program.declarations {
-            if let Decl::Function { name, params, return_type, body } = decl {
+            if let Decl::Function { name, params, return_type, body, .. } = decl {
                 let mut scope: Scope = vec![HashMap::new()];
                 for p in params {
                     scope_insert(&mut scope, p.name.clone(), convert_type(&p.ty));
