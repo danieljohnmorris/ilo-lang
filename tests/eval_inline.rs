@@ -219,6 +219,66 @@ fn inline_bench_mode() {
 
 // --- Legacy -e flag ---
 
+// --- Help ---
+
+#[test]
+fn help_shows_usage() {
+    let out = ilo()
+        .args(["help"])
+        .output()
+        .expect("failed to run ilo");
+    assert!(out.status.success());
+    let stdout = String::from_utf8_lossy(&out.stdout);
+    assert!(stdout.contains("Backends:"), "expected backends section, got: {}", stdout);
+    assert!(stdout.contains("--run-interp"), "expected --run-interp, got: {}", stdout);
+}
+
+#[test]
+fn help_lang_shows_spec() {
+    let out = ilo()
+        .args(["help", "lang"])
+        .output()
+        .expect("failed to run ilo");
+    assert!(out.status.success());
+    let stdout = String::from_utf8_lossy(&out.stdout);
+    assert!(stdout.contains("ilo Language Spec"), "expected spec header, got: {}", stdout);
+}
+
+// --- Backend flags ---
+
+#[test]
+fn inline_run_interp() {
+    let out = ilo()
+        .args(["f x:n>n;*x 2", "--run-interp", "f", "5"])
+        .output()
+        .expect("failed to run ilo");
+    assert!(out.status.success(), "stderr: {}", String::from_utf8_lossy(&out.stderr));
+    assert_eq!(String::from_utf8_lossy(&out.stdout).trim(), "10");
+}
+
+#[test]
+fn inline_run_cranelift() {
+    let out = ilo()
+        .args(["f x:n>n;*x 2", "--run-cranelift", "f", "5"])
+        .output()
+        .expect("failed to run ilo");
+    assert!(out.status.success(), "stderr: {}", String::from_utf8_lossy(&out.stderr));
+    assert_eq!(String::from_utf8_lossy(&out.stdout).trim(), "10");
+}
+
+#[test]
+fn default_falls_back_for_non_numeric() {
+    // Bool args are not JIT-eligible, should fall back to interpreter
+    let out = ilo()
+        .args(["f x:b>b;!x", "true"])
+        .output()
+        .expect("failed to run ilo");
+    assert!(out.status.success(), "stderr: {}", String::from_utf8_lossy(&out.stderr));
+    assert_eq!(String::from_utf8_lossy(&out.stdout).trim(), "false");
+}
+
+// --- Legacy -e flag ---
+
 #[test]
 fn legacy_e_flag_still_works() {
     let out = ilo()
