@@ -72,6 +72,8 @@ Prefix notation.
 | `<a b` | less than | `n`, `t` |
 | `>=a b` | greater or equal | `n`, `t` |
 | `<=a b` | less or equal | `n`, `t` |
+| `&a b` | logical AND (short-circuit) | any (truthy) |
+| `\|a b` | logical OR (short-circuit) | any (truthy) |
 
 ### Unary
 
