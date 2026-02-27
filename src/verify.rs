@@ -809,7 +809,9 @@ impl VerifyContext {
             }
             // For other types (Number, Text, Named, etc.) we can't enumerate
             // all possible values, so warn if there's no wildcard.
-            Ty::Unknown => {}
+            // Nil arises from subjectless match (?{...}) where the actual type
+            // is the implicit last result — we can't check exhaustiveness here.
+            Ty::Unknown | Ty::Nil => {}
             _ => {
                 self.err(
                     func,
@@ -1084,5 +1086,11 @@ mod tests {
     #[test]
     fn exhaustive_number_with_wildcard() {
         assert!(parse_and_verify("f x:n>t;?x{1:\"one\";_:\"other\"}").is_ok());
+    }
+
+    #[test]
+    fn subjectless_match_no_false_positive() {
+        // Subjectless match ?{...} — subject_ty is Nil, should not trigger exhaustiveness error
+        assert!(parse_and_verify("f x:R n t>n;?x{~v:v;^e:0}").is_ok());
     }
 }
