@@ -28,6 +28,11 @@ jobs:
 
     steps:
       - uses: actions/checkout@v4
+        with:
+          sparse-checkout: |
+            src
+            Cargo.toml
+            Cargo.lock
 
       - name: Install Rust
         uses: dtolnay/rust-toolchain@stable

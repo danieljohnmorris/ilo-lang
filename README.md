@@ -102,6 +102,12 @@ ilo 'dbl x:n>n;s=*x 2;+s 0 tot p:n q:n r:n>n;s=*p q;t=*s r;+s t' tot 10 20 30
 ilo program.ilo 10 20 30
 ```
 
+**Help & language spec:**
+```bash
+ilo help                     # usage and examples
+ilo help lang                # print the full language specification
+```
+
 **Other modes:**
 ```bash
 ilo 'code' --emit python     # transpile to Python
