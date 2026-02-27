@@ -2162,14 +2162,14 @@ mod tests {
 
     #[test]
     fn vm_err_constructor() {
-        let source = r#"f x:n>R n t;!"bad""#;
+        let source = r#"f x:n>R n t;^"bad""#;
         let result = vm_run(source, Some("f"), vec![Value::Number(0.0)]);
         assert_eq!(result, Value::Err(Box::new(Value::Text("bad".to_string()))));
     }
 
     #[test]
     fn vm_match_ok_err_patterns() {
-        let source = r#"f x:R n t>n;?x{!e:0;~v:v}"#;
+        let source = r#"f x:R n t>n;?x{^e:0;~v:v}"#;
         let ok_result = vm_run(
             source,
             Some("f"),

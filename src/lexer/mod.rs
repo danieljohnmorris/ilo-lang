@@ -65,6 +65,8 @@ pub enum Token {
     At,
     #[token("!")]
     Bang,
+    #[token("^")]
+    Caret,
     #[token("~")]
     Tilde,
 
@@ -184,10 +186,10 @@ mod tests {
 
     #[test]
     fn lex_special_tokens() {
-        let source = "?@!~";
+        let source = "?@!^~";
         let tokens = lex(source).unwrap();
         let types: Vec<_> = tokens.iter().map(|(t, _)| t.clone()).collect();
-        assert_eq!(types, vec![Token::Question, Token::At, Token::Bang, Token::Tilde]);
+        assert_eq!(types, vec![Token::Question, Token::At, Token::Bang, Token::Caret, Token::Tilde]);
     }
 
     #[test]

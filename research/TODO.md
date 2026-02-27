@@ -2,9 +2,9 @@
 
 ## Sigil changes (do first — unblocks other work)
 
-- [ ] Decide Err-wrap sigil to replace `!` (candidates: `\x`, `^x`)
+- [x] Decide Err-wrap sigil to replace `!` → chose `^` (caret)
 - [ ] Reassign `!x` → logical NOT (`UnaryOp::Not`, `OP_NOT` already in AST/VM)
-- [ ] Update SPEC.md, example `.ilo` files, README with new sigils
+- [x] Update SPEC.md, example `.ilo` files, README with new sigils
 
 ## Basics — complete what's already there
 

@@ -13,13 +13,13 @@ ilo pushed to minimum characters AND tokens. Every keyword shortened to 1 char. 
 | `result T E` | `R T E` | result type |
 | `call(name:val name:val)` | `call val val` | positional args (drop names, parens) |
 | `fn(p:type p:type)>` | `fn p:type p:type>` | no parens in declarations |
-| `x=call(...);match x{err e:;ok v:}` | `call val;?{!e:;~v:}` | implicit last-result match |
+| `x=call(...);match x{err e:;ok v:}` | `call val;?{^e:;~v:}` | implicit last-result match |
 | `match x{"a":1;"b":2}` | `?x{"a":1;"b":2}` | value match |
 | `for c in list` | `@c list` | iteration |
 | `if <cond>{...}` | `<cond>{...}` | conditional (drop `if`) |
 | `not x` | `!x` | negation guard |
 | `concat"a"b` | `+"a"b` | string concat |
-| `err <expr>` | `!<expr>` | construct error |
+| `err <expr>` | `^<expr>` | construct error |
 | `ok <expr>` | `~<expr>` | construct ok |
 
 ## Declarations
@@ -90,11 +90,11 @@ Prefix notation. `+` doubles as string concat. All comparison operators: `>`, `<
 | Bind | `<var>=<expr>` |
 | Conditional | `<cond>{<body>}` (no `if` keyword) |
 | Negation guard | `!<expr>{<body>}` |
-| Match last result | `?{!<e>:<body>;~<v>:<body>}` |
-| Match named | `?<var>{!<e>:<body>;~<v>:<body>}` |
+| Match last result | `?{^<e>:<body>;~<v>:<body>}` |
+| Match named | `?<var>{^<e>:<body>;~<v>:<body>}` |
 | Match values | `?<var>{"gold":20;"silver":10}` |
 | Iteration | `@<var> <list>{<body>}` |
-| Return error | `!<expr>` |
+| Return error | `^<expr>` |
 | Return ok | `~<expr>` |
 
 `?` with no argument matches the last expression's result. `?x` matches a named variable.
@@ -104,13 +104,13 @@ Prefix notation. `+` doubles as string concat. All comparison operators: `>`, `<
 `R T E` return types. Call then match:
 
 ```
-get-user uid;?{!e:!+"Lookup failed: "e;~data:use data}
+get-user uid;?{^e:^+"Lookup failed: "e;~data:use data}
 ```
 
 Compensate/rollback inline:
 
 ```
-charge pid amt;?{!e:release rid;!+"Payment failed: "e;~cid:continue}
+charge pid amt;?{^e:release rid;^+"Payment failed: "e;~cid:continue}
 ```
 
 ## Object Construction and Update
@@ -156,5 +156,5 @@ Function names and field names in constructors keep their full form (they define
 tool get-user"Retrieve user by ID" uid:t>R profile t timeout:5,retry:2
 tool send-email"Send an email" to:t subject:t body:t>R _ t timeout:10,retry:1
 type profile{id:t;name:t;email:t;verified:b}
-notify uid:t msg:t>R _ t;get-user uid;?{!e:!+"Lookup failed: "e;~data:!data.verified{!"Email not verified"};send-email data.email "Notification" msg;?{!e:!+"Send failed: "e;~_:~_}}
+notify uid:t msg:t>R _ t;get-user uid;?{^e:^+"Lookup failed: "e;~data:!data.verified{^"Email not verified"};send-email data.email "Notification" msg;?{^e:^+"Send failed: "e;~_:~_}}
 ```

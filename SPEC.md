@@ -134,7 +134,7 @@ xs.2     # third element
 | `?{arms}` | match last result |
 | `@v list{body}` | iterate list |
 | `~expr` | return ok |
-| `!expr` | return err |
+| `^expr` | return err |
 
 ---
 
@@ -145,7 +145,7 @@ xs.2     # third element
 | `"gold":body` | literal text |
 | `42:body` | literal number |
 | `~v:body` | ok — bind inner value to `v` |
-| `!e:body` | err — bind inner value to `e` |
+| `^e:body` | err — bind inner value to `e` |
 | `_:body` | wildcard |
 
 Arms separated by `;`. First match wins.
@@ -155,7 +155,7 @@ cls sp:n>t;>=sp 1000{"gold"};>=sp 500{"silver"};"bronze"
 ```
 
 ```
-?r{!e:!+"failed: "e;~v:v}
+?r{^e:^+"failed: "e;~v:v}
 ```
 
 ---
@@ -214,13 +214,13 @@ tool get-user"Retrieve user by ID" uid:t>R profile t timeout:5,retry:2
 `R ok err` return type. Call then match:
 
 ```
-get-user uid;?{!e:!+"Lookup failed: "e;~d:use d}
+get-user uid;?{^e:^+"Lookup failed: "e;~d:use d}
 ```
 
 Compensate/rollback inline:
 
 ```
-charge pid amt;?{!e:release rid;!+"Payment failed: "e;~cid:continue}
+charge pid amt;?{^e:release rid;^+"Payment failed: "e;~cid:continue}
 ```
 
 ---
@@ -231,5 +231,5 @@ charge pid amt;?{!e:release rid;!+"Payment failed: "e;~cid:continue}
 tool get-user"Retrieve user by ID" uid:t>R profile t timeout:5,retry:2
 tool send-email"Send an email" to:t subject:t body:t>R _ t timeout:10,retry:1
 type profile{id:t;name:t;email:t;verified:b}
-ntf uid:t msg:t>R _ t;get-user uid;?{!e:!+"Lookup failed: "e;~d:!d.verified{!"Email not verified"};send-email d.email "Notification" msg;?{!e:!+"Send failed: "e;~_:~_}}
+ntf uid:t msg:t>R _ t;get-user uid;?{^e:^+"Lookup failed: "e;~d:!d.verified{^"Email not verified"};send-email d.email "Notification" msg;?{^e:^+"Send failed: "e;~_:~_}}
 ```
