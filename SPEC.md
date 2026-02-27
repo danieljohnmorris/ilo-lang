@@ -80,6 +80,7 @@ Prefix notation.
 | Op | Meaning | Types |
 |----|---------|-------|
 | `-x` | negate | `n` |
+| `!x` | logical NOT | any (truthy) |
 
 Disambiguation: `-` followed by one atom is unary negate, followed by two atoms is binary subtract.
 

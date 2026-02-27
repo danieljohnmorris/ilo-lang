@@ -471,6 +471,12 @@ mod tests {
     }
 
     #[test]
+    fn emit_logical_not() {
+        let py = parse_and_emit("f x:b>b;!x");
+        assert!(py.contains("(not x)"));
+    }
+
+    #[test]
     fn emit_kebab_to_snake() {
         let py = parse_and_emit("f>t;make-id()");
         assert!(py.contains("make_id()"));

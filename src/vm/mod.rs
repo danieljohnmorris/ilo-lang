@@ -2199,6 +2199,19 @@ mod tests {
     }
 
     #[test]
+    fn vm_logical_not() {
+        let source = "f x:b>b;!x";
+        assert_eq!(
+            vm_run(source, Some("f"), vec![Value::Bool(true)]),
+            Value::Bool(false)
+        );
+        assert_eq!(
+            vm_run(source, Some("f"), vec![Value::Bool(false)]),
+            Value::Bool(true)
+        );
+    }
+
+    #[test]
     fn vm_unary_negate() {
         let source = "f x:n>n;-x";
         assert_eq!(

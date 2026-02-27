@@ -693,6 +693,19 @@ mod tests {
     }
 
     #[test]
+    fn interpret_logical_not() {
+        let source = "f x:b>b;!x";
+        assert_eq!(
+            run_str(source, Some("f"), vec![Value::Bool(true)]),
+            Value::Bool(false)
+        );
+        assert_eq!(
+            run_str(source, Some("f"), vec![Value::Bool(false)]),
+            Value::Bool(true)
+        );
+    }
+
+    #[test]
     fn interpret_record_and_field() {
         let source = "f x:n>n;r=point x:x y:10;r.y";
         let result = run_str(source, Some("f"), vec![Value::Number(5.0)]);
