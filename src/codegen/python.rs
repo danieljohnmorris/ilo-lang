@@ -556,4 +556,98 @@ mod tests {
         let py = parse_and_emit("f a:n b:n c:n>n;+*a b c");
         assert!(py.contains("((a * b) + c)"), "got: {}", py);
     }
+
+    #[test]
+    fn emit_binop_divide() {
+        let py = parse_and_emit("f a:n b:n>n;/a b");
+        assert!(py.contains("(a / b)"), "got: {}", py);
+    }
+
+    #[test]
+    fn emit_binop_equals() {
+        let py = parse_and_emit("f a:n b:n>b;=a b");
+        assert!(py.contains("(a == b)"), "got: {}", py);
+    }
+
+    #[test]
+    fn emit_binop_not_equals() {
+        let py = parse_and_emit("f a:n b:n>b;!=a b");
+        assert!(py.contains("(a != b)"), "got: {}", py);
+    }
+
+    #[test]
+    fn emit_binop_greater_than() {
+        let py = parse_and_emit("f a:n b:n>b;>a b");
+        assert!(py.contains("(a > b)"), "got: {}", py);
+    }
+
+    #[test]
+    fn emit_binop_less_than() {
+        let py = parse_and_emit("f a:n b:n>b;<a b");
+        assert!(py.contains("(a < b)"), "got: {}", py);
+    }
+
+    #[test]
+    fn emit_binop_less_or_equal() {
+        let py = parse_and_emit("f a:n b:n>b;<=a b");
+        assert!(py.contains("(a <= b)"), "got: {}", py);
+    }
+
+    #[test]
+    fn emit_unary_negate() {
+        let py = parse_and_emit("f x:n>n;-x");
+        assert!(py.contains("(-x)"), "got: {}", py);
+    }
+
+    #[test]
+    fn emit_list_literal() {
+        let py = parse_and_emit("f>L n;[1, 2, 3]");
+        assert!(py.contains("[1, 2, 3]"), "got: {}", py);
+    }
+
+    #[test]
+    fn emit_bool_literal() {
+        let py = parse_and_emit("f>b;true");
+        assert!(py.contains("True"), "got: {}", py);
+        let py = parse_and_emit("f>b;false");
+        assert!(py.contains("False"), "got: {}", py);
+    }
+
+    #[test]
+    fn emit_float_literal() {
+        let py = parse_and_emit("f>n;3.14");
+        assert!(py.contains("3.14"), "got: {}", py);
+    }
+
+    #[test]
+    fn emit_match_expr_ok_err_patterns() {
+        // Match expression (in let binding) with ~v and ^e patterns
+        let py = parse_and_emit(r#"f x:R n t>t;y=?x{~v:"ok";^e:e};y"#);
+        assert!(py.contains("isinstance(x, tuple)"), "got: {}", py);
+        assert!(py.contains(r#"x[0] == "ok""#), "got: {}", py);
+        assert!(py.contains(r#"x[0] == "err""#), "got: {}", py);
+    }
+
+    #[test]
+    fn emit_match_expr_wildcard() {
+        // Match expression with wildcard pattern
+        let py = parse_and_emit(r#"f x:t>n;y=?x{"a":1;_:0};y"#);
+        assert!(py.contains("1 if x == \"a\" else"), "got: {}", py);
+        assert!(py.contains(" 0)"), "got: {}", py);
+    }
+
+    #[test]
+    fn emit_match_expr_subjectless() {
+        // Subjectless match expression ?{...}
+        let py = parse_and_emit(r#"f>n;y=?{true:1;_:0};y"#);
+        assert!(py.contains("_subject"), "got: {}", py);
+    }
+
+    #[test]
+    fn emit_match_stmt_wildcard_first() {
+        let py = parse_and_emit(r#"f x:n>t;?x{_:"always";1:"one"}"#);
+        // Wildcard as first arm emits body directly without if/elif
+        assert!(!py.contains("if"), "got: {}", py);
+        assert!(py.contains("\"always\""), "got: {}", py);
+    }
 }

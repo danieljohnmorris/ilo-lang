@@ -2651,4 +2651,526 @@ mod tests {
         assert_eq!(nv.to_value(), v);
         nv.drop_rc();
     }
+
+    // ── Coverage tests ───────────────────────────────────────────────
+
+    fn vm_run_err(source: &str, func: Option<&str>, args: Vec<Value>) -> String {
+        let prog = parse_program(source);
+        compile_and_run(&prog, func, args).unwrap_err().to_string()
+    }
+
+    fn compile_err(source: &str) -> String {
+        let prog = parse_program(source);
+        compile_and_run(&prog, None, vec![]).unwrap_err().to_string()
+    }
+
+    // 1. VmState API — reusable state
+    #[test]
+    fn vm_state_reusable() {
+        let prog = parse_program("f x:n>n;*x 2");
+        let compiled = compile(&prog).unwrap();
+        let mut state = VmState::new(&compiled);
+        assert_eq!(state.call("f", vec![Value::Number(5.0)]).unwrap(), Value::Number(10.0));
+        assert_eq!(state.call("f", vec![Value::Number(3.0)]).unwrap(), Value::Number(6.0));
+    }
+
+    // VmState — undefined function error
+    #[test]
+    fn vm_state_undefined_function() {
+        let prog = parse_program("f x:n>n;*x 2");
+        let compiled = compile(&prog).unwrap();
+        let mut state = VmState::new(&compiled);
+        let err = state.call("nonexistent", vec![]).unwrap_err();
+        assert!(err.to_string().contains("undefined function"));
+    }
+
+    // 2. BinOp::Subtract on two vars → OP_SUB_NN
+    #[test]
+    fn vm_sub_nn() {
+        let source = "f a:n b:n>n;-a b";
+        assert_eq!(
+            vm_run(source, Some("f"), vec![Value::Number(10.0), Value::Number(3.0)]),
+            Value::Number(7.0)
+        );
+    }
+
+    // 3. BinOp::Divide on two vars → OP_DIV_NN
+    #[test]
+    fn vm_div_nn() {
+        let source = "f a:n b:n>n;/a b";
+        assert_eq!(
+            vm_run(source, Some("f"), vec![Value::Number(15.0), Value::Number(3.0)]),
+            Value::Number(5.0)
+        );
+    }
+
+    // 4. BinOp::Equals — prefix =a b
+    #[test]
+    fn vm_equals_prefix() {
+        let source = "f a:n b:n>b;=a b";
+        assert_eq!(
+            vm_run(source, Some("f"), vec![Value::Number(5.0), Value::Number(5.0)]),
+            Value::Bool(true)
+        );
+        assert_eq!(
+            vm_run(source, Some("f"), vec![Value::Number(5.0), Value::Number(3.0)]),
+            Value::Bool(false)
+        );
+    }
+
+    // 5. BinOp::NotEquals — prefix !=a b
+    #[test]
+    fn vm_not_equals_prefix() {
+        let source = "f a:n b:n>b;!=a b";
+        assert_eq!(
+            vm_run(source, Some("f"), vec![Value::Number(5.0), Value::Number(3.0)]),
+            Value::Bool(true)
+        );
+        assert_eq!(
+            vm_run(source, Some("f"), vec![Value::Number(5.0), Value::Number(5.0)]),
+            Value::Bool(false)
+        );
+    }
+
+    // 6. Constant folding — two literals in let binding
+    #[test]
+    fn vm_const_fold_add() {
+        let source = "f>n;x=+2 3;x";
+        assert_eq!(vm_run(source, Some("f"), vec![]), Value::Number(5.0));
+    }
+
+    #[test]
+    fn vm_const_fold_subtract() {
+        // `-10 3` can't work because `-10` is a negative literal.
+        // Use nested fold: `- +5 5 3` → subtract(add(5,5), 3) → subtract(10, 3) → 7
+        // The inner +5 5 folds to 10, then the outer subtract sees two literals.
+        let source = "f>n;x=-+5 5 3;x";
+        assert_eq!(vm_run(source, Some("f"), vec![]), Value::Number(7.0));
+    }
+
+    #[test]
+    fn vm_const_fold_multiply() {
+        let source = "f>n;x=*4 5;x";
+        assert_eq!(vm_run(source, Some("f"), vec![]), Value::Number(20.0));
+    }
+
+    #[test]
+    fn vm_const_fold_divide() {
+        let source = "f>n;x=/10 2;x";
+        assert_eq!(vm_run(source, Some("f"), vec![]), Value::Number(5.0));
+    }
+
+    #[test]
+    fn vm_const_fold_equals() {
+        let source = "f>b;x==3 3;x";
+        assert_eq!(vm_run(source, Some("f"), vec![]), Value::Bool(true));
+    }
+
+    #[test]
+    fn vm_const_fold_not_equals() {
+        let source = "f>b;x=!=3 4;x";
+        assert_eq!(vm_run(source, Some("f"), vec![]), Value::Bool(true));
+    }
+
+    #[test]
+    fn vm_const_fold_comparison() {
+        let source = "f>b;x=>5 3;x";
+        assert_eq!(vm_run(source, Some("f"), vec![]), Value::Bool(true));
+    }
+
+    #[test]
+    fn vm_const_fold_text_concat() {
+        let source = r#"f>t;x=+"hello " "world";x"#;
+        assert_eq!(vm_run(source, Some("f"), vec![]), Value::Text("hello world".into()));
+    }
+
+    #[test]
+    fn vm_const_fold_bool_and() {
+        let source = "f>b;x=&true false;x";
+        assert_eq!(vm_run(source, Some("f"), vec![]), Value::Bool(false));
+    }
+
+    #[test]
+    fn vm_const_fold_bool_or() {
+        let source = "f>b;x=|true false;x";
+        assert_eq!(vm_run(source, Some("f"), vec![]), Value::Bool(true));
+    }
+
+    #[test]
+    fn vm_const_fold_bool_eq() {
+        let source = "f>b;x==true true;x";
+        assert_eq!(vm_run(source, Some("f"), vec![]), Value::Bool(true));
+    }
+
+    #[test]
+    fn vm_const_fold_bool_ne() {
+        let source = "f>b;x=!=true false;x";
+        assert_eq!(vm_run(source, Some("f"), vec![]), Value::Bool(true));
+    }
+
+    #[test]
+    fn vm_const_fold_negate() {
+        let source = "f>n;x=-5;x";
+        assert_eq!(vm_run(source, Some("f"), vec![]), Value::Number(-5.0));
+    }
+
+    #[test]
+    fn vm_const_fold_not() {
+        let source = "f>b;x=!true;x";
+        assert_eq!(vm_run(source, Some("f"), vec![]), Value::Bool(false));
+    }
+
+    // 7. Bool literal in match pattern
+    #[test]
+    fn vm_match_bool_pattern() {
+        let source = r#"f x:b>t;?x{true:"yes";_:"no"}"#;
+        assert_eq!(
+            vm_run(source, Some("f"), vec![Value::Bool(true)]),
+            Value::Text("yes".into())
+        );
+        assert_eq!(
+            vm_run(source, Some("f"), vec![Value::Bool(false)]),
+            Value::Text("no".into())
+        );
+    }
+
+    // 8. Number literal in match pattern
+    #[test]
+    fn vm_match_number_pattern() {
+        let source = r#"f x:n>t;?x{0:"zero";1:"one";_:"other"}"#;
+        assert_eq!(
+            vm_run(source, Some("f"), vec![Value::Number(0.0)]),
+            Value::Text("zero".into())
+        );
+        assert_eq!(
+            vm_run(source, Some("f"), vec![Value::Number(1.0)]),
+            Value::Text("one".into())
+        );
+        assert_eq!(
+            vm_run(source, Some("f"), vec![Value::Number(42.0)]),
+            Value::Text("other".into())
+        );
+    }
+
+    // 9. Match with no subject in statement position
+    #[test]
+    fn vm_match_no_subject() {
+        let source = r#"f>t;?{_:"always"}"#;
+        assert_eq!(
+            vm_run(source, Some("f"), vec![]),
+            Value::Text("always".into())
+        );
+    }
+
+    // 10. ForEach — iterate a list, last body value is tracked
+    #[test]
+    fn vm_foreach_basic() {
+        // ForEach returns the last body result (via __fe_last register)
+        // The body expression `x` is the last element after iteration
+        let source = "f>L n;xs=[10, 20, 30];@x xs{x};xs";
+        assert_eq!(
+            vm_run(source, Some("f"), vec![]),
+            Value::List(vec![Value::Number(10.0), Value::Number(20.0), Value::Number(30.0)])
+        );
+    }
+
+    #[test]
+    fn vm_foreach_empty() {
+        let source = "f>n;xs=[];s=99;@x xs{s=+s x};s";
+        assert_eq!(vm_run(source, Some("f"), vec![]), Value::Number(99.0));
+    }
+
+    // 11. Literal::Bool value (line 615)
+    #[test]
+    fn vm_bool_literal_true() {
+        let source = "f>b;true";
+        assert_eq!(vm_run(source, Some("f"), vec![]), Value::Bool(true));
+    }
+
+    #[test]
+    fn vm_bool_literal_false() {
+        let source = "f>b;false";
+        assert_eq!(vm_run(source, Some("f"), vec![]), Value::Bool(false));
+    }
+
+    // 12. nanval_equal — equality comparison on numbers via `=a b`
+    #[test]
+    fn vm_nanval_equal_numbers() {
+        let source = "f a:n b:n>b;=a b";
+        assert_eq!(
+            vm_run(source, Some("f"), vec![Value::Number(3.0), Value::Number(3.0)]),
+            Value::Bool(true)
+        );
+        assert_eq!(
+            vm_run(source, Some("f"), vec![Value::Number(3.0), Value::Number(4.0)]),
+            Value::Bool(false)
+        );
+    }
+
+    // nanval_equal on strings
+    #[test]
+    fn vm_nanval_equal_strings() {
+        let source = r#"f a:t b:t>b;=a b"#;
+        assert_eq!(
+            vm_run(source, Some("f"), vec![Value::Text("hi".into()), Value::Text("hi".into())]),
+            Value::Bool(true)
+        );
+        assert_eq!(
+            vm_run(source, Some("f"), vec![Value::Text("hi".into()), Value::Text("bye".into())]),
+            Value::Bool(false)
+        );
+    }
+
+    // nanval_equal on different types (should be false)
+    #[test]
+    fn vm_nanval_equal_different_types() {
+        // Compare bool with bool using equality — both are non-heap singletons
+        let source = "f a:b b:b>b;=a b";
+        assert_eq!(
+            vm_run(source, Some("f"), vec![Value::Bool(true), Value::Bool(true)]),
+            Value::Bool(true)
+        );
+        assert_eq!(
+            vm_run(source, Some("f"), vec![Value::Bool(true), Value::Bool(false)]),
+            Value::Bool(false)
+        );
+    }
+
+    // nanval not-equals
+    #[test]
+    fn vm_nanval_not_equal() {
+        let source = "f a:n b:n>b;!=a b";
+        assert_eq!(
+            vm_run(source, Some("f"), vec![Value::Number(3.0), Value::Number(4.0)]),
+            Value::Bool(true)
+        );
+    }
+
+    // 13. nanval_truthy — AND/OR with number operands
+    #[test]
+    fn vm_nanval_truthy_number_and() {
+        // &a b where a and b are numbers — exercises nanval_truthy on numbers
+        let source = "f a:n b:n>n;&a b";
+        // Non-zero is truthy, so &5 3 should return 3 (right operand)
+        assert_eq!(
+            vm_run(source, Some("f"), vec![Value::Number(5.0), Value::Number(3.0)]),
+            Value::Number(3.0)
+        );
+        // 0 is falsy, so &0 3 should return 0 (short-circuit)
+        assert_eq!(
+            vm_run(source, Some("f"), vec![Value::Number(0.0), Value::Number(3.0)]),
+            Value::Number(0.0)
+        );
+    }
+
+    #[test]
+    fn vm_nanval_truthy_number_or() {
+        let source = "f a:n b:n>n;|a b";
+        // Non-zero is truthy, so |5 3 should return 5 (short-circuit)
+        assert_eq!(
+            vm_run(source, Some("f"), vec![Value::Number(5.0), Value::Number(3.0)]),
+            Value::Number(5.0)
+        );
+        // 0 is falsy, so |0 3 should return 3
+        assert_eq!(
+            vm_run(source, Some("f"), vec![Value::Number(0.0), Value::Number(3.0)]),
+            Value::Number(3.0)
+        );
+    }
+
+    // nanval_truthy — string truthiness (non-empty = true, empty = false)
+    #[test]
+    fn vm_nanval_truthy_string() {
+        let source = r#"f a:t b:t>t;&a b"#;
+        assert_eq!(
+            vm_run(source, Some("f"), vec![Value::Text("hi".into()), Value::Text("there".into())]),
+            Value::Text("there".into())
+        );
+        assert_eq!(
+            vm_run(source, Some("f"), vec![Value::Text("".into()), Value::Text("there".into())]),
+            Value::Text("".into())
+        );
+    }
+
+    // nanval_truthy — list truthiness (non-empty = true, empty = false)
+    #[test]
+    fn vm_nanval_truthy_list() {
+        let source = "f>L n;xs=[1, 2];ys=[3];|xs ys";
+        assert_eq!(
+            vm_run(source, Some("f"), vec![]),
+            Value::List(vec![Value::Number(1.0), Value::Number(2.0)])
+        );
+    }
+
+    // 14. NanVal record roundtrip — construct and access field
+    #[test]
+    fn vm_nanval_record_roundtrip() {
+        let source = "f>n;r=point x:5 y:10;r.x";
+        assert_eq!(vm_run(source, Some("f"), vec![]), Value::Number(5.0));
+    }
+
+    #[test]
+    fn vm_nanval_record_return() {
+        let source = "f>point;r=point x:1 y:2;r";
+        let result = vm_run(source, Some("f"), vec![]);
+        match result {
+            Value::Record { type_name, fields } => {
+                assert_eq!(type_name, "point");
+                assert_eq!(fields.get("x"), Some(&Value::Number(1.0)));
+                assert_eq!(fields.get("y"), Some(&Value::Number(2.0)));
+            }
+            _ => panic!("expected record, got {:?}", result),
+        }
+    }
+
+    // ── Error tests ──────────────────────────────────────────────────
+
+    // 15. Type error: negate non-number
+    #[test]
+    fn vm_err_negate_non_number() {
+        // Pass a bool and try to negate it — the parser/typechecker may not catch this
+        // We use a function that takes a generic-ish approach
+        let source = "f x:b>n;y=0;-y x";
+        let err = vm_run_err(source, Some("f"), vec![Value::Bool(true)]);
+        assert!(err.contains("subtract") || err.contains("negate") || err.contains("number"),
+            "unexpected error: {}", err);
+    }
+
+    // 16. OP_ADD type error — adding incompatible types (number + bool)
+    #[test]
+    fn vm_err_add_incompatible() {
+        // sub of number and bool triggers the OP_SUB type error
+        let source = "f x:n y:b>n;-x y";
+        let err = vm_run_err(source, Some("f"), vec![Value::Number(5.0), Value::Bool(true)]);
+        assert!(err.contains("subtract") || err.contains("number"),
+            "unexpected error: {}", err);
+    }
+
+    // 17. OP_RECFLD field not found
+    #[test]
+    fn vm_err_field_not_found() {
+        let source = "f>n;r=point x:1 y:2;r.z";
+        let err = vm_run_err(source, Some("f"), vec![]);
+        assert!(err.contains("field") || err.contains("z"),
+            "unexpected error: {}", err);
+    }
+
+    // 21. Compile error: undefined variable reference
+    #[test]
+    fn vm_err_undefined_variable() {
+        let err = compile_err("f>n;x");
+        assert!(err.contains("undefined variable"),
+            "unexpected error: {}", err);
+    }
+
+    // 22. Compile error: undefined function call
+    #[test]
+    fn vm_err_undefined_function() {
+        let err = compile_err("f>n;nonexistent 5");
+        assert!(err.contains("undefined function"),
+            "unexpected error: {}", err);
+    }
+
+    // 24. Division by zero in OP_DIV_NN
+    #[test]
+    fn vm_err_division_by_zero() {
+        let source = "f a:n b:n>n;/a b";
+        let err = vm_run_err(source, Some("f"), vec![Value::Number(10.0), Value::Number(0.0)]);
+        assert!(err.contains("division by zero"),
+            "unexpected error: {}", err);
+    }
+
+    // Match expression (not just statement) with no subject
+    #[test]
+    fn vm_match_expr_no_subject() {
+        let source = r#"f x:n>t;y=?{_:"default"};y"#;
+        assert_eq!(
+            vm_run(source, Some("f"), vec![Value::Number(1.0)]),
+            Value::Text("default".into())
+        );
+    }
+
+    // ForEach with single element
+    #[test]
+    fn vm_foreach_single_element() {
+        let source = "f>n;xs=[42];@x xs{x};0";
+        assert_eq!(vm_run(source, Some("f"), vec![]), Value::Number(0.0));
+    }
+
+    // Constant folding: less-than, less-or-equal, greater-or-equal
+    #[test]
+    fn vm_const_fold_lt() {
+        let source = "f>b;x=<3 5;x";
+        assert_eq!(vm_run(source, Some("f"), vec![]), Value::Bool(true));
+    }
+
+    #[test]
+    fn vm_const_fold_le() {
+        let source = "f>b;x=<=3 3;x";
+        assert_eq!(vm_run(source, Some("f"), vec![]), Value::Bool(true));
+    }
+
+    #[test]
+    fn vm_const_fold_ge() {
+        let source = "f>b;x=>=5 3;x";
+        assert_eq!(vm_run(source, Some("f"), vec![]), Value::Bool(true));
+    }
+
+    // Constant folding: divide by zero returns None (no fold)
+    #[test]
+    fn vm_const_fold_div_by_zero_no_fold() {
+        // /10 0 where both are literals — const fold returns None because b == 0
+        // Falls through to runtime which triggers OP_DIV or OP_DIV_NN
+        let source = "f>n;/10 0";
+        let err = vm_run_err(source, Some("f"), vec![]);
+        assert!(err.contains("division by zero"), "unexpected error: {}", err);
+    }
+
+    #[test]
+    fn vm_typedef_in_program() {
+        // TypeDef after function exercises the skip in name collection (line 279)
+        // and the dummy chunk push (lines 322-323)
+        let source = "f x:n>n;*x 2\ntype point{x:n;y:n}";
+        let result = vm_run(source, Some("f"), vec![Value::Number(3.0)]);
+        assert_eq!(result, Value::Number(6.0));
+    }
+
+    #[test]
+    fn vm_index_out_of_bounds() {
+        let source = "f>n;xs=[1, 2];xs.5";
+        let err = vm_run_err(source, Some("f"), vec![]);
+        assert!(
+            err.contains("out of bounds") || err.contains("index"),
+            "unexpected error: {}", err
+        );
+    }
+
+    #[test]
+    fn vm_subk_n() {
+        // Exercises OP_SUBK_N: subtract variable by constant
+        let source = "f x:n>n;-x 3";
+        let result = vm_run(source, Some("f"), vec![Value::Number(10.0)]);
+        assert_eq!(result, Value::Number(7.0));
+    }
+
+    #[test]
+    fn vm_divk_n() {
+        // Exercises OP_DIVK_N: divide variable by constant
+        let source = "f x:n>n;/x 2";
+        let result = vm_run(source, Some("f"), vec![Value::Number(10.0)]);
+        assert_eq!(result, Value::Number(5.0));
+    }
+
+    #[test]
+    fn vm_state_with_heap_values() {
+        // Call VmState twice with string returns to exercise the drain-and-drop path
+        let source = "f x:t>t;x";
+        let prog = parse_program(source);
+        let compiled = compile(&prog).unwrap();
+        let mut state = VmState::new(&compiled);
+        let r1 = state.call("f", vec![Value::Text("hello".into())]).unwrap();
+        assert_eq!(r1, Value::Text("hello".into()));
+        let r2 = state.call("f", vec![Value::Text("world".into())]).unwrap();
+        assert_eq!(r2, Value::Text("world".into()));
+    }
 }
