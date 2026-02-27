@@ -167,6 +167,10 @@ fn emit_expr(expr: &Expr) -> String {
             format!("{}[{}]", emit_expr(object), index)
         }
         Expr::Call { function, args } => {
+            if function == "num" && args.len() == 1 {
+                let arg = emit_expr(&args[0]);
+                return format!("(lambda s: (\"ok\", float(s)) if s.replace('.','',1).replace('-','',1).isdigit() else (\"err\", s))({})", arg);
+            }
             let args_str: Vec<String> = args.iter().map(emit_expr).collect();
             format!("{}({})", py_name(function), args_str.join(", "))
         }
@@ -496,6 +500,14 @@ mod tests {
     fn emit_str_builtin() {
         let py = parse_and_emit("f n:n>t;str n");
         assert!(py.contains("str(n)"));
+    }
+
+    #[test]
+    fn emit_num_builtin() {
+        let py = parse_and_emit("f s:t>R n t;num s");
+        assert!(py.contains("float(s)"));
+        assert!(py.contains("\"ok\""));
+        assert!(py.contains("\"err\""));
     }
 
     #[test]
