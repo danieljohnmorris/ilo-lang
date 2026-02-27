@@ -12,7 +12,30 @@ fn main() {
 
     if args.len() < 2 {
         eprintln!("Usage: ilo <file-or-code> [args... | --run func args... | --bench func args... | --emit python]");
+        eprintln!("       ilo help          Show usage and examples");
+        eprintln!("       ilo help lang     Show language specification");
         std::process::exit(1);
+    }
+
+    if args[1] == "help" {
+        if args.len() > 2 && args[2] == "lang" {
+            print!("{}", include_str!("../SPEC.md"));
+        } else {
+            println!("ilo — a constructed language for AI agents\n");
+            println!("Usage:");
+            println!("  ilo <code> [args...]              Run inline code");
+            println!("  ilo <file.ilo> [args...]          Run from file");
+            println!("  ilo <code> func [args...]         Run a specific function");
+            println!("  ilo <code> --emit python          Transpile to Python");
+            println!("  ilo <code>                        Print AST as JSON (no args)");
+            println!("  ilo <code> --bench func [args...] Benchmark a function");
+            println!("  ilo help lang                     Show language specification\n");
+            println!("Examples:");
+            println!("  ilo 'f x:n>n;*x 2' 5             Define and call f(5) → 10");
+            println!("  ilo program.ilo 10 20             Run file with arguments");
+            println!("  ilo 'f x:n>n;*x 2' --emit python Transpile to Python");
+        }
+        std::process::exit(0);
     }
 
     // If args[1] is a file that exists, read it. Otherwise treat it as inline code.
