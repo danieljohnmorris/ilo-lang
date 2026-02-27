@@ -5,12 +5,12 @@ fn main() {
     println!("cargo:rerun-if-changed=SPEC.md");
     let spec = std::fs::read_to_string("SPEC.md").expect("SPEC.md not found");
     let compact = compact_spec(&spec);
-    let out_dir = std::env::var("OUT_DIR").unwrap();
+    let out_dir = std::env::var("OUT_DIR").expect("OUT_DIR not set by Cargo");
     std::fs::write(
         std::path::Path::new(&out_dir).join("spec_ai.txt"),
         compact,
     )
-    .unwrap();
+    .expect("failed to write spec_ai.txt");
 }
 
 /// Compress the spec into one line per `## Section`.
@@ -29,7 +29,7 @@ fn compact_spec(src: &str) -> String {
         if let Some(h) = trimmed.strip_prefix("## ") {
             sections.push((h.to_uppercase(), vec![]));
         } else {
-            sections.last_mut().unwrap().1.push(trimmed.to_string());
+            sections.last_mut().expect("sections always non-empty").1.push(trimmed.to_string());
         }
     }
 
@@ -73,10 +73,10 @@ fn compress_section(lines: &[String]) -> String {
             continue;
         }
 
-        if t.starts_with("### ") {
+        if let Some(sub) = t.strip_prefix("### ") {
             // Subsection heading inline.
             table_state = TableState::NotInTable;
-            items.push(format!("[{}]", &t[4..]));
+            items.push(format!("[{sub}]"));
             continue;
         }
 
