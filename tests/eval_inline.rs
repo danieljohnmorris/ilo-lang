@@ -549,3 +549,79 @@ fn no_color_env_produces_no_ansi() {
     let stderr = String::from_utf8_lossy(&out.stderr);
     assert!(!stderr.contains("\x1b["), "unexpected ANSI codes with NO_COLOR: {}", stderr);
 }
+
+// --- Compact spec (ilo help ai / ilo -ai) ---
+
+#[test]
+fn help_ai_subcommand_exits_success() {
+    let out = ilo()
+        .args(["help", "ai"])
+        .output()
+        .expect("failed to run ilo");
+    assert!(out.status.success(), "stderr: {}", String::from_utf8_lossy(&out.stderr));
+}
+
+#[test]
+fn ai_flag_exits_success() {
+    let out = ilo()
+        .args(["-ai"])
+        .output()
+        .expect("failed to run ilo");
+    assert!(out.status.success(), "stderr: {}", String::from_utf8_lossy(&out.stderr));
+}
+
+#[test]
+fn help_ai_and_ai_flag_produce_same_output() {
+    let out1 = ilo().args(["help", "ai"]).output().expect("failed to run ilo");
+    let out2 = ilo().args(["-ai"]).output().expect("failed to run ilo");
+    assert_eq!(out1.stdout, out2.stdout, "help ai and -ai should produce identical output");
+}
+
+#[test]
+fn help_ai_contains_no_blank_lines() {
+    let out = ilo().args(["help", "ai"]).output().expect("failed to run ilo");
+    let stdout = String::from_utf8_lossy(&out.stdout);
+    for line in stdout.lines() {
+        assert!(!line.trim().is_empty(), "unexpected blank line in compact spec");
+    }
+}
+
+#[test]
+fn help_ai_strips_code_fences() {
+    let out = ilo().args(["help", "ai"]).output().expect("failed to run ilo");
+    let stdout = String::from_utf8_lossy(&out.stdout);
+    for line in stdout.lines() {
+        assert!(!line.trim_start().starts_with("```"), "code fence found in compact spec: {}", line);
+    }
+}
+
+#[test]
+fn help_ai_strips_horizontal_rules() {
+    let out = ilo().args(["help", "ai"]).output().expect("failed to run ilo");
+    let stdout = String::from_utf8_lossy(&out.stdout);
+    for line in stdout.lines() {
+        assert!(line.trim() != "---", "horizontal rule found in compact spec");
+    }
+}
+
+#[test]
+fn help_ai_preserves_key_content() {
+    let out = ilo().args(["help", "ai"]).output().expect("failed to run ilo");
+    let stdout = String::from_utf8_lossy(&out.stdout);
+    // Core syntax constructs must be present
+    assert!(stdout.contains("fac n:n>n"), "missing factorial pattern");
+    assert!(stdout.contains("FUNCTIONS:"), "missing FUNCTIONS section");
+    assert!(stdout.contains("TYPES:"), "missing TYPES section");
+    assert!(stdout.contains("OPERATORS:"), "missing OPERATORS section");
+}
+
+#[test]
+fn help_ai_is_smaller_than_full_spec() {
+    let full = ilo().args(["help", "lang"]).output().expect("failed to run ilo");
+    let compact = ilo().args(["help", "ai"]).output().expect("failed to run ilo");
+    assert!(
+        compact.stdout.len() < full.stdout.len(),
+        "compact spec ({} bytes) should be smaller than full spec ({} bytes)",
+        compact.stdout.len(), full.stdout.len()
+    );
+}

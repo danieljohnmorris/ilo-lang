@@ -113,6 +113,8 @@ ilo program.ilo 10 20 30
 ilo help                     # usage and examples
 ilo -h                       # same as ilo help
 ilo help lang                # print the full language specification
+ilo help ai                  # compact spec for LLM consumption (~16 lines)
+ilo -ai                      # same as ilo help ai
 ```
 
 **Backends:**
@@ -154,7 +156,7 @@ ilo program.ilo --bench tot 10 20 30  # benchmark
 cargo test
 ```
 
-451 tests: lexer, parser, interpreter, VM, verifier, codegen, diagnostic, and CLI integration tests.
+459 tests: lexer, parser, interpreter, VM, verifier, codegen, diagnostic, and CLI integration tests.
 
 ## Documentation
 
