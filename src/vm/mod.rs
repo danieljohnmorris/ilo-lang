@@ -1303,6 +1303,24 @@ impl<'a> VM<'a> {
                             NanVal::heap_string(out)
                         };
                         reg_set!(a, result);
+                    } else if bv.is_heap() && cv.is_heap() {
+                        // SAFETY: is_heap() confirmed both are heap-tagged with live RC.
+                        let bref = unsafe { bv.as_heap_ref() };
+                        let cref = unsafe { cv.as_heap_ref() };
+                        if let (HeapObj::List(left), HeapObj::List(right)) = (bref, cref) {
+                            let mut new_items = Vec::with_capacity(left.len() + right.len());
+                            for v in left {
+                                v.clone_rc();
+                                new_items.push(*v);
+                            }
+                            for v in right {
+                                v.clone_rc();
+                                new_items.push(*v);
+                            }
+                            reg_set!(a, NanVal::heap_list(new_items));
+                        } else {
+                            return Err(VmError::Type("cannot add non-matching types"));
+                        }
                     } else {
                         return Err(VmError::Type("cannot add non-matching types"));
                     }
@@ -2269,6 +2287,24 @@ mod tests {
         assert_eq!(
             vm_run(source, Some("f"), vec![]),
             Value::List(vec![Value::Number(42.0)])
+        );
+    }
+
+    #[test]
+    fn vm_list_concat() {
+        let source = "f>L n;a=[1, 2];b=[3, 4];+a b";
+        assert_eq!(
+            vm_run(source, Some("f"), vec![]),
+            Value::List(vec![Value::Number(1.0), Value::Number(2.0), Value::Number(3.0), Value::Number(4.0)])
+        );
+    }
+
+    #[test]
+    fn vm_list_concat_empty() {
+        let source = "f>L n;a=[1, 2];b=[];+a b";
+        assert_eq!(
+            vm_run(source, Some("f"), vec![]),
+            Value::List(vec![Value::Number(1.0), Value::Number(2.0)])
         );
     }
 
