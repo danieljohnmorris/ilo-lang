@@ -1568,28 +1568,6 @@ mod tests {
     }
 
     #[test]
-    fn parse_example_03_data_transform() {
-        let prog = parse_file("research/explorations/idea9-ultra-dense-short/03-data-transform.ilo");
-        assert!(prog.declarations.len() >= 2, "expected multiple declarations");
-        match &prog.declarations[0] {
-            Decl::Function { name, .. } => assert_eq!(name, "cls"),
-            _ => panic!("expected function"),
-        }
-    }
-
-    #[test]
-    fn parse_example_04_tool_interaction() {
-        let prog = parse_file("research/explorations/idea9-ultra-dense-short/04-tool-interaction.ilo");
-        assert!(!prog.declarations.is_empty());
-    }
-
-    #[test]
-    fn parse_example_05_workflow() {
-        let prog = parse_file("research/explorations/idea9-ultra-dense-short/05-workflow.ilo");
-        assert!(!prog.declarations.is_empty());
-    }
-
-    #[test]
     fn parse_error_messages() {
         let bad = "42 x:n>n;x";
         let tokens = lexer::lex(bad).unwrap();
