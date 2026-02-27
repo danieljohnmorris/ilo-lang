@@ -80,6 +80,18 @@ Prefix notation.
 | Op | Meaning | Types |
 |----|---------|-------|
 | `-x` | negate | `n` |
+| `!x` | logical NOT | any (truthy) |
+
+Nesting is unambiguous — no parentheses needed:
+
+```
++*a b c     -- (a * b) + c
+*a +b c     -- a * (b + c)
+>=+x y 100  -- (x + y) >= 100
+-*a b *c d  -- (a * b) - (c * d)
+```
+
+Each nested operator saves 2 tokens (no `(` `)` needed). Flat expressions like `+a b` save 1 char vs `a + b`. Across 25 expression patterns, prefix notation saves **22% tokens** and **42% characters** vs infix. See [research/explorations/prefix-vs-infix/](research/explorations/prefix-vs-infix/) for the full benchmark.
 
 Disambiguation: `-` followed by one atom is unary negate, followed by two atoms is binary subtract.
 

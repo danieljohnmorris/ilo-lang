@@ -8,9 +8,9 @@ Unresolved design questions and lessons from syntax exploration. For design rati
 
 Positional arguments are the single biggest token saver. `reserve(items:items)` → `reserve items` eliminates parens, colons, and repeated names. Most call sites become `verb arg arg`.
 
-Implicit last-result matching saves both tokens and variable names. `x=call(...);match x{err e:...}` → `call arg;?{!e:...}` — no intermediate binding needed.
+Implicit last-result matching saves both tokens and variable names. `x=call(...);match x{err e:...}` → `call arg;?{^e:...}` — no intermediate binding needed.
 
-Single-char operators (`?`/`!`/`~`/`@`/`>`) replace keywords (`match`/`err`/`ok`/`for`/`->`) but save fewer tokens than expected — the tokenizer already encodes common English words as single tokens. The savings are mainly in characters.
+Single-char operators (`?`/`^`/`~`/`@`/`>`/`!`) replace keywords (`match`/`err`/`ok`/`for`/`->`) but save fewer tokens than expected — the tokenizer already encodes common English words as single tokens. The savings are mainly in characters.
 
 ### What doesn't save tokens
 
@@ -81,7 +81,7 @@ The Unix philosophy maps directly: do one thing well (small units), expect outpu
 ilo's `?` operator works like an implicit pipe — the result of the previous call flows directly into the match without a variable binding:
 
 ```
-get-user uid;?{!e:handle-error;~data:use-data}
+get-user uid;?{^e:handle-error;~data:use-data}
 ```
 
 This is equivalent to `get-user uid | match` in a hypothetical typed bash. No intermediate variable needed for single-use results.
@@ -89,7 +89,7 @@ This is equivalent to `get-user uid | match` in a hypothetical typed bash. No in
 Explicit binding is only needed when a value is referenced more than once or later:
 
 ```
-rid=reserve items;charge pid amt;?{!e:release rid;...}
+rid=reserve items;charge pid amt;?{^e:release rid;...}
 ```
 
 Here `rid` must be named because it's used in the error-compensation branch. Bash handles this with `tee` or temp files, which is worse.
@@ -129,4 +129,4 @@ Should the verifier require all patterns to be covered? The experiments don't te
 
 ### Compensation patterns
 
-The workflow examples show inline compensation (`charge pid amt;?{!e:release rid;!+"Payment failed"...}`). Should compensation be a first-class concept, or is inline error handling sufficient?
+The workflow examples show inline compensation (`charge pid amt;?{^e:release rid;^+"Payment failed"...}`). Should compensation be a first-class concept, or is inline error handling sufficient?

@@ -467,16 +467,26 @@ impl Parser {
         })
     }
 
-    /// Parse `!` at statement position — negated guard: `!cond{body}`
+    /// Parse `!` at statement position — negated guard `!cond{body}` or logical NOT `!expr`
     fn parse_bang_stmt(&mut self) -> Result<Stmt> {
         self.expect(&Token::Bang)?;
-        let condition = self.parse_expr_inner()?;
-        let body = self.parse_brace_body()?;
-        Ok(Stmt::Guard {
-            condition,
-            negated: true,
-            body,
-        })
+        let inner = self.parse_expr_inner()?;
+
+        if self.peek() == Some(&Token::LBrace) {
+            // Negated guard: !cond{body}
+            let body = self.parse_brace_body()?;
+            Ok(Stmt::Guard {
+                condition: inner,
+                negated: true,
+                body,
+            })
+        } else {
+            // Logical NOT as expression statement: !expr
+            Ok(Stmt::Expr(Expr::UnaryOp {
+                op: UnaryOp::Not,
+                operand: Box::new(inner),
+            }))
+        }
     }
 
     /// Parse `^` at statement position — Err constructor: `^expr`
@@ -556,6 +566,15 @@ impl Parser {
         match self.peek() {
             // Minus is special: could be unary negation (-x) or binary subtract (-a b)
             Some(Token::Minus) => self.parse_minus(),
+            // Logical NOT: !x
+            Some(Token::Bang) => {
+                self.advance();
+                let operand = self.parse_atom()?;
+                Ok(Expr::UnaryOp {
+                    op: UnaryOp::Not,
+                    operand: Box::new(operand),
+                })
+            }
             // Prefix binary operators: +a b, *a b, etc.
             Some(Token::Plus) | Some(Token::Star) | Some(Token::Slash)
             | Some(Token::Greater) | Some(Token::Less) | Some(Token::GreaterEq)
@@ -1150,6 +1169,40 @@ mod tests {
                 match &body[0] {
                     Stmt::Guard { negated, .. } => assert!(negated),
                     _ => panic!("expected negated guard"),
+                }
+            }
+            _ => panic!("expected function"),
+        }
+    }
+
+    #[test]
+    fn parse_logical_not() {
+        let prog = parse_str("f x:b>b;!x");
+        match &prog.declarations[0] {
+            Decl::Function { body, .. } => {
+                match &body[0] {
+                    Stmt::Expr(Expr::UnaryOp { op, operand }) => {
+                        assert_eq!(*op, UnaryOp::Not);
+                        assert!(matches!(operand.as_ref(), Expr::Ref(name) if name == "x"));
+                    }
+                    _ => panic!("expected logical NOT, got {:?}", body[0]),
+                }
+            }
+            _ => panic!("expected function"),
+        }
+    }
+
+    #[test]
+    fn parse_logical_not_in_let() {
+        let prog = parse_str("f x:b>b;y=!x;y");
+        match &prog.declarations[0] {
+            Decl::Function { body, .. } => {
+                match &body[0] {
+                    Stmt::Let { name, value } => {
+                        assert_eq!(name, "y");
+                        assert!(matches!(value, Expr::UnaryOp { op: UnaryOp::Not, .. }));
+                    }
+                    _ => panic!("expected let with NOT"),
                 }
             }
             _ => panic!("expected function"),

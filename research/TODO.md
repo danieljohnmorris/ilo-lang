@@ -3,7 +3,7 @@
 ## Sigil changes (do first — unblocks other work)
 
 - [x] Decide Err-wrap sigil to replace `!` → chose `^` (caret)
-- [ ] Reassign `!x` → logical NOT (`UnaryOp::Not`, `OP_NOT` already in AST/VM)
+- [x] Reassign `!x` → logical NOT (`UnaryOp::Not`, `OP_NOT` already in AST/VM)
 - [x] Update SPEC.md, example `.ilo` files, README with new sigils
 
 ## Basics — complete what's already there
@@ -12,7 +12,7 @@
 
 - [x] List literals `[a, b, c]` — parser production added, connects to existing `Expr::List` and `OP_LISTNEW`
 - [x] Unary negation `-x` — `UnaryOp::Negate` in AST, parser now disambiguates: `-x` = negate, `-x y` = subtract
-- [ ] Logical NOT `!x` — blocked on sigil change above
+- [x] Logical NOT `!x` — parser production added, connects to existing `UnaryOp::Not` and `OP_NOT`
 
 ### Missing fundamental operators
 
