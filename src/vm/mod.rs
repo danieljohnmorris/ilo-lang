@@ -29,7 +29,7 @@ pub enum CompileError {
     UndefinedFunction { name: String },
 }
 
-#[cfg(target_arch = "aarch64")]
+#[cfg(all(target_arch = "aarch64", target_os = "macos"))]
 pub(crate) mod jit_arm64;
 #[cfg(feature = "cranelift")]
 pub(crate) mod jit_cranelift;

@@ -102,7 +102,7 @@ fn main() {
         }
     } else if args.len() > m && args[m] == "--run-jit" {
         // --run-jit [func] [args...] — ARM64 JIT (aarch64 only)
-        #[cfg(target_arch = "aarch64")]
+        #[cfg(all(target_arch = "aarch64", target_os = "macos"))]
         {
             let func_name = if args.len() > m + 1 { Some(args[m + 1].as_str()) } else { None };
             let run_args: Vec<f64> = if args.len() > m + 2 {
@@ -132,9 +132,9 @@ fn main() {
                 }
             }
         }
-        #[cfg(not(target_arch = "aarch64"))]
+        #[cfg(not(all(target_arch = "aarch64", target_os = "macos")))]
         {
-            eprintln!("Custom JIT (arm64) is only available on aarch64");
+            eprintln!("Custom JIT (arm64) is only available on aarch64 macOS");
             std::process::exit(1);
         }
     } else if args.len() > m && args[m] == "--run-cranelift" {
@@ -359,7 +359,7 @@ fn run_bench(program: &ast::Program, func_name: Option<&str>, args: &[interprete
     let all_numeric = jit_args.len() == args.len();
 
     let mut jit_arm64_ns: Option<u128> = None;
-    #[cfg(target_arch = "aarch64")]
+    #[cfg(all(target_arch = "aarch64", target_os = "macos"))]
     if let Some(fi) = func_idx_jit
         && all_numeric {
             let chunk = &compiled.chunks[fi];
