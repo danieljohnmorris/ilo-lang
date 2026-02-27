@@ -1,13 +1,20 @@
 # TODO
 
+## Sigil changes (do first — unblocks other work)
+
+- [ ] Decide Err-wrap sigil to replace `!` (candidates: `\x`, `^x`)
+- [ ] Reassign `!x` → logical NOT (`UnaryOp::Not`, `OP_NOT` already in AST/VM)
+- [ ] Update SPEC.md, example `.ilo` files, README with new sigils
+
 ## Basics — complete what's already there
 
 ### Parser gaps (AST/VM support exists, no parser production)
 
 - [ ] List literals `[a, b, c]` — `Expr::List` and `OP_LISTNEW` exist, parser has no `[` production
+  - Homogeneous typed only: `L n`, `L t`, `L order` etc.
+  - No mixed/untyped lists for now
 - [ ] Unary negation `-x` — `UnaryOp::Negate` in AST, but `-` always parsed as binary subtract
-- [ ] Logical NOT `!x` — `UnaryOp::Not` in AST, `OP_NOT` in VM, no parser production
-  - Note: `!x` currently means Err-wrap (`Expr::Err`) — need new sigil for Err-wrap before this lands
+- [ ] Logical NOT `!x` — blocked on sigil change above
 
 ### Missing fundamental operators
 
@@ -17,7 +24,12 @@
 
 ### Builtins (new opcodes — keep dispatch O(1), JIT-eligible where numeric)
 
+Note: all builtin names are single tokens (no hyphens — manifesto: "every hyphen doubles token cost").
+
 - [ ] `len x` — length of string (bytes) or list
+- [ ] `psh x v` — append value to list, return new list
+- [ ] `cat a b` — concatenate two lists, return new list
+- [ ] Index access `x.0`, `x.1` — by integer literal (dot notation, consistent with field access)
 - [ ] `str n` — number to text
 - [ ] `num t` — text to number (returns `R n t`, Err if unparseable)
 - [ ] `abs n` — absolute value
@@ -25,6 +37,19 @@
 - [ ] `max a b` — maximum of two numbers
 - [ ] `flr n` — floor
 - [ ] `cel n` — ceil
+
+## Verification
+
+Manifesto principle: "Verification before execution. All calls resolve, all types align, all dependencies exist."
+
+- [ ] Type verifier — check all call sites resolve to known functions with correct arity
+- [ ] Match exhaustiveness — warn when match has no wildcard arm and not all cases covered (see OPEN.md)
+- [ ] Arity check at call sites — currently only checked at runtime
+
+## Tooling
+
+- [ ] Pretty-printer / formatter — dense wire format for LLM I/O, expanded form for human review (see OPEN.md: "Hybrid approach")
+- [ ] Useful error messages — current errors point at raw bytecode; source positions needed
 
 ## Python codegen
 

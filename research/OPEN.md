@@ -115,9 +115,9 @@ These were open questions that the syntax experiments have now answered:
 
 ## Still Open
 
-### Which syntax to build?
+### ~~Which syntax to build?~~ — Resolved: idea9
 
-idea8-ultra-dense has the best token efficiency at 10/10 accuracy. But is it too dense for debugging? Error messages pointing at `?{!e:!+"Failed: "e;~d:...}` may be hard to read. The runtime/tooling could help — pretty-printing for human review while keeping the dense wire format for LLM I/O.
+idea9-ultra-dense-short is the chosen syntax. See [/SPEC.md](../SPEC.md) for the canonical spec. The debugging concern (error messages pointing at dense code) is tracked in [TODO.md](TODO.md) under Tooling.
 
 ### Hybrid approach?
 
