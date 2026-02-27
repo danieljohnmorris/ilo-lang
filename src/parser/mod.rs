@@ -553,8 +553,10 @@ impl Parser {
     /// Core expression parsing — handles prefix ops, match expr, calls, atoms
     fn parse_expr_inner(&mut self) -> Result<Expr> {
         match self.peek() {
+            // Minus is special: could be unary negation (-x) or binary subtract (-a b)
+            Some(Token::Minus) => self.parse_minus(),
             // Prefix binary operators: +a b, *a b, etc.
-            Some(Token::Plus) | Some(Token::Minus) | Some(Token::Star) | Some(Token::Slash)
+            Some(Token::Plus) | Some(Token::Star) | Some(Token::Slash)
             | Some(Token::Greater) | Some(Token::Less) | Some(Token::GreaterEq)
             | Some(Token::LessEq) | Some(Token::Eq) | Some(Token::NotEq) => {
                 self.parse_prefix_binop()
@@ -577,6 +579,26 @@ impl Parser {
         let arms = self.parse_match_arms()?;
         self.expect(&Token::RBrace)?;
         Ok(Expr::Match { subject, arms })
+    }
+
+    /// Parse `-`: unary negation (`-x`) when one atom follows,
+    /// binary subtract (`-a b`) when two atoms follow.
+    fn parse_minus(&mut self) -> Result<Expr> {
+        self.advance(); // consume `-`
+        let first = self.parse_atom()?;
+        if self.can_start_atom() {
+            let second = self.parse_atom()?;
+            Ok(Expr::BinOp {
+                op: BinOp::Subtract,
+                left: Box::new(first),
+                right: Box::new(second),
+            })
+        } else {
+            Ok(Expr::UnaryOp {
+                op: UnaryOp::Negate,
+                operand: Box::new(first),
+            })
+        }
     }
 
     fn parse_prefix_binop(&mut self) -> Result<Expr> {
@@ -945,6 +967,59 @@ mod tests {
                         assert!(args.is_empty());
                     }
                     _ => panic!("expected zero-arg call"),
+                }
+            }
+            _ => panic!("expected function"),
+        }
+    }
+
+    #[test]
+    fn parse_unary_negate() {
+        // -x as the return expression should be unary negate
+        let prog = parse_str("f x:n>n;-x");
+        match &prog.declarations[0] {
+            Decl::Function { body, .. } => {
+                match &body[0] {
+                    Stmt::Expr(Expr::UnaryOp { op, operand }) => {
+                        assert_eq!(*op, UnaryOp::Negate);
+                        assert!(matches!(operand.as_ref(), Expr::Ref(name) if name == "x"));
+                    }
+                    _ => panic!("expected unary negate, got {:?}", body[0]),
+                }
+            }
+            _ => panic!("expected function"),
+        }
+    }
+
+    #[test]
+    fn parse_unary_negate_in_let() {
+        // y=-x should bind unary negate
+        let prog = parse_str("f x:n>n;y=-x;y");
+        match &prog.declarations[0] {
+            Decl::Function { body, .. } => {
+                match &body[0] {
+                    Stmt::Let { name, value } => {
+                        assert_eq!(name, "y");
+                        assert!(matches!(value, Expr::UnaryOp { op: UnaryOp::Negate, .. }));
+                    }
+                    _ => panic!("expected let with negate"),
+                }
+            }
+            _ => panic!("expected function"),
+        }
+    }
+
+    #[test]
+    fn parse_binary_subtract_still_works() {
+        // -a b should still be binary subtract
+        let prog = parse_str("f x:n y:n>n;-x y");
+        match &prog.declarations[0] {
+            Decl::Function { body, .. } => {
+                match &body[0] {
+                    Stmt::Expr(Expr::BinOp { op, .. }) => {
+                        assert_eq!(*op, BinOp::Subtract);
+                    }
+                    _ => panic!("expected binary subtract, got {:?}", body[0]),
                 }
             }
             _ => panic!("expected function"),
