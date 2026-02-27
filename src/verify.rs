@@ -847,8 +847,11 @@ mod tests {
 
     fn parse_and_verify(code: &str) -> Result<(), Vec<VerifyError>> {
         let tokens = crate::lexer::lex(code).expect("lex failed");
-        let token_values: Vec<crate::lexer::Token> = tokens.into_iter().map(|(t, _)| t).collect();
-        let program = crate::parser::parse(token_values).expect("parse failed");
+        let token_spans: Vec<(crate::lexer::Token, crate::ast::Span)> = tokens
+            .into_iter()
+            .map(|(t, r)| (t, crate::ast::Span { start: r.start, end: r.end }))
+            .collect();
+        let program = crate::parser::parse(token_spans).expect("parse failed");
         verify(&program)
     }
 

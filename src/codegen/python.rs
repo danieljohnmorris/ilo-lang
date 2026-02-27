@@ -449,7 +449,7 @@ mod tests {
             .into_iter()
             .map(|(t, _)| t)
             .collect();
-        let program = parser::parse(tokens).unwrap();
+        let program = parser::parse_tokens(tokens).unwrap();
         emit(&program)
     }
 
