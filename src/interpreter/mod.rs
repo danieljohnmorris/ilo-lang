@@ -183,6 +183,15 @@ fn call_function(env: &mut Env, name: &str, args: Vec<Value>) -> Result<Value> {
             other => Err(RuntimeError::new(format!("num requires text, got {:?}", other))),
         };
     }
+    if name == "abs" {
+        if args.len() != 1 {
+            return Err(RuntimeError::new(format!("abs: expected 1 arg, got {}", args.len())));
+        }
+        return match &args[0] {
+            Value::Number(n) => Ok(Value::Number(n.abs())),
+            other => Err(RuntimeError::new(format!("abs requires a number, got {:?}", other))),
+        };
+    }
 
     let decl = env.function(name)?;
     match decl {
@@ -845,6 +854,12 @@ mod tests {
     fn interpret_num_err() {
         let source = "f>R n t;num \"abc\"";
         assert_eq!(run_str(source, Some("f"), vec![]), Value::Err(Box::new(Value::Text("abc".into()))));
+    }
+
+    #[test]
+    fn interpret_abs() {
+        let source = "f>n;abs -7";
+        assert_eq!(run_str(source, Some("f"), vec![]), Value::Number(7.0));
     }
 
     #[test]
