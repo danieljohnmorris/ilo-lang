@@ -88,7 +88,7 @@ ilo program.ilo --bench tot 10 20 30  # benchmark
 cargo test
 ```
 
-132 tests: lexer, parser, interpreter, VM, codegen, and CLI integration tests.
+135 tests: lexer, parser, interpreter, VM, codegen, and CLI integration tests.
 
 ## Documentation
 

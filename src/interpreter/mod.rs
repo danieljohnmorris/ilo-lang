@@ -410,6 +410,13 @@ fn eval_binop(op: &BinOp, left: &Value, right: &Value) -> Result<Value> {
             out.push_str(b);
             Ok(Value::Text(out))
         }
+        // List concatenation with +
+        (BinOp::Add, Value::List(a), Value::List(b)) => {
+            let mut out = Vec::with_capacity(a.len() + b.len());
+            out.extend_from_slice(a);
+            out.extend_from_slice(b);
+            Ok(Value::List(out))
+        }
         // Comparisons on numbers
         (BinOp::GreaterThan, Value::Number(a), Value::Number(b)) => Ok(Value::Bool(a > b)),
         (BinOp::LessThan, Value::Number(a), Value::Number(b)) => Ok(Value::Bool(a < b)),
@@ -765,6 +772,15 @@ mod tests {
         assert_eq!(
             run_str(source, Some("f"), vec![]),
             Value::List(vec![Value::Number(42.0)])
+        );
+    }
+
+    #[test]
+    fn interpret_list_concat() {
+        let source = "f>L n;a=[1, 2];b=[3, 4];+a b";
+        assert_eq!(
+            run_str(source, Some("f"), vec![]),
+            Value::List(vec![Value::Number(1.0), Value::Number(2.0), Value::Number(3.0), Value::Number(4.0)])
         );
     }
 
