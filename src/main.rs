@@ -392,11 +392,10 @@ fn run_bench(program: &ast::Program, func_name: Option<&str>, args: &[interprete
             }
         }
 
-    #[allow(unused_mut, unused_variables)]
     let mut jit_cranelift_ns: Option<u128> = None;
     #[cfg(feature = "cranelift")]
-    if let Some(fi) = func_idx_jit {
-        if all_numeric {
+    if let Some(fi) = func_idx_jit
+        && all_numeric {
             let chunk = &compiled.chunks[fi];
             let nan_consts = &compiled.nan_constants[fi];
             if let Some(jit_func) = vm::jit_cranelift::compile(chunk, nan_consts) {
@@ -425,7 +424,6 @@ fn run_bench(program: &ast::Program, func_name: Option<&str>, args: &[interprete
                 println!();
             }
         }
-    }
 
     #[allow(unused_variables)]
     let jit_llvm_ns: Option<u128> = None;
