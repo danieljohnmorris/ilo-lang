@@ -79,6 +79,7 @@ pub(crate) const OP_DIVK_N: u8 = 36;  // R[A] = R[B] / K[C]
 // ABC mode — builtins
 pub(crate) const OP_LEN: u8 = 37;     // R[A] = len(R[B])
 pub(crate) const OP_LISTAPPEND: u8 = 38; // R[A] = R[B] ++ [R[C]]
+pub(crate) const OP_INDEX: u8 = 39;      // R[A] = R[B][C]  (C = literal index)
 
 // ABx mode — register + 16-bit operand
 pub(crate) const OP_LOADK: u8 = 20;
@@ -628,6 +629,14 @@ impl RegCompiler {
                 let ki = self.current.add_const(Value::Text(field.clone()));
                 assert!(ki <= 255, "constant pool overflow: field name index {} exceeds 8-bit limit in OP_RECFLD", ki);
                 self.emit_abc(OP_RECFLD, ra, obj_reg, ki as u8);
+                ra
+            }
+
+            Expr::Index { object, index } => {
+                let obj_reg = self.compile_expr(object);
+                let ra = self.alloc_reg();
+                assert!(*index <= 255, "index literal {} exceeds 8-bit limit in OP_INDEX", index);
+                self.emit_abc(OP_INDEX, ra, obj_reg, *index as u8);
                 ra
             }
 
@@ -1540,6 +1549,28 @@ impl<'a> VM<'a> {
                     };
                     reg_set!(a, field_val);
                 }
+                OP_INDEX => {
+                    let a = ((inst >> 16) & 0xFF) as usize + base;
+                    let b = ((inst >> 8) & 0xFF) as usize + base;
+                    let c = (inst & 0xFF) as usize;
+                    let obj = reg!(b);
+                    debug_assert!(obj.is_heap(), "OP_INDEX on non-heap value");
+                    let item = unsafe {
+                        match obj.as_heap_ref() {
+                            HeapObj::List(items) => {
+                                if c < items.len() {
+                                    let v = items[c];
+                                    v.clone_rc();
+                                    v
+                                } else {
+                                    return Err(VmError::Type("list index out of bounds"));
+                                }
+                            }
+                            _ => return Err(VmError::Type("index access on non-list")),
+                        }
+                    };
+                    reg_set!(a, item);
+                }
                 OP_LISTGET => {
                     let a = ((inst >> 16) & 0xFF) as usize + base;
                     let b = ((inst >> 8) & 0xFF) as usize + base;
@@ -2306,6 +2337,24 @@ mod tests {
             vm_run(source, Some("f"), vec![]),
             Value::List(vec![Value::Number(1.0), Value::Number(2.0)])
         );
+    }
+
+    #[test]
+    fn vm_index_access() {
+        let source = "f>n;xs=[10, 20, 30];xs.0";
+        assert_eq!(vm_run(source, Some("f"), vec![]), Value::Number(10.0));
+    }
+
+    #[test]
+    fn vm_index_access_second() {
+        let source = "f>n;xs=[10, 20, 30];xs.2";
+        assert_eq!(vm_run(source, Some("f"), vec![]), Value::Number(30.0));
+    }
+
+    #[test]
+    fn vm_index_access_string_list() {
+        let source = "f>t;xs=[\"a\", \"b\"];xs.1";
+        assert_eq!(vm_run(source, Some("f"), vec![]), Value::Text("b".into()));
     }
 
     #[test]

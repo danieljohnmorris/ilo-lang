@@ -163,6 +163,9 @@ fn emit_expr(expr: &Expr) -> String {
         Expr::Field { object, field } => {
             format!("{}[\"{}\"]", emit_expr(object), field)
         }
+        Expr::Index { object, index } => {
+            format!("{}[{}]", emit_expr(object), index)
+        }
         Expr::Call { function, args } => {
             let args_str: Vec<String> = args.iter().map(emit_expr).collect();
             format!("{}({})", py_name(function), args_str.join(", "))
@@ -481,6 +484,12 @@ mod tests {
     fn emit_list_append() {
         let py = parse_and_emit("f xs:L n>L n;+=xs 1");
         assert!(py.contains("(xs + [1])"));
+    }
+
+    #[test]
+    fn emit_index_access() {
+        let py = parse_and_emit("f xs:L n>n;xs.0");
+        assert!(py.contains("xs[0]"));
     }
 
     #[test]
