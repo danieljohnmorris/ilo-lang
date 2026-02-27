@@ -13,7 +13,7 @@ fn main() {
 
     if args.len() < 2 {
         eprintln!("Usage: ilo <file-or-code> [args... | --run func args... | --bench func args... | --emit python]");
-        eprintln!("       ilo help          Show usage and examples");
+        eprintln!("       ilo help | -h     Show usage and examples");
         eprintln!("       ilo help lang     Show language specification");
         std::process::exit(1);
     }
@@ -23,7 +23,7 @@ fn main() {
         std::process::exit(0);
     }
 
-    if args[1] == "help" {
+    if args[1] == "help" || args[1] == "--help" || args[1] == "-h" {
         if args.len() > 2 && args[2] == "lang" {
             print!("{}", include_str!("../SPEC.md"));
         } else {
@@ -45,6 +45,7 @@ fn main() {
             println!("  --run-llvm       LLVM JIT (requires --features llvm build)\n");
             println!("Examples:");
             println!("  ilo 'f x:n>n;*x 2' 5             Define and call f(5) → 10");
+            println!("  ilo 'f xs:L n>n;len xs' '[1,2,3]' Pass a list argument → 3");
             println!("  ilo program.ilo 10 20             Run file with arguments");
             println!("  ilo 'f x:n>n;*x 2' --emit python Transpile to Python");
         }
@@ -630,6 +631,20 @@ print(f"__NS__={{_per}}")
 }
 
 fn parse_cli_arg(s: &str) -> interpreter::Value {
+    // Bracketed list: [1,2,3] or []
+    if s.starts_with('[') && s.ends_with(']') {
+        let inner = s[1..s.len()-1].trim();
+        if inner.is_empty() {
+            return interpreter::Value::List(vec![]);
+        }
+        let items = inner.split(',').map(|part| parse_cli_arg(part.trim())).collect();
+        return interpreter::Value::List(items);
+    }
+    // Bare comma list: 1,2,3
+    if s.contains(',') {
+        let items = s.split(',').map(|part| parse_cli_arg(part.trim())).collect();
+        return interpreter::Value::List(items);
+    }
     if let Ok(n) = s.parse::<f64>()
         && n.is_finite() {
             return interpreter::Value::Number(n);
