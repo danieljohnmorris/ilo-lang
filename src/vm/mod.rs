@@ -636,6 +636,7 @@ impl RegCompiler {
                 let a = self.alloc_reg(); // result register
                 // Reserve slots for args
                 let args_base = self.next_reg;
+                assert!((self.next_reg as usize) + args.len() <= 255, "register overflow: call requires too many register slots");
                 self.next_reg += args.len() as u8;
                 if self.next_reg > self.max_reg {
                     self.max_reg = self.next_reg;
@@ -762,6 +763,7 @@ impl RegCompiler {
                 let a = self.alloc_reg(); // result register
                 // Reserve slots for items
                 let items_base = self.next_reg;
+                assert!((self.next_reg as usize) + items.len() <= 255, "register overflow: list literal requires too many register slots");
                 self.next_reg += items.len() as u8;
                 if self.next_reg > self.max_reg {
                     self.max_reg = self.next_reg;
@@ -791,6 +793,7 @@ impl RegCompiler {
 
                 let a = self.alloc_reg(); // result register
                 let fields_base = self.next_reg;
+                assert!((self.next_reg as usize) + fields.len() <= 255, "register overflow: record literal requires too many register slots");
                 self.next_reg += fields.len() as u8;
                 if self.next_reg > self.max_reg {
                     self.max_reg = self.next_reg;
@@ -836,6 +839,7 @@ impl RegCompiler {
 
                 let a = self.alloc_reg(); // result register
                 let updates_base = self.next_reg;
+                assert!((self.next_reg as usize) + updates.len() <= 255, "register overflow: 'with' expression requires too many register slots");
                 self.next_reg += updates.len() as u8;
                 if self.next_reg > self.max_reg {
                     self.max_reg = self.next_reg;
