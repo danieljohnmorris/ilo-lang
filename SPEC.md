@@ -68,10 +68,10 @@ Prefix notation.
 | `/a b` | divide | `n` |
 | `=a b` | equal | any |
 | `!=a b` | not equal | any |
-| `>a b` | greater than | `n` |
-| `<a b` | less than | `n` |
-| `>=a b` | greater or equal | `n` |
-| `<=a b` | less or equal | `n` |
+| `>a b` | greater than | `n`, `t` |
+| `<a b` | less than | `n`, `t` |
+| `>=a b` | greater or equal | `n`, `t` |
+| `<=a b` | less or equal | `n`, `t` |
 
 ### Unary
 
