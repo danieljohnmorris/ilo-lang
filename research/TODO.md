@@ -40,9 +40,9 @@ Note: all builtin names are single tokens (no hyphens — manifesto: "every hyph
 
 Manifesto principle: "Verification before execution. All calls resolve, all types align, all dependencies exist."
 
-- [ ] Type verifier — check all call sites resolve to known functions with correct arity
-- [ ] Match exhaustiveness — warn when match has no wildcard arm and not all cases covered (see OPEN.md)
-- [ ] Arity check at call sites — currently only checked at runtime
+- [x] Type verifier — check all call sites resolve to known functions with correct arity
+- [x] Match exhaustiveness — warn when match has no wildcard arm and not all cases covered (see OPEN.md)
+- [x] Arity check at call sites — covered by type verifier (static check at all call sites)
 
 ## Tooling
 

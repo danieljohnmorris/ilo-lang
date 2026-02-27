@@ -389,6 +389,7 @@ impl VerifyContext {
                     }
                     scope.pop();
                 }
+                self.check_match_exhaustiveness(func, &subject_ty, arms);
                 arm_ty
             }
             Stmt::ForEach { binding, collection, body } => {
@@ -675,6 +676,7 @@ impl VerifyContext {
                     }
                     scope.pop();
                 }
+                self.check_match_exhaustiveness(func, &subject_ty, arms);
                 result_ty
             }
 
@@ -764,6 +766,56 @@ impl VerifyContext {
                         Ty::Unknown
                     }
                 }
+            }
+        }
+    }
+
+    fn check_match_exhaustiveness(&mut self, func: &str, subject_ty: &Ty, arms: &[MatchArm]) {
+        let has_wildcard = arms.iter().any(|a| matches!(a.pattern, Pattern::Wildcard));
+        if has_wildcard {
+            return;
+        }
+
+        match subject_ty {
+            Ty::Result(_, _) => {
+                let has_ok = arms.iter().any(|a| matches!(a.pattern, Pattern::Ok(_)));
+                let has_err = arms.iter().any(|a| matches!(a.pattern, Pattern::Err(_)));
+                if !has_ok || !has_err {
+                    let missing: Vec<&str> = [
+                        if !has_ok { Some("~") } else { None },
+                        if !has_err { Some("^") } else { None },
+                    ].into_iter().flatten().collect();
+                    self.err(
+                        func,
+                        format!("non-exhaustive match on Result: missing {}", missing.join(", ")),
+                        Some("add a wildcard arm '_:' or cover all cases".to_string()),
+                    );
+                }
+            }
+            Ty::Bool => {
+                let has_true = arms.iter().any(|a| matches!(&a.pattern, Pattern::Literal(Literal::Bool(true))));
+                let has_false = arms.iter().any(|a| matches!(&a.pattern, Pattern::Literal(Literal::Bool(false))));
+                if !has_true || !has_false {
+                    let missing: Vec<&str> = [
+                        if !has_true { Some("true") } else { None },
+                        if !has_false { Some("false") } else { None },
+                    ].into_iter().flatten().collect();
+                    self.err(
+                        func,
+                        format!("non-exhaustive match on Bool: missing {}", missing.join(", ")),
+                        Some("add a wildcard arm '_:' or cover all cases".to_string()),
+                    );
+                }
+            }
+            // For other types (Number, Text, Named, etc.) we can't enumerate
+            // all possible values, so warn if there's no wildcard.
+            Ty::Unknown => {}
+            _ => {
+                self.err(
+                    func,
+                    "non-exhaustive match: no wildcard arm".to_string(),
+                    Some("add a wildcard arm '_:' to handle remaining cases".to_string()),
+                );
             }
         }
     }
@@ -976,5 +1028,61 @@ mod tests {
         let errors = result.unwrap_err();
         let err = errors.iter().find(|e| e.message.contains("undefined function 'calx'")).unwrap();
         assert!(err.hint.as_ref().is_some_and(|h| h.contains("did you mean 'calc'?")));
+    }
+
+    // --- Match exhaustiveness tests ---
+
+    #[test]
+    fn exhaustive_result_match_with_both_arms() {
+        // ~v and ^e covers Result fully
+        assert!(parse_and_verify("f x:R n t>n;?x{~v:v;^e:0}").is_ok());
+    }
+
+    #[test]
+    fn exhaustive_result_match_with_wildcard() {
+        // wildcard covers everything
+        assert!(parse_and_verify("f x:R n t>n;?x{~v:v;_:0}").is_ok());
+    }
+
+    #[test]
+    fn non_exhaustive_result_missing_err() {
+        let result = parse_and_verify("f x:R n t>n;?x{~v:v}");
+        assert!(result.is_err());
+        let errors = result.unwrap_err();
+        assert!(errors.iter().any(|e| e.message.contains("non-exhaustive") && e.message.contains("^")));
+    }
+
+    #[test]
+    fn non_exhaustive_result_missing_ok() {
+        let result = parse_and_verify("f x:R n t>n;?x{^e:0}");
+        assert!(result.is_err());
+        let errors = result.unwrap_err();
+        assert!(errors.iter().any(|e| e.message.contains("non-exhaustive") && e.message.contains("~")));
+    }
+
+    #[test]
+    fn exhaustive_bool_match() {
+        assert!(parse_and_verify("f x:b>n;?x{true:1;false:0}").is_ok());
+    }
+
+    #[test]
+    fn non_exhaustive_bool_missing_false() {
+        let result = parse_and_verify("f x:b>n;?x{true:1}");
+        assert!(result.is_err());
+        let errors = result.unwrap_err();
+        assert!(errors.iter().any(|e| e.message.contains("non-exhaustive") && e.message.contains("false")));
+    }
+
+    #[test]
+    fn non_exhaustive_number_no_wildcard() {
+        let result = parse_and_verify("f x:n>t;?x{1:\"one\";2:\"two\"}");
+        assert!(result.is_err());
+        let errors = result.unwrap_err();
+        assert!(errors.iter().any(|e| e.message.contains("non-exhaustive") && e.message.contains("no wildcard")));
+    }
+
+    #[test]
+    fn exhaustive_number_with_wildcard() {
+        assert!(parse_and_verify("f x:n>t;?x{1:\"one\";_:\"other\"}").is_ok());
     }
 }
