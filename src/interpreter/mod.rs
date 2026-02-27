@@ -420,6 +420,12 @@ fn eval_binop(op: &BinOp, left: &Value, right: &Value) -> Result<Value> {
         (BinOp::LessThan, Value::Text(a), Value::Text(b)) => Ok(Value::Bool(a < b)),
         (BinOp::GreaterOrEqual, Value::Text(a), Value::Text(b)) => Ok(Value::Bool(a >= b)),
         (BinOp::LessOrEqual, Value::Text(a), Value::Text(b)) => Ok(Value::Bool(a <= b)),
+        // List append
+        (BinOp::Append, Value::List(items), val) => {
+            let mut new_items = items.clone();
+            new_items.push(val.clone());
+            Ok(Value::List(new_items))
+        }
         // Equality
         (BinOp::Equals, a, b) => Ok(Value::Bool(values_equal(a, b))),
         (BinOp::NotEquals, a, b) => Ok(Value::Bool(!values_equal(a, b))),
@@ -742,6 +748,24 @@ mod tests {
     fn interpret_len_list() {
         let source = "f>n;xs=[1, 2, 3];len xs";
         assert_eq!(run_str(source, Some("f"), vec![]), Value::Number(3.0));
+    }
+
+    #[test]
+    fn interpret_list_append() {
+        let source = "f>L n;xs=[1, 2];+=xs 3";
+        assert_eq!(
+            run_str(source, Some("f"), vec![]),
+            Value::List(vec![Value::Number(1.0), Value::Number(2.0), Value::Number(3.0)])
+        );
+    }
+
+    #[test]
+    fn interpret_list_append_empty() {
+        let source = "f>L n;xs=[];+=xs 42";
+        assert_eq!(
+            run_str(source, Some("f"), vec![]),
+            Value::List(vec![Value::Number(42.0)])
+        );
     }
 
     #[test]

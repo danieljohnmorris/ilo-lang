@@ -174,6 +174,7 @@ pub enum BinOp {
     LessOrEqual,
     And,
     Or,
+    Append,
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]

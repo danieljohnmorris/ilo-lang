@@ -181,6 +181,9 @@ fn emit_expr(expr: &Expr) -> String {
                 BinOp::LessOrEqual => "<=",
                 BinOp::And => "and",
                 BinOp::Or => "or",
+                BinOp::Append => {
+                    return format!("({} + [{}])", emit_expr(left), emit_expr(right));
+                }
             };
             format!("({} {} {})", emit_expr(left), op_str, emit_expr(right))
         }
@@ -472,6 +475,12 @@ mod tests {
     fn emit_len_builtin() {
         let py = parse_and_emit(r#"f s:t>n;len s"#);
         assert!(py.contains("len(s)"));
+    }
+
+    #[test]
+    fn emit_list_append() {
+        let py = parse_and_emit("f xs:L n>L n;+=xs 1");
+        assert!(py.contains("(xs + [1])"));
     }
 
     #[test]

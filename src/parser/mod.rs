@@ -559,7 +559,8 @@ impl Parser {
             Some(Token::Plus) | Some(Token::Star) | Some(Token::Slash)
             | Some(Token::Greater) | Some(Token::Less) | Some(Token::GreaterEq)
             | Some(Token::LessEq) | Some(Token::Eq) | Some(Token::NotEq)
-            | Some(Token::Amp) | Some(Token::Pipe) => {
+            | Some(Token::Amp) | Some(Token::Pipe)
+            | Some(Token::PlusEq) => {
                 self.parse_prefix_binop()
             }
             // Match expression: ?expr{...} or ?{...}
@@ -616,6 +617,7 @@ impl Parser {
             Some(Token::NotEq) => BinOp::NotEquals,
             Some(Token::Amp) => BinOp::And,
             Some(Token::Pipe) => BinOp::Or,
+            Some(Token::PlusEq) => BinOp::Append,
             _ => unreachable!(),
         };
         let left = self.parse_atom()?;
