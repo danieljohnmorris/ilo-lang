@@ -45,7 +45,7 @@ fn main() {
             println!("  --run-llvm       LLVM JIT (requires --features llvm build)\n");
             println!("Examples:");
             println!("  ilo 'f x:n>n;*x 2' 5             Define and call f(5) → 10");
-            println!("  ilo 'f xs:L n>n;len xs' 1,2,3     Pass a list argument → 3");
+            println!("  ilo 'f xs:L n>n;len xs' 1,2,3     Pass a list → 3");
             println!("  ilo program.ilo 10 20             Run file with arguments");
             println!("  ilo 'f x:n>n;*x 2' --emit python Transpile to Python");
         }

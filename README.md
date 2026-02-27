@@ -100,7 +100,7 @@ ilo 'dbl x:n>n;s=*x 2;+s 0 tot p:n q:n r:n>n;s=*p q;t=*s r;+s t' tot 10 20 30
 **Pass list arguments** with commas:
 ```bash
 ilo 'f xs:L n>n;len xs' 1,2,3         # → 3
-ilo 'f xs:L n>n;xs.0' 10,20,30        # → 10
+ilo 'f xs:L t>t;xs.0' 'a,b,c'         # → a
 ```
 
 **Run from a file:**
