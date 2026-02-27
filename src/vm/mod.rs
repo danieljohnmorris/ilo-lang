@@ -80,6 +80,7 @@ pub(crate) const OP_DIVK_N: u8 = 36;  // R[A] = R[B] / K[C]
 pub(crate) const OP_LEN: u8 = 37;     // R[A] = len(R[B])
 pub(crate) const OP_LISTAPPEND: u8 = 38; // R[A] = R[B] ++ [R[C]]
 pub(crate) const OP_INDEX: u8 = 39;      // R[A] = R[B][C]  (C = literal index)
+pub(crate) const OP_STR: u8 = 40;        // R[A] = str(R[B])  (number to text)
 
 // ABx mode — register + 16-bit operand
 pub(crate) const OP_LOADK: u8 = 20;
@@ -647,6 +648,12 @@ impl RegCompiler {
                     let ra = self.alloc_reg();
                     self.emit_abc(OP_LEN, ra, rb, 0);
                     self.reg_is_num[ra as usize] = true;
+                    return ra;
+                }
+                if function == "str" && args.len() == 1 {
+                    let rb = self.compile_expr(&args[0]);
+                    let ra = self.alloc_reg();
+                    self.emit_abc(OP_STR, ra, rb, 0);
                     return ra;
                 }
 
@@ -1852,6 +1859,21 @@ impl<'a> VM<'a> {
                     };
                     reg_set!(a, NanVal::number(length));
                 }
+                OP_STR => {
+                    let a = ((inst >> 16) & 0xFF) as usize + base;
+                    let b = ((inst >> 8) & 0xFF) as usize + base;
+                    let v = reg!(b);
+                    if !v.is_number() {
+                        return Err(VmError::Type("str requires a number"));
+                    }
+                    let n = v.as_number();
+                    let s = if n.fract() == 0.0 && n.abs() < 1e15 {
+                        format!("{}", n as i64)
+                    } else {
+                        format!("{}", n)
+                    };
+                    reg_set!(a, NanVal::heap_string(s));
+                }
                 OP_LISTAPPEND => {
                     let a = ((inst >> 16) & 0xFF) as usize + base;
                     let b = ((inst >> 8) & 0xFF) as usize + base;
@@ -2349,6 +2371,18 @@ mod tests {
     fn vm_index_access_second() {
         let source = "f>n;xs=[10, 20, 30];xs.2";
         assert_eq!(vm_run(source, Some("f"), vec![]), Value::Number(30.0));
+    }
+
+    #[test]
+    fn vm_str_integer() {
+        let source = "f>t;str 42";
+        assert_eq!(vm_run(source, Some("f"), vec![]), Value::Text("42".into()));
+    }
+
+    #[test]
+    fn vm_str_float() {
+        let source = "f>t;str 3.14";
+        assert_eq!(vm_run(source, Some("f"), vec![]), Value::Text("3.14".into()));
     }
 
     #[test]

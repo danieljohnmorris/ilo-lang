@@ -493,6 +493,12 @@ mod tests {
     }
 
     #[test]
+    fn emit_str_builtin() {
+        let py = parse_and_emit("f n:n>t;str n");
+        assert!(py.contains("str(n)"));
+    }
+
+    #[test]
     fn emit_zero_arg_call() {
         let py = parse_and_emit("f>t;make-id()");
         assert!(py.contains("make_id()"));
