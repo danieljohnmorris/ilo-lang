@@ -171,6 +171,18 @@ fn call_function(env: &mut Env, name: &str, args: Vec<Value>) -> Result<Value> {
             other => Err(RuntimeError::new(format!("str requires a number, got {:?}", other))),
         };
     }
+    if name == "num" {
+        if args.len() != 1 {
+            return Err(RuntimeError::new(format!("num: expected 1 arg, got {}", args.len())));
+        }
+        return match &args[0] {
+            Value::Text(s) => match s.parse::<f64>() {
+                Ok(n) => Ok(Value::Ok(Box::new(Value::Number(n)))),
+                Err(_) => Ok(Value::Err(Box::new(Value::Text(s.clone())))),
+            },
+            other => Err(RuntimeError::new(format!("num requires text, got {:?}", other))),
+        };
+    }
 
     let decl = env.function(name)?;
     match decl {
@@ -821,6 +833,18 @@ mod tests {
     fn interpret_str_float() {
         let source = "f>t;str 3.14";
         assert_eq!(run_str(source, Some("f"), vec![]), Value::Text("3.14".into()));
+    }
+
+    #[test]
+    fn interpret_num_ok() {
+        let source = "f>R n t;num \"42\"";
+        assert_eq!(run_str(source, Some("f"), vec![]), Value::Ok(Box::new(Value::Number(42.0))));
+    }
+
+    #[test]
+    fn interpret_num_err() {
+        let source = "f>R n t;num \"abc\"";
+        assert_eq!(run_str(source, Some("f"), vec![]), Value::Err(Box::new(Value::Text("abc".into()))));
     }
 
     #[test]

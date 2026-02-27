@@ -81,6 +81,7 @@ pub(crate) const OP_LEN: u8 = 37;     // R[A] = len(R[B])
 pub(crate) const OP_LISTAPPEND: u8 = 38; // R[A] = R[B] ++ [R[C]]
 pub(crate) const OP_INDEX: u8 = 39;      // R[A] = R[B][C]  (C = literal index)
 pub(crate) const OP_STR: u8 = 40;        // R[A] = str(R[B])  (number to text)
+pub(crate) const OP_NUM: u8 = 41;        // R[A] = num(R[B])  (text to number, returns R n t)
 
 // ABx mode — register + 16-bit operand
 pub(crate) const OP_LOADK: u8 = 20;
@@ -654,6 +655,12 @@ impl RegCompiler {
                     let rb = self.compile_expr(&args[0]);
                     let ra = self.alloc_reg();
                     self.emit_abc(OP_STR, ra, rb, 0);
+                    return ra;
+                }
+                if function == "num" && args.len() == 1 {
+                    let rb = self.compile_expr(&args[0]);
+                    let ra = self.alloc_reg();
+                    self.emit_abc(OP_NUM, ra, rb, 0);
                     return ra;
                 }
 
@@ -1874,6 +1881,24 @@ impl<'a> VM<'a> {
                     };
                     reg_set!(a, NanVal::heap_string(s));
                 }
+                OP_NUM => {
+                    let a = ((inst >> 16) & 0xFF) as usize + base;
+                    let b = ((inst >> 8) & 0xFF) as usize + base;
+                    let v = reg!(b);
+                    if !v.is_string() {
+                        return Err(VmError::Type("num requires a string"));
+                    }
+                    // SAFETY: is_string() confirmed heap-tagged string with live RC.
+                    let s = unsafe { match v.as_heap_ref() { HeapObj::Str(s) => s, _ => unreachable!() } };
+                    let result = match s.parse::<f64>() {
+                        Ok(n) => NanVal::heap_ok(NanVal::number(n)),
+                        Err(_) => {
+                            v.clone_rc();
+                            NanVal::heap_err(v)
+                        }
+                    };
+                    reg_set!(a, result);
+                }
                 OP_LISTAPPEND => {
                     let a = ((inst >> 16) & 0xFF) as usize + base;
                     let b = ((inst >> 8) & 0xFF) as usize + base;
@@ -2383,6 +2408,24 @@ mod tests {
     fn vm_str_float() {
         let source = "f>t;str 3.14";
         assert_eq!(vm_run(source, Some("f"), vec![]), Value::Text("3.14".into()));
+    }
+
+    #[test]
+    fn vm_num_ok() {
+        let source = "f>R n t;num \"42\"";
+        assert_eq!(vm_run(source, Some("f"), vec![]), Value::Ok(Box::new(Value::Number(42.0))));
+    }
+
+    #[test]
+    fn vm_num_float() {
+        let source = "f>R n t;num \"3.14\"";
+        assert_eq!(vm_run(source, Some("f"), vec![]), Value::Ok(Box::new(Value::Number(3.14))));
+    }
+
+    #[test]
+    fn vm_num_err() {
+        let source = "f>R n t;num \"abc\"";
+        assert_eq!(vm_run(source, Some("f"), vec![]), Value::Err(Box::new(Value::Text("abc".into()))));
     }
 
     #[test]
