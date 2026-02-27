@@ -761,11 +761,22 @@ impl Parser {
                 let mut expr = Expr::Ref(name);
                 while self.peek() == Some(&Token::Dot) {
                     self.advance();
-                    let field = self.expect_ident()?;
-                    expr = Expr::Field {
-                        object: Box::new(expr),
-                        field,
-                    };
+                    match self.peek().cloned() {
+                        Some(Token::Number(n)) if n.fract() == 0.0 && n >= 0.0 => {
+                            self.advance();
+                            expr = Expr::Index {
+                                object: Box::new(expr),
+                                index: n as usize,
+                            };
+                        }
+                        _ => {
+                            let field = self.expect_ident()?;
+                            expr = Expr::Field {
+                                object: Box::new(expr),
+                                field,
+                            };
+                        }
+                    }
                 }
                 Ok(expr)
             }
@@ -905,6 +916,39 @@ mod tests {
                         assert_eq!(field, "total");
                     }
                     _ => panic!("expected field access"),
+                }
+            }
+            _ => panic!("expected function"),
+        }
+    }
+
+    #[test]
+    fn parse_index_access() {
+        let prog = parse_str("f xs:L n>n;xs.0");
+        match &prog.declarations[0] {
+            Decl::Function { body, .. } => {
+                match &body[0] {
+                    Stmt::Expr(Expr::Index { index, .. }) => {
+                        assert_eq!(*index, 0);
+                    }
+                    _ => panic!("expected index access"),
+                }
+            }
+            _ => panic!("expected function"),
+        }
+    }
+
+    #[test]
+    fn parse_chained_index() {
+        // x.1 should parse as index access with index 1
+        let prog = parse_str("f xs:L n>n;xs.1");
+        match &prog.declarations[0] {
+            Decl::Function { body, .. } => {
+                match &body[0] {
+                    Stmt::Expr(Expr::Index { index, .. }) => {
+                        assert_eq!(*index, 1);
+                    }
+                    _ => panic!("expected index access"),
                 }
             }
             _ => panic!("expected function"),

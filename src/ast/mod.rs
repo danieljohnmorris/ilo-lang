@@ -106,6 +106,9 @@ pub enum Expr {
     /// Field access: `obj.field`
     Field { object: Box<Expr>, field: String },
 
+    /// Index access: `list.0`, `list.1`
+    Index { object: Box<Expr>, index: usize },
+
     /// Function call with positional args: `func arg1 arg2`
     Call {
         function: String,

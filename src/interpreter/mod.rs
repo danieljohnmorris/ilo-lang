@@ -291,6 +291,17 @@ fn eval_expr(env: &mut Env, expr: &Expr) -> Result<Value> {
                 _ => Err(RuntimeError::new(format!("cannot access field '{}' on non-record", field))),
             }
         }
+        Expr::Index { object, index } => {
+            let obj = eval_expr(env, object)?;
+            match obj {
+                Value::List(items) => {
+                    items.get(*index).cloned().ok_or_else(|| {
+                        RuntimeError::new(format!("list index {} out of bounds (len {})", index, items.len()))
+                    })
+                }
+                _ => Err(RuntimeError::new("index access on non-list")),
+            }
+        }
         Expr::Call { function, args } => {
             let mut arg_vals = Vec::new();
             for arg in args {
@@ -782,6 +793,18 @@ mod tests {
             run_str(source, Some("f"), vec![]),
             Value::List(vec![Value::Number(1.0), Value::Number(2.0), Value::Number(3.0), Value::Number(4.0)])
         );
+    }
+
+    #[test]
+    fn interpret_index_access() {
+        let source = "f>n;xs=[10, 20, 30];xs.1";
+        assert_eq!(run_str(source, Some("f"), vec![]), Value::Number(20.0));
+    }
+
+    #[test]
+    fn interpret_index_access_string() {
+        let source = "f>t;xs=[\"hello\", \"world\"];xs.0";
+        assert_eq!(run_str(source, Some("f"), vec![]), Value::Text("hello".into()));
     }
 
     #[test]
