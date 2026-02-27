@@ -95,6 +95,8 @@ Called like functions, compiled to dedicated opcodes.
 | `str n` | number to text (integers format without `.0`) | `t` |
 | `num t` | text to number (Err if unparseable) | `R n t` |
 | `abs n` | absolute value | `n` |
+| `min a b` | minimum of two numbers | `n` |
+| `max a b` | maximum of two numbers | `n` |
 
 ---
 

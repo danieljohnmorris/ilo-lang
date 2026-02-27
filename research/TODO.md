@@ -31,8 +31,8 @@ Note: all builtin names are single tokens (no hyphens — manifesto: "every hyph
 - [x] `str n` — number to text
 - [x] `num t` — text to number (returns `R n t`, Err if unparseable)
 - [x] `abs n` — absolute value
-- [ ] `min a b` — minimum of two numbers
-- [ ] `max a b` — maximum of two numbers
+- [x] `min a b` — minimum of two numbers
+- [x] `max a b` — maximum of two numbers
 - [ ] `flr n` — floor
 - [ ] `cel n` — ceil
 
