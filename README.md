@@ -66,9 +66,24 @@ Each idea explores a different syntax. Every folder has a SPEC and 5 example pro
 
 Score = LLM generation accuracy /10 (claude-haiku-4-5, spec + all examples as context). See [test-summary.txt](research/explorations/test-summary.txt) for per-task breakdown.
 
-## Running
+## Install
 
-**Prerequisites:** [Rust](https://rustup.rs/) installed.
+**One-liner (macOS / Linux):**
+```bash
+curl -fsSL https://raw.githubusercontent.com/danieljohnmorris/ilo-lang/main/install.sh | sh
+```
+
+**Direct download (example: macOS Apple Silicon):**
+```bash
+curl -fsSL https://github.com/danieljohnmorris/ilo-lang/releases/latest/download/ilo-aarch64-apple-darwin -o /usr/local/bin/ilo && chmod +x /usr/local/bin/ilo
+```
+
+**From source (developers):**
+```bash
+cargo install --git https://github.com/danieljohnmorris/ilo-lang
+```
+
+## Running
 
 **Run inline code:**
 ```bash
