@@ -7,6 +7,9 @@ pub fn render(d: &Diagnostic) -> String {
         Severity::Warning => "warning",
     };
 
+    // Build SourceMap once (not per-label) if source is available
+    let source_map = d.source.as_deref().map(SourceMap::new);
+
     let labels: Vec<serde_json::Value> = d.labels.iter().map(|l| {
         let mut obj = serde_json::json!({
             "start": l.span.start,
@@ -14,9 +17,7 @@ pub fn render(d: &Diagnostic) -> String {
             "message": l.message,
             "primary": l.is_primary,
         });
-        // Add line/col if source is available
-        if let Some(source) = &d.source {
-            let map = SourceMap::new(source);
+        if let Some(map) = &source_map {
             let (line, col) = map.lookup(l.span.start);
             obj["line"] = serde_json::Value::from(line);
             obj["col"] = serde_json::Value::from(col);
