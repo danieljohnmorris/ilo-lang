@@ -82,6 +82,7 @@ pub(crate) const OP_LISTAPPEND: u8 = 38; // R[A] = R[B] ++ [R[C]]
 pub(crate) const OP_INDEX: u8 = 39;      // R[A] = R[B][C]  (C = literal index)
 pub(crate) const OP_STR: u8 = 40;        // R[A] = str(R[B])  (number to text)
 pub(crate) const OP_NUM: u8 = 41;        // R[A] = num(R[B])  (text to number, returns R n t)
+pub(crate) const OP_ABS: u8 = 42;        // R[A] = abs(R[B])
 
 // ABx mode — register + 16-bit operand
 pub(crate) const OP_LOADK: u8 = 20;
@@ -661,6 +662,13 @@ impl RegCompiler {
                     let rb = self.compile_expr(&args[0]);
                     let ra = self.alloc_reg();
                     self.emit_abc(OP_NUM, ra, rb, 0);
+                    return ra;
+                }
+                if function == "abs" && args.len() == 1 {
+                    let rb = self.compile_expr(&args[0]);
+                    let ra = self.alloc_reg();
+                    self.emit_abc(OP_ABS, ra, rb, 0);
+                    self.reg_is_num[ra as usize] = true;
                     return ra;
                 }
 
@@ -1899,6 +1907,15 @@ impl<'a> VM<'a> {
                     };
                     reg_set!(a, result);
                 }
+                OP_ABS => {
+                    let a = ((inst >> 16) & 0xFF) as usize + base;
+                    let b = ((inst >> 8) & 0xFF) as usize + base;
+                    let v = reg!(b);
+                    if !v.is_number() {
+                        return Err(VmError::Type("abs requires a number"));
+                    }
+                    reg_set!(a, NanVal::number(v.as_number().abs()));
+                }
                 OP_LISTAPPEND => {
                     let a = ((inst >> 16) & 0xFF) as usize + base;
                     let b = ((inst >> 8) & 0xFF) as usize + base;
@@ -2426,6 +2443,18 @@ mod tests {
     fn vm_num_err() {
         let source = "f>R n t;num \"abc\"";
         assert_eq!(vm_run(source, Some("f"), vec![]), Value::Err(Box::new(Value::Text("abc".into()))));
+    }
+
+    #[test]
+    fn vm_abs_positive() {
+        let source = "f>n;abs 5";
+        assert_eq!(vm_run(source, Some("f"), vec![]), Value::Number(5.0));
+    }
+
+    #[test]
+    fn vm_abs_negative() {
+        let source = "f>n;abs -3";
+        assert_eq!(vm_run(source, Some("f"), vec![]), Value::Number(3.0));
     }
 
     #[test]

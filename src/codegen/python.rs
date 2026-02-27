@@ -511,6 +511,12 @@ mod tests {
     }
 
     #[test]
+    fn emit_abs_builtin() {
+        let py = parse_and_emit("f n:n>n;abs n");
+        assert!(py.contains("abs(n)"));
+    }
+
+    #[test]
     fn emit_zero_arg_call() {
         let py = parse_and_emit("f>t;make-id()");
         assert!(py.contains("make_id()"));

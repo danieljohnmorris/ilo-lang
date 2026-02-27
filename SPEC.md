@@ -94,6 +94,7 @@ Called like functions, compiled to dedicated opcodes.
 | `len x` | length of string (bytes) or list (elements) | `n` |
 | `str n` | number to text (integers format without `.0`) | `t` |
 | `num t` | text to number (Err if unparseable) | `R n t` |
+| `abs n` | absolute value | `n` |
 
 ---
 
