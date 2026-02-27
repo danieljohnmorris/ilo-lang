@@ -179,6 +179,8 @@ fn emit_expr(expr: &Expr) -> String {
                 BinOp::LessThan => "<",
                 BinOp::GreaterOrEqual => ">=",
                 BinOp::LessOrEqual => "<=",
+                BinOp::And => "and",
+                BinOp::Or => "or",
             };
             format!("({} {} {})", emit_expr(left), op_str, emit_expr(right))
         }
@@ -456,6 +458,14 @@ mod tests {
     fn emit_kebab_to_snake() {
         let py = parse_and_emit("f>t;make-id()");
         assert!(py.contains("make_id()"));
+    }
+
+    #[test]
+    fn emit_logical_and_or() {
+        let py = parse_and_emit("f a:b b:b>b;&a b");
+        assert!(py.contains("(a and b)"));
+        let py = parse_and_emit("f a:b b:b>b;|a b");
+        assert!(py.contains("(a or b)"));
     }
 
     #[test]

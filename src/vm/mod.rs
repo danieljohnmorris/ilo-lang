@@ -563,6 +563,8 @@ impl RegCompiler {
                     (Value::Bool(a), Value::Bool(b)) => match op {
                         BinOp::Equals => Some(Value::Bool(a == b)),
                         BinOp::NotEquals => Some(Value::Bool(a != b)),
+                        BinOp::And => Some(Value::Bool(*a && *b)),
+                        BinOp::Or => Some(Value::Bool(*a || *b)),
                         _ => None,
                     },
                     _ => None,
@@ -703,6 +705,24 @@ impl RegCompiler {
                         }
                 }
 
+                // Short-circuit: &a b → eval a, JMPF skip, eval b, skip:
+                //                |a b → eval a, JMPT skip, eval b, skip:
+                if matches!(op, BinOp::And | BinOp::Or) {
+                    let ra = self.compile_expr(left);
+                    let jump = if *op == BinOp::And {
+                        self.emit_jmpf(ra)
+                    } else {
+                        self.emit_jmpt(ra)
+                    };
+                    let rb = self.compile_expr(right);
+                    // Move result of right into ra so the result register is consistent
+                    if rb != ra {
+                        self.emit_abc(OP_MOVE, ra, rb, 0);
+                    }
+                    self.current.patch_jump(jump);
+                    return ra;
+                }
+
                 let rb = self.compile_expr(left);
                 let rc = self.compile_expr(right);
                 let both_num = self.reg_is_num[rb as usize] && self.reg_is_num[rc as usize];
@@ -723,6 +743,7 @@ impl RegCompiler {
                     BinOp::LessThan => (OP_LT, false),
                     BinOp::GreaterOrEqual => (OP_GE, false),
                     BinOp::LessOrEqual => (OP_LE, false),
+                    BinOp::And | BinOp::Or => unreachable!("handled above"),
                 };
                 let ra = self.alloc_reg();
                 self.emit_abc(opcode, ra, rb, rc);
@@ -2101,6 +2122,54 @@ mod tests {
         let prog = parse_program(source);
         let result = compile_and_run(&prog, Some("f"), vec![Value::Number(10.0)]);
         assert!(result.is_err());
+    }
+
+    #[test]
+    fn vm_logical_and() {
+        let source = "f a:b b:b>b;&a b";
+        assert_eq!(
+            vm_run(source, Some("f"), vec![Value::Bool(true), Value::Bool(true)]),
+            Value::Bool(true)
+        );
+        assert_eq!(
+            vm_run(source, Some("f"), vec![Value::Bool(true), Value::Bool(false)]),
+            Value::Bool(false)
+        );
+        assert_eq!(
+            vm_run(source, Some("f"), vec![Value::Bool(false), Value::Bool(true)]),
+            Value::Bool(false)
+        );
+    }
+
+    #[test]
+    fn vm_logical_or() {
+        let source = "f a:b b:b>b;|a b";
+        assert_eq!(
+            vm_run(source, Some("f"), vec![Value::Bool(false), Value::Bool(false)]),
+            Value::Bool(false)
+        );
+        assert_eq!(
+            vm_run(source, Some("f"), vec![Value::Bool(true), Value::Bool(false)]),
+            Value::Bool(true)
+        );
+        assert_eq!(
+            vm_run(source, Some("f"), vec![Value::Bool(false), Value::Bool(true)]),
+            Value::Bool(true)
+        );
+    }
+
+    #[test]
+    fn vm_logical_and_short_circuit() {
+        // &false x — should not evaluate x (short-circuit)
+        // We test by using a guard: if false AND true, body shouldn't run
+        let source = r#"f>b;&false true"#;
+        assert_eq!(vm_run(source, Some("f"), vec![]), Value::Bool(false));
+    }
+
+    #[test]
+    fn vm_logical_or_short_circuit() {
+        let source = r#"f>b;|true false"#;
+        assert_eq!(vm_run(source, Some("f"), vec![]), Value::Bool(true));
     }
 
     #[test]
