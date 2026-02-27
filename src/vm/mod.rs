@@ -2009,6 +2009,29 @@ mod tests {
     }
 
     #[test]
+    fn vm_list_literal() {
+        // List literal with foreach — last value from loop body
+        let source = "f>n;xs=[10, 20, 30];@x xs{x};0";
+        let result = vm_run(source, Some("f"), vec![]);
+        // foreach doesn't produce a value; the 0 is the return
+        assert_eq!(result, Value::Number(0.0));
+
+        // Verify list literal works by creating and returning it
+        let source = "f>L n;[1, 2, 3]";
+        let result = vm_run(source, Some("f"), vec![]);
+        assert_eq!(result, Value::List(vec![
+            Value::Number(1.0), Value::Number(2.0), Value::Number(3.0),
+        ]));
+    }
+
+    #[test]
+    fn vm_empty_list() {
+        let source = "f>L n;[]";
+        let result = vm_run(source, Some("f"), vec![]);
+        assert!(matches!(result, Value::List(items) if items.is_empty()));
+    }
+
+    #[test]
     fn vm_string_comparison() {
         // "banana" > "apple" (lexicographic)
         let source = r#"f a:t b:t>b;>a b"#;

@@ -701,6 +701,7 @@ impl Parser {
                 | Some(Token::False)
                 | Some(Token::Underscore)
                 | Some(Token::LParen)
+                | Some(Token::LBracket)
         )
     }
 
@@ -732,6 +733,22 @@ impl Parser {
                 let expr = self.parse_expr()?;
                 self.expect(&Token::RParen)?;
                 Ok(expr)
+            }
+            Some(Token::LBracket) => {
+                self.advance();
+                let mut items = Vec::new();
+                if self.peek() != Some(&Token::RBracket) {
+                    items.push(self.parse_expr()?);
+                    while self.peek() == Some(&Token::Comma) {
+                        self.advance();
+                        if self.peek() == Some(&Token::RBracket) {
+                            break; // trailing comma
+                        }
+                        items.push(self.parse_expr()?);
+                    }
+                }
+                self.expect(&Token::RBracket)?;
+                Ok(Expr::List(items))
             }
             Some(Token::Ident(name)) => {
                 self.advance();
@@ -1020,6 +1037,55 @@ mod tests {
                         assert_eq!(*op, BinOp::Subtract);
                     }
                     _ => panic!("expected binary subtract, got {:?}", body[0]),
+                }
+            }
+            _ => panic!("expected function"),
+        }
+    }
+
+    #[test]
+    fn parse_list_literal() {
+        let prog = parse_str("f>L n;[1, 2, 3]");
+        match &prog.declarations[0] {
+            Decl::Function { body, .. } => {
+                match &body[0] {
+                    Stmt::Expr(Expr::List(items)) => {
+                        assert_eq!(items.len(), 3);
+                    }
+                    _ => panic!("expected list literal, got {:?}", body[0]),
+                }
+            }
+            _ => panic!("expected function"),
+        }
+    }
+
+    #[test]
+    fn parse_empty_list() {
+        let prog = parse_str("f>L n;[]");
+        match &prog.declarations[0] {
+            Decl::Function { body, .. } => {
+                match &body[0] {
+                    Stmt::Expr(Expr::List(items)) => {
+                        assert_eq!(items.len(), 0);
+                    }
+                    _ => panic!("expected empty list, got {:?}", body[0]),
+                }
+            }
+            _ => panic!("expected function"),
+        }
+    }
+
+    #[test]
+    fn parse_list_in_let() {
+        let prog = parse_str("f>L n;xs=[1, 2, 3];xs");
+        match &prog.declarations[0] {
+            Decl::Function { body, .. } => {
+                match &body[0] {
+                    Stmt::Let { name, value } => {
+                        assert_eq!(name, "xs");
+                        assert!(matches!(value, Expr::List(_)));
+                    }
+                    _ => panic!("expected let with list"),
                 }
             }
             _ => panic!("expected function"),

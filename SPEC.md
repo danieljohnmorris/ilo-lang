@@ -83,6 +83,21 @@ Disambiguation: `-` followed by one atom is unary negate, followed by two atoms 
 
 ---
 
+## Lists
+
+```
+xs=[1, 2, 3]
+empty=[]
+```
+
+Comma-separated expressions in brackets. Trailing comma allowed. Use with `@` to iterate:
+
+```
+@x xs{+x 1}
+```
+
+---
+
 ## Statements
 
 | Form | Meaning |
