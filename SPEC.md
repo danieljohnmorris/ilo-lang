@@ -85,6 +85,16 @@ Disambiguation: `-` followed by one atom is unary negate, followed by two atoms 
 
 ---
 
+## Builtins
+
+Called like functions, compiled to dedicated opcodes.
+
+| Call | Meaning | Returns |
+|------|---------|---------|
+| `len x` | length of string (bytes) or list (elements) | `n` |
+
+---
+
 ## Lists
 
 ```

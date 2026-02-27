@@ -24,7 +24,7 @@
 
 Note: all builtin names are single tokens (no hyphens — manifesto: "every hyphen doubles token cost").
 
-- [ ] `len x` — length of string (bytes) or list
+- [x] `len x` — length of string (bytes) or list
 - [ ] `+=x v` — append single value to list, return new list
 - [ ] `+a b` — extend to lists: concatenate two lists (already handles `n` add and `t` concat)
 - [ ] Index access `x.0`, `x.1` — by integer literal (dot notation, consistent with field access)

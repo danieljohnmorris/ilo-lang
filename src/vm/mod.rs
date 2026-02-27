@@ -76,6 +76,9 @@ pub(crate) const OP_SUBK_N: u8 = 34;  // R[A] = R[B] - K[C]
 pub(crate) const OP_MULK_N: u8 = 35;  // R[A] = R[B] * K[C]
 pub(crate) const OP_DIVK_N: u8 = 36;  // R[A] = R[B] / K[C]
 
+// ABC mode — builtins
+pub(crate) const OP_LEN: u8 = 37;     // R[A] = len(R[B])
+
 // ABx mode — register + 16-bit operand
 pub(crate) const OP_LOADK: u8 = 20;
 pub(crate) const OP_JMP: u8 = 21;
@@ -628,6 +631,15 @@ impl RegCompiler {
             }
 
             Expr::Call { function, args } => {
+                // Builtins — compile to dedicated opcodes
+                if function == "len" && args.len() == 1 {
+                    let rb = self.compile_expr(&args[0]);
+                    let ra = self.alloc_reg();
+                    self.emit_abc(OP_LEN, ra, rb, 0);
+                    self.reg_is_num[ra as usize] = true;
+                    return ra;
+                }
+
                 let arg_regs: Vec<u8> = args.iter().map(|a| self.compile_expr(a)).collect();
                 let func_idx = self.func_names.iter().position(|n| n == function)
                     .unwrap_or_else(|| {
@@ -1770,6 +1782,25 @@ impl<'a> VM<'a> {
                     let result = NanVal::number(reg!(b).as_number() / dv);
                     unsafe { *self.stack.as_mut_ptr().add(a) = result; }
                 }
+                OP_LEN => {
+                    let a = ((inst >> 16) & 0xFF) as usize + base;
+                    let b = ((inst >> 8) & 0xFF) as usize + base;
+                    let v = reg!(b);
+                    let length = if v.is_string() {
+                        // SAFETY: is_string() confirmed heap-tagged string with live RC.
+                        let s = unsafe { match v.as_heap_ref() { HeapObj::Str(s) => s, _ => unreachable!() } };
+                        s.len() as f64
+                    } else if v.is_heap() {
+                        // SAFETY: is_heap() confirmed heap-tagged with live RC.
+                        match unsafe { v.as_heap_ref() } {
+                            HeapObj::List(items) => items.len() as f64,
+                            _ => return Err(VmError::Type("len requires string or list")),
+                        }
+                    } else {
+                        return Err(VmError::Type("len requires string or list"));
+                    };
+                    reg_set!(a, NanVal::number(length));
+                }
                 _ => return Err(VmError::UnknownOpcode { op }),
             }
         }
@@ -2170,6 +2201,31 @@ mod tests {
     fn vm_logical_or_short_circuit() {
         let source = r#"f>b;|true false"#;
         assert_eq!(vm_run(source, Some("f"), vec![]), Value::Bool(true));
+    }
+
+    #[test]
+    fn vm_len_string() {
+        let source = r#"f s:t>n;len s"#;
+        assert_eq!(
+            vm_run(source, Some("f"), vec![Value::Text("hello".to_string())]),
+            Value::Number(5.0)
+        );
+        assert_eq!(
+            vm_run(source, Some("f"), vec![Value::Text("".to_string())]),
+            Value::Number(0.0)
+        );
+    }
+
+    #[test]
+    fn vm_len_list() {
+        let source = "f>n;xs=[1, 2, 3];len xs";
+        assert_eq!(vm_run(source, Some("f"), vec![]), Value::Number(3.0));
+    }
+
+    #[test]
+    fn vm_len_empty_list() {
+        let source = "f>n;xs=[];len xs";
+        assert_eq!(vm_run(source, Some("f"), vec![]), Value::Number(0.0));
     }
 
     #[test]
