@@ -33,8 +33,8 @@ Note: all builtin names are single tokens (no hyphens — manifesto: "every hyph
 - [x] `abs n` — absolute value
 - [x] `min a b` — minimum of two numbers
 - [x] `max a b` — maximum of two numbers
-- [ ] `flr n` — floor
-- [ ] `cel n` — ceil
+- [x] `flr n` — floor
+- [x] `cel n` — ceil
 
 ## Verification
 
