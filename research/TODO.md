@@ -47,7 +47,65 @@ Manifesto principle: "Verification before execution. All calls resolve, all type
 ## Tooling
 
 - [ ] Pretty-printer / formatter — dense wire format for LLM I/O, expanded form for human review (see OPEN.md: "Hybrid approach")
-- [ ] Useful error messages — current errors point at raw bytecode; source positions needed
+
+## Error messages — Phase B (infrastructure + rendering)
+
+Gives spans, structured diagnostics, and dual-mode output (human + machine).
+
+### B1. Span infrastructure
+- [ ] Add `Span { start: usize, end: usize }` type to AST module
+- [ ] Lexer: attach `Span` to every token (already has byte `position`, extend to start/end)
+- [ ] Parser: attach `Span` to every `Expr`, `Stmt`, `Decl`, `Pattern`, `MatchArm` node
+- [ ] Source map helper: byte offset → line:col conversion (store original source or line start offsets)
+
+### B2. Diagnostic data model
+- [ ] `Diagnostic` struct: severity, code, message, primary span, secondary spans (with labels), suggestion (optional), notes
+- [ ] `Severity` enum: Error, Warning, Hint
+- [ ] `Suggestion` struct: message, replacement text, span, confidence (MachineApplicable / MaybeIncorrect)
+- [ ] Collect diagnostics into a `Vec<Diagnostic>` instead of returning early on first error
+
+### B3. Renderers
+- [ ] Human renderer (ANSI): header line, `-->` location, gutter + source lines, labeled underlines (`^^^`), colored by severity
+- [ ] JSON renderer: structured output matching the Diagnostic model, one JSON object per diagnostic
+- [ ] Auto-detect: TTY → ANSI, piped → JSON. Override with `--json`/`-j`, `--text`/`-t`, `--ansi`/`-a` (mutually exclusive, error if multiple)
+- [ ] Respect `NO_COLOR` env var
+- [ ] Show full function source in errors (leverage ilo's density — whole function fits in one line)
+
+### B4. Wire up existing errors
+- [ ] Lexer errors → Diagnostic with span (already has byte position)
+- [ ] Parser errors → Diagnostic with span (currently only token index)
+- [ ] Verifier errors → Diagnostic with span (currently no position, just function name)
+- [ ] Interpreter runtime errors → Diagnostic with span where possible
+- [ ] VM runtime errors → Diagnostic (may need instruction-to-span mapping table from compiler)
+
+## Error messages — Phase C (polish, do after grammar stabilises)
+
+After language features settle. 
+
+### C1. Error recovery
+- [ ] Parser: continue after errors using panic-mode recovery (sync on `;`, `}`, `>`, next decl keyword)
+- [ ] Poison AST nodes: mark failed parses as error nodes, suppress cascading errors in verifier
+- [ ] Report multiple errors per file (cap at ~20 to avoid noise)
+- [ ] Verifier: analyse all functions even if earlier ones have errors
+
+### C2. Error codes
+- [ ] Assign stable codes: `ILO-L___` (lexer), `ILO-P___` (parser), `ILO-T___` (type/verifier), `ILO-R___` (runtime)
+- [ ] Error code registry: catalogue of all codes with short description
+- [ ] `--explain ILO-T001` flag: print expanded explanation with examples
+- [ ] Include code in both human and JSON output
+
+### C3. Suggestions and Fix-Its
+- [ ] "Did you mean?" for undefined variables/functions — Damerau-Levenshtein, threshold `max(1, len/3)`, scope-aware
+- [ ] Type mismatch suggestions — e.g. "use `num` to convert text to number"
+- [ ] Missing pattern arm suggestions — list the uncovered cases
+- [ ] Arity mismatch — show expected vs actual signature
+- [ ] Cross-language syntax detection — detect `===`, `&&`, `||`, `function`, `def`, `fn` and suggest ilo equivalents
+
+### C4. Runtime source mapping
+- [ ] Compiler: emit instruction-to-span table alongside bytecode
+- [ ] VM: on error, look up current instruction pointer in span table
+- [ ] Interpreter: thread current Stmt/Expr span through evaluation for error context
+- [ ] Stack trace with source locations for nested function calls
 
 ## Python codegen
 
