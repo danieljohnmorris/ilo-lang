@@ -85,7 +85,7 @@ pub struct MatchArm {
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub enum Pattern {
-    /// `!e:` — binds error value
+    /// `^e:` — binds error value
     Err(String),
     /// `~v:` — binds ok value
     Ok(String),
@@ -131,7 +131,7 @@ pub enum Expr {
     /// Ok constructor: `~expr`
     Ok(Box<Expr>),
 
-    /// Err constructor: `!expr`
+    /// Err constructor: `^expr`
     Err(Box<Expr>),
 
     /// List literal

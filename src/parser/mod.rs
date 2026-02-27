@@ -264,8 +264,12 @@ impl Parser {
                 }
             }
             Some(Token::Bang) => {
-                // Could be: !cond{body} (negated guard), or !expr (err constructor)
+                // !cond{body} — negated guard
                 self.parse_bang_stmt()
+            }
+            Some(Token::Caret) => {
+                // ^expr — Err constructor as statement
+                self.parse_caret_stmt()
             }
             _ => {
                 let expr = self.parse_expr()?;
@@ -355,8 +359,8 @@ impl Parser {
             return false;
         }
         match &self.tokens[after_semi] {
-            // !ident: or !_: → err pattern
-            Token::Bang => {
+            // ^ident: or ^_: → err pattern
+            Token::Caret => {
                 if after_semi + 2 < self.tokens.len() {
                     matches!(
                         (&self.tokens[after_semi + 1], &self.tokens[after_semi + 2]),
@@ -397,7 +401,7 @@ impl Parser {
 
     fn parse_pattern(&mut self) -> Result<Pattern> {
         match self.peek() {
-            Some(Token::Bang) => {
+            Some(Token::Caret) => {
                 self.advance();
                 let name = match self.peek() {
                     Some(Token::Underscore) => {
@@ -463,26 +467,23 @@ impl Parser {
         })
     }
 
-    /// Parse `!` at statement position — either negated guard or err expr
+    /// Parse `!` at statement position — negated guard: `!cond{body}`
     fn parse_bang_stmt(&mut self) -> Result<Stmt> {
         self.expect(&Token::Bang)?;
+        let condition = self.parse_expr_inner()?;
+        let body = self.parse_brace_body()?;
+        Ok(Stmt::Guard {
+            condition,
+            negated: true,
+            body,
+        })
+    }
 
-        // Peek ahead to determine: is this !expr{body} (guard) or !expr (err)?
-        // Parse an atom first
+    /// Parse `^` at statement position — Err constructor: `^expr`
+    fn parse_caret_stmt(&mut self) -> Result<Stmt> {
+        self.expect(&Token::Caret)?;
         let inner = self.parse_expr_inner()?;
-
-        if self.peek() == Some(&Token::LBrace) {
-            // Negated guard: !cond{body}
-            let body = self.parse_brace_body()?;
-            Ok(Stmt::Guard {
-                condition: inner,
-                negated: true,
-                body,
-            })
-        } else {
-            // Err expression as statement
-            Ok(Stmt::Expr(Expr::Err(Box::new(inner))))
-        }
+        Ok(Stmt::Expr(Expr::Err(Box::new(inner))))
     }
 
     /// Parse ident-starting statement — could be guard (expr{body}) or expr statement
@@ -516,7 +517,7 @@ impl Parser {
                 let inner = self.parse_expr_inner()?;
                 Expr::Ok(Box::new(inner))
             }
-            Some(Token::Bang) => {
+            Some(Token::Caret) => {
                 self.advance();
                 let inner = self.parse_expr_inner()?;
                 Expr::Err(Box::new(inner))
@@ -877,7 +878,7 @@ mod tests {
 
     #[test]
     fn parse_match_stmt() {
-        let prog = parse_str(r#"f x:n>t;?{!e:!"error";~v:v;_:"default"}"#);
+        let prog = parse_str(r#"f x:n>t;?{^e:^"error";~v:v;_:"default"}"#);
         match &prog.declarations[0] {
             Decl::Function { body, .. } => {
                 match &body[0] {
@@ -1157,7 +1158,7 @@ mod tests {
 
     #[test]
     fn parse_multi_stmt_match_arm() {
-        let prog = parse_str(r#"f>R _ t;?{!e:!"fail";~d:call d;~_}"#);
+        let prog = parse_str(r#"f>R _ t;?{^e:^"fail";~d:call d;~_}"#);
         match &prog.declarations[0] {
             Decl::Function { body, .. } => {
                 match &body[0] {

@@ -30,7 +30,7 @@ tot p:n q:n r:n>n;s=*p q;t=*s r;+s t
 1. **Token-conservative** — every choice evaluated against total token cost across the full loop: generation, retries, error feedback, context loading.
 2. **Constrained** — small vocabulary, closed world, one way to do things. Fewer valid next-tokens = fewer wrong choices = fewer retries.
 3. **Self-contained** — each unit carries its own context: deps, types, rules. The spec travels with the program.
-4. **Language-agnostic** — structural tokens (`@`, `>`, `?`, `!`, `~`) over English words.
+4. **Language-agnostic** — structural tokens (`@`, `>`, `?`, `^`, `~`, `!`) over English words.
 5. **Graph-native** — programs express relationships (calls, depends-on, has-type). Navigable as a graph, not just readable as linear text.
 
 See [MANIFESTO.md](MANIFESTO.md) for the full rationale.

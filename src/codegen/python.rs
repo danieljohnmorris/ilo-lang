@@ -368,7 +368,7 @@ mod tests {
 
     #[test]
     fn emit_err_expr() {
-        let py = parse_and_emit(r#"f x:n>R n t;!"bad""#);
+        let py = parse_and_emit(r#"f x:n>R n t;^"bad""#);
         assert!(py.contains("return (\"err\", \"bad\")"));
     }
 
