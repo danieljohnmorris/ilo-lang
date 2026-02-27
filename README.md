@@ -25,6 +25,17 @@ tot p:n q:n r:n>n;s=*p q;t=*s r;+s t
 
 0.33x the tokens, 0.22x the characters. Same semantics.
 
+### Why prefix notation?
+
+ilo uses prefix notation (`+a b` instead of `a + b`). Nesting eliminates parentheses entirely:
+
+```
+(a * b) + c       →  +*a b c        -- saves 4 chars, 1 token
+((a + b) * c) >= 100  →  >=*+a b c 100  -- saves 7 chars, 3 tokens
+```
+
+Across 25 expression patterns: **22% fewer tokens, 42% fewer characters** vs infix. See the [prefix-vs-infix benchmark](research/explorations/prefix-vs-infix/).
+
 ## Principles
 
 1. **Token-conservative** — every choice evaluated against total token cost across the full loop: generation, retries, error feedback, context loading.
