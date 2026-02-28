@@ -797,4 +797,199 @@ mod tests {
         // Wildcard bindings — should use simple ternary path
         assert!(py.contains("1 if isinstance(x, tuple)"), "should use ternary: got: {}", py);
     }
+
+    #[test]
+    fn emit_empty_guard_body() {
+        // Guard with empty brace body → emit_body with empty stmts → "pass" (L65-67)
+        // Also exercises parse_expr_or_guard returning a Guard (parser L621-625)
+        let py = parse_and_emit("f x:b>n;x{};0");
+        assert!(py.contains("pass"), "expected 'pass' for empty body in: {py}");
+    }
+
+    #[test]
+    fn emit_match_expr_wildcard_only() {
+        // Match expression with only a wildcard arm → parts.is_empty() → return default (L301)
+        let py = parse_and_emit("f>n;x=?{_:42};x");
+        assert!(py.contains("42"), "expected 42 as default in: {py}");
+    }
+
+    #[test]
+    fn emit_match_expr_complex_let_arm() {
+        // Match expr with Let as last stmt in arm body → arm_needs_statements=true → complex path
+        // Arm 1 body is just `z=2` (Let stmt) → last stmt is Let → _m = None (L379-383)
+        // Syntax: arm bodies use `;` not `{}` — `1:z=2` means arm 1 body is [Let{z=2}]
+        let py = parse_and_emit("f x:n>n;y=?x{1:z=2;_:0};y");
+        assert!(py.contains("_m"), "expected temp var _m in: {py}");
+        assert!(py.contains("None"), "expected None assignment in: {py}");
+    }
+
+    #[test]
+    fn emit_match_expr_complex_literal() {
+        // Match expr needing complex emit with a literal pattern → Pattern::Literal in complex (L349-354)
+        // Arm body has 2 stmts (Let + Expr) → arm_needs_statements=true → complex path
+        let py = parse_and_emit("f x:n>n;y=?x{1:z=1;+z 1;_:0};y");
+        assert!(py.contains("== 1"), "expected literal pattern comparison in: {py}");
+    }
+
+    #[test]
+    fn emit_match_expr_complex_no_subject() {
+        // Match expr with no subject, complex (needs statements) → "_subject" default (L313)
+        // Wildcard with multi-stmt body → complex path, no subject
+        let py = parse_and_emit("f>n;y=?{_:z=1;+z 1};y");
+        assert!(py.contains("_m"), "expected temp var in: {py}");
+    }
+
+    #[test]
+    fn emit_match_expr_complex_wildcard_first() {
+        // Match expr where first arm is wildcard in complex emit path → return tmp early (L322-325)
+        // Wildcard with multi-stmt body (needs_statements=true) is arm index 0
+        // Note: wildcard must come LAST in actual ilo programs; here we test codegen behavior only
+        // We pass AST directly to bypass parser validation of arm order
+        use crate::ast::{Expr, Literal, MatchArm, Pattern, Stmt};
+        let tokens: Vec<crate::lexer::Token> = lexer::lex("f>n;42")
+            .unwrap().into_iter().map(|(t, _)| t).collect();
+        let mut prog = parser::parse_tokens(tokens).unwrap();
+        // Replace the function body with a let binding to a match expr
+        // match expr: first arm is wildcard with multi-stmt body
+        let match_expr = Expr::Match {
+            subject: None,
+            arms: vec![
+                MatchArm {
+                    pattern: Pattern::Wildcard,
+                    body: vec![
+                        Stmt::Let { name: "z".to_string(), value: Expr::Literal(Literal::Number(1.0)) },
+                        Stmt::Expr(Expr::Ref("z".to_string())),
+                    ],
+                },
+            ],
+        };
+        if let crate::ast::Decl::Function { ref mut body, .. } = prog.declarations[0] {
+            *body = vec![Stmt::Expr(match_expr)];
+        }
+        let py = emit(&prog);
+        assert!(py.contains("_m"), "expected temp var in: {py}");
+    }
+
+    #[test]
+    fn emit_match_arm_body_to_tmp_empty_body() {
+        // Cover L365-367: emit_match_arm_body_to_tmp called with empty body.
+        // Inject a complex match (Ok pattern → needs_statements=true) with one arm having empty body.
+        use crate::ast::{Expr, Literal, MatchArm, Pattern, Stmt};
+        let tokens: Vec<crate::lexer::Token> = lexer::lex("f>n;42")
+            .unwrap()
+            .into_iter()
+            .map(|(t, _)| t)
+            .collect();
+        let mut prog = parser::parse_tokens(tokens).unwrap();
+        // Match expr: Ok("v") arm with empty body, Wildcard arm with Literal(0)
+        let match_expr = Expr::Match {
+            subject: Some(Box::new(Expr::Literal(Literal::Number(0.0)))),
+            arms: vec![
+                MatchArm {
+                    pattern: Pattern::Ok("v".to_string()), // named binding → needs_statements=true
+                    body: vec![],                           // empty body → L365-367
+                },
+                MatchArm {
+                    pattern: Pattern::Wildcard,
+                    body: vec![Stmt::Expr(Expr::Literal(Literal::Number(0.0)))],
+                },
+            ],
+        };
+        if let crate::ast::Decl::Function { ref mut body, .. } = prog.declarations[0] {
+            *body = vec![Stmt::Expr(match_expr)];
+        }
+        let py = emit(&prog);
+        // The arm body was empty → `_m = None` was emitted
+        assert!(py.contains("= None"), "expected '= None' for empty arm body in: {py}");
+    }
+
+    #[test]
+    fn emit_arm_value_non_expr_last_stmt() {
+        // Cover L396: emit_arm_value where body.last() is not Stmt::Expr.
+        // Inject a simple match arm (arm_needs_statements=false) with body=[Stmt::Guard].
+        use crate::ast::{Expr, Literal, MatchArm, Pattern, Stmt};
+        let tokens: Vec<crate::lexer::Token> = lexer::lex("f>n;42")
+            .unwrap()
+            .into_iter()
+            .map(|(t, _)| t)
+            .collect();
+        let mut prog = parser::parse_tokens(tokens).unwrap();
+        // Match expr: arm with body=[Guard] (len==1, not Let → arm_needs_statements=false → simple path)
+        let match_expr = Expr::Match {
+            subject: Some(Box::new(Expr::Literal(Literal::Number(0.0)))),
+            arms: vec![
+                MatchArm {
+                    pattern: Pattern::Literal(Literal::Number(1.0)),
+                    body: vec![Stmt::Guard {
+                        condition: Expr::Literal(Literal::Bool(true)),
+                        negated: false,
+                        body: vec![],
+                    }],
+                },
+                MatchArm {
+                    pattern: Pattern::Wildcard,
+                    body: vec![Stmt::Expr(Expr::Literal(Literal::Number(0.0)))],
+                },
+            ],
+        };
+        if let crate::ast::Decl::Function { ref mut body, .. } = prog.declarations[0] {
+            *body = vec![Stmt::Expr(match_expr)];
+        }
+        let py = emit(&prog);
+        // The Guard arm returns None from emit_arm_value (L396)
+        assert!(py.contains("None"), "expected None for guard-body arm in: {py}");
+    }
+
+    #[test]
+    fn emit_arm_value_empty_body() {
+        // Cover L399: emit_arm_value where body is empty (body.last() returns None).
+        // Inject a simple match arm (arm_needs_statements=false) with body=[].
+        use crate::ast::{Expr, Literal, MatchArm, Pattern, Stmt};
+        let tokens: Vec<crate::lexer::Token> = lexer::lex("f>n;42")
+            .unwrap()
+            .into_iter()
+            .map(|(t, _)| t)
+            .collect();
+        let mut prog = parser::parse_tokens(tokens).unwrap();
+        // Match expr: Literal arm with empty body (len==0, not Ok/Err with binding → simple path)
+        let match_expr = Expr::Match {
+            subject: Some(Box::new(Expr::Literal(Literal::Number(0.0)))),
+            arms: vec![
+                MatchArm {
+                    pattern: Pattern::Literal(Literal::Number(1.0)),
+                    body: vec![], // empty → L399
+                },
+                MatchArm {
+                    pattern: Pattern::Wildcard,
+                    body: vec![Stmt::Expr(Expr::Literal(Literal::Number(0.0)))],
+                },
+            ],
+        };
+        if let crate::ast::Decl::Function { ref mut body, .. } = prog.declarations[0] {
+            *body = vec![Stmt::Expr(match_expr)];
+        }
+        let py = emit(&prog);
+        // The empty arm returns None from emit_arm_value (L399)
+        assert!(py.contains("None"), "expected None for empty-body arm in: {py}");
+    }
+
+    #[test]
+    fn emit_error_decl_skipped() {
+        // A parse error produces a Decl::Error poison node; emit() should skip it silently.
+        // We create a program with a valid function + an error node directly.
+        use crate::ast::{Decl, Span};
+        let tokens: Vec<crate::lexer::Token> = lexer::lex("f x:n>n;*x 2")
+            .unwrap()
+            .into_iter()
+            .map(|(t, _)| t)
+            .collect();
+        let mut prog = parser::parse_tokens(tokens).unwrap();
+        // Inject a poison node
+        prog.declarations.push(Decl::Error { span: Span { start: 0, end: 1 } });
+        let py = emit(&prog);
+        // The valid function should appear; the error node should be silently skipped
+        assert!(py.contains("def f("), "missing valid function in: {py}");
+        // Output should contain the function body, not any error artifacts
+        assert!(py.contains("return"), "missing return in: {py}");
+    }
 }

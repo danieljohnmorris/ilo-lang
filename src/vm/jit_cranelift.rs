@@ -245,3 +245,162 @@ pub(crate) fn compile_and_call(chunk: &Chunk, nan_consts: &[NanVal], args: &[f64
     let func = compile(chunk, nan_consts)?;
     call(&func, args)
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::lexer;
+    use crate::parser;
+
+    fn jit_run(source: &str, func_name: &str, args: &[f64]) -> Option<f64> {
+        let tokens: Vec<crate::lexer::Token> = lexer::lex(source)
+            .unwrap()
+            .into_iter()
+            .map(|(t, _)| t)
+            .collect();
+        let prog = parser::parse_tokens(tokens).unwrap();
+        let compiled = crate::vm::compile(&prog).unwrap();
+        let idx = compiled.func_names.iter().position(|n| n == func_name)?;
+        let chunk = &compiled.chunks[idx];
+        let nan_consts = &compiled.nan_constants[idx];
+        compile_and_call(chunk, nan_consts, args)
+    }
+
+    #[test]
+    fn cranelift_sub_nn() {
+        // OP_SUB_NN: subtract two numeric variables
+        let result = jit_run("f a:n b:n>n;-a b", "f", &[10.0, 3.0]);
+        assert_eq!(result, Some(7.0));
+    }
+
+    #[test]
+    fn cranelift_div_nn() {
+        // OP_DIV_NN: divide two numeric variables
+        let result = jit_run("f a:n b:n>n;/a b", "f", &[10.0, 2.0]);
+        assert_eq!(result, Some(5.0));
+    }
+
+    #[test]
+    fn cranelift_subk_n() {
+        // OP_SUBK_N: subtract variable by constant
+        let result = jit_run("f x:n>n;-x 3", "f", &[10.0]);
+        assert_eq!(result, Some(7.0));
+    }
+
+    #[test]
+    fn cranelift_divk_n() {
+        // OP_DIVK_N: divide variable by constant
+        let result = jit_run("f x:n>n;/x 4", "f", &[20.0]);
+        assert_eq!(result, Some(5.0));
+    }
+
+    #[test]
+    fn cranelift_loadk_non_number() {
+        // OP_LOADK with a non-number constant → compile returns None (not JIT eligible)
+        // A string literal constant is not JIT-eligible
+        let tokens: Vec<crate::lexer::Token> = lexer::lex(r#"f>t;"hello""#)
+            .unwrap().into_iter().map(|(t, _)| t).collect();
+        let prog = parser::parse_tokens(tokens).unwrap();
+        let compiled = crate::vm::compile(&prog).unwrap();
+        let chunk = &compiled.chunks[0];
+        let nan_consts = &compiled.nan_constants[0];
+        // Should not be JIT-eligible (non-numeric constant)
+        assert!(!is_jit_eligible(chunk) || compile_and_call(chunk, nan_consts, &[]).is_none());
+    }
+
+    #[test]
+    fn cranelift_neg() {
+        // OP_NEG: negate a numeric variable
+        let result = jit_run("f x:n>n;-x", "f", &[5.0]);
+        assert_eq!(result, Some(-5.0));
+    }
+
+    #[test]
+    fn cranelift_zero_arg_function() {
+        // Zero-argument function: compile and call with args.len() == 0
+        let result = jit_run("f>n;42", "f", &[]);
+        assert_eq!(result, Some(42.0));
+    }
+
+    #[test]
+    fn cranelift_add_k_n() {
+        // OP_ADDK_N: add variable and constant
+        let result = jit_run("f x:n>n;+x 10", "f", &[5.0]);
+        assert_eq!(result, Some(15.0));
+    }
+
+    #[test]
+    fn cranelift_move_op() {
+        // OP_MOVE: exercises the move opcode path when a != b
+        // A simple identity function may emit MOVE to load return value
+        let result = jit_run("f x:n>n;x", "f", &[7.0]);
+        assert_eq!(result, Some(7.0));
+    }
+
+    #[test]
+    fn cranelift_arg_count_mismatch() {
+        // call() with wrong number of args returns None
+        let result = jit_run("f x:n y:n>n;+x y", "f", &[1.0]);  // needs 2 args, given 1
+        assert_eq!(result, None);
+    }
+
+    #[test]
+    fn cranelift_move_a_ne_b() {
+        // y=x;y generates OP_MOVE r1,r0 (a=1, b=0, a≠b) — covers L167-169
+        let result = jit_run("f x:n>n;y=x;y", "f", &[7.0]);
+        assert_eq!(result, Some(7.0));
+    }
+
+    #[test]
+    fn cranelift_4_args() {
+        // 4-arg function → call() L220-221
+        let result = jit_run("f a:n b:n c:n d:n>n;+a +b +c d", "f", &[1.0, 2.0, 3.0, 4.0]);
+        assert_eq!(result, Some(10.0));
+    }
+
+    #[test]
+    fn cranelift_5_args() {
+        // 5-arg function → call() L224-225
+        let result = jit_run("f a:n b:n c:n d:n e:n>n;+a +b +c +d e", "f", &[1.0, 2.0, 3.0, 4.0, 5.0]);
+        assert_eq!(result, Some(15.0));
+    }
+
+    #[test]
+    fn cranelift_6_args() {
+        // 6-arg function → call() L228-229
+        let result = jit_run("f a:n b:n c:n d:n e:n f0:n>n;+a +b +c +d +e f0", "f", &[1.0, 2.0, 3.0, 4.0, 5.0, 6.0]);
+        assert_eq!(result, Some(21.0));
+    }
+
+    #[test]
+    fn cranelift_7_args() {
+        // 7-arg function → call() L232-233
+        let result = jit_run("f a:n b:n c:n d:n e:n f0:n g0:n>n;+a +b +c +d +e +f0 g0", "f", &[1.0, 2.0, 3.0, 4.0, 5.0, 6.0, 7.0]);
+        assert_eq!(result, Some(28.0));
+    }
+
+    #[test]
+    fn cranelift_8_args() {
+        // 8-arg function → call() L236-237
+        let result = jit_run("f a:n b:n c:n d:n e:n f0:n g0:n h:n>n;+a +b +c +d +e +f0 +g0 h", "f", &[1.0, 2.0, 3.0, 4.0, 5.0, 6.0, 7.0, 8.0]);
+        assert_eq!(result, Some(36.0));
+    }
+
+    #[test]
+    fn cranelift_9_args_hits_fallback() {
+        // 9-arg function: compile succeeds, but call() L239 (_ => return None) is hit
+        // because args.len()==param_count==9 passes the first guard, then match hits `_`
+        let tokens: Vec<crate::lexer::Token> = crate::lexer::lex(
+            "f a:n b:n c:n d:n e:n f0:n g0:n h:n i:n>n;+a +b +c +d +e +f0 +g0 +h i"
+        ).unwrap().into_iter().map(|(t, _)| t).collect();
+        let prog = crate::parser::parse_tokens(tokens).unwrap();
+        let compiled = crate::vm::compile(&prog).unwrap();
+        let idx = compiled.func_names.iter().position(|n| n == "f").unwrap();
+        let chunk = &compiled.chunks[idx];
+        let nan_consts = &compiled.nan_constants[idx];
+        if let Some(func) = compile(chunk, nan_consts) {
+            let result = call(&func, &[1.0, 2.0, 3.0, 4.0, 5.0, 6.0, 7.0, 8.0, 9.0]);
+            assert_eq!(result, None);
+        }
+    }
+}

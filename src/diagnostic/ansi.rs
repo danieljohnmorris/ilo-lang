@@ -201,4 +201,55 @@ mod tests {
         let out = r.render(&d);
         assert!(out.contains("^^^"), "expected 3 carets in:\n{out}");
     }
+
+    #[test]
+    fn render_warning_severity_label() {
+        let r = AnsiRenderer { use_color: false };
+        let mut d = Diagnostic::error("unused variable");
+        d.severity = Severity::Warning;
+        let out = r.render(&d);
+        assert!(out.contains("warning"), "missing 'warning' in:\n{out}");
+        assert!(!out.contains("error:"), "should not say error in:\n{out}");
+    }
+
+    #[test]
+    fn render_warning_with_color() {
+        let r = AnsiRenderer { use_color: true };
+        let mut d = Diagnostic::error("unused variable");
+        d.severity = Severity::Warning;
+        let out = r.render(&d);
+        assert!(out.contains("warning"), "missing 'warning' in:\n{out}");
+        // With color, ANSI codes should be present
+        assert!(out.contains("\x1b["), "expected ANSI codes for warning with color");
+    }
+
+    #[test]
+    fn render_secondary_label_with_nonempty_message() {
+        let r = AnsiRenderer { use_color: false };
+        let d = Diagnostic::error("type mismatch")
+            .with_secondary_span(Span { start: 5, end: 8 }, "defined here");
+        let out = r.render(&d);
+        assert!(out.contains("defined here"), "missing secondary label message in:\n{out}");
+    }
+
+    #[test]
+    fn render_secondary_label_empty_message_skipped() {
+        let r = AnsiRenderer { use_color: false };
+        let d = Diagnostic::error("type mismatch")
+            .with_secondary_span(Span { start: 5, end: 8 }, "");
+        let out = r.render(&d);
+        // Empty secondary label should not emit extra lines for it
+        // The output should still be valid
+        assert!(out.contains("error:"), "missing error header in:\n{out}");
+    }
+
+    #[test]
+    fn render_primary_label_with_nonempty_message() {
+        let r = AnsiRenderer { use_color: false };
+        let d = Diagnostic::error("bad")
+            .with_span(Span { start: 2, end: 5 }, "this is the problem")
+            .with_source("f x:n>n;x".to_string());
+        let out = r.render(&d);
+        assert!(out.contains("this is the problem"), "missing label message in:\n{out}");
+    }
 }

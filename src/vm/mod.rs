@@ -3002,6 +3002,17 @@ mod tests {
         );
     }
 
+    // nanval_truthy — ok/err/record value (heap but not string/list) → _ => true (L2041)
+    #[test]
+    fn vm_nanval_truthy_heap_other() {
+        // Guard condition on an Ok value → nanval_truthy(_ => true branch)
+        // "f x:t>n;x{1}" — non-negated guard: if x is TRUTHY, execute body (return 1), else skip
+        // Ok(Number) is truthy → _ => true → guard body executes → returns 1.0
+        let source = "f x:t>n;x{1}";
+        let result = vm_run(source, Some("f"), vec![Value::Ok(Box::new(Value::Number(1.0)))]);
+        assert_eq!(result, Value::Number(1.0));
+    }
+
     // 14. NanVal record roundtrip — construct and access field
     #[test]
     fn vm_nanval_record_roundtrip() {
@@ -3172,5 +3183,453 @@ mod tests {
         assert_eq!(r1, Value::Text("hello".into()));
         let r2 = state.call("f", vec![Value::Text("world".into())]).unwrap();
         assert_eq!(r2, Value::Text("world".into()));
+    }
+
+    // ---- Constant dedup: Bool and Nil ----
+
+    #[test]
+    fn vm_const_dedup_bool_true() {
+        // Two identical `true` literals in one function — second should reuse the constant
+        // We verify by checking that the function produces correct output (dedup is transparent)
+        let source = "f>b;x=true;y=true;=x y";
+        assert_eq!(vm_run(source, Some("f"), vec![]), Value::Bool(true));
+    }
+
+    #[test]
+    fn vm_const_dedup_bool_false() {
+        let source = "f>b;x=false;y=false;=x y";
+        assert_eq!(vm_run(source, Some("f"), vec![]), Value::Bool(true));
+    }
+
+    #[test]
+    fn vm_const_dedup_bool_mixed() {
+        // true != false (different bool constants, no dedup between them)
+        let source = "f>b;x=true;y=false;=x y";
+        assert_eq!(vm_run(source, Some("f"), vec![]), Value::Bool(false));
+    }
+
+    #[test]
+    fn vm_const_dedup_nil_via_match() {
+        // Nil values in constant pool — a subjectless match with no subject exercises Nil
+        let source = "f>b;x=?{_:true};x";
+        assert_eq!(vm_run(source, Some("f"), vec![]), Value::Bool(true));
+    }
+
+    #[test]
+    fn vm_nil_fallback_function_body() {
+        // Function body only has a Guard stmt → compile_body returns None → Nil fallback (L306-310)
+        // When x >= 0, the guard fires and RET 0. Function body's compile_body returns None,
+        // triggering the Nil constant load fallback that runs when the guard doesn't fire.
+        let source = "f x:n>n;>=x 0{0}";
+        // With x >= 0: guard fires, returns 0
+        assert_eq!(vm_run(source, Some("f"), vec![Value::Number(5.0)]), Value::Number(0.0));
+        // With x < 0: guard skips, Nil fallback executes → returns Nil
+        assert_eq!(vm_run(source, Some("f"), vec![Value::Number(-1.0)]), Value::Nil);
+    }
+
+    #[test]
+    fn vm_nil_fallback_guard_body() {
+        // Guard body only has a nested Guard stmt → compile_body returns None for guard body (L361-365)
+        // Outer guard fires (x >= 0), inner guard body compiles to None → Nil fallback
+        let source = "f x:n>n;>=x 0{>=x 5{10}}";
+        // x=10: outer guard fires, inner guard fires → returns 10
+        assert_eq!(vm_run(source, Some("f"), vec![Value::Number(10.0)]), Value::Number(10.0));
+        // x=1: outer guard fires, inner guard doesn't fire → guard body returns Nil
+        assert_eq!(vm_run(source, Some("f"), vec![Value::Number(1.0)]), Value::Nil);
+    }
+
+    #[test]
+    fn vm_const_fold_negate_number() {
+        // try_const_fold for UnaryOp::Negate on a const-foldable operand (L588)
+        // -(+3 2) → try_const_fold(UnaryOp{Negate, BinOp{Add, 3, 2}})
+        //         → try_const_fold(BinOp) = Some(Number(5.0))
+        //         → (Number(5.0), Negate) → Some(Number(-5.0))
+        let source = "f>n;-(+3 2)";
+        assert_eq!(vm_run(source, Some("f"), vec![]), Value::Number(-5.0));
+    }
+
+    #[test]
+    fn vm_addk_n_const_left() {
+        // ADDK_N with literal constant on left side: +2 x (L755-763)
+        // The compiler detects commutative op (Add) with Literal on left, variable on right
+        let source = "f x:n>n;+2 x";
+        assert_eq!(vm_run(source, Some("f"), vec![Value::Number(3.0)]), Value::Number(5.0));
+    }
+
+    #[test]
+    fn vm_mulk_n_const_left() {
+        // MULK_N with literal constant on left side: *3 x (L753-763 for Multiply)
+        let source = "f x:n>n;*3 x";
+        assert_eq!(vm_run(source, Some("f"), vec![Value::Number(4.0)]), Value::Number(12.0));
+    }
+
+    #[test]
+    fn vm_nanval_from_value_record() {
+        // NanVal::from_value with Value::Record → heap_record (L1122-1125)
+        // Pass a record as an arg to trigger NanVal::from_value Record branch
+        let source = "f x:n>n;x";
+        let prog = parse_program(source);
+        let compiled = compile(&prog).unwrap();
+        let mut state = VmState::new(&compiled);
+        // Directly exercise NanVal::from_value with a Record value
+        let rec = Value::Record {
+            type_name: "point".to_string(),
+            fields: std::collections::HashMap::from([
+                ("x".to_string(), Value::Number(42.0)),
+            ]),
+        };
+        let nv = NanVal::from_value(&rec);
+        let roundtrip = nv.to_value();
+        match roundtrip {
+            Value::Record { type_name, fields } => {
+                assert_eq!(type_name, "point");
+                assert_eq!(fields.get("x"), Some(&Value::Number(42.0)));
+            }
+            other => panic!("expected Record, got {:?}", other),
+        }
+        // Also verify the state can be used normally
+        let r = state.call("f", vec![Value::Number(1.0)]).unwrap();
+        assert_eq!(r, Value::Number(1.0));
+    }
+
+    // BinOp::Divide where the dividend is a match-result register (not reg_is_num)
+    // → compiler emits OP_DIV instead of OP_DIV_NN (L804)
+    #[test]
+    fn vm_divide_non_numeric_register() {
+        let source = "f x:n>n;r=?x{1:2;_:3};/r x";
+        assert_eq!(
+            vm_run(source, Some("f"), vec![Value::Number(1.0)]),
+            Value::Number(2.0)
+        );
+        assert_eq!(
+            vm_run(source, Some("f"), vec![Value::Number(2.0)]),
+            Value::Number(1.5)
+        );
+    }
+
+    #[test]
+    fn vm_div_non_numeric_division_by_zero() {
+        // OP_DIV division-by-zero path (L1413): divisor register is non-tagged-numeric (match result = 0)
+        let source = "f x:n>n;r=?x{1:0;_:2};/x r";
+        let err = vm_run_err(source, Some("f"), vec![Value::Number(1.0)]);
+        assert!(err.contains("zero") || err.contains("Div"), "expected division-by-zero error, got: {err}");
+    }
+
+    #[test]
+    fn vm_gt_non_numeric_registers() {
+        // OP_GT numeric path (L1441): both operands are numbers but not tagged numeric
+        // r and s are match results (reg_is_num=false), so OP_GT is emitted (not OP_GT_NN)
+        let source = "f x:n>b;r=?x{1:5;_:2};s=?x{1:3;_:8};>r s";
+        assert_eq!(vm_run(source, Some("f"), vec![Value::Number(1.0)]), Value::Bool(true)); // 5 > 3 = true
+        assert_eq!(vm_run(source, Some("f"), vec![Value::Number(2.0)]), Value::Bool(false)); // 2 > 8 = false
+    }
+
+    #[test]
+    fn vm_lt_non_numeric_registers() {
+        // OP_LT numeric path (L1456): both operands are numbers but not tagged numeric
+        let source = "f x:n>b;r=?x{1:5;_:2};s=?x{1:3;_:8};<r s";
+        assert_eq!(vm_run(source, Some("f"), vec![Value::Number(1.0)]), Value::Bool(false)); // 5 < 3 = false
+        assert_eq!(vm_run(source, Some("f"), vec![Value::Number(2.0)]), Value::Bool(true)); // 2 < 8 = true
+    }
+
+    #[test]
+    fn vm_le_non_numeric_registers() {
+        // OP_LE numeric path (L1486): both operands are numbers but not tagged numeric
+        let source = "f x:n>b;r=?x{1:5;_:3};s=?x{1:5;_:8};<=r s";
+        assert_eq!(vm_run(source, Some("f"), vec![Value::Number(1.0)]), Value::Bool(true)); // 5 <= 5 = true
+        assert_eq!(vm_run(source, Some("f"), vec![Value::Number(2.0)]), Value::Bool(true)); // 3 <= 8 = true
+    }
+
+    #[test]
+    fn vm_multiply_non_numeric_register() {
+        // OP_MUL path: match result register (reg_is_num=false) × numeric param → OP_MUL
+        let source = "f x:n>n;r=?x{1:2;_:3};*r x";
+        assert_eq!(
+            vm_run(source, Some("f"), vec![Value::Number(1.0)]),
+            Value::Number(2.0) // r=2, x=1 → 2*1=2
+        );
+        assert_eq!(
+            vm_run(source, Some("f"), vec![Value::Number(4.0)]),
+            Value::Number(12.0) // r=3 (default arm), x=4 → 3*4=12
+        );
+    }
+
+    #[test]
+    fn vm_subtract_non_numeric_register() {
+        // OP_SUB path: match result register (reg_is_num=false) − numeric param → OP_SUB
+        let source = "f x:n>n;r=?x{1:10;_:20};-r x";
+        assert_eq!(
+            vm_run(source, Some("f"), vec![Value::Number(1.0)]),
+            Value::Number(9.0) // r=10, x=1 → 10-1=9
+        );
+        assert_eq!(
+            vm_run(source, Some("f"), vec![Value::Number(3.0)]),
+            Value::Number(17.0) // r=20 (default arm), x=3 → 20-3=17
+        );
+    }
+
+    // ---- Type-error paths in VM opcodes ----
+
+    #[test]
+    fn vm_add_number_text_type_error() {
+        // OP_ADD: bv is number, cv is text → neither both-num nor both-string nor both-heap → L1377
+        let source = "f x:n y:t>n;+x y";
+        let err = vm_run_err(source, Some("f"), vec![Value::Number(1.0), Value::Text("hi".to_string())]);
+        assert!(err.contains("cannot add"), "got: {err}");
+    }
+
+    #[test]
+    fn vm_add_heap_non_list_type_error() {
+        // OP_ADD: both heap but not both lists (list+ok) → L1374
+        // Declare params as text to avoid NN/superinstruction, pass list+ok at runtime.
+        let source = "f x:t y:t>t;+x y";
+        let list = Value::List(vec![Value::Number(1.0)]);
+        let ok_val = Value::Ok(Box::new(Value::Number(1.0)));
+        let err = vm_run_err(source, Some("f"), vec![list, ok_val]);
+        assert!(err.contains("cannot add"), "got: {err}");
+    }
+
+    #[test]
+    fn vm_mul_type_error() {
+        // OP_MUL: text × number → L1401 ("cannot multiply non-numbers")
+        let source = "f x:t y:n>n;*x y";
+        let err = vm_run_err(source, Some("f"), vec![Value::Text("hi".to_string()), Value::Number(2.0)]);
+        assert!(err.contains("multiply"), "got: {err}");
+    }
+
+    #[test]
+    fn vm_gt_type_error() {
+        // OP_GT: number > text → neither both-num nor both-string → L1446
+        let source = "f x:n y:t>b;>x y";
+        let err = vm_run_err(source, Some("f"), vec![Value::Number(1.0), Value::Text("hi".to_string())]);
+        assert!(err.contains("compare"), "got: {err}");
+    }
+
+    #[test]
+    fn vm_lt_type_error() {
+        // OP_LT: number < text → L1461
+        let source = "f x:n y:t>b;<x y";
+        let err = vm_run_err(source, Some("f"), vec![Value::Number(1.0), Value::Text("hi".to_string())]);
+        assert!(err.contains("compare"), "got: {err}");
+    }
+
+    #[test]
+    fn vm_ge_type_error() {
+        // OP_GE: number >= text → L1476
+        let source = "f x:n y:t>b;>=x y";
+        let err = vm_run_err(source, Some("f"), vec![Value::Number(1.0), Value::Text("hi".to_string())]);
+        assert!(err.contains("compare"), "got: {err}");
+    }
+
+    #[test]
+    fn vm_le_type_error() {
+        // OP_LE: number <= text → L1491
+        let source = "f x:n y:t>b;<=x y";
+        let err = vm_run_err(source, Some("f"), vec![Value::Number(1.0), Value::Text("hi".to_string())]);
+        assert!(err.contains("compare"), "got: {err}");
+    }
+
+    #[test]
+    fn vm_neg_type_error() {
+        // OP_NEG on text (unary negate) → L1514
+        let source = "f x:t>n;-x";
+        let err = vm_run_err(source, Some("f"), vec![Value::Text("hi".to_string())]);
+        assert!(err.contains("negate"), "got: {err}");
+    }
+
+    #[test]
+    fn vm_str_non_number_type_error() {
+        // OP_STR on text → L1903 ("str requires a number")
+        let source = "f x:t>t;str x";
+        let err = vm_run_err(source, Some("f"), vec![Value::Text("hi".to_string())]);
+        assert!(err.contains("str"), "got: {err}");
+    }
+
+    #[test]
+    fn vm_num_non_string_type_error() {
+        // OP_NUM on number → L1918 ("num requires a string")
+        let source = "f x:n>n;num x";
+        let err = vm_run_err(source, Some("f"), vec![Value::Number(42.0)]);
+        assert!(err.contains("num"), "got: {err}");
+    }
+
+    #[test]
+    fn vm_abs_non_number_type_error() {
+        // OP_ABS on text → L1936 ("abs requires a number")
+        let source = "f x:t>n;abs x";
+        let err = vm_run_err(source, Some("f"), vec![Value::Text("hi".to_string())]);
+        assert!(err.contains("abs"), "got: {err}");
+    }
+
+    #[test]
+    fn vm_min_non_number_type_error() {
+        // OP_MIN with non-numeric first arg → L1947 ("min/max require numbers")
+        let source = "f x:t y:n>n;min x y";
+        let err = vm_run_err(source, Some("f"), vec![Value::Text("hi".to_string()), Value::Number(2.0)]);
+        assert!(err.contains("min") || err.contains("max") || err.contains("number"), "got: {err}");
+    }
+
+    #[test]
+    fn vm_flr_non_number_type_error() {
+        // OP_FLR on text → L1959 ("flr/cel requires a number")
+        let source = "f x:t>n;flr x";
+        let err = vm_run_err(source, Some("f"), vec![Value::Text("hi".to_string())]);
+        assert!(err.contains("flr") || err.contains("number"), "got: {err}");
+    }
+
+    #[test]
+    fn vm_nan_value_number() {
+        // NanVal::number() with NaN input → canonical NaN path (L1013)
+        let result = vm_run("f x:n>n;x", Some("f"), vec![Value::Number(f64::NAN)]);
+        assert!(matches!(result, Value::Number(n) if n.is_nan()), "expected NaN, got: {:?}", result);
+    }
+
+    #[test]
+    fn vm_state_call_after_error() {
+        // VmState::call(): first call fails leaving values on stack; second call drains them (L1201-1202)
+        let source = "f x:n>n;/x 0";
+        let prog = parse_program(source);
+        let compiled = compile(&prog).unwrap();
+        let mut state = VmState::new(&compiled);
+        // First call fails (division by zero), leaving register values on the stack
+        let err1 = state.call("f", vec![Value::Number(5.0)]);
+        assert!(err1.is_err(), "expected DivisionByZero error");
+        // Second call drains leftover values from failed first call (L1201-1202)
+        let err2 = state.call("f", vec![Value::Number(3.0)]);
+        assert!(err2.is_err(), "expected DivisionByZero error again");
+    }
+
+    #[test]
+    fn vm_div_type_error() {
+        // OP_DIV: non-number operands → L1417 ("cannot divide non-numbers")
+        let source = "f x:t y:t>t;/x y";
+        let err = vm_run_err(source, Some("f"), vec![Value::Text("hi".into()), Value::Text("lo".into())]);
+        assert!(err.contains("divide"), "got: {err}");
+    }
+
+    #[test]
+    fn vm_recfld_on_non_record() {
+        // OP_RECFLD: field access on a list (heap but not record) → L1590
+        let source = "f x:t>t;x.name";
+        let err = vm_run_err(source, Some("f"), vec![Value::List(vec![])]);
+        assert!(err.contains("field access") || err.contains("record"), "got: {err}");
+    }
+
+    #[test]
+    fn vm_index_on_non_list() {
+        // OP_INDEX: index access on a string (heap but not list) → L1612
+        let source = "f x:t>t;x.0";
+        let err = vm_run_err(source, Some("f"), vec![Value::Text("hi".into())]);
+        assert!(err.contains("index") || err.contains("list"), "got: {err}");
+    }
+
+    #[test]
+    fn vm_foreach_on_non_heap() {
+        // OP_LISTGET: foreach over a number (non-heap) → L1624
+        let source = "f x:n>n;@elem x{elem}";
+        let err = vm_run_err(source, Some("f"), vec![Value::Number(5.0)]);
+        assert!(err.contains("list") || err.contains("foreach"), "got: {err}");
+    }
+
+    #[test]
+    fn vm_foreach_on_heap_non_list() {
+        // OP_LISTGET: foreach over a string (heap but not list) → L1643
+        let source = "f x:t>t;@elem x{elem}";
+        let err = vm_run_err(source, Some("f"), vec![Value::Text("hi".into())]);
+        assert!(err.contains("list") || err.contains("foreach"), "got: {err}");
+    }
+
+    #[test]
+    fn vm_with_on_non_record() {
+        // OP_RECWITH: with on a list (heap but not record) → L1786
+        let source = "f x:t>t;x with name:\"bob\"";
+        let err = vm_run_err(source, Some("f"), vec![Value::List(vec![])]);
+        assert!(err.contains("record") || err.contains("with"), "got: {err}");
+    }
+
+    #[test]
+    fn vm_len_on_heap_non_string_non_list() {
+        // OP_LEN: len of Ok value (heap but not string/list) → L1891
+        let source = "f x:t>n;len x";
+        let err = vm_run_err(source, Some("f"), vec![Value::Ok(Box::new(Value::Number(1.0)))]);
+        assert!(err.contains("len") || err.contains("string") || err.contains("list"), "got: {err}");
+    }
+
+    #[test]
+    fn vm_len_on_non_heap() {
+        // OP_LEN: len of number (non-heap, non-string) → L1894
+        let source = "f x:t>n;len x";
+        let err = vm_run_err(source, Some("f"), vec![Value::Number(5.0)]);
+        assert!(err.contains("len") || err.contains("string") || err.contains("list"), "got: {err}");
+    }
+
+    #[test]
+    fn vm_listappend_on_non_heap() {
+        // OP_LISTAPPEND: += where first arg is a number (non-heap) → L1972
+        let source = "f x:t y:t>t;+=x y";
+        let err = vm_run_err(source, Some("f"), vec![Value::Number(1.0), Value::Number(2.0)]);
+        assert!(err.contains("list") || err.contains("+="), "got: {err}");
+    }
+
+    #[test]
+    fn vm_listappend_on_heap_non_list() {
+        // OP_LISTAPPEND: += where first arg is a string (heap but not list) → L1986
+        let source = "f x:t y:t>t;+=x y";
+        let err = vm_run_err(source, Some("f"), vec![Value::Text("hi".into()), Value::Number(1.0)]);
+        assert!(err.contains("list") || err.contains("+="), "got: {err}");
+    }
+
+    // vm compile: function with 256 parameters → L285 assert panics
+    #[test]
+    #[should_panic(expected = "function has 256 parameters")]
+    fn vm_too_many_params_panics() {
+        use crate::ast::{Decl, Param, Program, Span, Type};
+        let params: Vec<Param> = (0..256)
+            .map(|i| Param { name: format!("p{i}"), ty: Type::Number })
+            .collect();
+        let prog = Program {
+            declarations: vec![Decl::Function {
+                name: "f".to_string(),
+                params,
+                body: vec![],
+                return_type: Type::Number,
+                span: Span::UNKNOWN,
+            }],
+            source: None,
+        };
+        let _ = compile(&prog);
+    }
+
+    // try_const_fold: Text BinOp non-Add → L573 `_ => None`
+    // ="hello" "world" → lv=Text, rv=Text, op=Equals → not Add → L573
+    #[test]
+    fn vm_const_fold_text_eq_no_fold() {
+        let result = vm_run(r#"f>b;="hello" "world""#, Some("f"), vec![]);
+        assert_eq!(result, Value::Bool(false));
+    }
+
+    // try_const_fold: Bool BinOp non-Eq/Ne/And/Or → L580 `_ => None`
+    // <true false → lv=Bool, rv=Bool, op=LessThan → not Eq/Ne/And/Or → L580
+    #[test]
+    fn vm_const_fold_bool_lt_no_fold() {
+        let err = vm_run_err("f>b;<true false", Some("f"), vec![]);
+        assert!(err.contains("compare") || err.contains("type"), "got: {err}");
+    }
+
+    // try_const_fold: mixed types (Bool + Number) → L582 `_ => None`
+    // +true 3 → lv=Bool(true), rv=Number(3) → _ branch at L582
+    #[test]
+    fn vm_const_fold_mixed_types_no_fold() {
+        let err = vm_run_err("f>n;+true 3", Some("f"), vec![]);
+        assert!(err.contains("add") || err.contains("type") || err.contains("number"), "got: {err}");
+    }
+
+    // try_const_fold: UnaryOp on non-Number/non-Bool literal → L590 `_ => None`
+    // !3 → v=Number(3), op=Not → _ branch at L590 (only Negate+Number and Not+Bool covered)
+    #[test]
+    fn vm_const_fold_not_on_number_no_fold() {
+        let result = vm_run("f>b;!3", Some("f"), vec![]);
+        // !3 → OP_NOT on Number(3): nanval_truthy(3.0) = true → !true = false
+        assert_eq!(result, Value::Bool(false));
     }
 }

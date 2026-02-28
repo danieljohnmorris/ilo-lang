@@ -131,4 +131,13 @@ mod tests {
         // Must be parseable JSON
         parse_json(&out);
     }
+
+    #[test]
+    fn render_warning_severity() {
+        let mut d = Diagnostic::error("unused variable");
+        d.severity = Severity::Warning;
+        let out = render(&d);
+        let v = parse_json(&out);
+        assert_eq!(v["severity"], "warning");
+    }
 }
