@@ -7,7 +7,6 @@ use crate::ast::Span;
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum Severity {
     Error,
-    #[allow(dead_code)] // forward infrastructure for future warning diagnostics
     Warning,
 }
 
@@ -33,6 +32,18 @@ impl Diagnostic {
     pub fn error(message: impl Into<String>) -> Self {
         Diagnostic {
             severity: Severity::Error,
+            code: None,
+            message: message.into(),
+            labels: Vec::new(),
+            notes: Vec::new(),
+            suggestion: None,
+            source: None,
+        }
+    }
+
+    pub fn warning(message: impl Into<String>) -> Self {
+        Diagnostic {
+            severity: Severity::Warning,
             code: None,
             message: message.into(),
             labels: Vec::new(),
@@ -94,7 +105,11 @@ impl From<&crate::lexer::LexError> for Diagnostic {
 
 impl From<&crate::parser::ParseError> for Diagnostic {
     fn from(e: &crate::parser::ParseError) -> Self {
-        Diagnostic::error(&e.message).with_code(e.code).with_span(e.span, "here")
+        let mut d = Diagnostic::error(&e.message).with_code(e.code).with_span(e.span, "here");
+        if let Some(hint) = &e.hint {
+            d = d.with_suggestion(hint.clone());
+        }
+        d
     }
 }
 
@@ -200,11 +215,34 @@ mod tests {
             position: 2,
             span: Span { start: 10, end: 15 },
             message: "expected identifier".to_string(),
+            hint: None,
         };
         let d = Diagnostic::from(&e);
         assert!(d.message.contains("expected identifier"));
         assert_eq!(d.labels[0].span, Span { start: 10, end: 15 });
         assert_eq!(d.code, Some("ILO-P005"));
+        assert!(d.suggestion.is_none());
+    }
+
+    #[test]
+    fn from_parse_error_with_hint() {
+        let e = crate::parser::ParseError {
+            code: "ILO-P001",
+            position: 0,
+            span: Span { start: 0, end: 8 },
+            message: "expected declaration, got Ident(\"function\")".to_string(),
+            hint: Some("ilo function syntax: name param:type > return-type; body".to_string()),
+        };
+        let d = Diagnostic::from(&e);
+        assert_eq!(d.suggestion.as_deref(), Some("ilo function syntax: name param:type > return-type; body"));
+    }
+
+    #[test]
+    fn diagnostic_warning_constructor() {
+        let d = Diagnostic::warning("cross-language syntax detected");
+        assert_eq!(d.severity, Severity::Warning);
+        assert_eq!(d.message, "cross-language syntax detected");
+        assert!(d.code.is_none());
     }
 
     #[test]

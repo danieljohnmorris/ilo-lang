@@ -67,6 +67,35 @@ fn detect_output_mode(args: Vec<String>) -> (OutputMode, Vec<String>) {
     (resolved, remaining)
 }
 
+/// Scan source for common cross-language patterns and emit a single warning if found.
+/// Non-fatal — program still attempts to run.
+fn warn_cross_language_syntax(source: &str, mode: OutputMode) {
+    let patterns: &[(&str, &str)] = &[
+        ("&&", "'&&' — ilo uses '&' for AND"),
+        ("||", "'||' — ilo uses '|' for OR"),
+        ("->", "'->' — ilo uses '>' for return type separator"),
+        ("==", "'==' — ilo uses '=' for equality comparison"),
+        ("//", "'//' — ilo uses '--' for comments"),
+    ];
+
+    let details: Vec<&str> = patterns
+        .iter()
+        .filter(|(pat, _)| source.contains(*pat))
+        .map(|(_, desc)| *desc)
+        .collect();
+
+    if details.is_empty() {
+        return;
+    }
+
+    let msg = format!(
+        "source contains syntax from another language: {}",
+        details.join(", ")
+    );
+    let d = Diagnostic::warning(msg);
+    report_diagnostic(&d, mode);
+}
+
 fn report_diagnostic(d: &Diagnostic, mode: OutputMode) {
     let s = match mode {
         OutputMode::Ansi => AnsiRenderer { use_color: true }.render(d),
@@ -182,6 +211,8 @@ fn main() {
         }
         (code.clone(), 2)
     };
+
+    warn_cross_language_syntax(&source, mode);
 
     let tokens = match lexer::lex(&source) {
         Ok(t) => t,

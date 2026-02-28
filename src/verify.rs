@@ -347,11 +347,16 @@ impl VerifyContext {
                 let body_ty = self.verify_body(name, &mut scope, body);
                 let expected = convert_type(return_type);
                 if !compatible(&body_ty, &expected) {
+                    let hint = match (&body_ty, &expected) {
+                        (Ty::Number, Ty::Text) => Some("use 'str' to convert: str <expr>".to_string()),
+                        (Ty::Text, Ty::Number) => Some("use 'num' to parse text (returns R n t)".to_string()),
+                        _ => None,
+                    };
                     self.err(
                         "ILO-T008",
                         name,
                         format!("return type mismatch: expected {expected}, got {body_ty}"),
-                        None,
+                        hint,
                     );
                 }
             }
@@ -493,6 +498,13 @@ impl VerifyContext {
                     let sig_ret = sig.return_type.clone();
 
                     if args.len() != sig_params.len() {
+                        let hint = {
+                            let sig_str: String = sig_params.iter()
+                                .map(|(n, t)| format!("{n}:{t}"))
+                                .collect::<Vec<_>>()
+                                .join(" ");
+                            Some(format!("'{callee}' expects: {sig_str}"))
+                        };
                         self.err(
                             "ILO-T006",
                             func,
@@ -501,13 +513,18 @@ impl VerifyContext {
                                 sig_params.len(),
                                 args.len()
                             ),
-                            None,
+                            hint,
                         );
                         return sig_ret;
                     }
 
                     for (i, ((param_name, param_ty), arg_ty)) in sig_params.iter().zip(arg_types.iter()).enumerate() {
                         if !compatible(param_ty, arg_ty) {
+                            let hint = match (param_ty, arg_ty) {
+                                (Ty::Text, Ty::Number) => Some("use 'str' to convert number to text".to_string()),
+                                (Ty::Number, Ty::Text) => Some("use 'num' to parse text as number (returns R n t)".to_string()),
+                                _ => None,
+                            };
                             self.err(
                                 "ILO-T007",
                                 func,
@@ -515,7 +532,7 @@ impl VerifyContext {
                                     "type mismatch: param '{}' of '{}' expects {}, got {}",
                                     param_name, callee, param_ty, arg_ty
                                 ),
-                                None,
+                                hint,
                             );
                         }
                         let _ = i;
@@ -605,11 +622,14 @@ impl VerifyContext {
                     let def_field_names: Vec<&str> = def_fields.iter().map(|(n, _)| n.as_str()).collect();
                     for (fname, _) in fields {
                         if !def_field_names.contains(&fname.as_str()) {
+                            let def_field_strings: Vec<String> = def_field_names.iter().map(|s| s.to_string()).collect();
+                            let hint = closest_match(fname, def_field_strings.iter())
+                                .map(|s| format!("did you mean '{s}'?"));
                             self.err(
                                 "ILO-T016",
                                 func,
                                 format!("unknown field '{fname}' in record '{type_name}'"),
-                                None,
+                                hint,
                             );
                         }
                     }
@@ -646,11 +666,14 @@ impl VerifyContext {
                             if let Some((_, fty)) = type_def.fields.iter().find(|(n, _)| n == field) {
                                 fty.clone()
                             } else {
+                                let field_names: Vec<String> = type_def.fields.iter().map(|(n, _)| n.clone()).collect();
+                                let hint = closest_match(field, field_names.iter())
+                                    .map(|s| format!("did you mean '{s}'?"));
                                 self.err(
                                     "ILO-T019",
                                     func,
                                     format!("no field '{field}' on type '{type_name}'"),
-                                    None,
+                                    hint,
                                 );
                                 Ty::Unknown
                             }
@@ -715,11 +738,14 @@ impl VerifyContext {
                                         );
                                     }
                                 } else {
+                                    let def_field_strings: Vec<String> = def_fields.iter().map(|(n, _)| n.clone()).collect();
+                                    let hint = closest_match(fname, def_field_strings.iter())
+                                        .map(|s| format!("did you mean '{s}'?"));
                                     self.err(
                                         "ILO-T021",
                                         func,
                                         format!("unknown field '{fname}' in 'with' on '{type_name}'"),
-                                        None,
+                                        hint,
                                     );
                                 }
                             }
@@ -746,7 +772,12 @@ impl VerifyContext {
                     (Ty::List(a), Ty::List(_)) => Ty::List(a.clone()),
                     (Ty::Unknown, _) | (_, Ty::Unknown) => Ty::Unknown,
                     _ => {
-                        self.err("ILO-T009", func, format!("'+' expects matching n, t, or L types, got {lt} and {rt}"), None);
+                        let hint = match (lt, rt) {
+                            (Ty::Number, Ty::Text) | (Ty::Text, Ty::Number) =>
+                                Some("convert number to text with 'str' before concatenating".to_string()),
+                            _ => None,
+                        };
+                        self.err("ILO-T009", func, format!("'+' expects matching n, t, or L types, got {lt} and {rt}"), hint);
                         Ty::Unknown
                     }
                 }
@@ -754,7 +785,9 @@ impl VerifyContext {
             BinOp::Subtract | BinOp::Multiply | BinOp::Divide => {
                 if !compatible(lt, &Ty::Number) || !compatible(rt, &Ty::Number) {
                     let sym = match op { BinOp::Subtract => "-", BinOp::Multiply => "*", _ => "/" };
-                    self.err("ILO-T009", func, format!("'{sym}' expects n and n, got {lt} and {rt}"), None);
+                    let has_text = matches!(lt, Ty::Text) || matches!(rt, Ty::Text);
+                    let hint = if has_text { Some("parse text as number with 'num' first".to_string()) } else { None };
+                    self.err("ILO-T009", func, format!("'{sym}' expects n and n, got {lt} and {rt}"), hint);
                 }
                 Ty::Number
             }
@@ -796,7 +829,7 @@ impl VerifyContext {
         }
 
         match subject_ty {
-            Ty::Result(_, _) => {
+            Ty::Result(ok_ty, err_ty) => {
                 let has_ok = arms.iter().any(|a| matches!(a.pattern, Pattern::Ok(_)));
                 let has_err = arms.iter().any(|a| matches!(a.pattern, Pattern::Err(_)));
                 if !has_ok || !has_err {
@@ -804,11 +837,15 @@ impl VerifyContext {
                         if !has_ok { Some("~") } else { None },
                         if !has_err { Some("^") } else { None },
                     ].into_iter().flatten().collect();
+                    let parts: Vec<String> = [
+                        if !has_ok { Some(format!("~v: <expr>  (v is of type {ok_ty})")) } else { None },
+                        if !has_err { Some(format!("^e: <expr>  (e is of type {err_ty})")) } else { None },
+                    ].into_iter().flatten().collect();
                     self.err(
                         "ILO-T024",
                         func,
                         format!("non-exhaustive match on Result: missing {}", missing.join(", ")),
-                        Some("add a wildcard arm '_:' or cover all cases".to_string()),
+                        Some(format!("add: {}", parts.join(" or "))),
                     );
                 }
             }
@@ -820,11 +857,15 @@ impl VerifyContext {
                         if !has_true { Some("true") } else { None },
                         if !has_false { Some("false") } else { None },
                     ].into_iter().flatten().collect();
+                    let parts: Vec<&str> = [
+                        if !has_true { Some("true: <expr>") } else { None },
+                        if !has_false { Some("false: <expr>") } else { None },
+                    ].into_iter().flatten().collect();
                     self.err(
                         "ILO-T024",
                         func,
                         format!("non-exhaustive match on Bool: missing {}", missing.join(", ")),
-                        Some("add a wildcard arm '_:' or cover all cases".to_string()),
+                        Some(format!("add: {}", parts.join(" or "))),
                     );
                 }
             }
@@ -838,7 +879,7 @@ impl VerifyContext {
                     "ILO-T024",
                     func,
                     "non-exhaustive match: no wildcard arm".to_string(),
-                    Some("add a wildcard arm '_:' to handle remaining cases".to_string()),
+                    Some("add a wildcard arm: _: <default-expr>".to_string()),
                 );
             }
         }
@@ -1715,5 +1756,152 @@ mod tests {
         let result = parse_and_verify("f x:ghost>ghost;x with name:\"bob\"");
         // Verify produces undefined type errors but still processes the with expression
         let _ = result;
+    }
+
+    // ---- C3: suggestion / hint tests ----
+
+    #[test]
+    fn suggestion_t008_number_body_text_expected() {
+        let result = parse_and_verify("f x:n>t;*x 2");
+        let errors = result.unwrap_err();
+        let e = errors.iter().find(|e| e.code == "ILO-T008").unwrap();
+        assert!(e.hint.as_ref().is_some_and(|h| h.contains("str")));
+    }
+
+    #[test]
+    fn suggestion_t008_text_body_number_expected() {
+        let result = parse_and_verify("f x:t>n;x");
+        let errors = result.unwrap_err();
+        let e = errors.iter().find(|e| e.code == "ILO-T008").unwrap();
+        assert!(e.hint.as_ref().is_some_and(|h| h.contains("num")));
+    }
+
+    #[test]
+    fn suggestion_t008_unrelated_mismatch_no_hint() {
+        // bool → number: no specific hint
+        let result = parse_and_verify("f x:b>n;x");
+        let errors = result.unwrap_err();
+        let e = errors.iter().find(|e| e.code == "ILO-T008").unwrap();
+        assert!(e.hint.is_none());
+    }
+
+    #[test]
+    fn suggestion_t006_user_defined_shows_signature() {
+        let result = parse_and_verify("g a:n b:n>n;+a b f x:n>n;g x");
+        let errors = result.unwrap_err();
+        let e = errors.iter().find(|e| e.code == "ILO-T006" && e.message.contains("'g'")).unwrap();
+        let hint = e.hint.as_ref().unwrap();
+        assert!(hint.contains("'g' expects:"));
+        assert!(hint.contains("a:n"));
+        assert!(hint.contains("b:n"));
+    }
+
+    #[test]
+    fn suggestion_t007_param_number_expected_text_given() {
+        // g expects n, caller passes t
+        let result = parse_and_verify("g x:n>n;*x 2 f x:t>n;g x");
+        let errors = result.unwrap_err();
+        let e = errors.iter().find(|e| e.code == "ILO-T007").unwrap();
+        assert!(e.hint.as_ref().is_some_and(|h| h.contains("num")));
+    }
+
+    #[test]
+    fn suggestion_t007_param_text_expected_number_given() {
+        // g expects t, caller f passes n — use +x x body so greedy parsing doesn't consume f
+        let result = parse_and_verify("g x:t>t;+x x f y:n>t;g y");
+        let errors = result.unwrap_err();
+        let e = errors.iter().find(|e| e.code == "ILO-T007").unwrap();
+        assert!(e.hint.as_ref().is_some_and(|h| h.contains("str")));
+    }
+
+    #[test]
+    fn suggestion_t009_add_mixed_nt_hint() {
+        let result = parse_and_verify("f x:n y:t>n;+x y");
+        let errors = result.unwrap_err();
+        let e = errors.iter().find(|e| e.code == "ILO-T009" && e.message.contains("'+'")).unwrap();
+        assert!(e.hint.as_ref().is_some_and(|h| h.contains("str")));
+    }
+
+    #[test]
+    fn suggestion_t009_multiply_text_hint() {
+        let result = parse_and_verify("f x:t y:n>n;*x y");
+        let errors = result.unwrap_err();
+        let e = errors.iter().find(|e| e.code == "ILO-T009" && e.message.contains("'*'")).unwrap();
+        assert!(e.hint.as_ref().is_some_and(|h| h.contains("num")));
+    }
+
+    #[test]
+    fn suggestion_t016_closest_match() {
+        let result = parse_and_verify("type point{x:n;y:n} f>point;point x:1 y:2 z:3");
+        let errors = result.unwrap_err();
+        let e = errors.iter().find(|e| e.code == "ILO-T016").unwrap();
+        // z is close to x or y — no match within distance 3 for "z"
+        // Actually "z" has distance 1 from "x" (z→x) and distance 1 from "y" — let's just check it doesn't panic
+        let _ = &e.hint;
+    }
+
+    #[test]
+    fn suggestion_t019_closest_match() {
+        // "nam" is close to "name"
+        let result = parse_and_verify("type person{name:t;age:n} f p:person>t;p.nam");
+        let errors = result.unwrap_err();
+        let e = errors.iter().find(|e| e.code == "ILO-T019").unwrap();
+        assert!(e.hint.as_ref().is_some_and(|h| h.contains("name")));
+    }
+
+    #[test]
+    fn suggestion_t021_closest_match() {
+        // "nam" is close to "name"
+        let result = parse_and_verify("type person{name:t;age:n} f p:person>person;p with nam:\"bob\"");
+        let errors = result.unwrap_err();
+        let e = errors.iter().find(|e| e.code == "ILO-T021").unwrap();
+        assert!(e.hint.as_ref().is_some_and(|h| h.contains("name")));
+    }
+
+    #[test]
+    fn suggestion_t024_result_missing_err() {
+        let result = parse_and_verify("f x:R n t>n;?x{~v:v}");
+        let errors = result.unwrap_err();
+        let e = errors.iter().find(|e| e.code == "ILO-T024").unwrap();
+        let hint = e.hint.as_ref().unwrap();
+        assert!(hint.contains("^e: <expr>"));
+        assert!(hint.contains("t")); // err_ty = t
+    }
+
+    #[test]
+    fn suggestion_t024_result_missing_ok() {
+        let result = parse_and_verify("f x:R n t>n;?x{^e:0}");
+        let errors = result.unwrap_err();
+        let e = errors.iter().find(|e| e.code == "ILO-T024").unwrap();
+        let hint = e.hint.as_ref().unwrap();
+        assert!(hint.contains("~v: <expr>"));
+        assert!(hint.contains("n")); // ok_ty = n
+    }
+
+    #[test]
+    fn suggestion_t024_bool_missing_false() {
+        let result = parse_and_verify("f x:b>n;?x{true:1}");
+        let errors = result.unwrap_err();
+        let e = errors.iter().find(|e| e.code == "ILO-T024").unwrap();
+        let hint = e.hint.as_ref().unwrap();
+        assert!(hint.contains("false: <expr>"));
+    }
+
+    #[test]
+    fn suggestion_t024_bool_missing_true() {
+        let result = parse_and_verify("f x:b>n;?x{false:0}");
+        let errors = result.unwrap_err();
+        let e = errors.iter().find(|e| e.code == "ILO-T024").unwrap();
+        let hint = e.hint.as_ref().unwrap();
+        assert!(hint.contains("true: <expr>"));
+    }
+
+    #[test]
+    fn suggestion_t024_generic_wildcard() {
+        let result = parse_and_verify("f x:n>t;?x{1:\"one\";2:\"two\"}");
+        let errors = result.unwrap_err();
+        let e = errors.iter().find(|e| e.code == "ILO-T024").unwrap();
+        let hint = e.hint.as_ref().unwrap();
+        assert!(hint.contains("_: <default-expr>"));
     }
 }

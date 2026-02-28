@@ -13,6 +13,7 @@ pub struct ParseError {
     pub position: usize,
     pub span: Span,
     pub message: String,
+    pub hint: Option<String>,
 }
 
 type Result<T> = std::result::Result<T, ParseError>;
@@ -53,7 +54,19 @@ impl Parser {
                 self.advance();
                 Ok(span)
             }
-            Some(tok) => Err(self.error("ILO-P003", format!("expected {:?}, got {:?}", expected, tok))),
+            Some(tok) => {
+                let hint = if *expected == Token::Greater
+                    && *tok == Token::Minus
+                    && self.token_at(self.pos + 1) == Some(&Token::Greater)
+                {
+                    Some("ilo uses '>' not '->' for the return type separator".to_string())
+                } else {
+                    None
+                };
+                let mut err = self.error("ILO-P003", format!("expected {:?}, got {:?}", expected, tok));
+                err.hint = hint;
+                Err(err)
+            }
             None => Err(self.error("ILO-P004", format!("expected {:?}, got EOF", expected))),
         }
     }
@@ -75,6 +88,17 @@ impl Parser {
             position: self.pos,
             span: self.peek_span(),
             message,
+            hint: None,
+        }
+    }
+
+    fn error_hint(&self, code: &'static str, message: String, hint: String) -> ParseError {
+        ParseError {
+            code,
+            position: self.pos,
+            span: self.peek_span(),
+            message,
+            hint: Some(hint),
         }
     }
 
@@ -173,19 +197,40 @@ impl Parser {
         match self.peek() {
             Some(Token::Type) => self.parse_type_decl(),
             Some(Token::Tool) => self.parse_tool_decl(),
-            Some(Token::Ident(_)) => self.parse_fn_decl(),
+            Some(Token::Ident(_)) => {
+                // Check for keywords from other languages before attempting fn parse
+                let ident_str = if let Some(Token::Ident(s)) = self.peek() { s.clone() } else { unreachable!() };
+                let hint = match ident_str.as_str() {
+                    "function" | "def" | "fn" =>
+                        Some("ilo function syntax: name param:type > return-type; body".to_string()),
+                    "let" | "var" | "const" =>
+                        Some("ilo uses assignment syntax: name = expr".to_string()),
+                    "return" =>
+                        Some("the last expression in a function body is the return value — no 'return' keyword".to_string()),
+                    "if" =>
+                        Some("ilo uses match for conditionals: ?expr{true:... false:...}".to_string()),
+                    _ => None,
+                };
+                if let Some(hint_msg) = hint {
+                    let mut err = self.error("ILO-P001", format!("expected declaration, got Ident({ident_str:?})"));
+                    err.hint = Some(hint_msg);
+                    return Err(err);
+                }
+                self.parse_fn_decl()
+            }
             Some(tok) => {
-                let hint = if matches!(tok,
+                let msg = format!("expected declaration, got {:?}", tok);
+                let hint = match tok {
                     Token::Plus | Token::Minus | Token::Star | Token::Slash
                     | Token::Greater | Token::Less | Token::GreaterEq | Token::LessEq
                     | Token::Eq | Token::NotEq | Token::Amp | Token::Pipe
-                    | Token::Bang | Token::Tilde | Token::Caret
-                ) {
-                    "\n  hint: prefix operators can't start a declaration.\n        Bind call results to variables: r=fac -n 1;*n r"
-                } else {
-                    ""
+                    | Token::Bang | Token::Tilde | Token::Caret =>
+                        Some("prefix operators can't start a declaration. Bind call results to variables: r=fac -n 1;*n r".to_string()),
+                    _ => None,
                 };
-                Err(self.error("ILO-P001", format!("expected declaration, got {:?}{}", tok, hint)))
+                let mut err = self.error("ILO-P001", msg);
+                err.hint = hint;
+                Err(err)
             }
             None => Err(self.error("ILO-P002", "expected declaration, got EOF".into())),
         }
@@ -752,8 +797,26 @@ impl Parser {
             Some(Token::LessEq) => BinOp::LessOrEqual,
             Some(Token::Eq) => BinOp::Equals,
             Some(Token::NotEq) => BinOp::NotEquals,
-            Some(Token::Amp) => BinOp::And,
-            Some(Token::Pipe) => BinOp::Or,
+            Some(Token::Amp) => {
+                if self.peek() == Some(&Token::Amp) {
+                    return Err(self.error_hint(
+                        "ILO-P003",
+                        "unexpected '&&': ilo uses single '&' for AND".to_string(),
+                        "ilo uses single '&' for AND, '|' for OR".to_string(),
+                    ));
+                }
+                BinOp::And
+            }
+            Some(Token::Pipe) => {
+                if self.peek() == Some(&Token::Pipe) {
+                    return Err(self.error_hint(
+                        "ILO-P003",
+                        "unexpected '||': ilo uses single '|' for OR".to_string(),
+                        "ilo uses single '&' for AND, '|' for OR".to_string(),
+                    ));
+                }
+                BinOp::Or
+            }
             Some(Token::PlusEq) => BinOp::Append,
             _ => unreachable!(),
         };
@@ -2123,5 +2186,101 @@ mod tests {
         let parser = Parser::new(vec![(Token::Ident("x".into()), Span::UNKNOWN)]);
         // peek() is Ident, not Semi → L472 returns false
         assert!(!parser.semi_starts_new_arm());
+    }
+
+    // ---- C3: parser hint/suggestion tests ----
+
+    #[test]
+    fn hint_p001_function_keyword() {
+        let (_, errors) = parse_str_errors("function foo() {}");
+        assert!(!errors.is_empty());
+        let e = errors.iter().find(|e| e.code == "ILO-P001").unwrap();
+        let hint = e.hint.as_ref().unwrap();
+        assert!(hint.contains("ilo function syntax"));
+    }
+
+    #[test]
+    fn hint_p001_let_keyword() {
+        let (_, errors) = parse_str_errors("let x = 5");
+        assert!(!errors.is_empty());
+        let e = errors.iter().find(|e| e.code == "ILO-P001").unwrap();
+        let hint = e.hint.as_ref().unwrap();
+        assert!(hint.contains("assignment syntax"));
+    }
+
+    #[test]
+    fn hint_p001_return_keyword() {
+        let (_, errors) = parse_str_errors("return x");
+        assert!(!errors.is_empty());
+        let e = errors.iter().find(|e| e.code == "ILO-P001").unwrap();
+        let hint = e.hint.as_ref().unwrap();
+        assert!(hint.contains("return value"));
+    }
+
+    #[test]
+    fn hint_p001_if_keyword() {
+        let (_, errors) = parse_str_errors("if x > 0 { true }");
+        assert!(!errors.is_empty());
+        let e = errors.iter().find(|e| e.code == "ILO-P001").unwrap();
+        let hint = e.hint.as_ref().unwrap();
+        assert!(hint.contains("match"));
+    }
+
+    #[test]
+    fn hint_p001_operator_at_decl_level() {
+        // '+' at declaration level — operator hint
+        let tokens = vec![
+            (Token::Plus, Span::UNKNOWN),
+            (Token::Ident("x".into()), Span::UNKNOWN),
+        ];
+        let (_, errors) = parse(tokens);
+        assert!(!errors.is_empty());
+        let e = errors.iter().find(|e| e.code == "ILO-P001").unwrap();
+        let hint = e.hint.as_ref().unwrap();
+        assert!(hint.contains("prefix operators"));
+    }
+
+    #[test]
+    fn hint_p003_arrow_instead_of_greater() {
+        // f x:n->n;x uses -> instead of >
+        let (_, errors) = parse_str_errors("f x:n->n;x");
+        // Should find an error about -> vs >
+        assert!(!errors.is_empty());
+        let e = errors.iter().find(|e| e.code == "ILO-P003").unwrap();
+        let hint = e.hint.as_ref().unwrap();
+        assert!(hint.contains("->"));
+        assert!(hint.contains(">"));
+    }
+
+    #[test]
+    fn hint_p003_double_amp() {
+        // && at expression level
+        let (_, errors) = parse_str_errors("f x:b y:b>b;&&x y");
+        let e = errors.iter().find(|e| e.code == "ILO-P003").unwrap();
+        let hint = e.hint.as_ref().unwrap();
+        assert!(hint.contains("'&'"));
+        assert!(hint.contains("'|'"));
+    }
+
+    #[test]
+    fn hint_p003_double_pipe() {
+        // || at expression level
+        let (_, errors) = parse_str_errors("f x:b y:b>b;||x y");
+        let e = errors.iter().find(|e| e.code == "ILO-P003").unwrap();
+        let hint = e.hint.as_ref().unwrap();
+        assert!(hint.contains("'|'"));
+    }
+
+    #[test]
+    fn no_hint_p001_unrecognized_token() {
+        // A token that has no specific hint
+        let tokens = vec![
+            (Token::Number(42.0), Span::UNKNOWN),
+        ];
+        let (_, errors) = parse(tokens);
+        assert!(!errors.is_empty());
+        // Should get ILO-P001 but no hint for a bare number
+        let e = errors.iter().find(|e| e.code == "ILO-P001").unwrap();
+        assert!(e.hint.is_none());
     }
 }
