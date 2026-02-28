@@ -216,7 +216,7 @@ fn call_function(env: &mut Env, name: &str, args: Vec<Value>) -> Result<Value> {
     match decl {
         Decl::Function { params, body, .. } => {
             if args.len() != params.len() {
-                return Err(RuntimeError::new("ILO-R002", format!(
+                return Err(RuntimeError::new("ILO-R004", format!(
                     "{}: expected {} args, got {}", name, params.len(), args.len()
                 )));
             }
@@ -1477,5 +1477,55 @@ mod tests {
         let source = r#"f>t;x=^"err";?x{~v:v;_:"default"}"#;
         let result = run_str(source, Some("f"), vec![]);
         assert_eq!(result, Value::Text("default".to_string()));
+    }
+
+    #[test]
+    fn interpret_match_stmt_no_arm_matches() {
+        // Standalone match statement (Stmt::Match) where no arm matches → Ok(None) at L307
+        // The match is not the last stmt; function continues to 0 after no match.
+        let source = "f x:n>n;?x{1:99};0";
+        let result = run_str(source, Some("f"), vec![Value::Number(5.0)]);
+        assert_eq!(result, Value::Number(0.0));
+    }
+
+    #[test]
+    fn interpret_match_arm_body_with_guard_return() {
+        // Match arm body contains a guard that fires → BodyResult::Return propagates (L297)
+        // When x=1: pattern 1 matches, arm body has guard >=x 0 which is true → returns 42
+        // The match is not the last stmt (y=0 is first), so BodyResult::Return propagation matters
+        // Note: arm body syntax uses `;` not braces: `1:>=x 0{42}` means guard in arm 1 body
+        let source = "f x:n>n;y=0;?x{1:>=x 0{42};_:0}";
+        let result = run_str(source, Some("f"), vec![Value::Number(1.0)]);
+        assert_eq!(result, Value::Number(42.0));
+    }
+
+    // L239: call_function with Decl::TypeDef → "is a type, not callable"
+    #[test]
+    fn call_typedef_as_function() {
+        let mut env = Env::new();
+        // Manually insert a TypeDef into the env's functions map
+        env.functions.insert("point".to_string(), Decl::TypeDef {
+            name: "point".to_string(),
+            fields: vec![],
+            span: Span::UNKNOWN,
+        });
+        let result = call_function(&mut env, "point", vec![]);
+        assert!(result.is_err());
+        let err = result.unwrap_err();
+        assert!(err.to_string().contains("is a type, not callable"), "got: {}", err);
+    }
+
+    // L242: call_function with Decl::Error → "failed to parse"
+    #[test]
+    fn call_error_decl_as_function() {
+        let mut env = Env::new();
+        // Manually insert a Decl::Error into the env's functions map
+        env.functions.insert("broken".to_string(), Decl::Error {
+            span: Span::UNKNOWN,
+        });
+        let result = call_function(&mut env, "broken", vec![]);
+        assert!(result.is_err());
+        let err = result.unwrap_err();
+        assert!(err.to_string().contains("failed to parse"), "got: {}", err);
     }
 }
