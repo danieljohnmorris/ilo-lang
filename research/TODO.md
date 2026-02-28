@@ -52,31 +52,31 @@ Manifesto principle: "Verification before execution. All calls resolve, all type
 
 Gives spans, structured diagnostics, and dual-mode output (human + machine).
 
-### B1. Span infrastructure
-- [ ] Add `Span { start: usize, end: usize }` type to AST module
-- [ ] Lexer: attach `Span` to every token (already has byte `position`, extend to start/end)
-- [ ] Parser: attach `Span` to every `Expr`, `Stmt`, `Decl`, `Pattern`, `MatchArm` node
-- [ ] Source map helper: byte offset → line:col conversion (store original source or line start offsets)
+### B1. Span infrastructure ✓
+- [x] Add `Span { start: usize, end: usize }` type to AST module
+- [x] Lexer: attach `Span` to every token (already has byte `position`, extend to start/end)
+- [x] Parser: attach `Span` to every `Expr`, `Stmt`, `Decl`, `Pattern`, `MatchArm` node
+- [x] Source map helper: byte offset → line:col conversion (store original source or line start offsets)
 
-### B2. Diagnostic data model
-- [ ] `Diagnostic` struct: severity, code, message, primary span, secondary spans (with labels), suggestion (optional), notes
-- [ ] `Severity` enum: Error, Warning, Hint
-- [ ] `Suggestion` struct: message, replacement text, span, confidence (MachineApplicable / MaybeIncorrect)
-- [ ] Collect diagnostics into a `Vec<Diagnostic>` instead of returning early on first error
+### B2. Diagnostic data model ✓
+- [x] `Diagnostic` struct: severity, code, message, primary span, secondary spans (with labels), suggestion (optional), notes
+- [x] `Severity` enum: Error, Warning, Hint
+- [x] `Suggestion` struct: message, replacement text, span, confidence (MachineApplicable / MaybeIncorrect)
+- [x] Collect diagnostics into a `Vec<Diagnostic>` instead of returning early on first error
 
-### B3. Renderers
-- [ ] Human renderer (ANSI): header line, `-->` location, gutter + source lines, labeled underlines (`^^^`), colored by severity
-- [ ] JSON renderer: structured output matching the Diagnostic model, one JSON object per diagnostic
-- [ ] Auto-detect: TTY → ANSI, piped → JSON. Override with `--json`/`-j`, `--text`/`-t`, `--ansi`/`-a` (mutually exclusive, error if multiple)
-- [ ] Respect `NO_COLOR` env var
-- [ ] Show full function source in errors (leverage ilo's density — whole function fits in one line)
+### B3. Renderers ✓
+- [x] Human renderer (ANSI): header line, `-->` location, gutter + source lines, labeled underlines (`^^^`), colored by severity
+- [x] JSON renderer: structured output matching the Diagnostic model, one JSON object per diagnostic
+- [x] Auto-detect: TTY → ANSI, piped → JSON. Override with `--json`/`-j`, `--text`/`-t`, `--ansi`/`-a` (mutually exclusive, error if multiple)
+- [x] Respect `NO_COLOR` env var
+- [x] Show full function source in errors (leverage ilo's density — whole function fits in one line)
 
-### B4. Wire up existing errors
-- [ ] Lexer errors → Diagnostic with span (already has byte position)
-- [ ] Parser errors → Diagnostic with span (currently only token index)
-- [ ] Verifier errors → Diagnostic with span (currently no position, just function name)
-- [ ] Interpreter runtime errors → Diagnostic with span where possible
-- [ ] VM runtime errors → Diagnostic (may need instruction-to-span mapping table from compiler)
+### B4. Wire up existing errors ✓
+- [x] Lexer errors → Diagnostic with span
+- [x] Parser errors → Diagnostic with span (C1 error recovery — multi-error)
+- [x] Verifier errors → Diagnostic with span
+- [x] Interpreter runtime errors → Diagnostic (no span — deferred to C4)
+- [x] VM runtime errors → Diagnostic (no span — deferred to C4)
 
 ## Error messages — Phase C (polish, do after grammar stabilises)
 
