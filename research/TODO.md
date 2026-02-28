@@ -94,12 +94,12 @@ After language features settle.
 - [x] `--explain ILO-T001` flag: print expanded explanation with examples
 - [x] Include code in both human and JSON output
 
-### C3. Suggestions and Fix-Its
-- [ ] "Did you mean?" for undefined variables/functions — Damerau-Levenshtein, threshold `max(1, len/3)`, scope-aware
-- [ ] Type mismatch suggestions — e.g. "use `num` to convert text to number"
-- [ ] Missing pattern arm suggestions — list the uncovered cases
-- [ ] Arity mismatch — show expected vs actual signature
-- [ ] Cross-language syntax detection — detect `===`, `&&`, `||`, `function`, `def`, `fn` and suggest ilo equivalents
+### C3. Suggestions and Fix-Its ✓
+- [x] "Did you mean?" for undefined variables/functions — Damerau-Levenshtein, threshold `max(1, len/3)`, scope-aware
+- [x] Type mismatch suggestions — e.g. "use `num` to convert text to number"
+- [x] Missing pattern arm suggestions — list the uncovered cases
+- [x] Arity mismatch — show expected vs actual signature
+- [x] Cross-language syntax detection — detect `===`, `&&`, `||`, `function`, `def`, `fn` and suggest ilo equivalents
 
 ### C4. Runtime source mapping
 - [ ] Compiler: emit instruction-to-span table alongside bytecode
