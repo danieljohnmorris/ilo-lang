@@ -9,6 +9,7 @@ pub struct Parser {
 #[derive(Debug, thiserror::Error)]
 #[error("Parse error at token {position}: {message}")]
 pub struct ParseError {
+    pub code: &'static str,
     pub position: usize,
     pub span: Span,
     pub message: String,
@@ -52,8 +53,8 @@ impl Parser {
                 self.advance();
                 Ok(span)
             }
-            Some(tok) => Err(self.error(format!("expected {:?}, got {:?}", expected, tok))),
-            None => Err(self.error(format!("expected {:?}, got EOF", expected))),
+            Some(tok) => Err(self.error("ILO-P003", format!("expected {:?}, got {:?}", expected, tok))),
+            None => Err(self.error("ILO-P004", format!("expected {:?}, got EOF", expected))),
         }
     }
 
@@ -63,13 +64,14 @@ impl Parser {
                 self.advance();
                 Ok(name)
             }
-            Some(tok) => Err(self.error(format!("expected identifier, got {:?}", tok))),
-            None => Err(self.error("expected identifier, got EOF".into())),
+            Some(tok) => Err(self.error("ILO-P005", format!("expected identifier, got {:?}", tok))),
+            None => Err(self.error("ILO-P006", "expected identifier, got EOF".into())),
         }
     }
 
-    fn error(&self, message: String) -> ParseError {
+    fn error(&self, code: &'static str, message: String) -> ParseError {
         ParseError {
+            code,
             position: self.pos,
             span: self.peek_span(),
             message,
@@ -183,9 +185,9 @@ impl Parser {
                 } else {
                     ""
                 };
-                Err(self.error(format!("expected declaration, got {:?}{}", tok, hint)))
+                Err(self.error("ILO-P001", format!("expected declaration, got {:?}{}", tok, hint)))
             }
-            None => Err(self.error("expected declaration, got EOF".into())),
+            None => Err(self.error("ILO-P002", "expected declaration, got EOF".into())),
         }
     }
 
@@ -220,7 +222,7 @@ impl Parser {
                 self.advance();
                 s
             }
-            _ => return Err(self.error("expected tool description string".into())),
+            _ => return Err(self.error("ILO-P015", "expected tool description string".into())),
         };
         let params = self.parse_params()?;
         self.expect(&Token::Greater)?;
@@ -326,8 +328,8 @@ impl Parser {
                 self.advance();
                 Ok(Type::Named(name))
             }
-            Some(tok) => Err(self.error(format!("expected type, got {:?}", tok))),
-            None => Err(self.error("expected type, got EOF".into())),
+            Some(tok) => Err(self.error("ILO-P007", format!("expected type, got {:?}", tok))),
+            None => Err(self.error("ILO-P008", "expected type, got EOF".into())),
         }
     }
 
@@ -565,8 +567,8 @@ impl Parser {
                 self.advance();
                 Ok(Pattern::Literal(Literal::Bool(false)))
             }
-            Some(tok) => Err(self.error(format!("expected pattern, got {:?}", tok))),
-            None => Err(self.error("expected pattern, got EOF".into())),
+            Some(tok) => Err(self.error("ILO-P011", format!("expected pattern, got {:?}", tok))),
+            None => Err(self.error("ILO-P012", "expected pattern, got EOF".into())),
         }
     }
 
@@ -976,8 +978,8 @@ impl Parser {
                 }
                 Ok(expr)
             }
-            Some(tok) => Err(self.error(format!("expected expression, got {:?}", tok))),
-            None => Err(self.error("expected expression, got EOF".into())),
+            Some(tok) => Err(self.error("ILO-P009", format!("expected expression, got {:?}", tok))),
+            None => Err(self.error("ILO-P010", "expected expression, got EOF".into())),
         }
     }
 
@@ -987,8 +989,8 @@ impl Parser {
                 self.advance();
                 Ok(n)
             }
-            Some(tok) => Err(self.error(format!("expected number, got {:?}", tok))),
-            None => Err(self.error("expected number, got EOF".into())),
+            Some(tok) => Err(self.error("ILO-P013", format!("expected number, got {:?}", tok))),
+            None => Err(self.error("ILO-P014", "expected number, got EOF".into())),
         }
     }
 }

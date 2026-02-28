@@ -374,7 +374,7 @@ fn verify_undefined_variable() {
         .expect("failed to run ilo");
     assert!(!out.status.success());
     let stderr = String::from_utf8_lossy(&out.stderr);
-    assert!(stderr.contains("error:"), "expected error in stderr, got: {}", stderr);
+    assert!(stderr.contains("error[ILO-T004]"), "expected error in stderr, got: {}", stderr);
     assert!(stderr.contains("undefined variable 'y'"), "expected undefined var error, got: {}", stderr);
 }
 
@@ -386,7 +386,7 @@ fn verify_undefined_function() {
         .expect("failed to run ilo");
     assert!(!out.status.success());
     let stderr = String::from_utf8_lossy(&out.stderr);
-    assert!(stderr.contains("error:"), "expected error in stderr, got: {}", stderr);
+    assert!(stderr.contains("error[ILO-T005]"), "expected error in stderr, got: {}", stderr);
     assert!(stderr.contains("undefined function 'foo'"), "expected undefined func error, got: {}", stderr);
 }
 
@@ -409,7 +409,7 @@ fn verify_type_mismatch() {
         .expect("failed to run ilo");
     assert!(!out.status.success());
     let stderr = String::from_utf8_lossy(&out.stderr);
-    assert!(stderr.contains("error:"), "expected error in stderr, got: {}", stderr);
+    assert!(stderr.contains("error[ILO-T009]"), "expected error in stderr, got: {}", stderr);
 }
 
 #[test]
@@ -481,7 +481,7 @@ fn text_flag_produces_plain_error() {
         .expect("failed to run ilo");
     assert!(!out.status.success());
     let stderr = String::from_utf8_lossy(&out.stderr);
-    assert!(stderr.contains("error:"), "expected 'error:' in stderr: {}", stderr);
+    assert!(stderr.contains("error["), "expected 'error[' in stderr: {}", stderr);
     // No ANSI codes
     assert!(!stderr.contains("\x1b["), "unexpected ANSI codes in text mode: {}", stderr);
 }

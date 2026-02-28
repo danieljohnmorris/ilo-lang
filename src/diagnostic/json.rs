@@ -32,6 +32,10 @@ pub fn render(d: &Diagnostic) -> String {
         "notes": d.notes,
     });
 
+    if let Some(code) = d.code {
+        obj["code"] = serde_json::Value::String(code.to_string());
+    }
+
     if let Some(s) = &d.suggestion {
         obj["suggestion"] = serde_json::Value::String(s.clone());
     }

@@ -51,12 +51,13 @@ impl std::fmt::Display for Value {
 #[derive(Debug, thiserror::Error)]
 #[error("Runtime error: {message}")]
 pub struct RuntimeError {
+    pub code: &'static str,
     pub message: String,
 }
 
 impl RuntimeError {
-    fn new(msg: impl Into<String>) -> Self {
-        RuntimeError { message: msg.into() }
+    fn new(code: &'static str, msg: impl Into<String>) -> Self {
+        RuntimeError { code, message: msg.into() }
     }
 }
 
@@ -95,12 +96,12 @@ impl Env {
                 return Ok(val.clone());
             }
         }
-        Err(RuntimeError::new(format!("undefined variable: {}", name)))
+        Err(RuntimeError::new("ILO-R001", format!("undefined variable: {}", name)))
     }
 
     fn function(&self, name: &str) -> Result<Decl> {
         self.functions.get(name).cloned().ok_or_else(|| {
-            RuntimeError::new(format!("undefined function: {}", name))
+            RuntimeError::new("ILO-R002", format!("undefined function: {}", name))
         })
     }
 }
@@ -136,7 +137,7 @@ pub fn run(program: &Program, func_name: Option<&str>, args: Vec<Value>) -> Resu
                     Decl::Function { name, .. } => Some(name.clone()),
                     _ => None,
                 })
-                .ok_or_else(|| RuntimeError::new("no functions defined"))?
+                .ok_or_else(|| RuntimeError::new("ILO-R012", "no functions defined"))?
         }
     };
 
@@ -147,17 +148,17 @@ fn call_function(env: &mut Env, name: &str, args: Vec<Value>) -> Result<Value> {
     // Builtins
     if name == "len" {
         if args.len() != 1 {
-            return Err(RuntimeError::new(format!("len: expected 1 arg, got {}", args.len())));
+            return Err(RuntimeError::new("ILO-R009", format!("len: expected 1 arg, got {}", args.len())));
         }
         return match &args[0] {
             Value::Text(s) => Ok(Value::Number(s.len() as f64)),
             Value::List(l) => Ok(Value::Number(l.len() as f64)),
-            other => Err(RuntimeError::new(format!("len requires string or list, got {:?}", other))),
+            other => Err(RuntimeError::new("ILO-R009", format!("len requires string or list, got {:?}", other))),
         };
     }
     if name == "str" {
         if args.len() != 1 {
-            return Err(RuntimeError::new(format!("str: expected 1 arg, got {}", args.len())));
+            return Err(RuntimeError::new("ILO-R009", format!("str: expected 1 arg, got {}", args.len())));
         }
         return match &args[0] {
             Value::Number(n) => {
@@ -168,28 +169,28 @@ fn call_function(env: &mut Env, name: &str, args: Vec<Value>) -> Result<Value> {
                 };
                 Ok(Value::Text(s))
             }
-            other => Err(RuntimeError::new(format!("str requires a number, got {:?}", other))),
+            other => Err(RuntimeError::new("ILO-R009", format!("str requires a number, got {:?}", other))),
         };
     }
     if name == "num" {
         if args.len() != 1 {
-            return Err(RuntimeError::new(format!("num: expected 1 arg, got {}", args.len())));
+            return Err(RuntimeError::new("ILO-R009", format!("num: expected 1 arg, got {}", args.len())));
         }
         return match &args[0] {
             Value::Text(s) => match s.parse::<f64>() {
                 Ok(n) => Ok(Value::Ok(Box::new(Value::Number(n)))),
                 Err(_) => Ok(Value::Err(Box::new(Value::Text(s.clone())))),
             },
-            other => Err(RuntimeError::new(format!("num requires text, got {:?}", other))),
+            other => Err(RuntimeError::new("ILO-R009", format!("num requires text, got {:?}", other))),
         };
     }
     if name == "abs" {
         if args.len() != 1 {
-            return Err(RuntimeError::new(format!("abs: expected 1 arg, got {}", args.len())));
+            return Err(RuntimeError::new("ILO-R009", format!("abs: expected 1 arg, got {}", args.len())));
         }
         return match &args[0] {
             Value::Number(n) => Ok(Value::Number(n.abs())),
-            other => Err(RuntimeError::new(format!("abs requires a number, got {:?}", other))),
+            other => Err(RuntimeError::new("ILO-R009", format!("abs requires a number, got {:?}", other))),
         };
     }
     if (name == "min" || name == "max") && args.len() == 2 {
@@ -198,7 +199,7 @@ fn call_function(env: &mut Env, name: &str, args: Vec<Value>) -> Result<Value> {
                 let result = if name == "min" { a.min(*b) } else { a.max(*b) };
                 Ok(Value::Number(result))
             }
-            _ => Err(RuntimeError::new(format!("{} requires two numbers", name))),
+            _ => Err(RuntimeError::new("ILO-R009", format!("{} requires two numbers", name))),
         };
     }
     if (name == "flr" || name == "cel") && args.len() == 1 {
@@ -207,7 +208,7 @@ fn call_function(env: &mut Env, name: &str, args: Vec<Value>) -> Result<Value> {
                 let result = if name == "flr" { n.floor() } else { n.ceil() };
                 Ok(Value::Number(result))
             }
-            other => Err(RuntimeError::new(format!("{} requires a number, got {:?}", name, other))),
+            other => Err(RuntimeError::new("ILO-R009", format!("{} requires a number, got {:?}", name, other))),
         };
     }
 
@@ -215,7 +216,7 @@ fn call_function(env: &mut Env, name: &str, args: Vec<Value>) -> Result<Value> {
     match decl {
         Decl::Function { params, body, .. } => {
             if args.len() != params.len() {
-                return Err(RuntimeError::new(format!(
+                return Err(RuntimeError::new("ILO-R002", format!(
                     "{}: expected {} args, got {}", name, params.len(), args.len()
                 )));
             }
@@ -235,10 +236,10 @@ fn call_function(env: &mut Env, name: &str, args: Vec<Value>) -> Result<Value> {
             Ok(Value::Ok(Box::new(Value::Nil)))
         }
         Decl::TypeDef { .. } => {
-            Err(RuntimeError::new(format!("{} is a type, not callable", name)))
+            Err(RuntimeError::new("ILO-R004", format!("{} is a type, not callable", name)))
         }
         Decl::Error { .. } => {
-            Err(RuntimeError::new(format!("{} failed to parse", name)))
+            Err(RuntimeError::new("ILO-R002", format!("{} failed to parse", name)))
         }
     }
 }
@@ -324,7 +325,7 @@ fn eval_stmt(env: &mut Env, stmt: &Stmt, is_last: bool) -> Result<Option<BodyRes
                     }
                     Ok(Some(BodyResult::Value(last)))
                 }
-                _ => Err(RuntimeError::new("foreach requires a list")),
+                _ => Err(RuntimeError::new("ILO-R007", "foreach requires a list")),
             }
         }
         Stmt::Expr(expr) => {
@@ -343,10 +344,10 @@ fn eval_expr(env: &mut Env, expr: &Expr) -> Result<Value> {
             match obj {
                 Value::Record { fields, .. } => {
                     fields.get(field).cloned().ok_or_else(|| {
-                        RuntimeError::new(format!("no field '{}' on record", field))
+                        RuntimeError::new("ILO-R005", format!("no field '{}' on record", field))
                     })
                 }
-                _ => Err(RuntimeError::new(format!("cannot access field '{}' on non-record", field))),
+                _ => Err(RuntimeError::new("ILO-R005", format!("cannot access field '{}' on non-record", field))),
             }
         }
         Expr::Index { object, index } => {
@@ -354,10 +355,10 @@ fn eval_expr(env: &mut Env, expr: &Expr) -> Result<Value> {
             match obj {
                 Value::List(items) => {
                     items.get(*index).cloned().ok_or_else(|| {
-                        RuntimeError::new(format!("list index {} out of bounds (len {})", index, items.len()))
+                        RuntimeError::new("ILO-R006", format!("list index {} out of bounds (len {})", index, items.len()))
                     })
                 }
-                _ => Err(RuntimeError::new("index access on non-list")),
+                _ => Err(RuntimeError::new("ILO-R006", "index access on non-list")),
             }
         }
         Expr::Call { function, args } => {
@@ -387,7 +388,7 @@ fn eval_expr(env: &mut Env, expr: &Expr) -> Result<Value> {
                 UnaryOp::Not => Ok(Value::Bool(!is_truthy(&val))),
                 UnaryOp::Negate => match val {
                     Value::Number(n) => Ok(Value::Number(-n)),
-                    _ => Err(RuntimeError::new("cannot negate non-number")),
+                    _ => Err(RuntimeError::new("ILO-R004", "cannot negate non-number")),
                 },
             }
         }
@@ -445,7 +446,7 @@ fn eval_expr(env: &mut Env, expr: &Expr) -> Result<Value> {
                     }
                     Ok(Value::Record { type_name, fields })
                 }
-                _ => Err(RuntimeError::new("'with' requires a record")),
+                _ => Err(RuntimeError::new("ILO-R008", "'with' requires a record")),
             }
         }
     }
@@ -467,7 +468,7 @@ fn eval_binop(op: &BinOp, left: &Value, right: &Value) -> Result<Value> {
         (BinOp::Multiply, Value::Number(a), Value::Number(b)) => Ok(Value::Number(a * b)),
         (BinOp::Divide, Value::Number(a), Value::Number(b)) => {
             if *b == 0.0 {
-                Err(RuntimeError::new("division by zero"))
+                Err(RuntimeError::new("ILO-R003", "division by zero"))
             } else {
                 Ok(Value::Number(a / b))
             }
@@ -505,7 +506,7 @@ fn eval_binop(op: &BinOp, left: &Value, right: &Value) -> Result<Value> {
         // Equality
         (BinOp::Equals, a, b) => Ok(Value::Bool(values_equal(a, b))),
         (BinOp::NotEquals, a, b) => Ok(Value::Bool(!values_equal(a, b))),
-        _ => Err(RuntimeError::new(format!(
+        _ => Err(RuntimeError::new("ILO-R004", format!(
             "unsupported operation: {:?} on {:?} and {:?}", op, left, right
         ))),
     }

@@ -123,10 +123,13 @@ pub fn lex(source: &str) -> Result<Vec<(Token, std::ops::Range<usize>)>, LexErro
             Ok(token) => tokens.push((token, lexer.span())),
             Err(()) => {
                 let span = lexer.span();
+                let bad = &source[span.clone()];
+                let (code, suggestion) = lex_error_kind(bad);
                 return Err(LexError {
+                    code,
                     position: span.start,
-                    snippet: source[span.clone()].to_string(),
-                    suggestion: suggest_fix(&source[span.clone()]),
+                    snippet: bad.to_string(),
+                    suggestion,
                 });
             }
         }
@@ -135,25 +138,29 @@ pub fn lex(source: &str) -> Result<Vec<(Token, std::ops::Range<usize>)>, LexErro
     Ok(tokens)
 }
 
-fn suggest_fix(bad_token: &str) -> String {
+fn lex_error_kind(bad_token: &str) -> (&'static str, String) {
     if bad_token.contains('_') && bad_token.len() > 1 {
-        format!(
-            "Use hyphens instead of underscores: '{}'",
-            bad_token.replace('_', "-")
+        (
+            "ILO-L002",
+            format!("Use hyphens instead of underscores: '{}'", bad_token.replace('_', "-")),
         )
     } else if bad_token.chars().next().is_some_and(|c| c.is_uppercase()) && bad_token.len() > 1 {
-        format!(
-            "Use lowercase: '{}'",
-            bad_token.to_lowercase()
+        (
+            "ILO-L003",
+            format!("Use lowercase: '{}'", bad_token.to_lowercase()),
         )
     } else {
-        format!("Unexpected character(s): '{}'", bad_token)
+        (
+            "ILO-L001",
+            format!("Unexpected character(s): '{bad_token}'"),
+        )
     }
 }
 
 #[derive(Debug, thiserror::Error)]
 #[error("Lex error at position {position}: '{snippet}'. {suggestion}")]
 pub struct LexError {
+    pub code: &'static str,
     pub position: usize,
     pub snippet: String,
     pub suggestion: String,
@@ -280,20 +287,22 @@ mod tests {
 
     #[test]
     fn lex_suggest_fix_underscore() {
-        // suggest_fix is called with the bad token snippet — test it directly
-        let suggestion = super::suggest_fix("my_func");
+        let (code, suggestion) = super::lex_error_kind("my_func");
+        assert_eq!(code, "ILO-L002");
         assert!(suggestion.contains("my-func"), "got: {}", suggestion);
     }
 
     #[test]
     fn lex_suggest_fix_uppercase() {
-        let suggestion = super::suggest_fix("MyFunc");
+        let (code, suggestion) = super::lex_error_kind("MyFunc");
+        assert_eq!(code, "ILO-L003");
         assert!(suggestion.contains("myfunc"), "got: {}", suggestion);
     }
 
     #[test]
     fn lex_suggest_fix_generic() {
-        let suggestion = super::suggest_fix("$");
+        let (code, suggestion) = super::lex_error_kind("$");
+        assert_eq!(code, "ILO-L001");
         assert!(suggestion.contains("Unexpected character"), "got: {}", suggestion);
     }
 }

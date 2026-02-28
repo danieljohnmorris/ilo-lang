@@ -25,12 +25,16 @@ impl AnsiRenderer {
     pub fn render(&self, d: &Diagnostic) -> String {
         let mut out = String::new();
 
-        // "error: message"
+        // "error[ILO-T007]: message"
         let severity_label = match d.severity {
             Severity::Error => self.bold_red("error"),
             Severity::Warning => self.bold(&self.cyan("warning")),
         };
-        out.push_str(&format!("{}: {}\n", severity_label, self.bold(&d.message)));
+        let code_part = match d.code {
+            Some(code) => self.bold(&format!("[{code}]")),
+            None => String::new(),
+        };
+        out.push_str(&format!("{}{}: {}\n", severity_label, code_part, self.bold(&d.message)));
 
         // Render primary label with source snippet
         let primary = d.labels.iter().find(|l| l.is_primary);

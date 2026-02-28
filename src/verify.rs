@@ -33,6 +33,7 @@ impl std::fmt::Display for Ty {
 
 #[derive(Debug, Clone)]
 pub struct VerifyError {
+    pub code: &'static str,
     pub function: String,
     pub message: String,
     pub hint: Option<String>,
@@ -165,6 +166,7 @@ fn builtin_check_args(name: &str, arg_types: &[Ty], func_ctx: &str) -> (Ty, Vec<
                 match arg {
                     Ty::List(_) | Ty::Text | Ty::Unknown => {}
                     other => errors.push(VerifyError {
+                        code: "ILO-T013",
                         function: func_ctx.to_string(),
                         message: format!("'len' expects a list or text, got {other}"),
                         hint: None,
@@ -178,6 +180,7 @@ fn builtin_check_args(name: &str, arg_types: &[Ty], func_ctx: &str) -> (Ty, Vec<
                 && !compatible(arg, &Ty::Number)
             {
                 errors.push(VerifyError {
+                    code: "ILO-T013",
                     function: func_ctx.to_string(),
                     message: format!("'str' expects n, got {arg}"),
                     hint: None,
@@ -190,6 +193,7 @@ fn builtin_check_args(name: &str, arg_types: &[Ty], func_ctx: &str) -> (Ty, Vec<
                 && !compatible(arg, &Ty::Text)
             {
                 errors.push(VerifyError {
+                    code: "ILO-T013",
                     function: func_ctx.to_string(),
                     message: format!("'num' expects t, got {arg}"),
                     hint: None,
@@ -202,6 +206,7 @@ fn builtin_check_args(name: &str, arg_types: &[Ty], func_ctx: &str) -> (Ty, Vec<
                 && !compatible(arg, &Ty::Number)
             {
                 errors.push(VerifyError {
+                    code: "ILO-T013",
                     function: func_ctx.to_string(),
                     message: format!("'{name}' expects n, got {arg}"),
                     hint: None,
@@ -213,6 +218,7 @@ fn builtin_check_args(name: &str, arg_types: &[Ty], func_ctx: &str) -> (Ty, Vec<
             for (i, arg) in arg_types.iter().enumerate() {
                 if !compatible(arg, &Ty::Number) {
                     errors.push(VerifyError {
+                        code: "ILO-T013",
                         function: func_ctx.to_string(),
                         message: format!("'{name}' arg {} expects n, got {arg}", i + 1),
                         hint: None,
@@ -234,8 +240,9 @@ impl VerifyContext {
         }
     }
 
-    fn err(&mut self, function: &str, message: String, hint: Option<String>) {
+    fn err(&mut self, code: &'static str, function: &str, message: String, hint: Option<String>) {
         self.errors.push(VerifyError {
+            code,
             function: function.to_string(),
             message,
             hint,
@@ -248,7 +255,7 @@ impl VerifyContext {
         for decl in &program.declarations {
             if let Decl::TypeDef { name, fields, .. } = decl {
                 if self.types.contains_key(name) {
-                    self.err("<global>", format!("duplicate type definition '{name}'"), None);
+                    self.err("ILO-T001", "<global>", format!("duplicate type definition '{name}'"), None);
                 } else {
                     let fields: Vec<(String, Ty)> = fields
                         .iter()
@@ -264,7 +271,7 @@ impl VerifyContext {
             match decl {
                 Decl::Function { name, params, return_type, .. } => {
                     if self.functions.contains_key(name) {
-                        self.err("<global>", format!("duplicate function definition '{name}'"), None);
+                        self.err("ILO-T002", "<global>", format!("duplicate function definition '{name}'"), None);
                         continue;
                     }
                     let params: Vec<(String, Ty)> = params
@@ -277,7 +284,7 @@ impl VerifyContext {
                 }
                 Decl::Tool { name, params, return_type, .. } => {
                     if self.functions.contains_key(name) {
-                        self.err("<global>", format!("duplicate definition '{name}' (tool conflicts with function)"), None);
+                        self.err("ILO-T002", "<global>", format!("duplicate definition '{name}' (tool conflicts with function)"), None);
                         continue;
                     }
                     let params: Vec<(String, Ty)> = params
@@ -316,7 +323,7 @@ impl VerifyContext {
                 if !self.types.contains_key(name) {
                     let hint = closest_match(name, self.types.keys())
                         .map(|s| format!("did you mean '{s}'?"));
-                    self.err(ctx, format!("undefined type '{name}'"), hint);
+                    self.err("ILO-T003", ctx, format!("undefined type '{name}'"), hint);
                 }
             }
             Ty::List(inner) => self.validate_named_type_recursive(inner, ctx),
@@ -341,6 +348,7 @@ impl VerifyContext {
                 let expected = convert_type(return_type);
                 if !compatible(&body_ty, &expected) {
                     self.err(
+                        "ILO-T008",
                         name,
                         format!("return type mismatch: expected {expected}, got {body_ty}"),
                         None,
@@ -399,7 +407,7 @@ impl VerifyContext {
                     Ty::List(inner) => *inner.clone(),
                     Ty::Unknown => Ty::Unknown,
                     other => {
-                        self.err(func, format!("foreach expects a list, got {other}"), None);
+                        self.err("ILO-T014", func, format!("foreach expects a list, got {other}"), None);
                         Ty::Unknown
                     }
                 };
@@ -456,7 +464,7 @@ impl VerifyContext {
                         .collect();
                     let hint = closest_match(name, candidates.iter())
                         .map(|s| format!("did you mean '{s}'?"));
-                    self.err(func, format!("undefined variable '{name}'"), hint);
+                    self.err("ILO-T004", func, format!("undefined variable '{name}'"), hint);
                     Ty::Unknown
                 }
             }
@@ -470,6 +478,7 @@ impl VerifyContext {
                     let expected_arity = builtin_arity(callee).unwrap();
                     if args.len() != expected_arity {
                         self.err(
+                            "ILO-T006",
                             func,
                             format!("arity mismatch: '{callee}' expects {expected_arity} args, got {}", args.len()),
                             None,
@@ -485,6 +494,7 @@ impl VerifyContext {
 
                     if args.len() != sig_params.len() {
                         self.err(
+                            "ILO-T006",
                             func,
                             format!(
                                 "arity mismatch: '{callee}' expects {} args, got {}",
@@ -499,6 +509,7 @@ impl VerifyContext {
                     for (i, ((param_name, param_ty), arg_ty)) in sig_params.iter().zip(arg_types.iter()).enumerate() {
                         if !compatible(param_ty, arg_ty) {
                             self.err(
+                                "ILO-T007",
                                 func,
                                 format!(
                                     "type mismatch: param '{}' of '{}' expects {}, got {}",
@@ -519,6 +530,7 @@ impl VerifyContext {
                     let hint = closest_match(callee, candidates.iter())
                         .map(|s| format!("did you mean '{s}'?"));
                     self.err(
+                        "ILO-T005",
                         func,
                         format!("undefined function '{callee}' (called with {} args)", args.len()),
                         hint,
@@ -538,7 +550,7 @@ impl VerifyContext {
                 match op {
                     UnaryOp::Negate => {
                         if !compatible(&t, &Ty::Number) {
-                            self.err(func, format!("negate expects n, got {t}"), None);
+                            self.err("ILO-T012", func, format!("negate expects n, got {t}"), None);
                         }
                         Ty::Number
                     }
@@ -581,6 +593,7 @@ impl VerifyContext {
                     for (fname, _) in &def_fields {
                         if !provided.contains_key(fname.as_str()) {
                             self.err(
+                                "ILO-T015",
                                 func,
                                 format!("missing field '{fname}' in record '{type_name}'"),
                                 None,
@@ -593,6 +606,7 @@ impl VerifyContext {
                     for (fname, _) in fields {
                         if !def_field_names.contains(&fname.as_str()) {
                             self.err(
+                                "ILO-T016",
                                 func,
                                 format!("unknown field '{fname}' in record '{type_name}'"),
                                 None,
@@ -606,6 +620,7 @@ impl VerifyContext {
                             let actual = self.infer_expr(func, scope, expr);
                             if !compatible(fty, &actual) {
                                 self.err(
+                                    "ILO-T017",
                                     func,
                                     format!("field '{fname}' of '{type_name}' expects {fty}, got {actual}"),
                                     None,
@@ -618,7 +633,7 @@ impl VerifyContext {
                 } else {
                     let hint = closest_match(type_name, self.types.keys())
                         .map(|s| format!("did you mean '{s}'?"));
-                    self.err(func, format!("undefined type '{type_name}'"), hint);
+                    self.err("ILO-T003", func, format!("undefined type '{type_name}'"), hint);
                     Ty::Unknown
                 }
             }
@@ -632,6 +647,7 @@ impl VerifyContext {
                                 fty.clone()
                             } else {
                                 self.err(
+                                    "ILO-T019",
                                     func,
                                     format!("no field '{field}' on type '{type_name}'"),
                                     None,
@@ -644,7 +660,7 @@ impl VerifyContext {
                     }
                     Ty::Unknown => Ty::Unknown,
                     other => {
-                        self.err(func, format!("field access on non-record type {other}"), None);
+                        self.err("ILO-T018", func, format!("field access on non-record type {other}"), None);
                         Ty::Unknown
                     }
                 }
@@ -656,7 +672,7 @@ impl VerifyContext {
                     Ty::List(inner) => *inner.clone(),
                     Ty::Unknown => Ty::Unknown,
                     other => {
-                        self.err(func, format!("index access on non-list type {other}"), None);
+                        self.err("ILO-T023", func, format!("index access on non-list type {other}"), None);
                         Ty::Unknown
                     }
                 }
@@ -692,6 +708,7 @@ impl VerifyContext {
                                     let actual = self.infer_expr(func, scope, expr);
                                     if !compatible(fty, &actual) {
                                         self.err(
+                                            "ILO-T022",
                                             func,
                                             format!("'with' field '{fname}' of '{type_name}' expects {fty}, got {actual}"),
                                             None,
@@ -699,6 +716,7 @@ impl VerifyContext {
                                     }
                                 } else {
                                     self.err(
+                                        "ILO-T021",
                                         func,
                                         format!("unknown field '{fname}' in 'with' on '{type_name}'"),
                                         None,
@@ -710,7 +728,7 @@ impl VerifyContext {
                     }
                     Ty::Unknown => Ty::Unknown,
                     other => {
-                        self.err(func, format!("'with' on non-record type {other}"), None);
+                        self.err("ILO-T020", func, format!("'with' on non-record type {other}"), None);
                         Ty::Unknown
                     }
                 }
@@ -728,7 +746,7 @@ impl VerifyContext {
                     (Ty::List(a), Ty::List(_)) => Ty::List(a.clone()),
                     (Ty::Unknown, _) | (_, Ty::Unknown) => Ty::Unknown,
                     _ => {
-                        self.err(func, format!("'+' expects matching n, t, or L types, got {lt} and {rt}"), None);
+                        self.err("ILO-T009", func, format!("'+' expects matching n, t, or L types, got {lt} and {rt}"), None);
                         Ty::Unknown
                     }
                 }
@@ -736,7 +754,7 @@ impl VerifyContext {
             BinOp::Subtract | BinOp::Multiply | BinOp::Divide => {
                 if !compatible(lt, &Ty::Number) || !compatible(rt, &Ty::Number) {
                     let sym = match op { BinOp::Subtract => "-", BinOp::Multiply => "*", _ => "/" };
-                    self.err(func, format!("'{sym}' expects n and n, got {lt} and {rt}"), None);
+                    self.err("ILO-T009", func, format!("'{sym}' expects n and n, got {lt} and {rt}"), None);
                 }
                 Ty::Number
             }
@@ -745,7 +763,7 @@ impl VerifyContext {
                     (Ty::Number, Ty::Number) | (Ty::Text, Ty::Text) => {}
                     (Ty::Unknown, _) | (_, Ty::Unknown) => {}
                     _ => {
-                        self.err(func, format!("comparison expects matching n or t, got {lt} and {rt}"), None);
+                        self.err("ILO-T010", func, format!("comparison expects matching n or t, got {lt} and {rt}"), None);
                     }
                 }
                 Ty::Bool
@@ -757,13 +775,13 @@ impl VerifyContext {
                 match lt {
                     Ty::List(inner) => {
                         if !compatible(inner, rt) {
-                            self.err(func, format!("'+=' list element type {inner} doesn't match appended {rt}"), None);
+                            self.err("ILO-T011", func, format!("'+=' list element type {inner} doesn't match appended {rt}"), None);
                         }
                         lt.clone()
                     }
                     Ty::Unknown => Ty::Unknown,
                     _ => {
-                        self.err(func, format!("'+=' expects a list on the left, got {lt}"), None);
+                        self.err("ILO-T011", func, format!("'+=' expects a list on the left, got {lt}"), None);
                         Ty::Unknown
                     }
                 }
@@ -787,6 +805,7 @@ impl VerifyContext {
                         if !has_err { Some("^") } else { None },
                     ].into_iter().flatten().collect();
                     self.err(
+                        "ILO-T024",
                         func,
                         format!("non-exhaustive match on Result: missing {}", missing.join(", ")),
                         Some("add a wildcard arm '_:' or cover all cases".to_string()),
@@ -802,6 +821,7 @@ impl VerifyContext {
                         if !has_false { Some("false") } else { None },
                     ].into_iter().flatten().collect();
                     self.err(
+                        "ILO-T024",
                         func,
                         format!("non-exhaustive match on Bool: missing {}", missing.join(", ")),
                         Some("add a wildcard arm '_:' or cover all cases".to_string()),
@@ -815,6 +835,7 @@ impl VerifyContext {
             Ty::Unknown | Ty::Nil => {}
             _ => {
                 self.err(
+                    "ILO-T024",
                     func,
                     "non-exhaustive match: no wildcard arm".to_string(),
                     Some("add a wildcard arm '_:' to handle remaining cases".to_string()),

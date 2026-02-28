@@ -88,11 +88,11 @@ After language features settle.
 - [x] Report multiple errors per file (cap at ~20 to avoid noise)
 - [x] Verifier: analyse all functions even if earlier ones have errors
 
-### C2. Error codes
-- [ ] Assign stable codes: `ILO-L___` (lexer), `ILO-P___` (parser), `ILO-T___` (type/verifier), `ILO-R___` (runtime)
-- [ ] Error code registry: catalogue of all codes with short description
-- [ ] `--explain ILO-T001` flag: print expanded explanation with examples
-- [ ] Include code in both human and JSON output
+### C2. Error codes ✓
+- [x] Assign stable codes: `ILO-L___` (lexer), `ILO-P___` (parser), `ILO-T___` (type/verifier), `ILO-R___` (runtime)
+- [x] Error code registry: catalogue of all codes with short description
+- [x] `--explain ILO-T001` flag: print expanded explanation with examples
+- [x] Include code in both human and JSON output
 
 ### C3. Suggestions and Fix-Its
 - [ ] "Did you mean?" for undefined variables/functions — Damerau-Levenshtein, threshold `max(1, len/3)`, scope-aware

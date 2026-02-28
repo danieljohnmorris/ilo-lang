@@ -1,5 +1,6 @@
 pub mod ansi;
 pub mod json;
+pub mod registry;
 
 use crate::ast::Span;
 
@@ -20,6 +21,7 @@ pub struct Label {
 #[derive(Debug, Clone)]
 pub struct Diagnostic {
     pub severity: Severity,
+    pub code: Option<&'static str>,
     pub message: String,
     pub labels: Vec<Label>,
     pub notes: Vec<String>,
@@ -31,12 +33,18 @@ impl Diagnostic {
     pub fn error(message: impl Into<String>) -> Self {
         Diagnostic {
             severity: Severity::Error,
+            code: None,
             message: message.into(),
             labels: Vec::new(),
             notes: Vec::new(),
             suggestion: None,
             source: None,
         }
+    }
+
+    pub fn with_code(mut self, code: &'static str) -> Self {
+        self.code = Some(code);
+        self
     }
 
     pub fn with_span(mut self, span: Span, label: impl Into<String>) -> Self {
@@ -75,6 +83,7 @@ impl From<&crate::lexer::LexError> for Diagnostic {
             end: e.position + e.snippet.len().max(1),
         };
         let mut d = Diagnostic::error(format!("unexpected token '{}'", e.snippet))
+            .with_code(e.code)
             .with_span(span, "here");
         if !e.suggestion.is_empty() {
             d = d.with_suggestion(e.suggestion.clone());
@@ -85,13 +94,14 @@ impl From<&crate::lexer::LexError> for Diagnostic {
 
 impl From<&crate::parser::ParseError> for Diagnostic {
     fn from(e: &crate::parser::ParseError) -> Self {
-        Diagnostic::error(&e.message).with_span(e.span, "here")
+        Diagnostic::error(&e.message).with_code(e.code).with_span(e.span, "here")
     }
 }
 
 impl From<&crate::verify::VerifyError> for Diagnostic {
     fn from(e: &crate::verify::VerifyError) -> Self {
         let mut d = Diagnostic::error(&e.message)
+            .with_code(e.code)
             .with_note(format!("in function '{}'", e.function));
         if let Some(hint) = &e.hint {
             d = d.with_suggestion(hint.clone());
@@ -102,19 +112,33 @@ impl From<&crate::verify::VerifyError> for Diagnostic {
 
 impl From<&crate::interpreter::RuntimeError> for Diagnostic {
     fn from(e: &crate::interpreter::RuntimeError) -> Self {
-        Diagnostic::error(&e.message)
+        Diagnostic::error(&e.message).with_code(e.code)
     }
 }
 
 impl From<&crate::vm::VmError> for Diagnostic {
     fn from(e: &crate::vm::VmError) -> Self {
-        Diagnostic::error(e.to_string())
+        use crate::vm::VmError;
+        let code = match e {
+            VmError::NoFunctionsDefined => "ILO-R012",
+            VmError::UndefinedFunction { .. } => "ILO-R002",
+            VmError::DivisionByZero => "ILO-R003",
+            VmError::FieldNotFound { .. } => "ILO-R005",
+            VmError::UnknownOpcode { .. } => "ILO-R004",
+            VmError::Type(_) => "ILO-R004",
+        };
+        Diagnostic::error(e.to_string()).with_code(code)
     }
 }
 
 impl From<&crate::vm::CompileError> for Diagnostic {
     fn from(e: &crate::vm::CompileError) -> Self {
-        Diagnostic::error(e.to_string())
+        use crate::vm::CompileError;
+        let code = match e {
+            CompileError::UndefinedVariable { .. } => "ILO-R010",
+            CompileError::UndefinedFunction { .. } => "ILO-R011",
+        };
+        Diagnostic::error(e.to_string()).with_code(code)
     }
 }
 
@@ -155,6 +179,7 @@ mod tests {
     #[test]
     fn from_lex_error() {
         let e = crate::lexer::LexError {
+            code: "ILO-L002",
             position: 3,
             snippet: "my_func".to_string(),
             suggestion: "Use hyphens: 'my-func'".to_string(),
@@ -165,11 +190,13 @@ mod tests {
         assert_eq!(d.labels[0].span.start, 3);
         assert_eq!(d.labels[0].span.end, 10); // 3 + len("my_func")
         assert!(d.suggestion.is_some());
+        assert_eq!(d.code, Some("ILO-L002"));
     }
 
     #[test]
     fn from_parse_error() {
         let e = crate::parser::ParseError {
+            code: "ILO-P005",
             position: 2,
             span: Span { start: 10, end: 15 },
             message: "expected identifier".to_string(),
@@ -177,11 +204,13 @@ mod tests {
         let d = Diagnostic::from(&e);
         assert!(d.message.contains("expected identifier"));
         assert_eq!(d.labels[0].span, Span { start: 10, end: 15 });
+        assert_eq!(d.code, Some("ILO-P005"));
     }
 
     #[test]
     fn from_verify_error() {
         let e = crate::verify::VerifyError {
+            code: "ILO-T004",
             function: "myFunc".to_string(),
             message: "undefined variable 'x'".to_string(),
             hint: Some("did you mean 'y'?".to_string()),
@@ -190,14 +219,16 @@ mod tests {
         assert!(d.message.contains("undefined variable"));
         assert!(d.notes.iter().any(|n| n.contains("myFunc")));
         assert!(d.suggestion.is_some());
+        assert_eq!(d.code, Some("ILO-T004"));
     }
 
     #[test]
     fn from_runtime_error() {
-        let e = crate::interpreter::RuntimeError { message: "division by zero".to_string() };
+        let e = crate::interpreter::RuntimeError { code: "ILO-R003", message: "division by zero".to_string() };
         let d = Diagnostic::from(&e);
         assert!(d.message.contains("division by zero"));
         assert!(d.labels.is_empty()); // no span for runtime errors
+        assert_eq!(d.code, Some("ILO-R003"));
     }
 
     #[test]

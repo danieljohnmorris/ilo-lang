@@ -94,6 +94,26 @@ fn main() {
         std::process::exit(0);
     }
 
+    if args[1] == "--explain" {
+        match args.get(2) {
+            Some(code) => match diagnostic::registry::lookup(code) {
+                Some(entry) => {
+                    print!("{}", entry.long);
+                    std::process::exit(0);
+                }
+                None => {
+                    eprintln!("unknown error code: {code}");
+                    eprintln!("Error codes have the form ILO-L001, ILO-P001, ILO-T001, ILO-R001.");
+                    std::process::exit(1);
+                }
+            },
+            None => {
+                eprintln!("Usage: ilo --explain <code>  (e.g. ilo --explain ILO-T005)");
+                std::process::exit(1);
+            }
+        }
+    }
+
     if args[1] == "-ai" {
         print!("{}", compact_spec());
         std::process::exit(0);
@@ -114,7 +134,8 @@ fn main() {
             println!("  ilo <code>                        Print AST as JSON (no args)");
             println!("  ilo <code> --bench func [args...] Benchmark a function");
             println!("  ilo help lang                     Show language specification");
-            println!("  ilo help ai | ilo -ai             Compact spec for LLM consumption\n");
+            println!("  ilo help ai | ilo -ai             Compact spec for LLM consumption");
+            println!("  ilo --explain ILO-T005            Explain an error code\n");
             println!("Output format (errors):");
             println!("  --ansi / -a   Force ANSI colour output (default when stderr is a TTY)");
             println!("  --text / -t   Force plain text output (no colour)");
