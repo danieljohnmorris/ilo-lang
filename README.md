@@ -131,15 +131,22 @@ ilo 'code' --run-jit ...     # custom ARM64 JIT (macOS Apple Silicon only)
 
 **Static verification:**
 
-All programs are verified before execution. The verifier checks function existence, arity, variable scope, type compatibility, record fields, and more — reporting all errors at once:
+All programs are verified before execution. The verifier checks function existence, arity, variable scope, type compatibility, record fields, and more — reporting all errors at once with stable error codes:
 
 ```bash
 ilo 'f x:n>n;*y 2' 5
-# verify: undefined variable 'y' in 'f'
-#   hint: did you mean 'x'?
+# error[ILO-T004]: undefined variable 'y'
+#   = note: in function 'f'
 
 ilo 'f x:t>n;*x 2' hello
-# verify: '*' expects n and n, got t and n in 'f'
+# error[ILO-T009]: '*' expects n and n, got t and n
+#   = note: in function 'f'
+```
+
+Use `--explain` to get a detailed explanation of any error code:
+
+```bash
+ilo --explain ILO-T004
 ```
 
 This matches the manifesto: "verification before execution — all calls resolve, all types align, all dependencies exist."
