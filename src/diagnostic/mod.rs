@@ -124,7 +124,7 @@ impl From<&crate::vm::VmError> for Diagnostic {
             VmError::UndefinedFunction { .. } => "ILO-R002",
             VmError::DivisionByZero => "ILO-R003",
             VmError::FieldNotFound { .. } => "ILO-R005",
-            VmError::UnknownOpcode { .. } => "ILO-R004",
+            VmError::UnknownOpcode { .. } => "ILO-R013",
             VmError::Type(_) => "ILO-R004",
         };
         Diagnostic::error(e.to_string()).with_code(code)
@@ -243,5 +243,74 @@ mod tests {
         let e = crate::vm::CompileError::UndefinedVariable { name: "x".to_string() };
         let d = Diagnostic::from(&e);
         assert!(d.message.contains("x"));
+    }
+
+    // ---- Uncovered VmError variants ----
+
+    #[test]
+    fn from_vm_error_no_functions_defined() {
+        let e = crate::vm::VmError::NoFunctionsDefined;
+        let d = Diagnostic::from(&e);
+        assert_eq!(d.code, Some("ILO-R012"));
+        assert!(d.message.contains("no functions defined"));
+    }
+
+    #[test]
+    fn from_vm_error_division_by_zero() {
+        let e = crate::vm::VmError::DivisionByZero;
+        let d = Diagnostic::from(&e);
+        assert_eq!(d.code, Some("ILO-R003"));
+        assert!(d.message.contains("division by zero"));
+    }
+
+    #[test]
+    fn from_vm_error_field_not_found() {
+        let e = crate::vm::VmError::FieldNotFound { field: "foo".to_string() };
+        let d = Diagnostic::from(&e);
+        assert_eq!(d.code, Some("ILO-R005"));
+        assert!(d.message.contains("foo"));
+    }
+
+    #[test]
+    fn from_vm_error_unknown_opcode() {
+        let e = crate::vm::VmError::UnknownOpcode { op: 99 };
+        let d = Diagnostic::from(&e);
+        assert_eq!(d.code, Some("ILO-R013"));
+        assert!(d.message.contains("99"));
+    }
+
+    #[test]
+    fn from_vm_error_type() {
+        let e = crate::vm::VmError::Type("expected number");
+        let d = Diagnostic::from(&e);
+        assert_eq!(d.code, Some("ILO-R004"));
+        assert!(d.message.contains("expected number"));
+    }
+
+    #[test]
+    fn from_compile_error_undefined_function() {
+        let e = crate::vm::CompileError::UndefinedFunction { name: "bar".to_string() };
+        let d = Diagnostic::from(&e);
+        assert_eq!(d.code, Some("ILO-R011"));
+        assert!(d.message.contains("bar"));
+    }
+
+    // ---- with_secondary_span ----
+
+    #[test]
+    fn diagnostic_with_secondary_span() {
+        let d = Diagnostic::error("type mismatch")
+            .with_secondary_span(Span { start: 10, end: 15 }, "secondary label");
+        assert_eq!(d.labels.len(), 1);
+        assert!(!d.labels[0].is_primary);
+        assert_eq!(d.labels[0].message, "secondary label");
+    }
+
+    // ---- with_source ----
+
+    #[test]
+    fn diagnostic_with_source() {
+        let d = Diagnostic::error("bad").with_source("f x:n>n;x".to_string());
+        assert_eq!(d.source.as_deref(), Some("f x:n>n;x"));
     }
 }

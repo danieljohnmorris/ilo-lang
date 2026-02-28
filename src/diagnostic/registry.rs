@@ -618,6 +618,18 @@ The program has no callable functions. At least one function
 must be defined to run a program.
 "#,
     },
+    ErrorEntry {
+        code: "ILO-R013",
+        short: "internal VM error",
+        long: r#"## ILO-R013: internal VM error
+
+The virtual machine encountered an unexpected internal state,
+such as an unrecognised opcode. This indicates a compiler bug,
+not a user error.
+
+If you see this, please file a bug report.
+"#,
+    },
 ];
 
 /// Look up an error entry by code (e.g. `"ILO-T005"`).
