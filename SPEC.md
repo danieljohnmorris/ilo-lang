@@ -564,7 +564,8 @@ Dense output is the default — newlines are for humans, not agents. No flag nee
 
 ```
 ilo 'code'                    Dense wire format (default)
-ilo 'code' --fmt-expanded     Expanded human format (for code review)
+ilo 'code' --dense / -d       Same, explicit
+ilo 'code' --expanded / -e    Expanded human format (for code review)
 ```
 
 ### Dense format

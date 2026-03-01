@@ -190,7 +190,8 @@ Newlines are for humans — agents don't need them. An entire ilo program can be
 
 ```bash
 ilo 'code'                   # dense wire format (default)
-ilo 'code' --fmt-expanded    # expanded human-readable format (for review)
+ilo 'code' --dense / -d      # same, explicit
+ilo 'code' --expanded / -e   # human-readable format (for review)
 ```
 
 **Other modes:**

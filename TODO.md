@@ -47,8 +47,9 @@ Manifesto principle: "Verification before execution. All calls resolve, all type
 ## Tooling
 
 - [x] Pretty-printer / formatter — dense wire format for LLM I/O, expanded form for human review (see OPEN.md: "Hybrid approach")
-- [ ] `--fmt-expanded` wraps long comments at ~80 chars, adding `--` prefix on continuation lines
-- [ ] `--fmt` (dense) strips unnecessary newlines within comments — long comments stay on one line
+- [ ] Rename formatter flags: `--dense` / `-d` (default, no flag needed) and `--expanded` / `-e` (human-readable). Keep `--fmt` / `--fmt-expanded` as aliases for backward compat
+- [ ] `--expanded` wraps long comments at ~80 chars, adding `--` prefix on continuation lines
+- [ ] `--dense` strips unnecessary newlines within comments — long comments stay on one line
 
 ## Error messages — Phase B (infrastructure + rendering)
 
