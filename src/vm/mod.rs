@@ -109,6 +109,7 @@ pub(crate) const OP_MAX: u8 = 44;        // R[A] = max(R[B], R[C])
 pub(crate) const OP_FLR: u8 = 45;        // R[A] = floor(R[B])
 pub(crate) const OP_CEL: u8 = 46;        // R[A] = ceil(R[B])
 pub(crate) const OP_GET: u8 = 47;        // R[A] = http_get(R[B])  (returns R t t)
+pub(crate) const OP_CAT: u8 = 48;        // R[A] = cat(R[B], R[C])  (join list of text with separator -> t)
 
 // ABx mode — register + 16-bit operand
 pub(crate) const OP_LOADK: u8 = 20;
@@ -750,6 +751,13 @@ impl RegCompiler {
                         self.emit_abc(OP_UNWRAP, ra, ra, 0);
                         self.next_reg = ra + 1;
                     }
+                    return ra;
+                }
+                if function == "cat" && args.len() == 2 {
+                    let rb = self.compile_expr(&args[0]);
+                    let rc = self.compile_expr(&args[1]);
+                    let ra = self.alloc_reg();
+                    self.emit_abc(OP_CAT, ra, rb, rc);
                     return ra;
                 }
 
@@ -2082,6 +2090,32 @@ impl<'a> VM<'a> {
                     #[cfg(not(feature = "http"))]
                     let result = NanVal::heap_err(NanVal::heap_string("http feature not enabled".to_string()));
                     reg_set!(a, result);
+                }
+                OP_CAT => {
+                    let a = ((inst >> 16) & 0xFF) as usize + base;
+                    let b = ((inst >> 8) & 0xFF) as usize + base;
+                    let c = (inst & 0xFF) as usize + base;
+                    let vb = reg!(b);
+                    let vc = reg!(c);
+                    if !vc.is_string() {
+                        return Err(VmError::Type("cat requires a text separator"));
+                    }
+                    if !vb.is_heap() {
+                        return Err(VmError::Type("cat requires a list"));
+                    }
+                    // SAFETY: is_string() confirmed heap-tagged string with live RC.
+                    let sep = unsafe { match vc.as_heap_ref() { HeapObj::Str(s) => s, _ => unreachable!() } };
+                    let items = unsafe { match vb.as_heap_ref() { HeapObj::List(l) => l, _ => return Err(VmError::Type("cat requires a list")) } };
+                    let mut parts = Vec::with_capacity(items.len());
+                    for item in items {
+                        if !item.is_string() {
+                            return Err(VmError::Type("cat: list items must be text"));
+                        }
+                        let s = unsafe { match item.as_heap_ref() { HeapObj::Str(s) => s, _ => unreachable!() } };
+                        parts.push(s.as_str());
+                    }
+                    let result = parts.join(sep.as_str());
+                    reg_set!(a, NanVal::heap_string(result));
                 }
                 OP_LISTAPPEND => {
                     let a = ((inst >> 16) & 0xFF) as usize + base;
@@ -3857,6 +3891,30 @@ mod tests {
         assert_eq!(
             vm_run(source, Some("fib"), vec![Value::Number(10.0)]),
             Value::Number(55.0)
+        );
+    }
+
+    // ---- cat builtin ----
+
+    #[test]
+    fn vm_cat_basic() {
+        let source = "f items:L t>t;cat items \",\"";
+        assert_eq!(
+            vm_run(source, Some("f"), vec![Value::List(vec![
+                Value::Text("a".into()),
+                Value::Text("b".into()),
+                Value::Text("c".into()),
+            ])]),
+            Value::Text("a,b,c".into())
+        );
+    }
+
+    #[test]
+    fn vm_cat_empty_list() {
+        let source = "f items:L t>t;cat items \"-\"";
+        assert_eq!(
+            vm_run(source, Some("f"), vec![Value::List(vec![])]),
+            Value::Text("".into())
         );
     }
 }

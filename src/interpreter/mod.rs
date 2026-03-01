@@ -217,6 +217,21 @@ fn call_function(env: &mut Env, name: &str, args: Vec<Value>) -> Result<Value> {
             other => Err(RuntimeError::new("ILO-R009", format!("{} requires a number, got {:?}", name, other))),
         };
     }
+    if name == "cat" && args.len() == 2 {
+        return match (&args[0], &args[1]) {
+            (Value::List(items), Value::Text(sep)) => {
+                let mut parts = Vec::new();
+                for item in items {
+                    match item {
+                        Value::Text(s) => parts.push(s.clone()),
+                        other => return Err(RuntimeError::new("ILO-R009", format!("cat: list items must be text, got {:?}", other))),
+                    }
+                }
+                Ok(Value::Text(parts.join(sep.as_str())))
+            }
+            _ => Err(RuntimeError::new("ILO-R009", "cat requires a list and text separator".to_string())),
+        };
+    }
     if name == "get" && args.len() == 1 {
         return match &args[0] {
             Value::Text(url) => {
@@ -1718,6 +1733,30 @@ mod tests {
         assert_eq!(
             run_str(source, Some("fib"), vec![Value::Number(10.0)]),
             Value::Number(55.0)
+        );
+    }
+
+    // ---- cat builtin ----
+
+    #[test]
+    fn interpret_cat_basic() {
+        let source = "f items:L t>t;cat items \",\"";
+        assert_eq!(
+            run_str(source, Some("f"), vec![Value::List(vec![
+                Value::Text("a".into()),
+                Value::Text("b".into()),
+                Value::Text("c".into()),
+            ])]),
+            Value::Text("a,b,c".into())
+        );
+    }
+
+    #[test]
+    fn interpret_cat_empty_list() {
+        let source = "f items:L t>t;cat items \"-\"";
+        assert_eq!(
+            run_str(source, Some("f"), vec![Value::List(vec![])]),
+            Value::Text("".into())
         );
     }
 }

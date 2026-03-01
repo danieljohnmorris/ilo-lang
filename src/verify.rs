@@ -150,6 +150,7 @@ const BUILTINS: &[(&str, &[&str], &str)] = &[
     ("min", &["n", "n"], "n"),
     ("max", &["n", "n"], "n"),
     ("get", &["t"], "R t t"),
+    ("cat", &["L t", "t"], "t"),
 ];
 
 fn builtin_arity(name: &str) -> Option<usize> {
@@ -247,6 +248,31 @@ fn builtin_check_args(name: &str, arg_types: &[Ty], func_ctx: &str, span: Option
                 });
             }
             (Ty::Result(Box::new(Ty::Text), Box::new(Ty::Text)), errors)
+        }
+        "cat" => {
+            if let Some(arg) = arg_types.first()
+                && !compatible(arg, &Ty::List(Box::new(Ty::Text)))
+            {
+                errors.push(VerifyError {
+                    code: "ILO-T013",
+                    function: func_ctx.to_string(),
+                    message: format!("'cat' arg 1 expects L t, got {arg}"),
+                    hint: None,
+                    span,
+                });
+            }
+            if let Some(arg) = arg_types.get(1)
+                && !compatible(arg, &Ty::Text)
+            {
+                errors.push(VerifyError {
+                    code: "ILO-T013",
+                    function: func_ctx.to_string(),
+                    message: format!("'cat' arg 2 expects t, got {arg}"),
+                    hint: None,
+                    span,
+                });
+            }
+            (Ty::Text, errors)
         }
         _ => (Ty::Unknown, errors),
     }
@@ -2151,5 +2177,26 @@ mod tests {
             errors.iter().any(|e| e.code == "ILO-T027" && e.message.contains("len")),
             "expected ILO-T027 for builtin name in braceless guard body, got: {:?}", errors
         );
+    }
+
+    // ---- cat builtin type checks ----
+
+    #[test]
+    fn cat_valid_call() {
+        assert!(parse_and_verify("f items:L t>t;cat items \",\"").is_ok());
+    }
+
+    #[test]
+    fn cat_wrong_type_arg1() {
+        let result = parse_and_verify("f x:n>t;cat x \",\"");
+        let errors = result.unwrap_err();
+        assert!(errors.iter().any(|e| e.code == "ILO-T013" && e.message.contains("cat")));
+    }
+
+    #[test]
+    fn cat_wrong_arity() {
+        let result = parse_and_verify("f items:L t>t;cat items");
+        let errors = result.unwrap_err();
+        assert!(errors.iter().any(|e| e.message.contains("cat") && e.message.contains("2")));
     }
 }
