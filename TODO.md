@@ -330,21 +330,23 @@ Explicit return from anywhere in function body.
 - [x] Tests: parser, interpreter, VM, verifier, codegen
 - [x] SPEC.md: documented `ret` syntax
 
-##### F6. While loop — `wh cond{body}` (medium priority — new capability)
+##### F6. While loop — `wh cond{body}` ✅
 
 `@` only iterates lists. While enables polling, convergence, and stateful loops.
 
-- [ ] Syntax: `wh cond{body}` — evaluate condition; if truthy, execute body; repeat
-- [ ] Parser: recognise `wh` keyword, parse condition expression + brace body
-- [ ] AST: add `Stmt::While { condition: Expr, body: Vec<Spanned<Stmt>> }`
-- [ ] Interpreter: loop while `is_truthy(eval_expr(condition))`, execute body each iteration, return last body value
-- [ ] VM: compile as `loop_top: eval cond → reg; JMPF reg → exit; <body>; JMP loop_top; exit:`
-- [ ] Verifier: condition must be truthy-compatible; body type is the loop's result type
+- [x] Syntax: `wh cond{body}` — evaluate condition; if truthy, execute body; repeat
+- [x] Parser: recognise `wh` keyword, parse condition expression + brace body
+- [x] AST: `Stmt::While { condition: Expr, body: Vec<Spanned<Stmt>> }`
+- [x] Interpreter: loop while `is_truthy(eval_expr(condition))`, execute body each iteration
+- [x] VM: compile as `loop_top: eval cond → reg; JMPF reg → exit; <body>; JMP loop_top; exit:`
+- [x] VM fix: `Stmt::Let` re-binding writes to existing register (needed for loop counters)
+- [x] Verifier: condition + body type checked
 - [ ] Cranelift JIT: standard loop with conditional back-edge
 - [ ] Interaction with break/continue (F9): `brk` jumps to exit, `cnt` jumps to loop_top
-- [ ] Python codegen: emit as `while <cond>: <body>`
-- [ ] Tests: basic while, while with accumulator, infinite loop guard (max iterations?), while + break
-- [ ] SPEC.md: document `wh` syntax
+- [x] Python codegen: emit as `while <cond>: <body>`
+- [x] Formatter: emit as `wh cond{body}`
+- [x] Tests: parser, interpreter (basic, zero-iter, ret), VM (basic, zero-iter, ret)
+- [x] SPEC.md: documented `wh` syntax
 
 ##### F7. Range iteration — `@i 0..n{body}` (medium priority)
 

@@ -151,6 +151,12 @@ pub enum Stmt {
         body: Vec<Spanned<Stmt>>,
     },
 
+    /// `wh cond{body}` — while loop
+    While {
+        condition: Expr,
+        body: Vec<Spanned<Stmt>>,
+    },
+
     /// `ret expr` — early return from function
     Return(Expr),
 

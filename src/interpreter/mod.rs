@@ -529,6 +529,23 @@ fn eval_stmt(env: &mut Env, stmt: &Stmt, is_last: bool) -> Result<Option<BodyRes
                 _ => Err(RuntimeError::new("ILO-R007", "foreach requires a list")),
             }
         }
+        Stmt::While { condition, body } => {
+            let mut last = Value::Nil;
+            loop {
+                let cond = eval_expr(env, condition)?;
+                if !is_truthy(&cond) {
+                    break;
+                }
+                let result = eval_body(env, body);
+                match result? {
+                    BodyResult::Return(v) => {
+                        return Ok(Some(BodyResult::Return(v)));
+                    }
+                    BodyResult::Value(v) => last = v,
+                }
+            }
+            Ok(Some(BodyResult::Value(last)))
+        }
         Stmt::Return(expr) => {
             let val = eval_expr(env, expr)?;
             Ok(Some(BodyResult::Return(val)))
@@ -2107,5 +2124,25 @@ mod tests {
         let source = "f xs:L n>n;@x xs{>=x 10{ret x}};0";
         let list = Value::List(vec![Value::Number(1.0), Value::Number(15.0), Value::Number(3.0)]);
         assert_eq!(run_str(source, Some("f"), vec![list]), Value::Number(15.0));
+    }
+
+    #[test]
+    fn interpret_while_basic() {
+        // Sum 1..5 using while loop
+        let source = "f>n;i=0;s=0;wh <i 5{i=+i 1;s=+s i};s";
+        assert_eq!(run_str(source, Some("f"), vec![]), Value::Number(15.0));
+    }
+
+    #[test]
+    fn interpret_while_zero_iterations() {
+        let source = "f>n;wh false{42};0";
+        assert_eq!(run_str(source, Some("f"), vec![]), Value::Number(0.0));
+    }
+
+    #[test]
+    fn interpret_while_with_ret() {
+        // Early return from while loop
+        let source = "f>n;i=0;wh true{i=+i 1;>=i 3{ret i}};0";
+        assert_eq!(run_str(source, Some("f"), vec![]), Value::Number(3.0));
     }
 }

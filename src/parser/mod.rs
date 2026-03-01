@@ -426,6 +426,14 @@ impl Parser {
                 let value = self.parse_expr()?;
                 Ok(Stmt::Return(value))
             }
+            Some(Token::Ident(name)) if name == "wh" => {
+                self.advance(); // consume "wh"
+                let condition = self.parse_expr()?;
+                self.expect(&Token::LBrace)?;
+                let body = self.parse_body()?;
+                self.expect(&Token::RBrace)?;
+                Ok(Stmt::While { condition, body })
+            }
             Some(Token::Ident(_)) => {
                 // Check for let binding: ident '='
                 if self.pos + 1 < self.tokens.len() && self.token_at(self.pos + 1) == Some(&Token::Eq) {
@@ -2886,6 +2894,23 @@ mod tests {
                         assert_eq!(eb.len(), 1);
                     }
                     other => panic!("expected guard with else, got {:?}", other),
+                }
+            }
+            _ => panic!("expected function"),
+        }
+    }
+
+    #[test]
+    fn parse_while_loop() {
+        let prog = parse_str("f>n;wh true{42}");
+        match &prog.declarations[0] {
+            Decl::Function { body, .. } => {
+                match &body[0].node {
+                    Stmt::While { condition, body } => {
+                        assert!(matches!(condition, Expr::Literal(Literal::Bool(true))));
+                        assert_eq!(body.len(), 1);
+                    }
+                    other => panic!("expected While, got {:?}", other),
                 }
             }
             _ => panic!("expected function"),

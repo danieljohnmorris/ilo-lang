@@ -198,6 +198,9 @@ fn fmt_stmt_dense(stmt: &Stmt) -> String {
         Stmt::ForEach { binding, collection, body } => {
             format!("@{} {}{{{}}}", binding, fmt_expr(collection, FmtMode::Dense), fmt_body_dense(body))
         }
+        Stmt::While { condition, body } => {
+            format!("wh {}{{{}}}", fmt_expr(condition, FmtMode::Dense), fmt_body_dense(body))
+        }
         Stmt::Return(e) => format!("ret {}", fmt_expr(e, FmtMode::Dense)),
         Stmt::Expr(e) => fmt_expr(e, FmtMode::Dense),
     }
@@ -273,6 +276,15 @@ fn fmt_stmt_expanded(out: &mut String, stmt: &Stmt, indent_level: usize) {
             out.push_str(binding);
             out.push(' ');
             out.push_str(&fmt_expr(collection, FmtMode::Expanded));
+            out.push_str(" {\n");
+            fmt_body_expanded(out, body, indent_level + 1);
+            out.push_str(&ind);
+            out.push_str("}\n");
+        }
+        Stmt::While { condition, body } => {
+            out.push_str(&ind);
+            out.push_str("wh ");
+            out.push_str(&fmt_expr(condition, FmtMode::Expanded));
             out.push_str(" {\n");
             fmt_body_expanded(out, body, indent_level + 1);
             out.push_str(&ind);
@@ -855,6 +867,23 @@ mod tests {
         let s = format(&prog, FmtMode::Expanded);
         assert!(s.contains(">= sp 1000 {"), "expanded should have braces: {s}");
         assert!(s.contains("\"gold\""), "expanded should contain body: {s}");
+    }
+
+    #[test]
+    fn dense_while() {
+        let s = dense("f>n;wh true{42}");
+        assert!(s.contains("wh true{42}"), "got: {s}");
+    }
+
+    #[test]
+    fn expanded_while() {
+        let s = expanded("f>n;i=0;wh <i 5{i=+i 1}");
+        assert!(s.contains("wh < i 5 {\n"), "got: {s}");
+    }
+
+    #[test]
+    fn round_trip_while() {
+        assert_round_trip("f>n;i=0;wh <i 5{i=+i 1};i");
     }
 
     #[test]
