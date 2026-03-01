@@ -190,15 +190,15 @@ Ranked by token savings × frequency. See [research/CONTROL-FLOW.md](research/CO
 
 ilo operators have fixed arity, so the parser always knows when a condition expression is complete. This means single-expression guard bodies don't need `{}` — the parser can tell where the condition ends and the body begins. Inspired by Ruby/Perl postfix conditionals, but exploiting prefix notation's self-delimiting property.
 
-- [ ] Syntax: `>=sp 1000 "gold"` — braces optional when guard body is a single expression. Multi-statement bodies still require braces
-- [ ] Parser: after parsing a complete condition expression, if next token is NOT `{` and NOT `;`, parse one expression as the guard body
-- [ ] Scope: braceless bodies are single expressions — atoms, prefix operators, ok/err wraps (`~x`, `^"err"`)
-- [ ] Conservative limit: function calls in braceless guards may be ambiguous (unknown arity at parse time) — require braces for call bodies: `>=sp 1000{classify sp}`
-- [ ] Negated guards: `!verified "not ok"` — `!verified` is complete unary, `"not ok"` is body
-- [ ] No AST changes — parsed into the same `Stmt::Guard` node, body is a single-expression `Vec<Spanned<Stmt>>`
-- [ ] Interpreter: no changes — guard body evaluation is the same regardless of brace syntax
-- [ ] VM: no changes — same compilation path
-- [ ] Formatter: `--fmt` emits braceless form for single-expression guards; `--fmt-expanded` emits braced form
+- [x] Syntax: `>=sp 1000 "gold"` — braces optional when guard body is a single expression. Multi-statement bodies still require braces
+- [x] Parser: after parsing a complete condition expression, if next token is NOT `{` and NOT `;`, parse one expression as the guard body
+- [x] Scope: braceless bodies are single expressions — atoms, prefix operators, ok/err wraps (`~x`, `^"err"`)
+- [x] Conservative limit: function calls in braceless guards may be ambiguous (unknown arity at parse time) — require braces for call bodies: `>=sp 1000{classify sp}`
+- [x] Negated guards: `!verified "not ok"` — `!verified` is complete unary, `"not ok"` is body
+- [x] No AST changes — parsed into the same `Stmt::Guard` node, body is a single-expression `Vec<Spanned<Stmt>>`
+- [x] Interpreter: no changes — guard body evaluation is the same regardless of brace syntax
+- [x] VM: no changes — same compilation path
+- [x] Formatter: `--fmt` emits braceless form for single-expression guards; `--fmt-expanded` emits braced form
 - [ ] **Ambiguity detection & hints (critical — prevents retries):**
   - [ ] Detect dangling tokens after braceless guard body: if parser consumes a single identifier as guard body but the next token is NOT `;`, `}`, or EOF, emit a hint
   - [ ] Hint text: `"function calls in braceless guards need braces: >=sp 1000{classify sp}"` — uses `error_hint()` infrastructure (already exists for `&&`→`&`, `->`→`>`, etc.)
@@ -206,8 +206,8 @@ ilo operators have fixed arity, so the parser always knows when a condition expr
   - [ ] JSON error output: hint appears in `suggestion` field so agent tooling can auto-fix
   - [ ] `--explain` entry for the error code: show braceless vs braced examples, explain when braces are required
   - [ ] Test: `>=sp 1000 classify sp` → error with hint mentioning braces. `>=sp 1000 classify;` → valid (classify is a variable ref, not a call). Agent gets actionable fix on first error, no retry needed
-- [ ] Tests: braceless guard with literal, with operator expression, with ok/err wrap, with variable ref; multi-statement still requires braces; negated braceless guard; mixed braceless and braced in same function; **ambiguous function call → clear error + hint**
-- [ ] SPEC.md: document optional braces for single-expression guards, with explicit note on when braces are required
+- [x] Tests: braceless guard with literal, with operator expression, with ok/err wrap, with variable ref; multi-statement still requires braces; negated braceless guard; mixed braceless and braced in same function
+- [x] SPEC.md: document optional braces for single-expression guards, with explicit note on when braces are required
 
 **Token comparison:**
 ```
