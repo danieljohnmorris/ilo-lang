@@ -421,6 +421,11 @@ impl Parser {
         match self.peek() {
             Some(Token::Question) => self.parse_match_stmt(),
             Some(Token::At) => self.parse_foreach(),
+            Some(Token::Ident(name)) if name == "ret" => {
+                self.advance(); // consume "ret"
+                let value = self.parse_expr()?;
+                Ok(Stmt::Return(value))
+            }
             Some(Token::Ident(_)) => {
                 // Check for let binding: ident '='
                 if self.pos + 1 < self.tokens.len() && self.token_at(self.pos + 1) == Some(&Token::Eq) {
@@ -2850,6 +2855,41 @@ mod tests {
                         assert_eq!(eb.len(), 1);
                     }
                     other => panic!("expected guard with else, got {:?}", other),
+                }
+            }
+            _ => panic!("expected function"),
+        }
+    }
+
+    #[test]
+    fn parse_ret_statement() {
+        let prog = parse_str("f x:n>n;ret +x 1");
+        match &prog.declarations[0] {
+            Decl::Function { body, .. } => {
+                assert_eq!(body.len(), 1);
+                match &body[0].node {
+                    Stmt::Return(Expr::BinOp { op: BinOp::Add, .. }) => {}
+                    other => panic!("expected Return(BinOp::Add), got {:?}", other),
+                }
+            }
+            _ => panic!("expected function"),
+        }
+    }
+
+    #[test]
+    fn parse_ret_in_guard() {
+        let prog = parse_str(r#"f x:n>t;>x 0{ret "pos"};"neg""#);
+        match &prog.declarations[0] {
+            Decl::Function { body, .. } => {
+                assert_eq!(body.len(), 2);
+                match &body[0].node {
+                    Stmt::Guard { body: guard_body, .. } => {
+                        match &guard_body[0].node {
+                            Stmt::Return(Expr::Literal(Literal::Text(s))) => assert_eq!(s, "pos"),
+                            other => panic!("expected Return, got {:?}", other),
+                        }
+                    }
+                    other => panic!("expected guard, got {:?}", other),
                 }
             }
             _ => panic!("expected function"),

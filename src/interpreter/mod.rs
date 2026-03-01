@@ -529,6 +529,10 @@ fn eval_stmt(env: &mut Env, stmt: &Stmt, is_last: bool) -> Result<Option<BodyRes
                 _ => Err(RuntimeError::new("ILO-R007", "foreach requires a list")),
             }
         }
+        Stmt::Return(expr) => {
+            let val = eval_expr(env, expr)?;
+            Ok(Some(BodyResult::Return(val)))
+        }
         Stmt::Expr(expr) => {
             let val = eval_expr(env, expr)?;
             Ok(Some(BodyResult::Value(val)))
@@ -2069,5 +2073,19 @@ mod tests {
         let source = r#"f x:n>t;!=x 1{"not one"}{"one"}"#;
         assert_eq!(run_str(source, Some("f"), vec![Value::Number(1.0)]), Value::Text("one".into()));
         assert_eq!(run_str(source, Some("f"), vec![Value::Number(2.0)]), Value::Text("not one".into()));
+    }
+
+    #[test]
+    fn interpret_ret_early_return() {
+        let source = r#"f x:n>n;>x 0{ret x};0"#;
+        assert_eq!(run_str(source, Some("f"), vec![Value::Number(5.0)]), Value::Number(5.0));
+        assert_eq!(run_str(source, Some("f"), vec![Value::Number(-1.0)]), Value::Number(0.0));
+    }
+
+    #[test]
+    fn interpret_ret_in_foreach() {
+        let source = "f xs:L n>n;@x xs{>=x 10{ret x}};0";
+        let list = Value::List(vec![Value::Number(1.0), Value::Number(15.0), Value::Number(3.0)]);
+        assert_eq!(run_str(source, Some("f"), vec![list]), Value::Number(15.0));
     }
 }

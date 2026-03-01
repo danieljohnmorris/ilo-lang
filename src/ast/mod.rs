@@ -151,6 +151,9 @@ pub enum Stmt {
         body: Vec<Spanned<Stmt>>,
     },
 
+    /// `ret expr` — early return from function
+    Return(Expr),
+
     /// Expression as statement (last expr is return value)
     Expr(Expr),
 }
