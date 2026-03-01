@@ -53,6 +53,17 @@ Function names follow the same rules. Field names in constructors and external t
 
 ---
 
+## Comments
+
+```
+-- this is a comment
++a b -- inline comment after code
+```
+
+`--` to end of line. Stripped at the lexer level before parsing — comments produce no AST nodes and cost zero runtime tokens. Generating `--` costs 1 LLM token, so comments are essentially free.
+
+---
+
 ## Operators
 
 Prefix notation.
