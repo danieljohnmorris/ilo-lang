@@ -716,3 +716,10 @@ Package download statistics and dependency counts sourced from:
 Packages that are primarily transitive dependencies (urllib3, certifi, idna in Python; tslib, supports-color in JS) are excluded from the direct-use rankings.
 
 "Agent-relevant" is defined as: an AI agent composing tool calls would need this capability, as opposed to a human developer building an application.
+
+---
+
+## See Also
+
+- [essential-packages-analysis.md](essential-packages-analysis.md) — complementary analysis: same phenomenon from the "what developers install" angle
+- [OPEN.md](OPEN.md) — builtin naming decisions consolidating proposals from both documents

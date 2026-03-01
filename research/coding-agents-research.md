@@ -928,3 +928,10 @@ much of this overhead.
 - OpenCode MCP Servers
 - DeepWiki: OpenCode File System Tools
 - Docker Sandboxes for OpenCode
+
+---
+
+## See Also
+
+- [agent-framework-tool-mechanics.md](agent-framework-tool-mechanics.md) — deep dive into tool-calling protocols and JSON Schema patterns across agent frameworks
+- [mcp-protocol-research.md](mcp-protocol-research.md) — MCP protocol mechanics that agents use for tool discovery

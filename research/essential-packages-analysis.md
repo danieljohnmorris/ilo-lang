@@ -838,3 +838,11 @@ The essential packages of other languages are not just a list of things to build
 evidence that ilo's core design -- verified types, canonical formatting, typed error
 handling, builtins over packages -- is the right approach for a language where the
 programmer cannot install dependencies.
+
+---
+
+## See Also
+
+- [universal-stdlib-gaps.md](universal-stdlib-gaps.md) — complementary analysis: same phenomenon from the "what stdlibs get wrong" angle
+- [OPEN.md](OPEN.md) — builtin naming decisions and "essential packages" principle
+- Language-specific research files for per-ecosystem detail: [go-stdlib-research.md](go-stdlib-research.md), [python-stdlib-analysis.md](python-stdlib-analysis.md), [js-ts-ecosystem.md](js-ts-ecosystem.md), [ruby-php-research.md](ruby-php-research.md), [rust-capabilities-research.md](rust-capabilities-research.md)

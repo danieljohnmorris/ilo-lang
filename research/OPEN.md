@@ -182,3 +182,27 @@ Should the verifier require all patterns to be covered? The experiments don't te
 ### Compensation patterns
 
 The workflow examples show inline compensation (`charge pid amt;?{^e:release rid;^+"Payment failed"...}`). Should compensation be a first-class concept, or is inline error handling sufficient?
+
+### Builtin naming: competing proposals across research files
+
+Research files propose different names for the same operations. These need a single decision per capability. The table below shows proposals and emerging consensus:
+
+| Capability | Proposals | Source files | Emerging consensus |
+|-----------|-----------|-------------|-------------------|
+| File read | `fread`, `rd`, `read` | Go/Rust/Lua-Elixir, Python/Universal-gaps, JS-TS | `fread` (3 files) |
+| File write | `fwrite`, `wr`, `write` | Go/Rust/Lua-Elixir, Python/Universal-gaps, JS-TS | `fwrite` (3 files) |
+| Regex match | `rgx`, `rx`, `mtc`, `matchall` | Python/Essential/Universal-gaps, Ruby-PHP, JS-TS, Go | `rgx` (3 files) |
+| Regex all | `rga`, — | Python/Essential/Universal-gaps | `rga` (3 files) |
+| Regex sub | `rgs`, `rxr`, `rep`, `sub` | Python/Essential/Universal-gaps, Ruby-PHP, Rust, Go | `rgs` (3 files) |
+| String replace | `rpl`, `sub`, `rep` | Python/Essential/Universal-gaps, Go, Rust | `rpl` (3 files) |
+| JSON parse | `jsn`, `jp`, `jparse` | Python/Universal-gaps, Essential, Go | `jsn` (2 files) |
+| JSON dump | `ser`, `jdump` | Python/Universal-gaps, Go | `ser` (2 files) |
+| Hash | `sha`, `hash` | Python/Essential, Go | undecided |
+| HMAC | `hmac` | Python/Essential, Go | `hmac` (consensus) |
+| Sleep | `slp`, `sleep` | Python/Universal-gaps, Go | `slp` (2 files) |
+
+### File I/O: builtin vs tool
+
+Early research files (ruby-php-research, swift-kotlin-research) say "file I/O is a tool concern, not a language concern." Later files (go-stdlib, rust-capabilities, python-stdlib, essential-packages) propose file I/O builtins (`fread`/`fwrite` or `rd`/`wr`). This represents an evolving position: as the design matured, file I/O moved from "tool" to "builtin." The earlier files have not been updated to reflect this shift.
+
+The OPEN.md principle "format parsing is a tool concern" applies to format parsing (JSON, XML, HTML), not to raw file read/write. File I/O as a builtin is consistent with the principle — the builtin reads/writes bytes or text, while format-specific parsing remains a tool concern.

@@ -1309,3 +1309,10 @@ For ilo to work with all frameworks, it needs exactly:
 5. **Discovery ingestion** -> MCP tools/list -> ilo function signatures
 
 Everything else is runtime adapter code, not language design.
+
+---
+
+## See Also
+
+- [coding-agents-research.md](coding-agents-research.md) — comparative analysis of agent tools, sandboxing, and OS interaction patterns
+- [mcp-protocol-research.md](mcp-protocol-research.md) — MCP protocol specifics referenced in the discovery ingestion surface
