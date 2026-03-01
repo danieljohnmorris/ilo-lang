@@ -181,19 +181,19 @@ fn fmt_body_dense(stmts: &[Spanned<Stmt>]) -> String {
 
 fn fmt_stmt_dense(stmt: &Stmt) -> String {
     match stmt {
-        Stmt::Let { name, value } => format!("{}={}", name, fmt_expr(value)),
+        Stmt::Let { name, value } => format!("{}={}", name, fmt_expr(value, FmtMode::Dense)),
         Stmt::Guard { condition, negated, body } => {
             let prefix = if *negated { "!" } else { "" };
-            format!("{}{}{{{}}}", prefix, fmt_expr(condition), fmt_body_dense(body))
+            format!("{}{}{{{}}}", prefix, fmt_expr(condition, FmtMode::Dense), fmt_body_dense(body))
         }
         Stmt::Match { subject, arms } => {
-            let subj = subject.as_ref().map(|e| fmt_expr(e)).unwrap_or_default();
+            let subj = subject.as_ref().map(|e| fmt_expr(e, FmtMode::Dense)).unwrap_or_default();
             format!("?{}{{{}}}", subj, fmt_arms_dense(arms))
         }
         Stmt::ForEach { binding, collection, body } => {
-            format!("@{} {}{{{}}}", binding, fmt_expr(collection), fmt_body_dense(body))
+            format!("@{} {}{{{}}}", binding, fmt_expr(collection, FmtMode::Dense), fmt_body_dense(body))
         }
-        Stmt::Expr(e) => fmt_expr(e),
+        Stmt::Expr(e) => fmt_expr(e, FmtMode::Dense),
     }
 }
 
@@ -222,14 +222,14 @@ fn fmt_stmt_expanded(out: &mut String, stmt: &Stmt, indent_level: usize) {
             out.push_str(&ind);
             out.push_str(name);
             out.push_str(" = ");
-            out.push_str(&fmt_expr(value));
+            out.push_str(&fmt_expr(value, FmtMode::Expanded));
             out.push('\n');
         }
         Stmt::Guard { condition, negated, body } => {
             let prefix = if *negated { "!" } else { "" };
             out.push_str(&ind);
             out.push_str(prefix);
-            out.push_str(&fmt_expr(condition));
+            out.push_str(&fmt_expr(condition, FmtMode::Expanded));
             out.push_str(" {\n");
             fmt_body_expanded(out, body, indent_level + 1);
             out.push_str(&ind);
@@ -240,7 +240,7 @@ fn fmt_stmt_expanded(out: &mut String, stmt: &Stmt, indent_level: usize) {
             out.push('?');
             if let Some(e) = subject {
                 out.push(' ');
-                out.push_str(&fmt_expr(e));
+                out.push_str(&fmt_expr(e, FmtMode::Expanded));
                 out.push(' ');
             } else {
                 out.push(' ');
@@ -258,7 +258,7 @@ fn fmt_stmt_expanded(out: &mut String, stmt: &Stmt, indent_level: usize) {
             out.push(' ');
             out.push_str(binding);
             out.push(' ');
-            out.push_str(&fmt_expr(collection));
+            out.push_str(&fmt_expr(collection, FmtMode::Expanded));
             out.push_str(" {\n");
             fmt_body_expanded(out, body, indent_level + 1);
             out.push_str(&ind);
@@ -266,7 +266,7 @@ fn fmt_stmt_expanded(out: &mut String, stmt: &Stmt, indent_level: usize) {
         }
         Stmt::Expr(e) => {
             out.push_str(&ind);
-            out.push_str(&fmt_expr(e));
+            out.push_str(&fmt_expr(e, FmtMode::Expanded));
             out.push('\n');
         }
     }
@@ -280,37 +280,51 @@ fn fmt_arm_expanded(out: &mut String, arm: &MatchArm, indent_level: usize) {
     fmt_body_expanded(out, &arm.body, indent_level + 1);
 }
 
-// ---- Expressions (always dense — prefix notation is already unambiguous) ----
+// ---- Expressions ----
+// In Dense mode: operators glue to first operand (e.g. `>=sp 1000`)
+// In Expanded mode: space between operator and operand (e.g. `>= sp 1000`)
 
-fn fmt_expr(expr: &Expr) -> String {
+fn fmt_expr(expr: &Expr, mode: FmtMode) -> String {
     match expr {
         Expr::Literal(lit) => fmt_literal(lit),
         Expr::Ref(name) => name.clone(),
-        Expr::Field { object, field } => format!("{}.{}", fmt_expr(object), field),
-        Expr::Index { object, index } => format!("{}.{}", fmt_expr(object), index),
+        Expr::Field { object, field } => format!("{}.{}", fmt_expr(object, mode), field),
+        Expr::Index { object, index } => format!("{}.{}", fmt_expr(object, mode), index),
         Expr::Call { function, args } => {
             if args.is_empty() {
                 format!("{}()", function)
             } else {
-                let args_str: Vec<String> = args.iter().map(fmt_expr).collect();
+                let args_str: Vec<String> = args.iter().map(|a| fmt_expr(a, mode)).collect();
                 format!("{} {}", function, args_str.join(" "))
             }
         }
-        Expr::BinOp { op, left, right } => {
-            format!("{}{} {}", fmt_binop(op), fmt_expr(left), fmt_expr(right))
-        }
+        Expr::BinOp { op, left, right } => match mode {
+            FmtMode::Dense => {
+                format!("{}{} {}", fmt_binop(op), fmt_expr(left, mode), fmt_expr(right, mode))
+            }
+            FmtMode::Expanded => {
+                format!("{} {} {}", fmt_binop(op), fmt_expr(left, mode), fmt_expr(right, mode))
+            }
+        },
         Expr::UnaryOp { op, operand } => {
-            let inner = fmt_expr(operand);
-            match op {
+            let inner = fmt_expr(operand, mode);
+            match (op, mode) {
                 // Add a space to avoid "--" being lexed as a comment token.
-                UnaryOp::Negate => format!("- {}", inner),
-                UnaryOp::Not => format!("!{}", inner),
+                (UnaryOp::Negate, _) => format!("- {}", inner),
+                (UnaryOp::Not, FmtMode::Dense) => format!("!{}", inner),
+                (UnaryOp::Not, FmtMode::Expanded) => format!("! {}", inner),
             }
         }
-        Expr::Ok(inner) => format!("~{}", fmt_expr(inner)),
-        Expr::Err(inner) => format!("^{}", fmt_expr(inner)),
+        Expr::Ok(inner) => match mode {
+            FmtMode::Dense => format!("~{}", fmt_expr(inner, mode)),
+            FmtMode::Expanded => format!("~ {}", fmt_expr(inner, mode)),
+        },
+        Expr::Err(inner) => match mode {
+            FmtMode::Dense => format!("^{}", fmt_expr(inner, mode)),
+            FmtMode::Expanded => format!("^ {}", fmt_expr(inner, mode)),
+        },
         Expr::List(items) => {
-            let items_str: Vec<String> = items.iter().map(fmt_expr).collect();
+            let items_str: Vec<String> = items.iter().map(|i| fmt_expr(i, mode)).collect();
             format!("[{}]", items_str.join(", "))
         }
         Expr::Record { type_name, fields } => {
@@ -318,18 +332,18 @@ fn fmt_expr(expr: &Expr) -> String {
                 return type_name.clone();
             }
             let fields_str: Vec<String> =
-                fields.iter().map(|(n, v)| format!("{}:{}", n, fmt_expr(v))).collect();
+                fields.iter().map(|(n, v)| format!("{}:{}", n, fmt_expr(v, mode))).collect();
             format!("{} {}", type_name, fields_str.join(" "))
         }
         // Match expressions stay dense — they appear in expression position.
         Expr::Match { subject, arms } => {
-            let subj = subject.as_ref().map(|e| fmt_expr(e)).unwrap_or_default();
+            let subj = subject.as_ref().map(|e| fmt_expr(e, mode)).unwrap_or_default();
             format!("?{}{{{}}}", subj, fmt_arms_dense(arms))
         }
         Expr::With { object, updates } => {
             let updates_str: Vec<String> =
-                updates.iter().map(|(n, v)| format!("{}:{}", n, fmt_expr(v))).collect();
-            format!("{} with {}", fmt_expr(object), updates_str.join(" "))
+                updates.iter().map(|(n, v)| format!("{}:{}", n, fmt_expr(v, mode))).collect();
+            format!("{} with {}", fmt_expr(object, mode), updates_str.join(" "))
         }
     }
 }
@@ -703,16 +717,16 @@ mod tests {
     fn expanded_simple_function() {
         let s = expanded("tot p:n q:n r:n>n;s=*p q;t=*s r;+s t");
         assert!(s.starts_with("tot p:n q:n r:n > n\n"), "got: {s}");
-        assert!(s.contains("  s = *p q\n"), "got: {s}");
-        assert!(s.contains("  t = *s r\n"), "got: {s}");
-        assert!(s.contains("  +s t\n"), "got: {s}");
+        assert!(s.contains("  s = * p q\n"), "got: {s}");
+        assert!(s.contains("  t = * s r\n"), "got: {s}");
+        assert!(s.contains("  + s t\n"), "got: {s}");
     }
 
     #[test]
     fn expanded_guard() {
         let s = expanded(r#"cls sp:n>t;>=sp 1000{"gold"};>=sp 500{"silver"};"bronze""#);
         assert!(s.contains("> t\n"), "got: {s}");
-        assert!(s.contains(">=sp 1000 {\n") || s.contains(">= sp 1000 {\n"), "got: {s}");
+        assert!(s.contains(">= sp 1000 {\n"), "got: {s}");
         assert!(s.contains(r#"    "gold""#), "got: {s}");
     }
 
@@ -729,7 +743,7 @@ mod tests {
     fn expanded_foreach() {
         let s = expanded("f xs:L n>L n;@x xs{+x 1}");
         assert!(s.contains("  @ x xs {\n"), "got: {s}");
-        assert!(s.contains("    +x 1\n"), "got: {s}");
+        assert!(s.contains("    + x 1\n"), "got: {s}");
     }
 
     #[test]
