@@ -185,9 +185,12 @@ NO_COLOR=1 ilo 'code'       # disable colour
 ```
 
 **Formatter:**
+
+Newlines are for humans — agents don't need them. An entire ilo program can be one line. The formatter converts between the two forms:
+
 ```bash
-ilo 'code' --fmt             # dense wire format (canonical)
-ilo 'code' --fmt-expanded    # expanded human-readable format
+ilo 'code' --fmt             # dense wire format (canonical, for agents)
+ilo 'code' --fmt-expanded    # expanded human-readable format (for review)
 ```
 
 **Other modes:**

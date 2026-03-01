@@ -107,7 +107,7 @@ ilo does the same for machine programmers. A minimal, verified vocabulary. Compl
 
 **Not a framework for building AI agents.** There are plenty of those. ilo is a language for agents to write programs *in*.
 
-**Not optimised for human readability.** Humans can read it — it's not obfuscated — but no decision is made because it "looks cleaner" or "reads more naturally." If a design is uglier but costs fewer total tokens, it wins.
+**Not optimised for human readability.** Humans can read it — it's not obfuscated — but no decision is made because it "looks cleaner" or "reads more naturally." If a design is uglier but costs fewer total tokens, it wins. Newlines, indentation, and multi-line comments are human concerns — agents don't need them. An entire ilo program can be one line. The formatter provides expanded output (`--fmt-expanded`) when humans need to review.
 
 **Not theoretical.** Every principle here addresses measured failure modes in AI-generated code: hallucinated APIs, context window exhaustion, wasted retry cycles from vague errors.
 
