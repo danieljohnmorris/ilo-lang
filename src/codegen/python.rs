@@ -126,7 +126,7 @@ fn emit_stmt(out: &mut String, stmt: &Stmt, level: usize, implicit_return: bool)
             indent(out, level);
             out.push_str(&format!("{} = {}\n", py_name(name), val));
         }
-        Stmt::Guard { condition, negated, body } => {
+        Stmt::Guard { condition, negated, body, else_body } => {
             let cond = emit_expr(out, level, condition);
             indent(out, level);
             if *negated {
@@ -134,8 +134,13 @@ fn emit_stmt(out: &mut String, stmt: &Stmt, level: usize, implicit_return: bool)
             } else {
                 out.push_str(&format!("if {}:\n", cond));
             }
-            // Guard bodies in ilo typically do early returns
-            emit_body(out, body, level + 1, true);
+            let is_ternary = else_body.is_some();
+            emit_body(out, body, level + 1, !is_ternary);
+            if let Some(eb) = else_body {
+                indent(out, level);
+                out.push_str("else:\n");
+                emit_body(out, eb, level + 1, false);
+            }
         }
         Stmt::Match { subject, arms } => {
             emit_match_stmt(out, subject, arms, level);
@@ -974,6 +979,7 @@ mod tests {
                         condition: Expr::Literal(Literal::Bool(true)),
                         negated: false,
                         body: vec![],
+                        else_body: None,
                     })],
                 },
                 MatchArm {

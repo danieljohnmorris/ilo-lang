@@ -110,6 +110,13 @@ pub(crate) const OP_FLR: u8 = 45;        // R[A] = floor(R[B])
 pub(crate) const OP_CEL: u8 = 46;        // R[A] = ceil(R[B])
 pub(crate) const OP_GET: u8 = 47;        // R[A] = http_get(R[B])  (returns R t t)
 pub(crate) const OP_SPL: u8 = 48;        // R[A] = spl(R[B], R[C])  (split text by separator → L t)
+pub(crate) const OP_CAT: u8 = 49;        // R[A] = cat(R[B], R[C])  (join list with separator → t)
+pub(crate) const OP_HAS: u8 = 50;        // R[A] = has(R[B], R[C])  (membership test → b)
+pub(crate) const OP_HD: u8 = 51;         // R[A] = hd(R[B])  (head of list/text)
+pub(crate) const OP_TL: u8 = 52;         // R[A] = tl(R[B])  (tail of list/text)
+pub(crate) const OP_REV: u8 = 53;        // R[A] = rev(R[B])  (reverse list or text)
+pub(crate) const OP_SRT: u8 = 54;        // R[A] = srt(R[B])  (sort list or text)
+pub(crate) const OP_SLC: u8 = 55;        // R[A] = slc(R[B], R[C], R[C+1])  (slice list or text)
 
 // ABx mode — register + 16-bit operand
 pub(crate) const OP_LOADK: u8 = 20;
@@ -393,7 +400,7 @@ impl RegCompiler {
                 None
             }
 
-            Stmt::Guard { condition, negated, body } => {
+            Stmt::Guard { condition, negated, body, else_body } => {
                 let saved_next = self.next_reg;
                 let cond_reg = self.compile_expr(condition);
                 let jump = if *negated {
@@ -401,17 +408,51 @@ impl RegCompiler {
                 } else {
                     self.emit_jmpf(cond_reg)
                 };
-                let body_result = self.compile_body(body);
-                let ret_reg = body_result.unwrap_or_else(|| {
-                    let r = self.alloc_reg();
-                    let ki = self.current.add_const(Value::Nil);
-                    self.emit_abx(OP_LOADK, r, ki);
-                    r
-                });
-                self.emit_abx(OP_RET, ret_reg, 0);
-                self.current.patch_jump(jump);
-                self.next_reg = saved_next;
-                None
+
+                if let Some(else_b) = else_body {
+                    // Ternary: cond{then}{else} — produce value, no early return
+                    let result_reg = self.alloc_reg();
+                    let then_result = self.compile_body(body);
+                    let then_reg = then_result.unwrap_or_else(|| {
+                        let r = self.alloc_reg();
+                        let ki = self.current.add_const(Value::Nil);
+                        self.emit_abx(OP_LOADK, r, ki);
+                        r
+                    });
+                    if then_reg != result_reg {
+                        self.emit_abc(OP_MOVE, result_reg, then_reg, 0);
+                    }
+                    let jump_over_else = self.emit_jmp_placeholder();
+                    self.current.patch_jump(jump);
+
+                    self.next_reg = result_reg + 1;
+                    let else_result = self.compile_body(else_b);
+                    let else_reg = else_result.unwrap_or_else(|| {
+                        let r = self.alloc_reg();
+                        let ki = self.current.add_const(Value::Nil);
+                        self.emit_abx(OP_LOADK, r, ki);
+                        r
+                    });
+                    if else_reg != result_reg {
+                        self.emit_abc(OP_MOVE, result_reg, else_reg, 0);
+                    }
+                    self.current.patch_jump(jump_over_else);
+                    self.next_reg = result_reg + 1;
+                    Some(result_reg)
+                } else {
+                    // Guard: cond{body} — early return
+                    let body_result = self.compile_body(body);
+                    let ret_reg = body_result.unwrap_or_else(|| {
+                        let r = self.alloc_reg();
+                        let ki = self.current.add_const(Value::Nil);
+                        self.emit_abx(OP_LOADK, r, ki);
+                        r
+                    });
+                    self.emit_abx(OP_RET, ret_reg, 0);
+                    self.current.patch_jump(jump);
+                    self.next_reg = saved_next;
+                    None
+                }
             }
 
             Stmt::Match { subject, arms } => {
@@ -742,6 +783,53 @@ impl RegCompiler {
                     let rc = self.compile_expr(&args[1]);
                     let ra = self.alloc_reg();
                     self.emit_abc(OP_SPL, ra, rb, rc);
+                    return ra;
+                }
+                if function == "cat" && args.len() == 2 {
+                    let rb = self.compile_expr(&args[0]);
+                    let rc = self.compile_expr(&args[1]);
+                    let ra = self.alloc_reg();
+                    self.emit_abc(OP_CAT, ra, rb, rc);
+                    return ra;
+                }
+                if function == "has" && args.len() == 2 {
+                    let rb = self.compile_expr(&args[0]);
+                    let rc = self.compile_expr(&args[1]);
+                    let ra = self.alloc_reg();
+                    self.emit_abc(OP_HAS, ra, rb, rc);
+                    return ra;
+                }
+                if function == "hd" && args.len() == 1 {
+                    let rb = self.compile_expr(&args[0]);
+                    let ra = self.alloc_reg();
+                    self.emit_abc(OP_HD, ra, rb, 0);
+                    return ra;
+                }
+                if function == "tl" && args.len() == 1 {
+                    let rb = self.compile_expr(&args[0]);
+                    let ra = self.alloc_reg();
+                    self.emit_abc(OP_TL, ra, rb, 0);
+                    return ra;
+                }
+                if function == "rev" && args.len() == 1 {
+                    let rb = self.compile_expr(&args[0]);
+                    let ra = self.alloc_reg();
+                    self.emit_abc(OP_REV, ra, rb, 0);
+                    return ra;
+                }
+                if function == "srt" && args.len() == 1 {
+                    let rb = self.compile_expr(&args[0]);
+                    let ra = self.alloc_reg();
+                    self.emit_abc(OP_SRT, ra, rb, 0);
+                    return ra;
+                }
+                if function == "slc" && args.len() == 3 {
+                    let rb = self.compile_expr(&args[0]);
+                    let rc = self.compile_expr(&args[1]);
+                    let rd = self.compile_expr(&args[2]);
+                    debug_assert_eq!(rd, rc + 1, "slc args should be consecutive regs");
+                    let ra = self.alloc_reg();
+                    self.emit_abc(OP_SLC, ra, rb, rc);
                     return ra;
                 }
                 if function == "get" && args.len() == 1 {
@@ -2107,6 +2195,213 @@ impl<'a> VM<'a> {
                         .map(|p| NanVal::heap_string(p.to_string()))
                         .collect();
                     reg_set!(a, NanVal::heap_list(items));
+                }
+                OP_CAT => {
+                    let a = ((inst >> 16) & 0xFF) as usize + base;
+                    let b = ((inst >> 8) & 0xFF) as usize + base;
+                    let c = (inst & 0xFF) as usize + base;
+                    let vb = reg!(b);
+                    let vc = reg!(c);
+                    if !vc.is_string() {
+                        return Err(VmError::Type("cat requires a text separator"));
+                    }
+                    if !vb.is_heap() {
+                        return Err(VmError::Type("cat requires a list"));
+                    }
+                    let sep = unsafe { match vc.as_heap_ref() { HeapObj::Str(s) => s, _ => unreachable!() } };
+                    let items = unsafe { match vb.as_heap_ref() { HeapObj::List(l) => l, _ => return Err(VmError::Type("cat requires a list")) } };
+                    let mut parts = Vec::with_capacity(items.len());
+                    for item in items {
+                        if !item.is_string() {
+                            return Err(VmError::Type("cat: list items must be text"));
+                        }
+                        let s = unsafe { match item.as_heap_ref() { HeapObj::Str(s) => s, _ => unreachable!() } };
+                        parts.push(s.as_str());
+                    }
+                    let result = parts.join(sep.as_str());
+                    reg_set!(a, NanVal::heap_string(result));
+                }
+                OP_HAS => {
+                    let a = ((inst >> 16) & 0xFF) as usize + base;
+                    let b = ((inst >> 8) & 0xFF) as usize + base;
+                    let c = (inst & 0xFF) as usize + base;
+                    let collection = reg!(b);
+                    let needle = reg!(c);
+                    let found = if collection.is_string() {
+                        if !needle.is_string() {
+                            return Err(VmError::Type("has: text search requires text needle"));
+                        }
+                        unsafe {
+                            let haystack = match collection.as_heap_ref() { HeapObj::Str(s) => s, _ => unreachable!() };
+                            let needle_s = match needle.as_heap_ref() { HeapObj::Str(s) => s, _ => unreachable!() };
+                            haystack.contains(needle_s.as_str())
+                        }
+                    } else if collection.is_heap() {
+                        match unsafe { collection.as_heap_ref() } {
+                            HeapObj::List(items) => {
+                                items.iter().any(|item| nanval_equal(*item, needle))
+                            }
+                            _ => return Err(VmError::Type("has requires a list or text")),
+                        }
+                    } else {
+                        return Err(VmError::Type("has requires a list or text"));
+                    };
+                    reg_set!(a, NanVal::boolean(found));
+                }
+                OP_HD => {
+                    let a = ((inst >> 16) & 0xFF) as usize + base;
+                    let b = ((inst >> 8) & 0xFF) as usize + base;
+                    let v = reg!(b);
+                    let result = if v.is_string() {
+                        let s = unsafe { match v.as_heap_ref() { HeapObj::Str(s) => s, _ => unreachable!() } };
+                        if s.is_empty() {
+                            return Err(VmError::Type("hd: empty text"));
+                        }
+                        NanVal::heap_string(s.chars().next().unwrap().to_string())
+                    } else if v.is_heap() {
+                        match unsafe { v.as_heap_ref() } {
+                            HeapObj::List(items) => {
+                                if items.is_empty() {
+                                    return Err(VmError::Type("hd: empty list"));
+                                }
+                                items[0].clone_rc();
+                                items[0]
+                            }
+                            _ => return Err(VmError::Type("hd requires a list or text")),
+                        }
+                    } else {
+                        return Err(VmError::Type("hd requires a list or text"));
+                    };
+                    reg_set!(a, result);
+                }
+                OP_TL => {
+                    let a = ((inst >> 16) & 0xFF) as usize + base;
+                    let b = ((inst >> 8) & 0xFF) as usize + base;
+                    let v = reg!(b);
+                    let result = if v.is_string() {
+                        let s = unsafe { match v.as_heap_ref() { HeapObj::Str(s) => s, _ => unreachable!() } };
+                        if s.is_empty() {
+                            return Err(VmError::Type("tl: empty text"));
+                        }
+                        let mut chars = s.chars();
+                        chars.next();
+                        NanVal::heap_string(chars.collect())
+                    } else if v.is_heap() {
+                        match unsafe { v.as_heap_ref() } {
+                            HeapObj::List(items) => {
+                                if items.is_empty() {
+                                    return Err(VmError::Type("tl: empty list"));
+                                }
+                                let tail: Vec<NanVal> = items[1..].iter().map(|item| {
+                                    item.clone_rc();
+                                    *item
+                                }).collect();
+                                NanVal::heap_list(tail)
+                            }
+                            _ => return Err(VmError::Type("tl requires a list or text")),
+                        }
+                    } else {
+                        return Err(VmError::Type("tl requires a list or text"));
+                    };
+                    reg_set!(a, result);
+                }
+                OP_REV => {
+                    let a = ((inst >> 16) & 0xFF) as usize + base;
+                    let b = ((inst >> 8) & 0xFF) as usize + base;
+                    let v = reg!(b);
+                    let result = if v.is_string() {
+                        let s = unsafe { match v.as_heap_ref() { HeapObj::Str(s) => s, _ => unreachable!() } };
+                        NanVal::heap_string(s.chars().rev().collect::<String>())
+                    } else if v.is_heap() {
+                        match unsafe { v.as_heap_ref() } {
+                            HeapObj::List(items) => {
+                                let mut reversed: Vec<NanVal> = items.iter().map(|item| { item.clone_rc(); *item }).collect();
+                                reversed.reverse();
+                                NanVal::heap_list(reversed)
+                            }
+                            _ => return Err(VmError::Type("rev requires a list or text")),
+                        }
+                    } else {
+                        return Err(VmError::Type("rev requires a list or text"));
+                    };
+                    reg_set!(a, result);
+                }
+                OP_SRT => {
+                    let a = ((inst >> 16) & 0xFF) as usize + base;
+                    let b = ((inst >> 8) & 0xFF) as usize + base;
+                    let v = reg!(b);
+                    if v.is_string() {
+                        let s = unsafe { match v.as_heap_ref() { HeapObj::Str(s) => s, _ => unreachable!() } };
+                        let mut chars: Vec<char> = s.chars().collect();
+                        chars.sort();
+                        let sorted: String = chars.into_iter().collect();
+                        reg_set!(a, NanVal::heap_string(sorted));
+                    } else if v.is_heap() {
+                        match unsafe { v.as_heap_ref() } {
+                            HeapObj::List(items) => {
+                                if items.is_empty() {
+                                    reg_set!(a, NanVal::heap_list(vec![]));
+                                } else {
+                                    let all_numbers = items.iter().all(|v| v.is_number());
+                                    let all_strings = items.iter().all(|v| v.is_string());
+                                    if all_numbers {
+                                        let mut sorted: Vec<NanVal> = items.iter().map(|v| { v.clone_rc(); *v }).collect();
+                                        sorted.sort_by(|a, b| {
+                                            a.as_number().partial_cmp(&b.as_number()).unwrap_or(std::cmp::Ordering::Equal)
+                                        });
+                                        reg_set!(a, NanVal::heap_list(sorted));
+                                    } else if all_strings {
+                                        let mut sorted: Vec<NanVal> = items.iter().map(|v| { v.clone_rc(); *v }).collect();
+                                        sorted.sort_by(|a, b| unsafe { nanval_str_cmp(*a, *b) });
+                                        reg_set!(a, NanVal::heap_list(sorted));
+                                    } else {
+                                        return Err(VmError::Type("srt: list must contain all numbers or all text"));
+                                    }
+                                }
+                            }
+                            _ => return Err(VmError::Type("srt requires a list or text")),
+                        }
+                    } else {
+                        return Err(VmError::Type("srt requires a list or text"));
+                    }
+                }
+                OP_SLC => {
+                    let a = ((inst >> 16) & 0xFF) as usize + base;
+                    let b = ((inst >> 8) & 0xFF) as usize + base;
+                    let c = (inst & 0xFF) as usize + base;
+                    let d = c + 1;
+                    let vb = reg!(b);
+                    let vc = reg!(c);
+                    let vd = reg!(d);
+                    if !vc.is_number() || !vd.is_number() {
+                        return Err(VmError::Type("slc: indices must be numbers"));
+                    }
+                    let start = vc.as_number() as usize;
+                    let end = vd.as_number() as usize;
+                    if vb.is_string() {
+                        let s = unsafe { match vb.as_heap_ref() { HeapObj::Str(s) => s, _ => unreachable!() } };
+                        let chars: Vec<char> = s.chars().collect();
+                        let end = end.min(chars.len());
+                        let start = start.min(end);
+                        let result: String = chars[start..end].iter().collect();
+                        reg_set!(a, NanVal::heap_string(result));
+                    } else if vb.is_heap() {
+                        match unsafe { vb.as_heap_ref() } {
+                            HeapObj::List(items) => {
+                                let end = end.min(items.len());
+                                let start = start.min(end);
+                                let mut sliced = Vec::with_capacity(end - start);
+                                for v in &items[start..end] {
+                                    v.clone_rc();
+                                    sliced.push(*v);
+                                }
+                                reg_set!(a, NanVal::heap_list(sliced));
+                            }
+                            _ => return Err(VmError::Type("slc requires a list or text")),
+                        }
+                    } else {
+                        return Err(VmError::Type("slc requires a list or text"));
+                    }
                 }
                 OP_LISTAPPEND => {
                     let a = ((inst >> 16) & 0xFF) as usize + base;
@@ -3905,5 +4200,144 @@ mod tests {
             vm_run(source, Some("f"), vec![]),
             Value::List(vec![Value::Text("".to_string())])
         );
+    }
+
+    #[test]
+    fn vm_cat_basic() {
+        let source = "f items:L t>t;cat items \",\"";
+        assert_eq!(
+            vm_run(source, Some("f"), vec![Value::List(vec![
+                Value::Text("a".into()), Value::Text("b".into()), Value::Text("c".into()),
+            ])]),
+            Value::Text("a,b,c".into())
+        );
+    }
+
+    #[test]
+    fn vm_cat_empty_list() {
+        let source = "f items:L t>t;cat items \"-\"";
+        assert_eq!(vm_run(source, Some("f"), vec![Value::List(vec![])]), Value::Text("".into()));
+    }
+
+    #[test]
+    fn vm_has_list() {
+        let source = "f xs:L n x:n>b;has xs x";
+        assert_eq!(
+            vm_run(source, Some("f"), vec![Value::List(vec![Value::Number(1.0), Value::Number(2.0), Value::Number(3.0)]), Value::Number(2.0)]),
+            Value::Bool(true)
+        );
+        assert_eq!(
+            vm_run(source, Some("f"), vec![Value::List(vec![Value::Number(1.0)]), Value::Number(5.0)]),
+            Value::Bool(false)
+        );
+    }
+
+    #[test]
+    fn vm_has_text() {
+        let source = r#"f s:t needle:t>b;has s needle"#;
+        assert_eq!(
+            vm_run(source, Some("f"), vec![Value::Text("hello world".into()), Value::Text("world".into())]),
+            Value::Bool(true)
+        );
+    }
+
+    #[test]
+    fn vm_hd_list() {
+        let source = "f>n;xs=[10, 20, 30];hd xs";
+        assert_eq!(vm_run(source, Some("f"), vec![]), Value::Number(10.0));
+    }
+
+    #[test]
+    fn vm_tl_list() {
+        let source = "f>L n;xs=[10, 20, 30];tl xs";
+        assert_eq!(
+            vm_run(source, Some("f"), vec![]),
+            Value::List(vec![Value::Number(20.0), Value::Number(30.0)])
+        );
+    }
+
+    #[test]
+    fn vm_hd_text() {
+        let source = r#"f s:t>t;hd s"#;
+        assert_eq!(
+            vm_run(source, Some("f"), vec![Value::Text("hello".into())]),
+            Value::Text("h".into())
+        );
+    }
+
+    #[test]
+    fn vm_tl_text() {
+        let source = r#"f s:t>t;tl s"#;
+        assert_eq!(
+            vm_run(source, Some("f"), vec![Value::Text("hello".into())]),
+            Value::Text("ello".into())
+        );
+    }
+
+    #[test]
+    fn vm_rev_list() {
+        let source = "f>L n;rev [1, 2, 3]";
+        assert_eq!(
+            vm_run(source, Some("f"), vec![]),
+            Value::List(vec![Value::Number(3.0), Value::Number(2.0), Value::Number(1.0)])
+        );
+    }
+
+    #[test]
+    fn vm_rev_text() {
+        let source = r#"f>t;rev "abc""#;
+        assert_eq!(vm_run(source, Some("f"), vec![]), Value::Text("cba".into()));
+    }
+
+    #[test]
+    fn vm_srt_numbers() {
+        let source = "f>L n;srt [3, 1, 2]";
+        assert_eq!(
+            vm_run(source, Some("f"), vec![]),
+            Value::List(vec![Value::Number(1.0), Value::Number(2.0), Value::Number(3.0)])
+        );
+    }
+
+    #[test]
+    fn vm_srt_text_list() {
+        let source = r#"f>L t;srt ["c", "a", "b"]"#;
+        assert_eq!(
+            vm_run(source, Some("f"), vec![]),
+            Value::List(vec![Value::Text("a".into()), Value::Text("b".into()), Value::Text("c".into())])
+        );
+    }
+
+    #[test]
+    fn vm_slc_list() {
+        let source = "f>L n;slc [1, 2, 3, 4, 5] 1 3";
+        assert_eq!(
+            vm_run(source, Some("f"), vec![]),
+            Value::List(vec![Value::Number(2.0), Value::Number(3.0)])
+        );
+    }
+
+    #[test]
+    fn vm_slc_text() {
+        let source = r#"f>t;slc "hello" 1 4"#;
+        assert_eq!(vm_run(source, Some("f"), vec![]), Value::Text("ell".into()));
+    }
+
+    #[test]
+    fn vm_ternary_true() {
+        let source = r#"f x:n>t;=x 1{"yes"}{"no"}"#;
+        assert_eq!(vm_run(source, Some("f"), vec![Value::Number(1.0)]), Value::Text("yes".into()));
+    }
+
+    #[test]
+    fn vm_ternary_false() {
+        let source = r#"f x:n>t;=x 1{"yes"}{"no"}"#;
+        assert_eq!(vm_run(source, Some("f"), vec![Value::Number(2.0)]), Value::Text("no".into()));
+    }
+
+    #[test]
+    fn vm_ternary_no_early_return() {
+        let source = r#"f x:n>n;=x 0{10}{20};+x 1"#;
+        assert_eq!(vm_run(source, Some("f"), vec![Value::Number(0.0)]), Value::Number(1.0));
+        assert_eq!(vm_run(source, Some("f"), vec![Value::Number(5.0)]), Value::Number(6.0));
     }
 }

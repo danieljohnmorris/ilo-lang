@@ -226,6 +226,146 @@ fn call_function(env: &mut Env, name: &str, args: Vec<Value>) -> Result<Value> {
             _ => Err(RuntimeError::new("ILO-R009", "spl requires two text args".to_string())),
         };
     }
+    if name == "cat" && args.len() == 2 {
+        return match (&args[0], &args[1]) {
+            (Value::List(items), Value::Text(sep)) => {
+                let mut parts = Vec::new();
+                for item in items {
+                    match item {
+                        Value::Text(s) => parts.push(s.clone()),
+                        other => return Err(RuntimeError::new("ILO-R009", format!("cat: list items must be text, got {:?}", other))),
+                    }
+                }
+                Ok(Value::Text(parts.join(sep.as_str())))
+            }
+            _ => Err(RuntimeError::new("ILO-R009", "cat requires a list and text separator".to_string())),
+        };
+    }
+    if name == "has" && args.len() == 2 {
+        return match &args[0] {
+            Value::List(items) => Ok(Value::Bool(items.contains(&args[1]))),
+            Value::Text(s) => match &args[1] {
+                Value::Text(needle) => Ok(Value::Bool(s.contains(needle.as_str()))),
+                other => Err(RuntimeError::new("ILO-R009", format!("has: text search requires text needle, got {:?}", other))),
+            },
+            other => Err(RuntimeError::new("ILO-R009", format!("has requires a list or text, got {:?}", other))),
+        };
+    }
+    if name == "hd" && args.len() == 1 {
+        return match &args[0] {
+            Value::List(items) => {
+                if items.is_empty() {
+                    Err(RuntimeError::new("ILO-R009", "hd: empty list".to_string()))
+                } else {
+                    Ok(items[0].clone())
+                }
+            }
+            Value::Text(s) => {
+                if s.is_empty() {
+                    Err(RuntimeError::new("ILO-R009", "hd: empty text".to_string()))
+                } else {
+                    Ok(Value::Text(s.chars().next().unwrap().to_string()))
+                }
+            }
+            other => Err(RuntimeError::new("ILO-R009", format!("hd requires a list or text, got {:?}", other))),
+        };
+    }
+    if name == "tl" && args.len() == 1 {
+        return match &args[0] {
+            Value::List(items) => {
+                if items.is_empty() {
+                    Err(RuntimeError::new("ILO-R009", "tl: empty list".to_string()))
+                } else {
+                    Ok(Value::List(items[1..].to_vec()))
+                }
+            }
+            Value::Text(s) => {
+                if s.is_empty() {
+                    Err(RuntimeError::new("ILO-R009", "tl: empty text".to_string()))
+                } else {
+                    let mut chars = s.chars();
+                    chars.next();
+                    Ok(Value::Text(chars.collect()))
+                }
+            }
+            other => Err(RuntimeError::new("ILO-R009", format!("tl requires a list or text, got {:?}", other))),
+        };
+    }
+    if name == "rev" && args.len() == 1 {
+        return match &args[0] {
+            Value::List(items) => {
+                let mut reversed = items.clone();
+                reversed.reverse();
+                Ok(Value::List(reversed))
+            }
+            Value::Text(s) => Ok(Value::Text(s.chars().rev().collect())),
+            other => Err(RuntimeError::new("ILO-R009", format!("rev requires a list or text, got {:?}", other))),
+        };
+    }
+    if name == "srt" && args.len() == 1 {
+        return match &args[0] {
+            Value::List(items) => {
+                if items.is_empty() {
+                    return Ok(Value::List(vec![]));
+                }
+                let all_numbers = items.iter().all(|v| matches!(v, Value::Number(_)));
+                let all_text = items.iter().all(|v| matches!(v, Value::Text(_)));
+                if all_numbers {
+                    let mut sorted = items.clone();
+                    sorted.sort_by(|a, b| {
+                        if let (Value::Number(x), Value::Number(y)) = (a, b) {
+                            x.partial_cmp(y).unwrap_or(std::cmp::Ordering::Equal)
+                        } else {
+                            unreachable!()
+                        }
+                    });
+                    Ok(Value::List(sorted))
+                } else if all_text {
+                    let mut sorted = items.clone();
+                    sorted.sort_by(|a, b| {
+                        if let (Value::Text(x), Value::Text(y)) = (a, b) {
+                            x.cmp(y)
+                        } else {
+                            unreachable!()
+                        }
+                    });
+                    Ok(Value::List(sorted))
+                } else {
+                    Err(RuntimeError::new("ILO-R009", "srt: list must contain all numbers or all text".to_string()))
+                }
+            }
+            Value::Text(s) => {
+                let mut chars: Vec<char> = s.chars().collect();
+                chars.sort();
+                Ok(Value::Text(chars.into_iter().collect()))
+            }
+            other => Err(RuntimeError::new("ILO-R009", format!("srt requires a list or text, got {:?}", other))),
+        };
+    }
+    if name == "slc" && args.len() == 3 {
+        let start = match &args[1] {
+            Value::Number(n) => *n as usize,
+            other => return Err(RuntimeError::new("ILO-R009", format!("slc: start index must be a number, got {:?}", other))),
+        };
+        let end = match &args[2] {
+            Value::Number(n) => *n as usize,
+            other => return Err(RuntimeError::new("ILO-R009", format!("slc: end index must be a number, got {:?}", other))),
+        };
+        return match &args[0] {
+            Value::List(items) => {
+                let end = end.min(items.len());
+                let start = start.min(end);
+                Ok(Value::List(items[start..end].to_vec()))
+            }
+            Value::Text(s) => {
+                let chars: Vec<char> = s.chars().collect();
+                let end = end.min(chars.len());
+                let start = start.min(end);
+                Ok(Value::Text(chars[start..end].iter().collect()))
+            }
+            other => Err(RuntimeError::new("ILO-R009", format!("slc requires a list or text, got {:?}", other))),
+        };
+    }
     if name == "get" && args.len() == 1 {
         return match &args[0] {
             Value::Text(url) => {
@@ -314,11 +454,22 @@ fn eval_stmt(env: &mut Env, stmt: &Stmt, is_last: bool) -> Result<Option<BodyRes
             env.set(name, val);
             Ok(None)
         }
-        Stmt::Guard { condition, negated, body } => {
+        Stmt::Guard { condition, negated, body, else_body } => {
             let cond = eval_expr(env, condition)?;
             let truth = is_truthy(&cond);
             let should_run = if *negated { !truth } else { truth };
-            if should_run {
+            if let Some(else_b) = else_body {
+                // Ternary: cond{then}{else} — produces value, no early return
+                let chosen = if should_run { body } else { else_b };
+                env.push_scope();
+                let result = eval_body(env, chosen);
+                env.pop_scope();
+                let v = match result? {
+                    BodyResult::Value(v) | BodyResult::Return(v) => v,
+                };
+                Ok(Some(BodyResult::Value(v)))
+            } else if should_run {
+                // Guard: cond{body} — early return from function
                 env.push_scope();
                 let result = eval_body(env, body);
                 env.pop_scope();
@@ -1750,5 +1901,173 @@ mod tests {
             run_str(source, Some("f"), vec![]),
             Value::List(vec![Value::Text("".to_string())])
         );
+    }
+
+    #[test]
+    fn interpret_cat_basic() {
+        let source = "f items:L t>t;cat items \",\"";
+        assert_eq!(
+            run_str(source, Some("f"), vec![Value::List(vec![
+                Value::Text("a".into()), Value::Text("b".into()), Value::Text("c".into()),
+            ])]),
+            Value::Text("a,b,c".into())
+        );
+    }
+
+    #[test]
+    fn interpret_cat_empty_list() {
+        let source = "f items:L t>t;cat items \"-\"";
+        assert_eq!(run_str(source, Some("f"), vec![Value::List(vec![])]), Value::Text("".into()));
+    }
+
+    #[test]
+    fn interpret_has_list() {
+        let source = "f xs:L n x:n>b;has xs x";
+        assert_eq!(
+            run_str(source, Some("f"), vec![Value::List(vec![Value::Number(1.0), Value::Number(2.0)]), Value::Number(2.0)]),
+            Value::Bool(true)
+        );
+        assert_eq!(
+            run_str(source, Some("f"), vec![Value::List(vec![Value::Number(1.0)]), Value::Number(5.0)]),
+            Value::Bool(false)
+        );
+    }
+
+    #[test]
+    fn interpret_has_text() {
+        let source = r#"f s:t needle:t>b;has s needle"#;
+        assert_eq!(
+            run_str(source, Some("f"), vec![Value::Text("hello world".into()), Value::Text("world".into())]),
+            Value::Bool(true)
+        );
+    }
+
+    #[test]
+    fn interpret_hd_list() {
+        let source = "f>n;xs=[10, 20, 30];hd xs";
+        assert_eq!(run_str(source, Some("f"), vec![]), Value::Number(10.0));
+    }
+
+    #[test]
+    fn interpret_tl_list() {
+        let source = "f>L n;xs=[10, 20, 30];tl xs";
+        assert_eq!(
+            run_str(source, Some("f"), vec![]),
+            Value::List(vec![Value::Number(20.0), Value::Number(30.0)])
+        );
+    }
+
+    #[test]
+    fn interpret_hd_text() {
+        let source = r#"f s:t>t;hd s"#;
+        assert_eq!(
+            run_str(source, Some("f"), vec![Value::Text("hello".into())]),
+            Value::Text("h".into())
+        );
+    }
+
+    #[test]
+    fn interpret_tl_text() {
+        let source = r#"f s:t>t;tl s"#;
+        assert_eq!(
+            run_str(source, Some("f"), vec![Value::Text("hello".into())]),
+            Value::Text("ello".into())
+        );
+    }
+
+    #[test]
+    fn interpret_rev_list() {
+        let source = "f>L n;rev [1, 2, 3]";
+        assert_eq!(
+            run_str(source, Some("f"), vec![]),
+            Value::List(vec![Value::Number(3.0), Value::Number(2.0), Value::Number(1.0)])
+        );
+    }
+
+    #[test]
+    fn interpret_rev_text() {
+        let source = r#"f>t;rev "abc""#;
+        assert_eq!(run_str(source, Some("f"), vec![]), Value::Text("cba".into()));
+    }
+
+    #[test]
+    fn interpret_srt_numbers() {
+        let source = "f>L n;srt [3, 1, 2]";
+        assert_eq!(
+            run_str(source, Some("f"), vec![]),
+            Value::List(vec![Value::Number(1.0), Value::Number(2.0), Value::Number(3.0)])
+        );
+    }
+
+    #[test]
+    fn interpret_srt_text_list() {
+        let source = r#"f>L t;srt ["c", "a", "b"]"#;
+        assert_eq!(
+            run_str(source, Some("f"), vec![]),
+            Value::List(vec![Value::Text("a".into()), Value::Text("b".into()), Value::Text("c".into())])
+        );
+    }
+
+    #[test]
+    fn interpret_srt_text_string() {
+        let source = r#"f>t;srt "cab""#;
+        assert_eq!(run_str(source, Some("f"), vec![]), Value::Text("abc".into()));
+    }
+
+    #[test]
+    fn interpret_slc_list() {
+        let source = "f>L n;slc [1, 2, 3, 4, 5] 1 3";
+        assert_eq!(
+            run_str(source, Some("f"), vec![]),
+            Value::List(vec![Value::Number(2.0), Value::Number(3.0)])
+        );
+    }
+
+    #[test]
+    fn interpret_slc_text() {
+        let source = r#"f>t;slc "hello" 1 4"#;
+        assert_eq!(run_str(source, Some("f"), vec![]), Value::Text("ell".into()));
+    }
+
+    #[test]
+    fn interpret_slc_clamped() {
+        let source = "f>L n;slc [1, 2, 3] 1 100";
+        assert_eq!(
+            run_str(source, Some("f"), vec![]),
+            Value::List(vec![Value::Number(2.0), Value::Number(3.0)])
+        );
+    }
+
+    #[test]
+    fn interpret_ternary_true() {
+        let source = r#"f x:n>t;=x 1{"yes"}{"no"}"#;
+        assert_eq!(run_str(source, Some("f"), vec![Value::Number(1.0)]), Value::Text("yes".into()));
+    }
+
+    #[test]
+    fn interpret_ternary_false() {
+        let source = r#"f x:n>t;=x 1{"yes"}{"no"}"#;
+        assert_eq!(run_str(source, Some("f"), vec![Value::Number(2.0)]), Value::Text("no".into()));
+    }
+
+    #[test]
+    fn interpret_ternary_no_early_return() {
+        let source = r#"f x:n>n;=x 0{10}{20};+x 1"#;
+        assert_eq!(run_str(source, Some("f"), vec![Value::Number(0.0)]), Value::Number(1.0));
+        assert_eq!(run_str(source, Some("f"), vec![Value::Number(5.0)]), Value::Number(6.0));
+    }
+
+    #[test]
+    fn interpret_guard_still_returns_early() {
+        let source = "f x:n>n;=x 0{99};+x 1";
+        assert_eq!(run_str(source, Some("f"), vec![Value::Number(0.0)]), Value::Number(99.0));
+        assert_eq!(run_str(source, Some("f"), vec![Value::Number(5.0)]), Value::Number(6.0));
+    }
+
+    #[test]
+    fn interpret_ternary_negated() {
+        let source = r#"f x:n>t;!=x 1{"not one"}{"one"}"#;
+        assert_eq!(run_str(source, Some("f"), vec![Value::Number(1.0)]), Value::Text("one".into()));
+        assert_eq!(run_str(source, Some("f"), vec![Value::Number(2.0)]), Value::Text("not one".into()));
     }
 }
