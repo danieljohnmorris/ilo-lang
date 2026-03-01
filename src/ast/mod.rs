@@ -129,11 +129,13 @@ pub enum Stmt {
     /// `name=expr`
     Let { name: String, value: Expr },
 
-    /// `cond{body}` or `!cond{body}`
+    /// `cond{body}` or `!cond{body}` — guard (early return)
+    /// `cond{then}{else}` — ternary (value, no early return)
     Guard {
         condition: Expr,
         negated: bool,
         body: Vec<Spanned<Stmt>>,
+        else_body: Option<Vec<Spanned<Stmt>>>,
     },
 
     /// `?expr{arms}` or `?{arms}`

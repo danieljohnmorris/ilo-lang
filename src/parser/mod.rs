@@ -443,10 +443,16 @@ impl Parser {
                 // Check if this is a guard: expr followed by {
                 if self.peek() == Some(&Token::LBrace) {
                     let body = self.parse_brace_body()?;
+                    let else_body = if self.peek() == Some(&Token::LBrace) {
+                        Some(self.parse_brace_body()?)
+                    } else {
+                        None
+                    };
                     Ok(Stmt::Guard {
                         condition: expr,
                         negated: false,
                         body,
+                        else_body,
                     })
                 } else if is_guard_eligible_condition(&expr) && self.can_start_operand() {
                     Ok(self.parse_braceless_guard_body(expr, false)?)
@@ -647,12 +653,18 @@ impl Parser {
         let inner = self.parse_expr_inner()?;
 
         if self.peek() == Some(&Token::LBrace) {
-            // Negated guard: !cond{body}
+            // Negated guard: !cond{body} or !cond{then}{else}
             let body = self.parse_brace_body()?;
+            let else_body = if self.peek() == Some(&Token::LBrace) {
+                Some(self.parse_brace_body()?)
+            } else {
+                None
+            };
             Ok(Stmt::Guard {
                 condition: inner,
                 negated: true,
                 body,
+                else_body,
             })
         } else if is_guard_eligible_condition(&inner) && self.can_start_operand() {
             Ok(self.parse_braceless_guard_body(inner, true)?)
@@ -679,10 +691,16 @@ impl Parser {
         let expr = self.parse_expr()?;
         if self.peek() == Some(&Token::LBrace) {
             let body = self.parse_brace_body()?;
+            let else_body = if self.peek() == Some(&Token::LBrace) {
+                Some(self.parse_brace_body()?)
+            } else {
+                None
+            };
             Ok(Stmt::Guard {
                 condition: expr,
                 negated: false,
                 body,
+                else_body,
             })
         } else if is_guard_eligible_condition(&expr) && self.can_start_operand() {
             Ok(self.parse_braceless_guard_body(expr, false)?)
@@ -714,6 +732,7 @@ impl Parser {
             condition,
             negated,
             body: vec![Spanned::new(Stmt::Expr(body_expr), body_span)],
+            else_body: None,
         })
     }
 
@@ -2503,7 +2522,7 @@ mod tests {
             Decl::Function { body, .. } => {
                 assert_eq!(body.len(), 2, "expected 2 stmts (guard + expr), got {:?}", body);
                 match &body[0].node {
-                    Stmt::Guard { condition, negated, body: guard_body } => {
+                    Stmt::Guard { condition, negated, body: guard_body, .. } => {
                         assert!(!negated);
                         assert!(matches!(condition, Expr::BinOp { op: BinOp::GreaterOrEqual, .. }));
                         assert_eq!(guard_body.len(), 1);
@@ -2527,7 +2546,7 @@ mod tests {
             Decl::Function { body, .. } => {
                 assert_eq!(body.len(), 2);
                 match &body[0].node {
-                    Stmt::Guard { condition, negated, body: guard_body } => {
+                    Stmt::Guard { condition, negated, body: guard_body, .. } => {
                         assert!(!negated);
                         assert!(matches!(condition, Expr::BinOp { op: BinOp::LessOrEqual, .. }));
                         assert_eq!(guard_body.len(), 1);
@@ -2618,7 +2637,7 @@ mod tests {
             Decl::Function { body, .. } => {
                 assert_eq!(body.len(), 2);
                 match &body[0].node {
-                    Stmt::Guard { condition, negated, body: guard_body } => {
+                    Stmt::Guard { condition, negated, body: guard_body, .. } => {
                         assert!(negated);
                         assert!(matches!(condition, Expr::BinOp { op: BinOp::GreaterOrEqual, .. }));
                         assert_eq!(guard_body.len(), 1);
@@ -2810,6 +2829,27 @@ mod tests {
                         assert!(matches!(&args[0], Expr::Literal(Literal::Text(_))));
                     }
                     _ => panic!("expected get call, got {:?}", body[0]),
+                }
+            }
+            _ => panic!("expected function"),
+        }
+    }
+
+    #[test]
+    fn parse_ternary_guard_else() {
+        let source = r#"f x:n>t;=x 1{"yes"}{"no"}"#;
+        let (program, errors) = parse_str_errors(source);
+        assert!(errors.is_empty(), "parse errors: {:?}", errors);
+        match &program.declarations[0] {
+            Decl::Function { body, .. } => {
+                assert_eq!(body.len(), 1, "expected 1 stmt (ternary), got {:?}", body);
+                match &body[0].node {
+                    Stmt::Guard { else_body, .. } => {
+                        assert!(else_body.is_some(), "expected else_body in ternary");
+                        let eb = else_body.as_ref().unwrap();
+                        assert_eq!(eb.len(), 1);
+                    }
+                    other => panic!("expected guard with else, got {:?}", other),
                 }
             }
             _ => panic!("expected function"),

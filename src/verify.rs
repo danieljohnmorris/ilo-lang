@@ -381,16 +381,16 @@ fn builtin_check_args(name: &str, arg_types: &[Ty], func_ctx: &str, span: Option
                 }
             }
             for (i, idx) in [1usize, 2].iter().enumerate() {
-                if let Some(arg) = arg_types.get(*idx) {
-                    if !compatible(arg, &Ty::Number) {
-                        errors.push(VerifyError {
-                            code: "ILO-T013",
-                            function: func_ctx.to_string(),
-                            message: format!("'slc' arg {} expects n, got {arg}", i + 2),
-                            hint: None,
-                            span,
-                        });
-                    }
+                if let Some(arg) = arg_types.get(*idx)
+                    && !compatible(arg, &Ty::Number)
+                {
+                    errors.push(VerifyError {
+                        code: "ILO-T013",
+                        function: func_ctx.to_string(),
+                        message: format!("'slc' arg {} expects n, got {arg}", i + 2),
+                        hint: None,
+                        span,
+                    });
                 }
             }
             let ret = match arg_types.first() {
@@ -568,11 +568,10 @@ impl VerifyContext {
                 scope_insert(scope, name.clone(), ty);
                 Ty::Nil
             }
-            Stmt::Guard { condition, body, .. } => {
+            Stmt::Guard { condition, body, else_body, .. } => {
                 let _ = self.infer_expr(func, scope, condition, span);
 
                 // Warn if braceless guard body is a single identifier matching a function name.
-                // This likely means the user forgot braces: `>=sp 1000 classify` vs `>=sp 1000{classify sp}`
                 if body.len() == 1 {
                     if let Stmt::Expr(Expr::Ref(ref name)) = body[0].node {
                         if self.functions.contains_key(name) || is_builtin(name) {
@@ -591,9 +590,13 @@ impl VerifyContext {
                 scope.push(HashMap::new());
                 let body_ty = self.verify_body(func, scope, body);
                 scope.pop();
-                // Guard returns its body type if it fires, but we can't know statically.
-                // The "fallthrough" type is whatever comes next, so return body_ty
-                // as a possibility but don't enforce it as the only path.
+
+                if let Some(eb) = else_body {
+                    scope.push(HashMap::new());
+                    let _else_ty = self.verify_body(func, scope, eb);
+                    scope.pop();
+                }
+
                 body_ty
             }
             Stmt::Match { subject, arms } => {

@@ -121,6 +121,14 @@ Called like functions, compiled to dedicated opcodes.
 | `flr n` | floor (round toward negative infinity) | `n` |
 | `cel n` | ceiling (round toward positive infinity) | `n` |
 | `get url` | HTTP GET | `R t t` |
+| `spl t sep` | split text by separator | `L t` |
+| `cat xs sep` | join list of text with separator | `t` |
+| `has xs v` | membership test (list: element, text: substring) | `b` |
+| `hd xs` | head (first element/char) of list or text | element / `t` |
+| `tl xs` | tail (all but first) of list or text | `L` / `t` |
+| `rev xs` | reverse list or text | same type |
+| `srt xs` | sort list (all-number or all-text) or text chars | same type |
+| `slc xs a b` | slice list or text from index a to b | same type |
 
 `get` returns `Ok(body)` on success, `Err(message)` on failure (connection error, timeout, DNS failure, etc). `$` is a terse alias:
 
@@ -169,8 +177,10 @@ ilo 'f xs:L t>t;xs.0' 'a,b,c'       → a
 | `x=expr` | bind |
 | `cond{body}` | guard: return body if cond true |
 | `cond expr` | braceless guard (single-expression body) |
+| `cond{then}{else}` | ternary: evaluate then or else (no early return) |
 | `!cond{body}` | guard: return body if cond false |
 | `!cond expr` | braceless negated guard |
+| `!cond{then}{else}` | negated ternary |
 | `?x{arms}` | match named value |
 | `?{arms}` | match last result |
 | `@v list{body}` | iterate list |
@@ -207,6 +217,22 @@ cls sp:n>t;>=sp 1000 "gold";>=sp 500 "silver";"bronze"
 Equivalent to `>=sp 1000{"gold"}` — saves 2 tokens per guard. Both forms produce identical AST.
 
 Negated braceless guards also work: `!<=n 0 ^"must be positive"`.
+
+### Ternary (Guard-Else)
+
+A guard followed by a second brace block becomes a ternary — it produces a value without early return:
+
+```
+f x:n>t;=x 1{"yes"}{"no"}
+```
+
+Unlike guards, ternary does **not** return from the function. Code after the ternary continues executing:
+
+```
+f x:n>n;=x 0{10}{20};+x 1   -- always returns x+1, ternary value is discarded
+```
+
+Negated ternary: `!=x 1{"not one"}{"one"}`.
 
 Use braces when the body has multiple statements:
 

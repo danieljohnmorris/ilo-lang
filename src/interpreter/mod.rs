@@ -454,11 +454,22 @@ fn eval_stmt(env: &mut Env, stmt: &Stmt, is_last: bool) -> Result<Option<BodyRes
             env.set(name, val);
             Ok(None)
         }
-        Stmt::Guard { condition, negated, body } => {
+        Stmt::Guard { condition, negated, body, else_body } => {
             let cond = eval_expr(env, condition)?;
             let truth = is_truthy(&cond);
             let should_run = if *negated { !truth } else { truth };
-            if should_run {
+            if let Some(else_b) = else_body {
+                // Ternary: cond{then}{else} — produces value, no early return
+                let chosen = if should_run { body } else { else_b };
+                env.push_scope();
+                let result = eval_body(env, chosen);
+                env.pop_scope();
+                let v = match result? {
+                    BodyResult::Value(v) | BodyResult::Return(v) => v,
+                };
+                Ok(Some(BodyResult::Value(v)))
+            } else if should_run {
+                // Guard: cond{body} — early return from function
                 env.push_scope();
                 let result = eval_body(env, body);
                 env.pop_scope();
@@ -2025,5 +2036,38 @@ mod tests {
             run_str(source, Some("f"), vec![]),
             Value::List(vec![Value::Number(2.0), Value::Number(3.0)])
         );
+    }
+
+    #[test]
+    fn interpret_ternary_true() {
+        let source = r#"f x:n>t;=x 1{"yes"}{"no"}"#;
+        assert_eq!(run_str(source, Some("f"), vec![Value::Number(1.0)]), Value::Text("yes".into()));
+    }
+
+    #[test]
+    fn interpret_ternary_false() {
+        let source = r#"f x:n>t;=x 1{"yes"}{"no"}"#;
+        assert_eq!(run_str(source, Some("f"), vec![Value::Number(2.0)]), Value::Text("no".into()));
+    }
+
+    #[test]
+    fn interpret_ternary_no_early_return() {
+        let source = r#"f x:n>n;=x 0{10}{20};+x 1"#;
+        assert_eq!(run_str(source, Some("f"), vec![Value::Number(0.0)]), Value::Number(1.0));
+        assert_eq!(run_str(source, Some("f"), vec![Value::Number(5.0)]), Value::Number(6.0));
+    }
+
+    #[test]
+    fn interpret_guard_still_returns_early() {
+        let source = "f x:n>n;=x 0{99};+x 1";
+        assert_eq!(run_str(source, Some("f"), vec![Value::Number(0.0)]), Value::Number(99.0));
+        assert_eq!(run_str(source, Some("f"), vec![Value::Number(5.0)]), Value::Number(6.0));
+    }
+
+    #[test]
+    fn interpret_ternary_negated() {
+        let source = r#"f x:n>t;!=x 1{"not one"}{"one"}"#;
+        assert_eq!(run_str(source, Some("f"), vec![Value::Number(1.0)]), Value::Text("one".into()));
+        assert_eq!(run_str(source, Some("f"), vec![Value::Number(2.0)]), Value::Text("not one".into()));
     }
 }
