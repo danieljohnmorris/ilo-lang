@@ -402,7 +402,7 @@ impl VerifyContext {
                 scope_insert(scope, name.clone(), ty);
                 Ty::Nil
             }
-            Stmt::Guard { condition, body, .. } => {
+            Stmt::Guard { condition, body, else_body, .. } => {
                 let _ = self.infer_expr(func, scope, condition, span);
 
                 // Warn if braceless guard body is a single identifier matching a function name.
@@ -425,9 +425,13 @@ impl VerifyContext {
                 scope.push(HashMap::new());
                 let body_ty = self.verify_body(func, scope, body);
                 scope.pop();
-                // Guard returns its body type if it fires, but we can't know statically.
-                // The "fallthrough" type is whatever comes next, so return body_ty
-                // as a possibility but don't enforce it as the only path.
+
+                if let Some(eb) = else_body {
+                    scope.push(HashMap::new());
+                    let _else_ty = self.verify_body(func, scope, eb);
+                    scope.pop();
+                }
+
                 body_ty
             }
             Stmt::Match { subject, arms } => {

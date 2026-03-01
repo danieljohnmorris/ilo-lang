@@ -182,9 +182,14 @@ fn fmt_body_dense(stmts: &[Spanned<Stmt>]) -> String {
 fn fmt_stmt_dense(stmt: &Stmt) -> String {
     match stmt {
         Stmt::Let { name, value } => format!("{}={}", name, fmt_expr(value, FmtMode::Dense)),
-        Stmt::Guard { condition, negated, body } => {
+        Stmt::Guard { condition, negated, body, else_body } => {
             let prefix = if *negated { "!" } else { "" };
-            format!("{}{}{{{}}}", prefix, fmt_expr(condition, FmtMode::Dense), fmt_body_dense(body))
+            let main = format!("{}{}{{{}}}", prefix, fmt_expr(condition, FmtMode::Dense), fmt_body_dense(body));
+            if let Some(eb) = else_body {
+                format!("{}{{{}}}", main, fmt_body_dense(eb))
+            } else {
+                main
+            }
         }
         Stmt::Match { subject, arms } => {
             let subj = subject.as_ref().map(|e| fmt_expr(e, FmtMode::Dense)).unwrap_or_default();
@@ -225,7 +230,7 @@ fn fmt_stmt_expanded(out: &mut String, stmt: &Stmt, indent_level: usize) {
             out.push_str(&fmt_expr(value, FmtMode::Expanded));
             out.push('\n');
         }
-        Stmt::Guard { condition, negated, body } => {
+        Stmt::Guard { condition, negated, body, else_body } => {
             let prefix = if *negated { "!" } else { "" };
             out.push_str(&ind);
             out.push_str(prefix);
@@ -233,7 +238,15 @@ fn fmt_stmt_expanded(out: &mut String, stmt: &Stmt, indent_level: usize) {
             out.push_str(" {\n");
             fmt_body_expanded(out, body, indent_level + 1);
             out.push_str(&ind);
-            out.push_str("}\n");
+            out.push('}');
+            if let Some(eb) = else_body {
+                out.push_str(" {\n");
+                fmt_body_expanded(out, eb, indent_level + 1);
+                out.push_str(&ind);
+                out.push_str("}\n");
+            } else {
+                out.push('\n');
+            }
         }
         Stmt::Match { subject, arms } => {
             out.push_str(&ind);

@@ -392,7 +392,7 @@ impl RegCompiler {
                 None
             }
 
-            Stmt::Guard { condition, negated, body } => {
+            Stmt::Guard { condition, negated, body, else_body } => {
                 let saved_next = self.next_reg;
                 let cond_reg = self.compile_expr(condition);
                 let jump = if *negated {
@@ -400,17 +400,51 @@ impl RegCompiler {
                 } else {
                     self.emit_jmpf(cond_reg)
                 };
-                let body_result = self.compile_body(body);
-                let ret_reg = body_result.unwrap_or_else(|| {
-                    let r = self.alloc_reg();
-                    let ki = self.current.add_const(Value::Nil);
-                    self.emit_abx(OP_LOADK, r, ki);
-                    r
-                });
-                self.emit_abx(OP_RET, ret_reg, 0);
-                self.current.patch_jump(jump);
-                self.next_reg = saved_next;
-                None
+
+                if let Some(else_b) = else_body {
+                    // Ternary: cond{then}{else} — produce value, no early return
+                    let result_reg = self.alloc_reg();
+                    let then_result = self.compile_body(body);
+                    let then_reg = then_result.unwrap_or_else(|| {
+                        let r = self.alloc_reg();
+                        let ki = self.current.add_const(Value::Nil);
+                        self.emit_abx(OP_LOADK, r, ki);
+                        r
+                    });
+                    if then_reg != result_reg {
+                        self.emit_abc(OP_MOVE, result_reg, then_reg, 0);
+                    }
+                    let jump_over_else = self.emit_jmp_placeholder();
+                    self.current.patch_jump(jump);
+
+                    self.next_reg = result_reg + 1;
+                    let else_result = self.compile_body(else_b);
+                    let else_reg = else_result.unwrap_or_else(|| {
+                        let r = self.alloc_reg();
+                        let ki = self.current.add_const(Value::Nil);
+                        self.emit_abx(OP_LOADK, r, ki);
+                        r
+                    });
+                    if else_reg != result_reg {
+                        self.emit_abc(OP_MOVE, result_reg, else_reg, 0);
+                    }
+                    self.current.patch_jump(jump_over_else);
+                    self.next_reg = result_reg + 1;
+                    Some(result_reg)
+                } else {
+                    // Guard: cond{body} — early return
+                    let body_result = self.compile_body(body);
+                    let ret_reg = body_result.unwrap_or_else(|| {
+                        let r = self.alloc_reg();
+                        let ki = self.current.add_const(Value::Nil);
+                        self.emit_abx(OP_LOADK, r, ki);
+                        r
+                    });
+                    self.emit_abx(OP_RET, ret_reg, 0);
+                    self.current.patch_jump(jump);
+                    self.next_reg = saved_next;
+                    None
+                }
             }
 
             Stmt::Match { subject, arms } => {
@@ -3857,6 +3891,37 @@ mod tests {
         assert_eq!(
             vm_run(source, Some("fib"), vec![Value::Number(10.0)]),
             Value::Number(55.0)
+        );
+    }
+
+    #[test]
+    fn vm_ternary_true() {
+        let source = r#"f x:n>t;=x 1{"yes"}{"no"}"#;
+        assert_eq!(
+            vm_run(source, Some("f"), vec![Value::Number(1.0)]),
+            Value::Text("yes".to_string())
+        );
+    }
+
+    #[test]
+    fn vm_ternary_false() {
+        let source = r#"f x:n>t;=x 1{"yes"}{"no"}"#;
+        assert_eq!(
+            vm_run(source, Some("f"), vec![Value::Number(2.0)]),
+            Value::Text("no".to_string())
+        );
+    }
+
+    #[test]
+    fn vm_ternary_no_early_return() {
+        let source = r#"f x:n>n;=x 0{10}{20};+x 1"#;
+        assert_eq!(
+            vm_run(source, Some("f"), vec![Value::Number(0.0)]),
+            Value::Number(1.0)
+        );
+        assert_eq!(
+            vm_run(source, Some("f"), vec![Value::Number(5.0)]),
+            Value::Number(6.0)
         );
     }
 }
