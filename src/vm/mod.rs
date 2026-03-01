@@ -109,6 +109,8 @@ pub(crate) const OP_MAX: u8 = 44;        // R[A] = max(R[B], R[C])
 pub(crate) const OP_FLR: u8 = 45;        // R[A] = floor(R[B])
 pub(crate) const OP_CEL: u8 = 46;        // R[A] = ceil(R[B])
 pub(crate) const OP_GET: u8 = 47;        // R[A] = http_get(R[B])  (returns R t t)
+pub(crate) const OP_HD: u8 = 48;         // R[A] = hd(R[B])  (head of list/text)
+pub(crate) const OP_TL: u8 = 49;         // R[A] = tl(R[B])  (tail of list/text)
 
 // ABx mode — register + 16-bit operand
 pub(crate) const OP_LOADK: u8 = 20;
@@ -734,6 +736,18 @@ impl RegCompiler {
                     let op = if function == "flr" { OP_FLR } else { OP_CEL };
                     self.emit_abc(op, ra, rb, 0);
                     self.reg_is_num[ra as usize] = true;
+                    return ra;
+                }
+                if function == "hd" && args.len() == 1 {
+                    let rb = self.compile_expr(&args[0]);
+                    let ra = self.alloc_reg();
+                    self.emit_abc(OP_HD, ra, rb, 0);
+                    return ra;
+                }
+                if function == "tl" && args.len() == 1 {
+                    let rb = self.compile_expr(&args[0]);
+                    let ra = self.alloc_reg();
+                    self.emit_abc(OP_TL, ra, rb, 0);
                     return ra;
                 }
                 if function == "get" && args.len() == 1 {
@@ -2081,6 +2095,67 @@ impl<'a> VM<'a> {
                     };
                     #[cfg(not(feature = "http"))]
                     let result = NanVal::heap_err(NanVal::heap_string("http feature not enabled".to_string()));
+                    reg_set!(a, result);
+                }
+                OP_HD => {
+                    let a = ((inst >> 16) & 0xFF) as usize + base;
+                    let b = ((inst >> 8) & 0xFF) as usize + base;
+                    let v = reg!(b);
+                    let result = if v.is_string() {
+                        // SAFETY: is_string() confirmed heap-tagged string with live RC.
+                        let s = unsafe { match v.as_heap_ref() { HeapObj::Str(s) => s, _ => unreachable!() } };
+                        if s.is_empty() {
+                            return Err(VmError::Type("hd: empty text"));
+                        }
+                        NanVal::heap_string(s.chars().next().unwrap().to_string())
+                    } else if v.is_heap() {
+                        // SAFETY: is_heap() confirmed heap-tagged with live RC.
+                        match unsafe { v.as_heap_ref() } {
+                            HeapObj::List(items) => {
+                                if items.is_empty() {
+                                    return Err(VmError::Type("hd: empty list"));
+                                }
+                                items[0].clone_rc();
+                                items[0]
+                            }
+                            _ => return Err(VmError::Type("hd requires a list or text")),
+                        }
+                    } else {
+                        return Err(VmError::Type("hd requires a list or text"));
+                    };
+                    reg_set!(a, result);
+                }
+                OP_TL => {
+                    let a = ((inst >> 16) & 0xFF) as usize + base;
+                    let b = ((inst >> 8) & 0xFF) as usize + base;
+                    let v = reg!(b);
+                    let result = if v.is_string() {
+                        // SAFETY: is_string() confirmed heap-tagged string with live RC.
+                        let s = unsafe { match v.as_heap_ref() { HeapObj::Str(s) => s, _ => unreachable!() } };
+                        if s.is_empty() {
+                            return Err(VmError::Type("tl: empty text"));
+                        }
+                        let mut chars = s.chars();
+                        chars.next();
+                        NanVal::heap_string(chars.collect())
+                    } else if v.is_heap() {
+                        // SAFETY: is_heap() confirmed heap-tagged with live RC.
+                        match unsafe { v.as_heap_ref() } {
+                            HeapObj::List(items) => {
+                                if items.is_empty() {
+                                    return Err(VmError::Type("tl: empty list"));
+                                }
+                                let tail: Vec<NanVal> = items[1..].iter().map(|item| {
+                                    item.clone_rc();
+                                    *item
+                                }).collect();
+                                NanVal::heap_list(tail)
+                            }
+                            _ => return Err(VmError::Type("tl requires a list or text")),
+                        }
+                    } else {
+                        return Err(VmError::Type("tl requires a list or text"));
+                    };
                     reg_set!(a, result);
                 }
                 OP_LISTAPPEND => {
@@ -3821,6 +3896,41 @@ mod tests {
         let chunk = &compiled.chunks[0];
         let has_get_op = chunk.code.iter().any(|inst| (inst >> 24) as u8 == OP_GET);
         assert!(has_get_op, "expected OP_GET in bytecode from $ syntax");
+    }
+
+    // ---- hd / tl builtins ----
+
+    #[test]
+    fn vm_hd_list() {
+        let source = "f>n;xs=[10, 20, 30];hd xs";
+        assert_eq!(vm_run(source, Some("f"), vec![]), Value::Number(10.0));
+    }
+
+    #[test]
+    fn vm_tl_list() {
+        let source = "f>L n;xs=[10, 20, 30];tl xs";
+        assert_eq!(
+            vm_run(source, Some("f"), vec![]),
+            Value::List(vec![Value::Number(20.0), Value::Number(30.0)])
+        );
+    }
+
+    #[test]
+    fn vm_hd_text() {
+        let source = r#"f s:t>t;hd s"#;
+        assert_eq!(
+            vm_run(source, Some("f"), vec![Value::Text("hello".to_string())]),
+            Value::Text("h".to_string())
+        );
+    }
+
+    #[test]
+    fn vm_tl_text() {
+        let source = r#"f s:t>t;tl s"#;
+        assert_eq!(
+            vm_run(source, Some("f"), vec![Value::Text("hello".to_string())]),
+            Value::Text("ello".to_string())
+        );
     }
 
     // ---- Braceless guards ----

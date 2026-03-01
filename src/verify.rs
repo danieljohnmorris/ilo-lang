@@ -150,6 +150,8 @@ const BUILTINS: &[(&str, &[&str], &str)] = &[
     ("min", &["n", "n"], "n"),
     ("max", &["n", "n"], "n"),
     ("get", &["t"], "R t t"),
+    ("hd", &["list_or_text"], "any"),
+    ("tl", &["list_or_text"], "list_or_text"),
 ];
 
 fn builtin_arity(name: &str) -> Option<usize> {
@@ -247,6 +249,40 @@ fn builtin_check_args(name: &str, arg_types: &[Ty], func_ctx: &str, span: Option
                 });
             }
             (Ty::Result(Box::new(Ty::Text), Box::new(Ty::Text)), errors)
+        }
+        "hd" => {
+            if let Some(arg) = arg_types.first() {
+                match arg {
+                    Ty::List(inner) => return (*inner.clone(), errors),
+                    Ty::Text => return (Ty::Text, errors),
+                    Ty::Unknown => return (Ty::Unknown, errors),
+                    other => errors.push(VerifyError {
+                        code: "ILO-T013",
+                        function: func_ctx.to_string(),
+                        message: format!("'hd' expects a list or text, got {other}"),
+                        hint: None,
+                        span,
+                    }),
+                }
+            }
+            (Ty::Unknown, errors)
+        }
+        "tl" => {
+            if let Some(arg) = arg_types.first() {
+                match arg {
+                    Ty::List(inner) => return (Ty::List(inner.clone()), errors),
+                    Ty::Text => return (Ty::Text, errors),
+                    Ty::Unknown => return (Ty::Unknown, errors),
+                    other => errors.push(VerifyError {
+                        code: "ILO-T013",
+                        function: func_ctx.to_string(),
+                        message: format!("'tl' expects a list or text, got {other}"),
+                        hint: None,
+                        span,
+                    }),
+                }
+            }
+            (Ty::Unknown, errors)
         }
         _ => (Ty::Unknown, errors),
     }
@@ -1582,6 +1618,44 @@ mod tests {
         assert!(result.is_err());
         let errors = result.unwrap_err();
         assert!(errors.iter().any(|e| e.message.contains("'len' expects a list or text, got n")));
+    }
+
+    // ---- builtin hd/tl ----
+
+    #[test]
+    fn builtin_hd_valid_list() {
+        assert!(parse_and_verify("f xs:L n>n;hd xs").is_ok());
+    }
+
+    #[test]
+    fn builtin_tl_valid_list() {
+        assert!(parse_and_verify("f xs:L n>L n;tl xs").is_ok());
+    }
+
+    #[test]
+    fn builtin_hd_valid_text() {
+        assert!(parse_and_verify("f s:t>t;hd s").is_ok());
+    }
+
+    #[test]
+    fn builtin_tl_valid_text() {
+        assert!(parse_and_verify("f s:t>t;tl s").is_ok());
+    }
+
+    #[test]
+    fn builtin_hd_wrong_type() {
+        let result = parse_and_verify("f x:n>n;hd x");
+        assert!(result.is_err());
+        let errors = result.unwrap_err();
+        assert!(errors.iter().any(|e| e.message.contains("'hd' expects a list or text, got n")));
+    }
+
+    #[test]
+    fn builtin_tl_wrong_type() {
+        let result = parse_and_verify("f x:n>n;tl x");
+        assert!(result.is_err());
+        let errors = result.unwrap_err();
+        assert!(errors.iter().any(|e| e.message.contains("'tl' expects a list or text, got n")));
     }
 
     // ---- builtin abs/flr/cel wrong type ----

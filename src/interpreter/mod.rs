@@ -217,6 +217,46 @@ fn call_function(env: &mut Env, name: &str, args: Vec<Value>) -> Result<Value> {
             other => Err(RuntimeError::new("ILO-R009", format!("{} requires a number, got {:?}", name, other))),
         };
     }
+    if name == "hd" && args.len() == 1 {
+        return match &args[0] {
+            Value::List(items) => {
+                if items.is_empty() {
+                    Err(RuntimeError::new("ILO-R009", "hd: empty list".to_string()))
+                } else {
+                    Ok(items[0].clone())
+                }
+            }
+            Value::Text(s) => {
+                if s.is_empty() {
+                    Err(RuntimeError::new("ILO-R009", "hd: empty text".to_string()))
+                } else {
+                    Ok(Value::Text(s.chars().next().unwrap().to_string()))
+                }
+            }
+            other => Err(RuntimeError::new("ILO-R009", format!("hd requires a list or text, got {:?}", other))),
+        };
+    }
+    if name == "tl" && args.len() == 1 {
+        return match &args[0] {
+            Value::List(items) => {
+                if items.is_empty() {
+                    Err(RuntimeError::new("ILO-R009", "tl: empty list".to_string()))
+                } else {
+                    Ok(Value::List(items[1..].to_vec()))
+                }
+            }
+            Value::Text(s) => {
+                if s.is_empty() {
+                    Err(RuntimeError::new("ILO-R009", "tl: empty text".to_string()))
+                } else {
+                    let mut chars = s.chars();
+                    chars.next();
+                    Ok(Value::Text(chars.collect()))
+                }
+            }
+            other => Err(RuntimeError::new("ILO-R009", format!("tl requires a list or text, got {:?}", other))),
+        };
+    }
     if name == "get" && args.len() == 1 {
         return match &args[0] {
             Value::Text(url) => {
@@ -1718,6 +1758,39 @@ mod tests {
         assert_eq!(
             run_str(source, Some("fib"), vec![Value::Number(10.0)]),
             Value::Number(55.0)
+        );
+    }
+
+    #[test]
+    fn interpret_hd_list() {
+        let source = "f>n;xs=[10, 20, 30];hd xs";
+        assert_eq!(run_str(source, Some("f"), vec![]), Value::Number(10.0));
+    }
+
+    #[test]
+    fn interpret_tl_list() {
+        let source = "f>L n;xs=[10, 20, 30];tl xs";
+        assert_eq!(
+            run_str(source, Some("f"), vec![]),
+            Value::List(vec![Value::Number(20.0), Value::Number(30.0)])
+        );
+    }
+
+    #[test]
+    fn interpret_hd_text() {
+        let source = r#"f s:t>t;hd s"#;
+        assert_eq!(
+            run_str(source, Some("f"), vec![Value::Text("hello".to_string())]),
+            Value::Text("h".to_string())
+        );
+    }
+
+    #[test]
+    fn interpret_tl_text() {
+        let source = r#"f s:t>t;tl s"#;
+        assert_eq!(
+            run_str(source, Some("f"), vec![Value::Text("hello".to_string())]),
+            Value::Text("ello".to_string())
         );
     }
 }
