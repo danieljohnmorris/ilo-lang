@@ -200,6 +200,9 @@ impl Parser {
             Some(Token::Ident(_)) => {
                 // Check for keywords from other languages before attempting fn parse
                 let ident_str = if let Some(Token::Ident(s)) = self.peek() { s.clone() } else { unreachable!() };
+                if ident_str == "alias" {
+                    return self.parse_alias_decl();
+                }
                 let hint = match ident_str.as_str() {
                     "function" | "def" | "fn" =>
                         Some("ilo function syntax: name param:type > return-type; body".to_string()),
@@ -308,6 +311,17 @@ impl Parser {
             retry,
             span: start.merge(end_span),
         })
+    }
+
+    /// `alias name type`
+    fn parse_alias_decl(&mut self) -> Result<Decl> {
+        let start = self.peek_span();
+        // consume the `alias` identifier
+        self.advance();
+        let name = self.expect_ident()?;
+        let target = self.parse_type()?;
+        let end = self.prev_span();
+        Ok(Decl::Alias { name, target, span: start.merge(end) })
     }
 
     /// `name params>return;body`

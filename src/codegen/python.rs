@@ -116,6 +116,10 @@ fn emit_decl(out: &mut String, decl: &Decl, level: usize) {
             indent(out, level + 1);
             out.push_str("raise NotImplementedError\n");
         }
+        Decl::Alias { name, target, .. } => {
+            indent(out, level);
+            out.push_str(&format!("# alias {} = {}\n", name, emit_type(target)));
+        }
         Decl::Error { .. } => {} // poison node — skip
     }
 }

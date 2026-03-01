@@ -63,6 +63,7 @@ struct TypeDef {
 struct VerifyContext {
     functions: HashMap<String, FuncSig>,
     types: HashMap<String, TypeDef>,
+    aliases: HashMap<String, Ty>,
     errors: Vec<VerifyError>,
     in_loop: bool,
 }
@@ -84,15 +85,48 @@ fn scope_insert(scope: &mut Scope, name: String, ty: Ty) {
     }
 }
 
+/// Collect all Named type references from a Type (for alias dependency tracking).
+fn collect_named_refs(ty: &Type) -> Vec<String> {
+    let mut refs = Vec::new();
+    collect_named_refs_inner(ty, &mut refs);
+    refs
+}
+
+fn collect_named_refs_inner(ty: &Type, refs: &mut Vec<String>) {
+    match ty {
+        Type::Named(name) => refs.push(name.clone()),
+        Type::List(inner) => collect_named_refs_inner(inner, refs),
+        Type::Result(ok, err) => {
+            collect_named_refs_inner(ok, refs);
+            collect_named_refs_inner(err, refs);
+        }
+        _ => {}
+    }
+}
+
+#[allow(dead_code)] // used in tests
 fn convert_type(ast_ty: &Type) -> Ty {
+    convert_type_with_aliases(ast_ty, &HashMap::new())
+}
+
+fn convert_type_with_aliases(ast_ty: &Type, aliases: &HashMap<String, Ty>) -> Ty {
     match ast_ty {
         Type::Number => Ty::Number,
         Type::Text => Ty::Text,
         Type::Bool => Ty::Bool,
         Type::Nil => Ty::Nil,
-        Type::List(inner) => Ty::List(Box::new(convert_type(inner))),
-        Type::Result(ok, err) => Ty::Result(Box::new(convert_type(ok)), Box::new(convert_type(err))),
-        Type::Named(name) => Ty::Named(name.clone()),
+        Type::List(inner) => Ty::List(Box::new(convert_type_with_aliases(inner, aliases))),
+        Type::Result(ok, err) => Ty::Result(
+            Box::new(convert_type_with_aliases(ok, aliases)),
+            Box::new(convert_type_with_aliases(err, aliases)),
+        ),
+        Type::Named(name) => {
+            if let Some(resolved) = aliases.get(name) {
+                resolved.clone()
+            } else {
+                Ty::Named(name.clone())
+            }
+        }
     }
 }
 
@@ -458,6 +492,7 @@ impl VerifyContext {
         Self {
             functions: HashMap::new(),
             types: HashMap::new(),
+            aliases: HashMap::new(),
             errors: Vec::new(),
             in_loop: false,
         }
@@ -487,15 +522,39 @@ impl VerifyContext {
 
     /// Phase 1: collect all declarations, check for duplicates and undefined Named types.
     fn collect_declarations(&mut self, program: &Program) {
+        // Pass 0: collect type aliases (before types so aliases can be used in type fields)
+        let builtin_type_names = ["n", "t", "b", "L", "R"];
+        let mut raw_aliases: HashMap<String, Type> = HashMap::new();
+        for decl in &program.declarations {
+            if let Decl::Alias { name, target, span } = decl {
+                if builtin_type_names.contains(&name.as_str()) || name == "_" {
+                    self.err("ILO-T031", "<global>",
+                        format!("type alias '{name}' shadows a builtin type"),
+                        Some("choose a different name for the alias".to_string()),
+                        Some(*span));
+                    continue;
+                }
+                if raw_aliases.contains_key(name) {
+                    self.err("ILO-T001", "<global>", format!("duplicate type alias '{name}'"), None, Some(*span));
+                } else {
+                    raw_aliases.insert(name.clone(), target.clone());
+                }
+            }
+        }
+        // Resolve aliases with cycle detection
+        self.resolve_aliases(&raw_aliases);
+
         // First pass: collect type names
         for decl in &program.declarations {
             if let Decl::TypeDef { name, fields, .. } = decl {
-                if self.types.contains_key(name) {
+                if self.aliases.contains_key(name) {
+                    self.err("ILO-T001", "<global>", format!("type '{name}' conflicts with type alias of the same name"), None, None);
+                } else if self.types.contains_key(name) {
                     self.err("ILO-T001", "<global>", format!("duplicate type definition '{name}'"), None, None);
                 } else {
                     let fields: Vec<(String, Ty)> = fields
                         .iter()
-                        .map(|p| (p.name.clone(), convert_type(&p.ty)))
+                        .map(|p| (p.name.clone(), convert_type_with_aliases(&p.ty, &self.aliases)))
                         .collect();
                     self.types.insert(name.clone(), TypeDef { fields });
                 }
@@ -512,9 +571,9 @@ impl VerifyContext {
                     }
                     let params: Vec<(String, Ty)> = params
                         .iter()
-                        .map(|p| (p.name.clone(), convert_type(&p.ty)))
+                        .map(|p| (p.name.clone(), convert_type_with_aliases(&p.ty, &self.aliases)))
                         .collect();
-                    let ret = convert_type(return_type);
+                    let ret = convert_type_with_aliases(return_type, &self.aliases);
                     self.validate_named_types_in_sig(name, &params, &ret);
                     self.functions.insert(name.clone(), FuncSig { params, return_type: ret });
                 }
@@ -525,13 +584,14 @@ impl VerifyContext {
                     }
                     let params: Vec<(String, Ty)> = params
                         .iter()
-                        .map(|p| (p.name.clone(), convert_type(&p.ty)))
+                        .map(|p| (p.name.clone(), convert_type_with_aliases(&p.ty, &self.aliases)))
                         .collect();
-                    let ret = convert_type(return_type);
+                    let ret = convert_type_with_aliases(return_type, &self.aliases);
                     self.validate_named_types_in_sig(name, &params, &ret);
                     self.functions.insert(name.clone(), FuncSig { params, return_type: ret });
                 }
                 Decl::TypeDef { .. } => {} // already handled
+                Decl::Alias { .. } => {}   // already handled
                 Decl::Error { .. } => {}   // poison node — skip silently
             }
         }
@@ -540,9 +600,95 @@ impl VerifyContext {
         for decl in &program.declarations {
             if let Decl::TypeDef { name, fields, .. } = decl {
                 for field in fields {
-                    self.validate_named_type_recursive(&convert_type(&field.ty), name);
+                    self.validate_named_type_recursive(&convert_type_with_aliases(&field.ty, &self.aliases), name);
                 }
             }
+        }
+    }
+
+    /// Resolve raw alias map into fully expanded `Ty` values, detecting cycles.
+    fn resolve_aliases(&mut self, raw: &HashMap<String, Type>) {
+        use std::collections::HashSet;
+
+        // Build dependency graph: for each alias, which other aliases does it reference?
+        let deps: HashMap<String, Vec<String>> = raw.iter().map(|(name, target)| {
+            let refs: Vec<String> = collect_named_refs(target)
+                .into_iter()
+                .filter(|r| raw.contains_key(r))
+                .collect();
+            (name.clone(), refs)
+        }).collect();
+
+        // DFS cycle detection
+        let mut in_cycle: HashSet<String> = HashSet::new();
+        for name in raw.keys() {
+            let mut visited = HashSet::new();
+            let mut stack = HashSet::new();
+            if Self::has_cycle(name, &deps, &mut visited, &mut stack) {
+                // All nodes in the stack when cycle detected are part of cycle
+                for n in &stack {
+                    in_cycle.insert(n.clone());
+                }
+            }
+        }
+
+        for name in &in_cycle {
+            self.err("ILO-T030", "<global>",
+                format!("circular type alias '{name}'"),
+                Some("type aliases cannot reference each other in a cycle".to_string()),
+                None);
+        }
+
+        // Resolve non-cyclic aliases
+        for name in raw.keys() {
+            if !in_cycle.contains(name) && !self.aliases.contains_key(name) {
+                self.resolve_alias_recursive(name, raw);
+            }
+        }
+    }
+
+    /// DFS cycle detection. Returns true if `name` is part of a cycle.
+    fn has_cycle(
+        name: &str,
+        deps: &HashMap<String, Vec<String>>,
+        visited: &mut std::collections::HashSet<String>,
+        stack: &mut std::collections::HashSet<String>,
+    ) -> bool {
+        if stack.contains(name) {
+            return true; // back edge — cycle
+        }
+        if visited.contains(name) {
+            return false; // already fully explored, no cycle
+        }
+        visited.insert(name.to_string());
+        stack.insert(name.to_string());
+        if let Some(neighbors) = deps.get(name) {
+            for dep in neighbors {
+                if Self::has_cycle(dep, deps, visited, stack) {
+                    return true;
+                }
+            }
+        }
+        stack.remove(name);
+        false
+    }
+
+    /// Recursively resolve a single alias, storing results in self.aliases.
+    fn resolve_alias_recursive(&mut self, name: &str, raw: &HashMap<String, Type>) {
+        if self.aliases.contains_key(name) {
+            return;
+        }
+        if let Some(target) = raw.get(name) {
+            // Resolve any alias dependencies in the target type first
+            let deps = collect_named_refs(target);
+            for dep in &deps {
+                if raw.contains_key(dep) && !self.aliases.contains_key(dep) {
+                    self.resolve_alias_recursive(dep, raw);
+                }
+            }
+            // Now convert with currently resolved aliases
+            let resolved = convert_type_with_aliases(target, &self.aliases);
+            self.aliases.insert(name.to_string(), resolved);
         }
     }
 
@@ -577,11 +723,11 @@ impl VerifyContext {
             if let Decl::Function { name, params, return_type, body, .. } = decl {
                 let mut scope: Scope = vec![HashMap::new()];
                 for p in params {
-                    scope_insert(&mut scope, p.name.clone(), convert_type(&p.ty));
+                    scope_insert(&mut scope, p.name.clone(), convert_type_with_aliases(&p.ty, &self.aliases));
                 }
 
                 let body_ty = self.verify_body(name, &mut scope, body);
-                let expected = convert_type(return_type);
+                let expected = convert_type_with_aliases(return_type, &self.aliases);
                 if !compatible(&body_ty, &expected) {
                     let hint = match (&body_ty, &expected) {
                         (Ty::Number, Ty::Text) => Some("use 'str' to convert: str <expr>".to_string()),
@@ -2780,5 +2926,66 @@ mod tests {
     fn range_brk_cnt_allowed() {
         assert!(parse_and_verify("f>n;@i 0..5{>=i 3{brk i};i}").is_ok());
         assert!(parse_and_verify("f>n;@i 0..5{=i 2{cnt};i}").is_ok());
+    }
+
+    // ---- Type alias tests ----
+
+    #[test]
+    fn alias_basic_return_type() {
+        // alias res R n t, function returning res
+        assert!(parse_and_verify("alias res R n t\nf x:n>res;~x").is_ok());
+    }
+
+    #[test]
+    fn alias_in_param_type() {
+        // alias num n, function taking num param
+        assert!(parse_and_verify("alias num n\nf x:num>n;x").is_ok());
+    }
+
+    #[test]
+    fn alias_nested() {
+        // alias ids L n, then alias idres R ids t
+        assert!(parse_and_verify("alias ids L n\nalias idres R ids t\nf>idres;~[1, 2, 3]").is_ok());
+    }
+
+    #[test]
+    fn alias_circular_detected() {
+        let errs = parse_and_verify("alias foo bar\nalias bar foo\nf>n;1").unwrap_err();
+        assert!(errs.iter().any(|e| e.code == "ILO-T030"));
+    }
+
+    #[test]
+    fn alias_of_alias_chain() {
+        // alias x n, alias y x — y should resolve to n
+        assert!(parse_and_verify("alias x n\nalias y x\nf a:y>y;a").is_ok());
+    }
+
+    #[test]
+    fn alias_shadows_builtin_type_error() {
+        let result = parse_and_verify_full("alias n t\nf>n;1");
+        assert!(result.errors.iter().any(|e| e.code == "ILO-T031"));
+    }
+
+    #[test]
+    fn alias_duplicate_error() {
+        let errs = parse_and_verify("alias res R n t\nalias res L n\nf>n;1").unwrap_err();
+        assert!(errs.iter().any(|e| e.code == "ILO-T001" && e.message.contains("duplicate type alias")));
+    }
+
+    #[test]
+    fn alias_in_type_def_field() {
+        assert!(parse_and_verify("alias id n\ntype user{name:t;id:id}\nf u:user>id;u.id").is_ok());
+    }
+
+    #[test]
+    fn alias_conflicts_with_type_def() {
+        let errs = parse_and_verify("alias pt n\ntype pt{x:n;y:n}\nf>n;1").unwrap_err();
+        assert!(errs.iter().any(|e| e.code == "ILO-T001" && e.message.contains("conflicts with type alias")));
+    }
+
+    #[test]
+    fn alias_complex_type() {
+        // alias with nested L and R
+        assert!(parse_and_verify("alias deep L R n t\nf>deep;[~1, ~2]").is_ok());
     }
 }

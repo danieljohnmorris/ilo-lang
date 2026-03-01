@@ -1464,3 +1464,26 @@ fn range_empty() {
     assert!(out.status.success(), "stderr: {}", String::from_utf8_lossy(&out.stderr));
     assert_eq!(String::from_utf8_lossy(&out.stdout).trim(), "0");
 }
+
+// --- Type aliases ---
+
+#[test]
+fn alias_basic_run() {
+    // alias res R n t; function returning ~42 as res type
+    let out = ilo()
+        .args(["-e", "alias res R n t\nf>res;~42", "--run", "f"])
+        .output()
+        .expect("failed to run ilo");
+    assert!(out.status.success(), "stderr: {}", String::from_utf8_lossy(&out.stderr));
+    assert_eq!(String::from_utf8_lossy(&out.stdout).trim(), "~42");
+}
+
+#[test]
+fn alias_in_param_run() {
+    let out = ilo()
+        .args(["-e", "alias num n\nf x:num>num;+x 1", "--run", "f", "5"])
+        .output()
+        .expect("failed to run ilo");
+    assert!(out.status.success(), "stderr: {}", String::from_utf8_lossy(&out.stderr));
+    assert_eq!(String::from_utf8_lossy(&out.stdout).trim(), "6");
+}

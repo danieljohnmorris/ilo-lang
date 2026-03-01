@@ -33,6 +33,15 @@ tot p:n q:n r:n>n;s=*p q;t=*s r;+s t
 | `R n t` | result: ok=number, err=text |
 | `order` | named type |
 
+### Type aliases
+
+```
+alias res R n t
+alias ids L n
+```
+
+`alias name type` introduces a type alias — pure sugar resolved at verify time. The alias name can then be used anywhere a type is expected (function signatures, other aliases, type def fields). Aliases cannot be circular.
+
 ---
 
 ## Naming

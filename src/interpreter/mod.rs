@@ -133,7 +133,7 @@ pub fn run(program: &Program, func_name: Option<&str>, args: Vec<Value>) -> Resu
             Decl::Function { name, .. } | Decl::Tool { name, .. } => {
                 env.functions.insert(name.clone(), decl.clone());
             }
-            Decl::TypeDef { .. } | Decl::Error { .. } => {}
+            Decl::TypeDef { .. } | Decl::Alias { .. } | Decl::Error { .. } => {}
         }
     }
 
@@ -446,6 +446,9 @@ fn call_function(env: &mut Env, name: &str, args: Vec<Value>) -> Result<Value> {
         }
         Decl::TypeDef { .. } => {
             Err(RuntimeError::new("ILO-R004", format!("{} is a type, not callable", name)))
+        }
+        Decl::Alias { .. } => {
+            Err(RuntimeError::new("ILO-R004", format!("{} is a type alias, not callable", name)))
         }
         Decl::Error { .. } => {
             Err(RuntimeError::new("ILO-R002", format!("{} failed to parse", name)))
