@@ -198,6 +198,7 @@ fn fmt_stmt_dense(stmt: &Stmt) -> String {
         Stmt::ForEach { binding, collection, body } => {
             format!("@{} {}{{{}}}", binding, fmt_expr(collection, FmtMode::Dense), fmt_body_dense(body))
         }
+        Stmt::Return(e) => format!("ret {}", fmt_expr(e, FmtMode::Dense)),
         Stmt::Expr(e) => fmt_expr(e, FmtMode::Dense),
     }
 }
@@ -276,6 +277,12 @@ fn fmt_stmt_expanded(out: &mut String, stmt: &Stmt, indent_level: usize) {
             fmt_body_expanded(out, body, indent_level + 1);
             out.push_str(&ind);
             out.push_str("}\n");
+        }
+        Stmt::Return(e) => {
+            out.push_str(&ind);
+            out.push_str("ret ");
+            out.push_str(&fmt_expr(e, FmtMode::Expanded));
+            out.push('\n');
         }
         Stmt::Expr(e) => {
             out.push_str(&ind);
@@ -848,5 +855,22 @@ mod tests {
         let s = format(&prog, FmtMode::Expanded);
         assert!(s.contains(">= sp 1000 {"), "expanded should have braces: {s}");
         assert!(s.contains("\"gold\""), "expanded should contain body: {s}");
+    }
+
+    #[test]
+    fn dense_ret() {
+        let s = dense("f x:n>n;ret +x 1");
+        assert!(s.contains("ret +x 1"), "got: {s}");
+    }
+
+    #[test]
+    fn expanded_ret() {
+        let s = expanded("f x:n>n;ret +x 1");
+        assert!(s.contains("  ret + x 1\n"), "got: {s}");
+    }
+
+    #[test]
+    fn round_trip_ret() {
+        assert_round_trip("f x:n>n;>x 0{ret x};0");
     }
 }

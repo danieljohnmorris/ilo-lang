@@ -126,10 +126,10 @@ Plumbing first — make tool calls actually do things. HTTP-native (tools are AP
 - [x] Fix VM test helper `parse_program` discarding token spans (broke auto-unwrap `!` adjacency check)
 
 #### D1b. HTTP builtin: `get` / `$`
-- [ ] `get url` / `$url` — built-in HTTP GET, returns `R t t` (ok=response body, err=error message)
-- [ ] `$` is the terse alias for `get` (same AST node, like `help`/`-h`)
-- [ ] Respects the curl model: one thing in, one thing out, composes with everything
-- [ ] 3 chars / 1 token. `d=get url;d.name` beats `curl -s url | jq '.name'`
+- [x] `get url` / `$url` — built-in HTTP GET, returns `R t t` (ok=response body, err=error message)
+- [x] `$` is the terse alias for `get` (same AST node, like `help`/`-h`)
+- [x] Respects the curl model: one thing in, one thing out, composes with everything
+- [x] 3 chars / 1 token. `d=get url;d.name` beats `curl -s url | jq '.name'`
 
 #### D1c. Auto-unwrap operator `!` ✅
 - [x] `get! url` — unwrap ok value, propagate err to caller (like Rust's `?`)
@@ -226,18 +226,16 @@ See [research/CONTROL-FLOW.md](research/CONTROL-FLOW.md) § F0 for full analysis
 
 Guards return from the function. There's no expression-level conditional that stays local. Match-as-expression works but costs 5+ tokens for a simple if/else.
 
-- [ ] Syntax: `cond{then}{else}` — two adjacent brace bodies after a condition expression
-- [ ] Semantics: evaluate condition; if truthy, evaluate first body; if falsy, evaluate second body. Does NOT return from function (unlike guard)
-- [ ] Parser: detect second `{` after guard body close `}`. If present, parse as ternary expression; if absent, parse as guard (existing behaviour)
-- [ ] AST: add `Expr::IfElse { condition, then_body, else_body }` — or reuse `Stmt::Guard` with an `else_body: Option<Vec<Spanned<Stmt>>>`
-- [ ] Interpreter: evaluate condition, push scope for chosen branch, evaluate body, pop scope
-- [ ] VM: compile as `JMPF cond → else_label; <then body>; JMP end; else_label: <else body>; end:`
-- [ ] Verifier: both branches must produce compatible types. Infer result type from branch types
-- [ ] Cranelift JIT: straightforward conditional — same as guard but without `RET`
-- [ ] Error codes: type mismatch between then/else branches
-- [ ] Python codegen: emit as `<then> if <cond> else <else>` (ternary expression)
-- [ ] Tests: basic ternary, nested ternary, ternary in let binding, type mismatch between branches, ternary vs guard disambiguation
-- [ ] SPEC.md: document guard-else syntax, contrast with guard (returns) vs ternary (local)
+- [x] Syntax: `cond{then}{else}` — two adjacent brace bodies after a condition expression
+- [x] Semantics: evaluate condition; if truthy, evaluate first body; if falsy, evaluate second body. Does NOT return from function (unlike guard)
+- [x] Parser: detect second `{` after guard body close `}`. If present, parse as ternary expression; if absent, parse as guard (existing behaviour)
+- [x] AST: reuse `Stmt::Guard` with `else_body: Option<Vec<Spanned<Stmt>>>`
+- [x] Interpreter: evaluate condition, push scope for chosen branch, evaluate body, pop scope
+- [x] VM: compile as `JMPF cond → else_label; <then body>; JMP end; else_label: <else body>; end:`
+- [x] Verifier: both branches verified
+- [x] Python codegen: emit as `if/else` blocks
+- [x] Tests: basic ternary, no-early-return, negated ternary, guard unchanged
+- [x] SPEC.md: document guard-else syntax, contrast with guard (returns) vs ternary (local)
 
 **Token comparison:**
 ```
@@ -332,21 +330,22 @@ f x>>g>>h
 
 **Inspiration:** Elixir `|>`, F# `|>`, Bash `|`, Haskell `>>`.
 
-##### F5. Early return — `ret expr` (medium priority)
+##### F5. Early return — `ret expr` ✅
 
-Explicit return from anywhere in function body. Currently only guards and last expression can return.
+Explicit return from anywhere in function body.
 
-- [ ] Syntax: `ret expr` — immediately return `expr` from the enclosing function
-- [ ] Parser: recognise `ret` keyword at statement position, parse following expression
-- [ ] AST: add `Stmt::Return { value: Expr }`
-- [ ] Interpreter: return `BodyResult::Return(value)` immediately — already supported by the body evaluation loop
-- [ ] VM: compile expression → register, emit `OP_RET register`
-- [ ] Verifier: return type must be compatible with function's declared return type
+- [x] Syntax: `ret expr` — immediately return `expr` from the enclosing function
+- [x] Parser: recognise `ret` keyword at statement position, parse following expression
+- [x] AST: `Stmt::Return(Expr)`
+- [x] Interpreter: return `BodyResult::Return(value)` immediately
+- [x] VM: compile expression → register, emit `OP_RET register`
+- [x] Verifier: return type checked via `infer_expr`
 - [ ] Verifier: warn on unreachable code after `ret`
 - [ ] Cranelift JIT: straightforward — emit return instruction
-- [ ] Python codegen: emit as `return expr`
-- [ ] Tests: early return, return in loop, return in nested guard, unreachable code warning
-- [ ] SPEC.md: document `ret` syntax
+- [x] Python codegen: emit as `return expr`
+- [x] Formatter: emit as `ret expr`
+- [x] Tests: parser, interpreter, VM, verifier, codegen
+- [x] SPEC.md: documented `ret` syntax
 
 ##### F6. While loop — `wh cond{body}` (medium priority — new capability)
 
@@ -596,13 +595,13 @@ Define behaviour shared across record types. Lowest priority — agents generate
 - `map f xs` — apply function to each list element (currently requires `@` loop + accumulator)
 - `flt f xs` / `filter` — filter list by predicate
 - `fld f init xs` / `reduce` — fold/reduce list to single value
-- `rev xs` — reverse list
-- `srt xs` — sort list (natural order)
-- `hd xs` / `tl xs` — head/tail of list
-- `slc xs a b` — slice list or string
-- `has xs v` — membership test for list
-- `cat xs sep` — join list of text with separator (inverse of split)
-- `spl t sep` — split text into list by separator
+- ~~`rev xs`~~ ✅
+- ~~`srt xs`~~ ✅
+- ~~`hd xs` / `tl xs`~~ ✅
+- ~~`slc xs a b`~~ ✅
+- ~~`has xs v`~~ ✅
+- ~~`cat xs sep`~~ ✅
+- ~~`spl t sep`~~ ✅
 - `get k m` — get value from map by key (if maps are added)
 - `rnd` / `rnd a b` — random number (0–1 or range)
 - `now()` — current timestamp

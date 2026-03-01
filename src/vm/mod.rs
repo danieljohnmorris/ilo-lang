@@ -519,6 +519,12 @@ impl RegCompiler {
                 Some(last_reg)
             }
 
+            Stmt::Return(expr) => {
+                let reg = self.compile_expr(expr);
+                self.emit_abx(OP_RET, reg, 0);
+                None
+            }
+
             Stmt::Expr(expr) => {
                 let reg = self.compile_expr(expr);
                 Some(reg)
@@ -4339,5 +4345,19 @@ mod tests {
         let source = r#"f x:n>n;=x 0{10}{20};+x 1"#;
         assert_eq!(vm_run(source, Some("f"), vec![Value::Number(0.0)]), Value::Number(1.0));
         assert_eq!(vm_run(source, Some("f"), vec![Value::Number(5.0)]), Value::Number(6.0));
+    }
+
+    #[test]
+    fn vm_ret_early_return() {
+        let source = r#"f x:n>n;>x 0{ret x};0"#;
+        assert_eq!(vm_run(source, Some("f"), vec![Value::Number(5.0)]), Value::Number(5.0));
+        assert_eq!(vm_run(source, Some("f"), vec![Value::Number(-1.0)]), Value::Number(0.0));
+    }
+
+    #[test]
+    fn vm_ret_in_foreach() {
+        let source = "f xs:L n>n;@x xs{>=x 10{ret x}};0";
+        let list = Value::List(vec![Value::Number(1.0), Value::Number(15.0), Value::Number(3.0)]);
+        assert_eq!(vm_run(source, Some("f"), vec![list]), Value::Number(15.0));
     }
 }

@@ -633,6 +633,7 @@ impl VerifyContext {
                 scope.pop();
                 body_ty
             }
+            Stmt::Return(expr) => self.infer_expr(func, scope, expr, span),
             Stmt::Expr(expr) => self.infer_expr(func, scope, expr, span),
         }
     }
@@ -2464,5 +2465,15 @@ mod tests {
         let result = parse_and_verify("f x:L n s:t>L n;slc x s 2");
         let errors = result.unwrap_err();
         assert!(errors.iter().any(|e| e.code == "ILO-T013" && e.message.contains("slc")));
+    }
+
+    #[test]
+    fn ret_valid() {
+        assert!(parse_and_verify("f x:n>n;ret +x 1").is_ok());
+    }
+
+    #[test]
+    fn ret_in_guard() {
+        assert!(parse_and_verify(r#"f x:n>t;>x 0{ret "pos"};"neg""#).is_ok());
     }
 }

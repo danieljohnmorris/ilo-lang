@@ -32,6 +32,7 @@ fn stmt_uses_unwrap(stmt: &Stmt) -> bool {
         Stmt::ForEach { collection, body, .. } => {
             expr_uses_unwrap(collection) || body.iter().any(|s| stmt_uses_unwrap(&s.node))
         }
+        Stmt::Return(e) => expr_uses_unwrap(e),
         Stmt::Expr(e) => expr_uses_unwrap(e),
     }
 }
@@ -150,6 +151,11 @@ fn emit_stmt(out: &mut String, stmt: &Stmt, level: usize, implicit_return: bool)
             indent(out, level);
             out.push_str(&format!("for {} in {}:\n", py_name(binding), coll));
             emit_body(out, body, level + 1, false);
+        }
+        Stmt::Return(expr) => {
+            let val = emit_expr(out, level, expr);
+            indent(out, level);
+            out.push_str(&format!("return {}\n", val));
         }
         Stmt::Expr(expr) => {
             let val = emit_expr(out, level, expr);
@@ -1027,6 +1033,19 @@ mod tests {
         let py = emit(&prog);
         // The empty arm returns None from emit_arm_value (L399)
         assert!(py.contains("None"), "expected None for empty-body arm in: {py}");
+    }
+
+    #[test]
+    fn emit_ret_statement() {
+        let py = parse_and_emit("f x:n>n;ret +x 1");
+        assert!(py.contains("return (x + 1)"), "got: {}", py);
+    }
+
+    #[test]
+    fn emit_ret_in_guard() {
+        let py = parse_and_emit(r#"f x:n>t;>x 0{ret "pos"};"neg""#);
+        assert!(py.contains("return \"pos\""), "got: {}", py);
+        assert!(py.contains("return \"neg\""), "got: {}", py);
     }
 
     #[test]

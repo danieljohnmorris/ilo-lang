@@ -184,6 +184,7 @@ ilo 'f xs:L t>t;xs.0' 'a,b,c'       → a
 | `?x{arms}` | match named value |
 | `?{arms}` | match last result |
 | `@v list{body}` | iterate list |
+| `ret expr` | early return from function |
 | `~expr` | return ok |
 | `^expr` | return err |
 | `func! args` | call + auto-unwrap Result |
@@ -233,6 +234,17 @@ f x:n>n;=x 0{10}{20};+x 1   -- always returns x+1, ternary value is discarded
 ```
 
 Negated ternary: `!=x 1{"not one"}{"one"}`.
+
+### Early Return
+
+`ret expr` explicitly returns from the current function:
+
+```
+f x:n>n;>x 0{ret x};0         -- return x early if positive, else 0
+f xs:L n>n;@x xs{>=x 10{ret x}};0  -- return first element >= 10
+```
+
+Guards already provide early return for simple cases. Use `ret` when you need early return inside a loop or deeply nested block.
 
 Use braces when the body has multiple statements:
 
