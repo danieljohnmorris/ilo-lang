@@ -177,7 +177,7 @@ Could the runtime accept multiple syntax levels — dense wire format for LLM ge
 
 ### Match exhaustiveness
 
-Should the verifier require all patterns to be covered? The experiments don't test this since there's no verifier yet.
+Should the verifier require all patterns to be covered? The verifier exists but exhaustiveness checking is not yet implemented.
 
 ### Compensation patterns
 

@@ -88,10 +88,9 @@ This is the key question. ilo has a unique position: it's a language for AI agen
 
 ### The Answer: Both (in phases)
 
-**Phase 1: Verifier + Transpiler (interpreted via host)** — *completed*
+**Phase 1: Verifier** — *completed*
 - The verifier is ilo's differentiator — built first
-- Transpile to Python for immediate execution
-- Agent writes ilo → verifier checks it → transpiler emits Python → Python runs it
+- Originally planned to transpile to Python, but skipped directly to the bytecode VM
 
 **Phase 2: Bytecode VM (compiled to bytecode)** — *completed*
 - Register-based bytecode VM with custom opcodes

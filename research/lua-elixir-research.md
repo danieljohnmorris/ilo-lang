@@ -887,9 +887,9 @@ Lua sits near the minimal end of mainstream languages. ilo sits at the extreme -
 | Python ~35 | 35 reserved words | Medium | Medium | Medium |
 | Go ~25 | 25 reserved words | Low-medium | Low | High |
 | Lua ~22 | 22 reserved words | Low | Low | Medium (runtime) |
-| ilo 0 | 0 keywords, ~15 sigils | Very low | Very low (with spec) | High (verified + suggestions) |
+| ilo ~6 | ~6 abbreviated keywords, ~15 sigils | Very low | Very low (with spec) | High (verified + suggestions) |
 
-**Lua and ilo both prove that fewer keywords work.** Lua has run production systems for 30 years with 22 keywords. ilo achieves 10/10 LLM generation accuracy with 0 keywords (tested across 4 task types with claude-haiku-4-5). The evidence suggests that the lower bound for keywords is zero, as long as:
+**Lua and ilo both prove that fewer keywords work.** Lua has run production systems for 30 years with 22 keywords. ilo achieves 10/10 LLM generation accuracy with ~6 abbreviated keywords and sigil-based syntax (tested across 4 task types with claude-haiku-4-5). The evidence suggests that the lower bound for keywords is zero, as long as:
 
 1. The spec is available in context
 2. Sigils are unambiguous (no overloading)
@@ -906,7 +906,7 @@ Lua sits near the minimal end of mainstream languages. ilo sits at the extreme -
 
 | Feature | Agent relevance | ilo coverage | Addition needed |
 |---------|----------------|-------------|-----------------|
-| 22 keywords (minimalism) | High | Already surpassed (0 keywords) | None |
+| 22 keywords (minimalism) | High | Already surpassed (~6 abbreviated keywords) | None |
 | Tables (universal data) | Medium | Typed alternatives (`L`, `R`, records) | Maps (E4) |
 | Embeddability / C API | High | Tool declarations + ToolProvider | MCP integration (D2) |
 | Metatables / metamethods | None | Deliberately omitted | None |
