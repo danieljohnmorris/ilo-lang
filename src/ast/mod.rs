@@ -114,6 +114,14 @@ pub enum Decl {
         span: Span,
     },
 
+    /// `alias name type` — type alias (pure sugar, resolved at verify time)
+    Alias {
+        name: String,
+        target: Type,
+        #[serde(skip)]
+        span: Span,
+    },
+
     /// Poison node inserted during parser error recovery.
     /// Suppressed by the verifier; omitted from JSON AST output
     /// (filtered by the custom serializer on Program.declarations).

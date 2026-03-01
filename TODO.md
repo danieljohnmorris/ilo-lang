@@ -457,16 +457,16 @@ Manifesto: "constrained — small vocabulary, closed world, one way to do things
 
 Lets users name complex types without creating records. No new AST nodes at runtime, just resolution at parse/verify time.
 
-- [ ] Syntax: `alias name type` as a new `Decl` variant — e.g. `alias res R n t`, `alias ids L n`
-- [ ] Parser: recognise `alias` keyword at declaration position, parse name + type
-- [ ] AST: add `Decl::Alias { name: String, target: Type, span: Span }`
-- [ ] Verifier: resolve aliases during declaration collection — expand `Named("res")` → `Result(Number, Text)` before body verification
-- [ ] Cycle detection — `alias a b` + `alias b a` must error (ILO-T0xx: circular type alias)
-- [ ] Error messages: show alias name in user-facing messages, expanded form in notes
-- [ ] Formatter: emit `alias` declarations in both dense and expanded formats
-- [ ] Python codegen: emit type alias as comment or `TypeAlias` (3.12+)
-- [ ] Tests: alias in function signatures, nested aliases (`alias rlist L res`), cycles, shadowing a builtin type name
-- [ ] SPEC.md: document alias syntax
+- [x] Syntax: `alias name type` as a new `Decl` variant — e.g. `alias res R n t`, `alias ids L n`
+- [x] Parser: recognise `alias` keyword at declaration position, parse name + type
+- [x] AST: add `Decl::Alias { name: String, target: Type, span: Span }`
+- [x] Verifier: resolve aliases during declaration collection — expand `Named("res")` → `Result(Number, Text)` before body verification
+- [x] Cycle detection — `alias foo bar` + `alias bar foo` must error (ILO-T030: circular type alias)
+- [x] Error messages: ILO-T030 (circular), ILO-T031 (shadows builtin), ILO-T001 (duplicate/conflict)
+- [x] Formatter: emit `alias` declarations in both dense and expanded formats
+- [x] Python codegen: emit type alias as comment (`# alias res = R n t`)
+- [x] Tests: alias in function signatures, nested aliases (`alias rlist L res`), cycles, shadowing a builtin type name
+- [x] SPEC.md: document alias syntax
 
 ##### E2. Optional type (typed nullability)
 

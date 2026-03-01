@@ -147,6 +147,13 @@ fn fmt_decl(out: &mut String, decl: &Decl, mode: FmtMode) {
             }
         }
 
+        Decl::Alias { name, target, .. } => {
+            out.push_str("alias ");
+            out.push_str(name);
+            out.push(' ');
+            out.push_str(&fmt_type(target));
+        }
+
         Decl::Error { .. } => {} // poison node — skip
     }
 }
@@ -967,5 +974,32 @@ mod tests {
     #[test]
     fn round_trip_ret() {
         assert_round_trip("f x:n>n;>x 0{ret x};0");
+    }
+
+    // ---- Type alias formatting ----
+
+    #[test]
+    fn dense_alias() {
+        assert_eq!(dense("alias res R n t"), "alias res R n t");
+    }
+
+    #[test]
+    fn expanded_alias() {
+        assert_eq!(expanded("alias res R n t"), "alias res R n t");
+    }
+
+    #[test]
+    fn dense_alias_list() {
+        assert_eq!(dense("alias ids L n"), "alias ids L n");
+    }
+
+    #[test]
+    fn round_trip_alias() {
+        assert_round_trip("alias res R n t");
+    }
+
+    #[test]
+    fn round_trip_alias_with_function() {
+        assert_round_trip("alias res R n t\nf x:n>res;~x");
     }
 }

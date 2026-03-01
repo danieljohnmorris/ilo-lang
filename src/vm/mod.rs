@@ -325,7 +325,7 @@ impl RegCompiler {
                 Decl::Function { name, .. } | Decl::Tool { name, .. } => {
                     self.func_names.push(name.clone());
                 }
-                Decl::TypeDef { .. } | Decl::Error { .. } => {}
+                Decl::TypeDef { .. } | Decl::Alias { .. } | Decl::Error { .. } => {}
             }
         }
 
