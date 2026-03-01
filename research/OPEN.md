@@ -154,7 +154,7 @@ Cross-language patterns that emerge:
 
 **The design heuristic:** if a capability requires a near-universal third-party package in 3+ mainstream languages, it belongs in ilo's builtin set (or as a declared tool with a standard name). If it's universal but human-facing (CLI parsing, testing, formatting), it doesn't.
 
-See `research/essential-packages-research.md` for the full cross-language analysis.
+See `research/essential-packages-analysis.md` for the full cross-language analysis.
 
 ## Syntax Questions (Resolved by Experiments)
 
