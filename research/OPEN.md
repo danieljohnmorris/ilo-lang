@@ -137,7 +137,7 @@ These were open questions that the syntax experiments have now answered:
 
 ### ~~Which syntax to build?~~ — Resolved: idea9
 
-idea9-ultra-dense-short is the chosen syntax. See [/SPEC.md](../SPEC.md) for the canonical spec. The debugging concern (error messages pointing at dense code) is tracked in [TODO.md](TODO.md) under Tooling.
+idea9-ultra-dense-short is the chosen syntax. See [/SPEC.md](../SPEC.md) for the canonical spec. The debugging concern (error messages pointing at dense code) is tracked in [TODO.md](../TODO.md) under Tooling.
 
 ### Hybrid approach?
 

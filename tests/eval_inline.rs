@@ -1362,3 +1362,72 @@ fn dollar_bang_parses_inline() {
     let stdout = String::from_utf8_lossy(&out.stdout);
     assert!(stdout.contains("get"), "expected 'get' in AST output, got: {}", stdout);
 }
+
+// --- Braceless guards ---
+
+#[test]
+fn braceless_guard_classify() {
+    let out = ilo()
+        .args([r#"cls sp:n>t;>=sp 1000 "gold";>=sp 500 "silver";"bronze""#, "1500"])
+        .output()
+        .expect("failed to run ilo");
+    assert!(out.status.success(), "stderr: {}", String::from_utf8_lossy(&out.stderr));
+    assert_eq!(String::from_utf8_lossy(&out.stdout).trim(), "gold");
+}
+
+#[test]
+fn braceless_guard_classify_silver() {
+    let out = ilo()
+        .args([r#"cls sp:n>t;>=sp 1000 "gold";>=sp 500 "silver";"bronze""#, "750"])
+        .output()
+        .expect("failed to run ilo");
+    assert!(out.status.success(), "stderr: {}", String::from_utf8_lossy(&out.stderr));
+    assert_eq!(String::from_utf8_lossy(&out.stdout).trim(), "silver");
+}
+
+#[test]
+fn braceless_guard_classify_bronze() {
+    let out = ilo()
+        .args([r#"cls sp:n>t;>=sp 1000 "gold";>=sp 500 "silver";"bronze""#, "100"])
+        .output()
+        .expect("failed to run ilo");
+    assert!(out.status.success(), "stderr: {}", String::from_utf8_lossy(&out.stderr));
+    assert_eq!(String::from_utf8_lossy(&out.stdout).trim(), "bronze");
+}
+
+#[test]
+fn braceless_guard_factorial() {
+    let out = ilo()
+        .args(["fac n:n>n;<=n 1 1;r=fac -n 1;*n r", "5"])
+        .output()
+        .expect("failed to run ilo");
+    assert!(out.status.success(), "stderr: {}", String::from_utf8_lossy(&out.stderr));
+    assert_eq!(String::from_utf8_lossy(&out.stdout).trim(), "120");
+}
+
+#[test]
+fn braceless_guard_fibonacci() {
+    let out = ilo()
+        .args(["fib n:n>n;<=n 1 n;a=fib -n 1;b=fib -n 2;+a b", "10"])
+        .output()
+        .expect("failed to run ilo");
+    assert!(out.status.success(), "stderr: {}", String::from_utf8_lossy(&out.stderr));
+    assert_eq!(String::from_utf8_lossy(&out.stdout).trim(), "55");
+}
+
+#[test]
+fn braceless_guard_equivalent_to_braced() {
+    let braced = ilo()
+        .args([r#"cls sp:n>t;>=sp 1000{"gold"};>=sp 500{"silver"};"bronze""#, "1500"])
+        .output()
+        .expect("failed to run ilo");
+    let braceless = ilo()
+        .args([r#"cls sp:n>t;>=sp 1000 "gold";>=sp 500 "silver";"bronze""#, "1500"])
+        .output()
+        .expect("failed to run ilo");
+    assert_eq!(
+        String::from_utf8_lossy(&braced.stdout),
+        String::from_utf8_lossy(&braceless.stdout),
+        "braced and braceless should produce identical output"
+    );
+}

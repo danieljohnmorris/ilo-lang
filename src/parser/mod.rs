@@ -448,6 +448,8 @@ impl Parser {
                         negated: false,
                         body,
                     })
+                } else if is_guard_eligible_condition(&expr) && self.can_start_operand() {
+                    Ok(self.parse_braceless_guard_body(expr, false)?)
                 } else {
                     Ok(Stmt::Expr(expr))
                 }
@@ -638,7 +640,8 @@ impl Parser {
         })
     }
 
-    /// Parse `!` at statement position — negated guard `!cond{body}` or logical NOT `!expr`
+    /// Parse `!` at statement position — negated guard `!cond{body}` or logical NOT `!expr`.
+    /// Also supports braceless negated guards: `!>=x 10 "fallback"`.
     fn parse_bang_stmt(&mut self) -> Result<Stmt> {
         self.expect(&Token::Bang)?;
         let inner = self.parse_expr_inner()?;
@@ -651,6 +654,8 @@ impl Parser {
                 negated: true,
                 body,
             })
+        } else if is_guard_eligible_condition(&inner) && self.can_start_operand() {
+            Ok(self.parse_braceless_guard_body(inner, true)?)
         } else {
             // Logical NOT as expression statement: !expr
             Ok(Stmt::Expr(Expr::UnaryOp {
@@ -667,7 +672,9 @@ impl Parser {
         Ok(Stmt::Expr(Expr::Err(Box::new(inner))))
     }
 
-    /// Parse ident-starting statement — could be guard (expr{body}) or expr statement
+    /// Parse ident-starting statement — could be guard (expr{body}) or expr statement.
+    /// Also supports braceless guards: `>=sp 1000 "gold"` (no braces needed when
+    /// the condition is a comparison/logical operator and the body is a single expression).
     fn parse_expr_or_guard(&mut self) -> Result<Stmt> {
         let expr = self.parse_expr()?;
         if self.peek() == Some(&Token::LBrace) {
@@ -677,9 +684,24 @@ impl Parser {
                 negated: false,
                 body,
             })
+        } else if is_guard_eligible_condition(&expr) && self.can_start_operand() {
+            Ok(self.parse_braceless_guard_body(expr, false)?)
         } else {
             Ok(Stmt::Expr(expr))
         }
+    }
+
+    /// Parse the body of a braceless guard after eligibility has been confirmed.
+    /// Caller must check `is_guard_eligible_condition` and `can_start_operand` first.
+    fn parse_braceless_guard_body(&mut self, condition: Expr, negated: bool) -> Result<Stmt> {
+        let body_start = self.peek_span();
+        let body_expr = self.parse_expr()?;
+        let body_span = body_start.merge(self.prev_span());
+        Ok(Stmt::Guard {
+            condition,
+            negated,
+            body: vec![Spanned::new(Stmt::Expr(body_expr), body_span)],
+        })
     }
 
     fn parse_brace_body(&mut self) -> Result<Vec<Spanned<Stmt>>> {
@@ -1115,6 +1137,22 @@ impl Parser {
             None => Err(self.error("ILO-P014", "expected number, got EOF".into())),
         }
     }
+}
+
+/// Check if an expression is a comparison or logical operator — eligible
+/// as a braceless guard condition. Prefix operators have fixed arity, so
+/// the parser knows exactly where the condition ends and the body begins.
+fn is_guard_eligible_condition(expr: &Expr) -> bool {
+    matches!(
+        expr,
+        Expr::BinOp { op, .. } if matches!(
+            op,
+            BinOp::Equals | BinOp::NotEquals
+                | BinOp::GreaterThan | BinOp::LessThan
+                | BinOp::GreaterOrEqual | BinOp::LessOrEqual
+                | BinOp::And | BinOp::Or
+        )
+    )
 }
 
 /// Parse from token+span pairs.
@@ -2441,6 +2479,248 @@ mod tests {
             _ => panic!("expected function"),
         }
     }
+
+    // ---- Braceless guards ----
+
+    #[test]
+    fn braceless_guard_comparison_literal() {
+        // >=sp 1000 "gold" → Guard with comparison condition and literal body
+        let prog = parse_str(r#"cls sp:n>t;>=sp 1000 "gold";"bronze""#);
+        match &prog.declarations[0] {
+            Decl::Function { body, .. } => {
+                assert_eq!(body.len(), 2, "expected 2 stmts (guard + expr), got {:?}", body);
+                match &body[0].node {
+                    Stmt::Guard { condition, negated, body: guard_body } => {
+                        assert!(!negated);
+                        assert!(matches!(condition, Expr::BinOp { op: BinOp::GreaterOrEqual, .. }));
+                        assert_eq!(guard_body.len(), 1);
+                        match &guard_body[0].node {
+                            Stmt::Expr(Expr::Literal(Literal::Text(s))) => assert_eq!(s, "gold"),
+                            _ => panic!("expected text literal body, got {:?}", guard_body[0]),
+                        }
+                    }
+                    _ => panic!("expected guard, got {:?}", body[0]),
+                }
+            }
+            _ => panic!("expected function"),
+        }
+    }
+
+    #[test]
+    fn braceless_guard_variable_body() {
+        // <=n 1 n → Guard returning variable
+        let prog = parse_str("fib n:n>n;<=n 1 n;+n 1");
+        match &prog.declarations[0] {
+            Decl::Function { body, .. } => {
+                assert_eq!(body.len(), 2);
+                match &body[0].node {
+                    Stmt::Guard { condition, negated, body: guard_body } => {
+                        assert!(!negated);
+                        assert!(matches!(condition, Expr::BinOp { op: BinOp::LessOrEqual, .. }));
+                        assert_eq!(guard_body.len(), 1);
+                        assert!(matches!(&guard_body[0].node, Stmt::Expr(Expr::Ref(n)) if n == "n"));
+                    }
+                    _ => panic!("expected guard, got {:?}", body[0]),
+                }
+            }
+            _ => panic!("expected function"),
+        }
+    }
+
+    #[test]
+    fn braceless_guard_ok_body() {
+        // >=x 0 ~x → Guard returning Ok(x)
+        let prog = parse_str("f x:n>R n t;>=x 0 ~x;^\"negative\"");
+        match &prog.declarations[0] {
+            Decl::Function { body, .. } => {
+                match &body[0].node {
+                    Stmt::Guard { body: guard_body, .. } => {
+                        assert_eq!(guard_body.len(), 1);
+                        assert!(matches!(&guard_body[0].node, Stmt::Expr(Expr::Ok(_))));
+                    }
+                    _ => panic!("expected guard, got {:?}", body[0]),
+                }
+            }
+            _ => panic!("expected function"),
+        }
+    }
+
+    #[test]
+    fn braceless_guard_err_body() {
+        // <x 0 ^"negative" → Guard returning Err
+        let prog = parse_str(r#"f x:n>R n t;<x 0 ^"negative";~x"#);
+        match &prog.declarations[0] {
+            Decl::Function { body, .. } => {
+                match &body[0].node {
+                    Stmt::Guard { body: guard_body, .. } => {
+                        assert_eq!(guard_body.len(), 1);
+                        assert!(matches!(&guard_body[0].node, Stmt::Expr(Expr::Err(_))));
+                    }
+                    _ => panic!("expected guard, got {:?}", body[0]),
+                }
+            }
+            _ => panic!("expected function"),
+        }
+    }
+
+    #[test]
+    fn braceless_guard_operator_body() {
+        // >=x 10 +x 1 → Guard returning x+1
+        let prog = parse_str("f x:n>n;>=x 10 +x 1;*x 2");
+        match &prog.declarations[0] {
+            Decl::Function { body, .. } => {
+                assert_eq!(body.len(), 2);
+                match &body[0].node {
+                    Stmt::Guard { body: guard_body, .. } => {
+                        assert_eq!(guard_body.len(), 1);
+                        assert!(matches!(&guard_body[0].node, Stmt::Expr(Expr::BinOp { op: BinOp::Add, .. })));
+                    }
+                    _ => panic!("expected guard, got {:?}", body[0]),
+                }
+            }
+            _ => panic!("expected function"),
+        }
+    }
+
+    #[test]
+    fn braceless_guard_multi_guard_program() {
+        // Full classify program with braceless guards
+        let prog = parse_str(r#"cls sp:n>t;>=sp 1000 "gold";>=sp 500 "silver";"bronze""#);
+        match &prog.declarations[0] {
+            Decl::Function { body, .. } => {
+                assert_eq!(body.len(), 3, "expected 3 stmts, got {:?}", body);
+                assert!(matches!(&body[0].node, Stmt::Guard { .. }));
+                assert!(matches!(&body[1].node, Stmt::Guard { .. }));
+                assert!(matches!(&body[2].node, Stmt::Expr(Expr::Literal(Literal::Text(_)))));
+            }
+            _ => panic!("expected function"),
+        }
+    }
+
+    #[test]
+    fn braceless_guard_negated() {
+        // !>=x 10 "small" → negated braceless guard
+        let prog = parse_str(r#"f x:n>t;!>=x 10 "small";"big""#);
+        match &prog.declarations[0] {
+            Decl::Function { body, .. } => {
+                assert_eq!(body.len(), 2);
+                match &body[0].node {
+                    Stmt::Guard { condition, negated, body: guard_body } => {
+                        assert!(negated);
+                        assert!(matches!(condition, Expr::BinOp { op: BinOp::GreaterOrEqual, .. }));
+                        assert_eq!(guard_body.len(), 1);
+                        match &guard_body[0].node {
+                            Stmt::Expr(Expr::Literal(Literal::Text(s))) => assert_eq!(s, "small"),
+                            _ => panic!("expected text body"),
+                        }
+                    }
+                    _ => panic!("expected negated guard, got {:?}", body[0]),
+                }
+            }
+            _ => panic!("expected function"),
+        }
+    }
+
+    #[test]
+    fn braceless_guard_non_comparison_not_triggered() {
+        // +x y "result" — Add is NOT a comparison, so no braceless guard
+        // +x y is an expr, "result" is a separate expr
+        let prog = parse_str(r#"f x:n y:n>t;+x y;"result""#);
+        match &prog.declarations[0] {
+            Decl::Function { body, .. } => {
+                // First stmt should be an Expr (BinOp Add), not a Guard
+                assert!(matches!(&body[0].node, Stmt::Expr(Expr::BinOp { op: BinOp::Add, .. })),
+                    "non-comparison should not trigger braceless guard, got {:?}", body[0]);
+            }
+            _ => panic!("expected function"),
+        }
+    }
+
+    #[test]
+    fn braceless_guard_braced_still_works() {
+        // Braced guards should still work exactly as before
+        let prog = parse_str(r#"cls sp:n>t;>=sp 1000{"gold"};"bronze""#);
+        match &prog.declarations[0] {
+            Decl::Function { body, .. } => {
+                assert_eq!(body.len(), 2);
+                match &body[0].node {
+                    Stmt::Guard { negated, .. } => assert!(!negated),
+                    _ => panic!("expected guard"),
+                }
+            }
+            _ => panic!("expected function"),
+        }
+    }
+
+    #[test]
+    fn braceless_guard_equality() {
+        // =x "admin" ~x → equality check braceless guard
+        let prog = parse_str(r#"f x:t>R t t;=x "admin" ~x;^"denied""#);
+        match &prog.declarations[0] {
+            Decl::Function { body, .. } => {
+                match &body[0].node {
+                    Stmt::Guard { condition, .. } => {
+                        assert!(matches!(condition, Expr::BinOp { op: BinOp::Equals, .. }));
+                    }
+                    _ => panic!("expected guard"),
+                }
+            }
+            _ => panic!("expected function"),
+        }
+    }
+
+    #[test]
+    fn braceless_guard_logical_and() {
+        // &a b "both" → logical AND braceless guard
+        let prog = parse_str(r#"f a:b b:b>t;&a b "both";"nope""#);
+        match &prog.declarations[0] {
+            Decl::Function { body, .. } => {
+                match &body[0].node {
+                    Stmt::Guard { condition, .. } => {
+                        assert!(matches!(condition, Expr::BinOp { op: BinOp::And, .. }));
+                    }
+                    _ => panic!("expected guard, got {:?}", body[0]),
+                }
+            }
+            _ => panic!("expected function"),
+        }
+    }
+
+    #[test]
+    fn braceless_guard_at_end_no_body() {
+        // >=x 10 at end with semicolon but no body token → not a braceless guard
+        let prog = parse_str("f x:n>b;>=x 10");
+        match &prog.declarations[0] {
+            Decl::Function { body, .. } => {
+                assert_eq!(body.len(), 1);
+                // Should be a plain expression, not a guard (nothing follows)
+                assert!(matches!(&body[0].node, Stmt::Expr(Expr::BinOp { op: BinOp::GreaterOrEqual, .. })));
+            }
+            _ => panic!("expected function"),
+        }
+    }
+
+    #[test]
+    fn braceless_guard_factorial() {
+        // fac n:n>n;<=n 1 1;r=fac -n 1;*n r
+        let prog = parse_str("fac n:n>n;<=n 1 1;r=fac -n 1;*n r");
+        match &prog.declarations[0] {
+            Decl::Function { body, .. } => {
+                assert_eq!(body.len(), 3, "expected 3 stmts (guard + let + expr), got {:?}", body);
+                match &body[0].node {
+                    Stmt::Guard { condition, body: guard_body, .. } => {
+                        assert!(matches!(condition, Expr::BinOp { op: BinOp::LessOrEqual, .. }));
+                        assert_eq!(guard_body.len(), 1);
+                        assert!(matches!(&guard_body[0].node, Stmt::Expr(Expr::Literal(Literal::Number(n))) if *n == 1.0));
+                    }
+                    _ => panic!("expected guard, got {:?}", body[0]),
+                }
+            }
+            _ => panic!("expected function"),
+        }
+    }
+
+    // ---- Dollar / HTTP get tests ----
 
     #[test]
     fn parse_dollar_desugars_to_get() {
