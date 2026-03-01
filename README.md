@@ -151,6 +151,16 @@ ilo --explain ILO-T004
 
 This matches the manifesto: "verification before execution — all calls resolve, all types align, all dependencies exist."
 
+**Auto-unwrap `!`** eliminates Result matching boilerplate:
+```bash
+# Without !: 12 tokens
+ilo 'inner x:n>R n t;~x outer x:n>R n t;r=inner x;?r{~v:~v;^e:^e}' 42
+
+# With !: 1 token
+ilo 'inner x:n>R n t;~x outer x:n>R n t;~(inner! x)' 42
+# → 42
+```
+
 **Error output formats:**
 ```bash
 ilo 'code' -a               # ANSI colour (default for TTY)
@@ -177,7 +187,7 @@ ilo program.ilo --bench tot 10 20 30  # benchmark
 cargo test
 ```
 
-783 tests: lexer, parser, interpreter, VM, verifier, codegen, diagnostic, formatter, and CLI integration tests.
+800 tests: lexer, parser, interpreter, VM, verifier, codegen, diagnostic, formatter, and CLI integration tests.
 
 ## Documentation
 
