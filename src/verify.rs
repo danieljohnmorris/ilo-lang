@@ -150,6 +150,7 @@ const BUILTINS: &[(&str, &[&str], &str)] = &[
     ("min", &["n", "n"], "n"),
     ("max", &["n", "n"], "n"),
     ("get", &["t"], "R t t"),
+    ("has", &["list_or_text", "any"], "b"),
 ];
 
 fn builtin_arity(name: &str) -> Option<usize> {
@@ -247,6 +248,22 @@ fn builtin_check_args(name: &str, arg_types: &[Ty], func_ctx: &str, span: Option
                 });
             }
             (Ty::Result(Box::new(Ty::Text), Box::new(Ty::Text)), errors)
+        }
+        "has" => {
+            if let Some(arg) = arg_types.first() {
+                match arg {
+                    Ty::List(_) | Ty::Text | Ty::Unknown => {}
+                    other => errors.push(VerifyError {
+                        code: "ILO-T013",
+                        function: func_ctx.to_string(),
+                        message: format!("'has' arg 1 expects a list or text, got {other}"),
+                        hint: None,
+                        span,
+                    }),
+                }
+            }
+            // arg 2: any type is fine
+            (Ty::Bool, errors)
         }
         _ => (Ty::Unknown, errors),
     }
@@ -2151,5 +2168,25 @@ mod tests {
             errors.iter().any(|e| e.code == "ILO-T027" && e.message.contains("len")),
             "expected ILO-T027 for builtin name in braceless guard body, got: {:?}", errors
         );
+    }
+
+    // ---- builtin has ----
+
+    #[test]
+    fn builtin_has_valid_list() {
+        assert!(parse_and_verify("f xs:L n x:n>b;has xs x").is_ok());
+    }
+
+    #[test]
+    fn builtin_has_valid_text() {
+        assert!(parse_and_verify(r#"f s:t needle:t>b;has s needle"#).is_ok());
+    }
+
+    #[test]
+    fn builtin_has_wrong_type_arg1() {
+        let result = parse_and_verify("f x:n y:n>b;has x y");
+        assert!(result.is_err());
+        let errors = result.unwrap_err();
+        assert!(errors.iter().any(|e| e.message.contains("'has' arg 1 expects a list or text")));
     }
 }

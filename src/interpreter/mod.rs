@@ -217,6 +217,16 @@ fn call_function(env: &mut Env, name: &str, args: Vec<Value>) -> Result<Value> {
             other => Err(RuntimeError::new("ILO-R009", format!("{} requires a number, got {:?}", name, other))),
         };
     }
+    if name == "has" && args.len() == 2 {
+        return match &args[0] {
+            Value::List(items) => Ok(Value::Bool(items.contains(&args[1]))),
+            Value::Text(s) => match &args[1] {
+                Value::Text(needle) => Ok(Value::Bool(s.contains(needle.as_str()))),
+                other => Err(RuntimeError::new("ILO-R009", format!("has: text search requires text needle, got {:?}", other))),
+            },
+            other => Err(RuntimeError::new("ILO-R009", format!("has requires a list or text, got {:?}", other))),
+        };
+    }
     if name == "get" && args.len() == 1 {
         return match &args[0] {
             Value::Text(url) => {
@@ -1718,6 +1728,44 @@ mod tests {
         assert_eq!(
             run_str(source, Some("fib"), vec![Value::Number(10.0)]),
             Value::Number(55.0)
+        );
+    }
+
+    // ---- builtin has ----
+
+    #[test]
+    fn interpret_has_list_contains() {
+        let source = "f xs:L n x:n>b;has xs x";
+        assert_eq!(
+            run_str(source, Some("f"), vec![Value::List(vec![Value::Number(1.0), Value::Number(2.0), Value::Number(3.0)]), Value::Number(2.0)]),
+            Value::Bool(true)
+        );
+    }
+
+    #[test]
+    fn interpret_has_list_not_contains() {
+        let source = "f xs:L n x:n>b;has xs x";
+        assert_eq!(
+            run_str(source, Some("f"), vec![Value::List(vec![Value::Number(1.0), Value::Number(2.0)]), Value::Number(5.0)]),
+            Value::Bool(false)
+        );
+    }
+
+    #[test]
+    fn interpret_has_text_contains() {
+        let source = r#"f s:t needle:t>b;has s needle"#;
+        assert_eq!(
+            run_str(source, Some("f"), vec![Value::Text("hello world".into()), Value::Text("world".into())]),
+            Value::Bool(true)
+        );
+    }
+
+    #[test]
+    fn interpret_has_text_not_contains() {
+        let source = r#"f s:t needle:t>b;has s needle"#;
+        assert_eq!(
+            run_str(source, Some("f"), vec![Value::Text("hello".into()), Value::Text("xyz".into())]),
+            Value::Bool(false)
         );
     }
 }

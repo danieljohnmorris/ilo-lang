@@ -109,6 +109,7 @@ pub(crate) const OP_MAX: u8 = 44;        // R[A] = max(R[B], R[C])
 pub(crate) const OP_FLR: u8 = 45;        // R[A] = floor(R[B])
 pub(crate) const OP_CEL: u8 = 46;        // R[A] = ceil(R[B])
 pub(crate) const OP_GET: u8 = 47;        // R[A] = http_get(R[B])  (returns R t t)
+pub(crate) const OP_HAS: u8 = 48;        // R[A] = has(R[B], R[C])  (membership test → bool)
 
 // ABx mode — register + 16-bit operand
 pub(crate) const OP_LOADK: u8 = 20;
@@ -734,6 +735,13 @@ impl RegCompiler {
                     let op = if function == "flr" { OP_FLR } else { OP_CEL };
                     self.emit_abc(op, ra, rb, 0);
                     self.reg_is_num[ra as usize] = true;
+                    return ra;
+                }
+                if function == "has" && args.len() == 2 {
+                    let rb = self.compile_expr(&args[0]);
+                    let rc = self.compile_expr(&args[1]);
+                    let ra = self.alloc_reg();
+                    self.emit_abc(OP_HAS, ra, rb, rc);
                     return ra;
                 }
                 if function == "get" && args.len() == 1 {
@@ -2082,6 +2090,36 @@ impl<'a> VM<'a> {
                     #[cfg(not(feature = "http"))]
                     let result = NanVal::heap_err(NanVal::heap_string("http feature not enabled".to_string()));
                     reg_set!(a, result);
+                }
+                OP_HAS => {
+                    let a = ((inst >> 16) & 0xFF) as usize + base;
+                    let b = ((inst >> 8) & 0xFF) as usize + base;
+                    let c = (inst & 0xFF) as usize + base;
+                    let collection = reg!(b);
+                    let needle = reg!(c);
+                    let found = if collection.is_string() {
+                        // String contains substring
+                        if !needle.is_string() {
+                            return Err(VmError::Type("has: text search requires text needle"));
+                        }
+                        // SAFETY: is_string() confirmed both are heap-tagged strings with live RC.
+                        unsafe {
+                            let haystack = match collection.as_heap_ref() { HeapObj::Str(s) => s, _ => unreachable!() };
+                            let needle_s = match needle.as_heap_ref() { HeapObj::Str(s) => s, _ => unreachable!() };
+                            haystack.contains(needle_s.as_str())
+                        }
+                    } else if collection.is_heap() {
+                        // SAFETY: is_heap() confirmed heap-tagged with live RC.
+                        match unsafe { collection.as_heap_ref() } {
+                            HeapObj::List(items) => {
+                                items.iter().any(|item| nanval_equal(*item, needle))
+                            }
+                            _ => return Err(VmError::Type("has requires a list or text")),
+                        }
+                    } else {
+                        return Err(VmError::Type("has requires a list or text"));
+                    };
+                    reg_set!(a, NanVal::boolean(found));
                 }
                 OP_LISTAPPEND => {
                     let a = ((inst >> 16) & 0xFF) as usize + base;
@@ -3858,5 +3896,43 @@ mod tests {
             vm_run(source, Some("fib"), vec![Value::Number(10.0)]),
             Value::Number(55.0)
         );
+    }
+
+    // ---- builtin has ----
+
+    #[test]
+    fn vm_has_list_contains() {
+        let source = "f xs:L n x:n>b;has xs x";
+        assert_eq!(
+            vm_run(source, Some("f"), vec![Value::List(vec![Value::Number(1.0), Value::Number(2.0), Value::Number(3.0)]), Value::Number(2.0)]),
+            Value::Bool(true)
+        );
+    }
+
+    #[test]
+    fn vm_has_list_not_contains() {
+        let source = "f xs:L n x:n>b;has xs x";
+        assert_eq!(
+            vm_run(source, Some("f"), vec![Value::List(vec![Value::Number(1.0), Value::Number(2.0)]), Value::Number(5.0)]),
+            Value::Bool(false)
+        );
+    }
+
+    #[test]
+    fn vm_has_text_contains() {
+        let source = r#"f s:t needle:t>b;has s needle"#;
+        assert_eq!(
+            vm_run(source, Some("f"), vec![Value::Text("hello world".into()), Value::Text("world".into())]),
+            Value::Bool(true)
+        );
+    }
+
+    #[test]
+    fn vm_has_compiles_to_op_has() {
+        let prog = parse_program("f xs:L n x:n>b;has xs x");
+        let compiled = compile(&prog).unwrap();
+        let chunk = &compiled.chunks[0];
+        let has_op = chunk.code.iter().any(|inst| (inst >> 24) as u8 == OP_HAS);
+        assert!(has_op, "expected OP_HAS in bytecode");
     }
 }
