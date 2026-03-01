@@ -1683,4 +1683,41 @@ mod tests {
         let result = run(&prog, Some("a"), vec![Value::Number(1.0)]).unwrap();
         assert_eq!(result, Value::Err(Box::new(Value::Text("deep".to_string()))));
     }
+
+    // ---- Braceless guards ----
+
+    #[test]
+    fn interpret_braceless_guard() {
+        let source = r#"cls sp:n>t;>=sp 1000 "gold";>=sp 500 "silver";"bronze""#;
+        assert_eq!(
+            run_str(source, Some("cls"), vec![Value::Number(1500.0)]),
+            Value::Text("gold".to_string())
+        );
+        assert_eq!(
+            run_str(source, Some("cls"), vec![Value::Number(750.0)]),
+            Value::Text("silver".to_string())
+        );
+        assert_eq!(
+            run_str(source, Some("cls"), vec![Value::Number(100.0)]),
+            Value::Text("bronze".to_string())
+        );
+    }
+
+    #[test]
+    fn interpret_braceless_guard_factorial() {
+        let source = "fac n:n>n;<=n 1 1;r=fac -n 1;*n r";
+        assert_eq!(
+            run_str(source, Some("fac"), vec![Value::Number(5.0)]),
+            Value::Number(120.0)
+        );
+    }
+
+    #[test]
+    fn interpret_braceless_guard_fibonacci() {
+        let source = "fib n:n>n;<=n 1 n;a=fib -n 1;b=fib -n 2;+a b";
+        assert_eq!(
+            run_str(source, Some("fib"), vec![Value::Number(10.0)]),
+            Value::Number(55.0)
+        );
+    }
 }

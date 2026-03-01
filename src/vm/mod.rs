@@ -3822,4 +3822,41 @@ mod tests {
         let has_get_op = chunk.code.iter().any(|inst| (inst >> 24) as u8 == OP_GET);
         assert!(has_get_op, "expected OP_GET in bytecode from $ syntax");
     }
+
+    // ---- Braceless guards ----
+
+    #[test]
+    fn vm_braceless_guard() {
+        let source = r#"cls sp:n>t;>=sp 1000 "gold";>=sp 500 "silver";"bronze""#;
+        assert_eq!(
+            vm_run(source, Some("cls"), vec![Value::Number(1500.0)]),
+            Value::Text("gold".to_string())
+        );
+        assert_eq!(
+            vm_run(source, Some("cls"), vec![Value::Number(750.0)]),
+            Value::Text("silver".to_string())
+        );
+        assert_eq!(
+            vm_run(source, Some("cls"), vec![Value::Number(100.0)]),
+            Value::Text("bronze".to_string())
+        );
+    }
+
+    #[test]
+    fn vm_braceless_guard_factorial() {
+        let source = "fac n:n>n;<=n 1 1;r=fac -n 1;*n r";
+        assert_eq!(
+            vm_run(source, Some("fac"), vec![Value::Number(5.0)]),
+            Value::Number(120.0)
+        );
+    }
+
+    #[test]
+    fn vm_braceless_guard_fibonacci() {
+        let source = "fib n:n>n;<=n 1 n;a=fib -n 1;b=fib -n 2;+a b";
+        assert_eq!(
+            vm_run(source, Some("fib"), vec![Value::Number(10.0)]),
+            Value::Number(55.0)
+        );
+    }
 }
