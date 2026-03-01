@@ -806,4 +806,34 @@ mod tests {
         // Error node produces no output
         assert!(!s.contains("Error"), "got: {s}");
     }
+
+    // ---- Braceless guards ----
+
+    #[test]
+    fn braceless_guard_normalizes_to_braced() {
+        // Braceless input should normalize to braced in dense format
+        let prog = parse(r#"cls sp:n>t;>=sp 1000 "gold";>=sp 500 "silver";"bronze""#);
+        let s = format(&prog, FmtMode::Dense);
+        assert_eq!(s, r#"cls sp:n>t;>=sp 1000{"gold"};>=sp 500{"silver"};"bronze""#,
+            "braceless guard should normalize to braced: {s}");
+    }
+
+    #[test]
+    fn braceless_guard_round_trip() {
+        // Braceless → format(braced) → parse → format(braced) should be stable
+        let prog = parse(r#"cls sp:n>t;>=sp 1000 "gold";>=sp 500 "silver";"bronze""#);
+        let formatted = format(&prog, FmtMode::Dense);
+        let prog2 = parse(&formatted);
+        let formatted2 = format(&prog2, FmtMode::Dense);
+        assert_eq!(formatted, formatted2,
+            "braceless guard round-trip mismatch:\n  formatted: {formatted}\n  re-formatted: {formatted2}");
+    }
+
+    #[test]
+    fn braceless_guard_expanded() {
+        let prog = parse(r#"cls sp:n>t;>=sp 1000 "gold";"bronze""#);
+        let s = format(&prog, FmtMode::Expanded);
+        assert!(s.contains(">= sp 1000 {"), "expanded should have braces: {s}");
+        assert!(s.contains("\"gold\""), "expanded should contain body: {s}");
+    }
 }

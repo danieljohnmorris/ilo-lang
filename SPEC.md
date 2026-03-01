@@ -156,7 +156,9 @@ ilo 'f xs:L t>t;xs.0' 'a,b,c'       → a
 |------|---------|
 | `x=expr` | bind |
 | `cond{body}` | guard: return body if cond true |
+| `cond expr` | braceless guard (single-expression body) |
 | `!cond{body}` | guard: return body if cond false |
+| `!cond expr` | braceless negated guard |
 | `?x{arms}` | match named value |
 | `?{arms}` | match last result |
 | `@v list{body}` | iterate list |
@@ -180,6 +182,24 @@ Arms separated by `;`. First match wins.
 
 ```
 cls sp:n>t;>=sp 1000{"gold"};>=sp 500{"silver"};"bronze"
+```
+
+### Braceless Guards
+
+When the guard condition is a comparison or logical operator (`>=`, `<=`, `>`, `<`, `=`, `!=`, `&`, `|`) and the body is a single expression, braces are optional:
+
+```
+cls sp:n>t;>=sp 1000 "gold";>=sp 500 "silver";"bronze"
+```
+
+Equivalent to `>=sp 1000{"gold"}` — saves 2 tokens per guard. Both forms produce identical AST.
+
+Negated braceless guards also work: `!<=n 0 ^"must be positive"`.
+
+Use braces when the body has multiple statements:
+
+```
+>=sp 1000{a=classify sp;a}
 ```
 
 ```
@@ -304,27 +324,27 @@ Always bind complex expressions to variables before using them in operators. Ope
 <name> <params>><return>;<guard>;...;<recursive-calls>;combine
 ```
 
-1. **Guard**: base case returns early — `<=n 1{1}`
+1. **Guard**: base case returns early — `<=n 1 1` (or `<=n 1{1}`)
 2. **Bind**: bind recursive call results — `r=fac -n 1`
 3. **Combine**: use bound results in final expression — `*n r`
 
 ### Factorial
 
 ```
-fac n:n>n;<=n 1{1};r=fac -n 1;*n r
+fac n:n>n;<=n 1 1;r=fac -n 1;*n r
 ```
 
-- `<=n 1{1}` — guard: if n <= 1, return 1
+- `<=n 1 1` — braceless guard: if n <= 1, return 1
 - `r=fac -n 1` — recursive call with prefix subtract as argument
 - `*n r` — multiply n by result
 
 ### Fibonacci
 
 ```
-fib n:n>n;<=n 1{n};a=fib -n 1;b=fib -n 2;+a b
+fib n:n>n;<=n 1 n;a=fib -n 1;b=fib -n 2;+a b
 ```
 
-- `<=n 1{n}` — base case: return n for 0 and 1
+- `<=n 1 n` — braceless guard: return n for 0 and 1
 - `a=fib -n 1;b=fib -n 2` — two recursive calls, each with prefix arg
 - `+a b` — add results
 
@@ -461,9 +481,9 @@ ntf uid:t msg:t>R _ t;get-user uid;?{^e:^+"Lookup failed: "e;~d:!d.verified{^"Em
 Factorial and Fibonacci as standalone functions:
 
 ```
-fac n:n>n;<=n 1{1};r=fac -n 1;*n r
+fac n:n>n;<=n 1 1;r=fac -n 1;*n r
 ```
 
 ```
-fib n:n>n;<=n 1{n};a=fib -n 1;b=fib -n 2;+a b
+fib n:n>n;<=n 1 n;a=fib -n 1;b=fib -n 2;+a b
 ```
