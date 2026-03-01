@@ -395,8 +395,16 @@ impl RegCompiler {
     fn compile_stmt(&mut self, stmt: &Stmt) -> Option<u8> {
         match stmt {
             Stmt::Let { name, value } => {
-                let reg = self.compile_expr(value);
-                self.add_local(name, reg);
+                if let Some(existing_reg) = self.resolve_local(name) {
+                    // Re-binding: compile value and move to existing register
+                    let reg = self.compile_expr(value);
+                    if reg != existing_reg {
+                        self.emit_abc(OP_MOVE, existing_reg, reg, 0);
+                    }
+                } else {
+                    let reg = self.compile_expr(value);
+                    self.add_local(name, reg);
+                }
                 None
             }
 
@@ -509,6 +517,35 @@ impl RegCompiler {
 
                 // idx += 1
                 self.emit_abc(OP_ADD, idx_reg, idx_reg, one_reg);
+
+                // Jump back to loop top
+                self.emit_jump_to(loop_top);
+
+                // Exit
+                self.current.patch_jump(exit_jump);
+
+                Some(last_reg)
+            }
+
+            Stmt::While { condition, body } => {
+                let last_reg = self.alloc_reg();
+                let nil_ki = self.current.add_const(Value::Nil);
+                self.emit_abx(OP_LOADK, last_reg, nil_ki);
+
+                // Loop top: eval condition
+                let loop_top = self.current.code.len();
+                let cond_reg = self.compile_expr(condition);
+                let exit_jump = self.emit_jmpf(cond_reg);
+
+                // Compile body
+                let saved_locals = self.locals.len();
+                let body_result = self.compile_body(body);
+                self.locals.truncate(saved_locals);
+
+                if let Some(br) = body_result
+                    && br != last_reg {
+                        self.emit_abc(OP_MOVE, last_reg, br, 0);
+                    }
 
                 // Jump back to loop top
                 self.emit_jump_to(loop_top);
@@ -4377,5 +4414,23 @@ mod tests {
     fn vm_pipe_with_extra_args() {
         let source = "add a:n b:n>n;+a b\nf x:n>n;add x 1>>add 2";
         assert_eq!(vm_run(source, Some("f"), vec![Value::Number(5.0)]), Value::Number(8.0));
+    }
+
+    #[test]
+    fn vm_while_basic() {
+        let source = "f>n;i=0;s=0;wh <i 5{i=+i 1;s=+s i};s";
+        assert_eq!(vm_run(source, Some("f"), vec![]), Value::Number(15.0));
+    }
+
+    #[test]
+    fn vm_while_zero_iterations() {
+        let source = "f>n;wh false{42};0";
+        assert_eq!(vm_run(source, Some("f"), vec![]), Value::Number(0.0));
+    }
+
+    #[test]
+    fn vm_while_with_ret() {
+        let source = "f>n;i=0;wh true{i=+i 1;>=i 3{ret i}};0";
+        assert_eq!(vm_run(source, Some("f"), vec![]), Value::Number(3.0));
     }
 }

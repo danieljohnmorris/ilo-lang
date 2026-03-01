@@ -32,6 +32,9 @@ fn stmt_uses_unwrap(stmt: &Stmt) -> bool {
         Stmt::ForEach { collection, body, .. } => {
             expr_uses_unwrap(collection) || body.iter().any(|s| stmt_uses_unwrap(&s.node))
         }
+        Stmt::While { condition, body } => {
+            expr_uses_unwrap(condition) || body.iter().any(|s| stmt_uses_unwrap(&s.node))
+        }
         Stmt::Return(e) => expr_uses_unwrap(e),
         Stmt::Expr(e) => expr_uses_unwrap(e),
     }
@@ -150,6 +153,12 @@ fn emit_stmt(out: &mut String, stmt: &Stmt, level: usize, implicit_return: bool)
             let coll = emit_expr(out, level, collection);
             indent(out, level);
             out.push_str(&format!("for {} in {}:\n", py_name(binding), coll));
+            emit_body(out, body, level + 1, false);
+        }
+        Stmt::While { condition, body } => {
+            let cond = emit_expr(out, level, condition);
+            indent(out, level);
+            out.push_str(&format!("while {}:\n", cond));
             emit_body(out, body, level + 1, false);
         }
         Stmt::Return(expr) => {
@@ -1033,6 +1042,12 @@ mod tests {
         let py = emit(&prog);
         // The empty arm returns None from emit_arm_value (L399)
         assert!(py.contains("None"), "expected None for empty-body arm in: {py}");
+    }
+
+    #[test]
+    fn emit_while_loop() {
+        let py = parse_and_emit("f>n;i=0;wh <i 5{i=+i 1};i");
+        assert!(py.contains("while (i < 5):"), "got: {}", py);
     }
 
     #[test]

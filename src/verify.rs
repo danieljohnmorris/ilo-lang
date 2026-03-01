@@ -633,6 +633,10 @@ impl VerifyContext {
                 scope.pop();
                 body_ty
             }
+            Stmt::While { condition, body } => {
+                self.infer_expr(func, scope, condition, span);
+                self.verify_body(func, scope, body)
+            }
             Stmt::Return(expr) => self.infer_expr(func, scope, expr, span),
             Stmt::Expr(expr) => self.infer_expr(func, scope, expr, span),
         }
@@ -2465,6 +2469,11 @@ mod tests {
         let result = parse_and_verify("f x:L n s:t>L n;slc x s 2");
         let errors = result.unwrap_err();
         assert!(errors.iter().any(|e| e.code == "ILO-T013" && e.message.contains("slc")));
+    }
+
+    #[test]
+    fn while_valid() {
+        assert!(parse_and_verify("f>n;i=0;wh <i 5{i=+i 1};i").is_ok());
     }
 
     #[test]

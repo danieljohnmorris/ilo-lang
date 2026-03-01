@@ -188,6 +188,7 @@ ilo 'f xs:L t>t;xs.0' 'a,b,c'       → a
 | `~expr` | return ok |
 | `^expr` | return err |
 | `func! args` | call + auto-unwrap Result |
+| `wh cond{body}` | while loop |
 | `expr>>func` | pipe: pass result as last arg to func |
 
 ---
@@ -246,6 +247,17 @@ f xs:L n>n;@x xs{>=x 10{ret x}};0  -- return first element >= 10
 ```
 
 Guards already provide early return for simple cases. Use `ret` when you need early return inside a loop or deeply nested block.
+
+### While Loop
+
+`wh cond{body}` loops while condition is truthy:
+
+```
+f>n;i=0;s=0;wh <i 5{i=+i 1;s=+s i};s    -- sum 1..5 = 15
+f>n;i=0;wh true{i=+i 1;>=i 3{ret i}};0   -- early return from loop
+```
+
+Variable rebinding (`i=+i 1`) inside while loops updates the existing variable rather than creating a new binding.
 
 ### Pipe Operator
 
