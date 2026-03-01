@@ -151,6 +151,13 @@ const BUILTINS: &[(&str, &[&str], &str)] = &[
     ("max", &["n", "n"], "n"),
     ("get", &["t"], "R t t"),
     ("spl", &["t", "t"], "L t"),
+    ("cat", &["L t", "t"], "t"),
+    ("has", &["list_or_text", "any"], "b"),
+    ("hd", &["list_or_text"], "any"),
+    ("tl", &["list_or_text"], "list_or_text"),
+    ("rev", &["list_or_text"], "list_or_text"),
+    ("srt", &["list_or_text"], "list_or_text"),
+    ("slc", &["list_or_text", "n", "n"], "list_or_text"),
 ];
 
 fn builtin_arity(name: &str) -> Option<usize> {
@@ -248,6 +255,150 @@ fn builtin_check_args(name: &str, arg_types: &[Ty], func_ctx: &str, span: Option
                 }
             }
             (Ty::List(Box::new(Ty::Text)), errors)
+        }
+        "cat" => {
+            if let Some(arg) = arg_types.first()
+                && !compatible(arg, &Ty::List(Box::new(Ty::Text)))
+            {
+                errors.push(VerifyError {
+                    code: "ILO-T013",
+                    function: func_ctx.to_string(),
+                    message: format!("'cat' arg 1 expects L t, got {arg}"),
+                    hint: None,
+                    span,
+                });
+            }
+            if let Some(arg) = arg_types.get(1)
+                && !compatible(arg, &Ty::Text)
+            {
+                errors.push(VerifyError {
+                    code: "ILO-T013",
+                    function: func_ctx.to_string(),
+                    message: format!("'cat' arg 2 expects t, got {arg}"),
+                    hint: None,
+                    span,
+                });
+            }
+            (Ty::Text, errors)
+        }
+        "has" => {
+            if let Some(arg) = arg_types.first() {
+                match arg {
+                    Ty::List(_) | Ty::Text | Ty::Unknown => {}
+                    other => errors.push(VerifyError {
+                        code: "ILO-T013",
+                        function: func_ctx.to_string(),
+                        message: format!("'has' arg 1 expects a list or text, got {other}"),
+                        hint: None,
+                        span,
+                    }),
+                }
+            }
+            (Ty::Bool, errors)
+        }
+        "hd" => {
+            if let Some(arg) = arg_types.first() {
+                match arg {
+                    Ty::List(inner) => return (*inner.clone(), errors),
+                    Ty::Text => return (Ty::Text, errors),
+                    Ty::Unknown => return (Ty::Unknown, errors),
+                    other => errors.push(VerifyError {
+                        code: "ILO-T013",
+                        function: func_ctx.to_string(),
+                        message: format!("'hd' expects a list or text, got {other}"),
+                        hint: None,
+                        span,
+                    }),
+                }
+            }
+            (Ty::Unknown, errors)
+        }
+        "tl" => {
+            if let Some(arg) = arg_types.first() {
+                match arg {
+                    Ty::List(inner) => return (Ty::List(inner.clone()), errors),
+                    Ty::Text => return (Ty::Text, errors),
+                    Ty::Unknown => return (Ty::Unknown, errors),
+                    other => errors.push(VerifyError {
+                        code: "ILO-T013",
+                        function: func_ctx.to_string(),
+                        message: format!("'tl' expects a list or text, got {other}"),
+                        hint: None,
+                        span,
+                    }),
+                }
+            }
+            (Ty::Unknown, errors)
+        }
+        "rev" => {
+            if let Some(arg) = arg_types.first() {
+                match arg {
+                    Ty::List(_) | Ty::Text | Ty::Unknown => {}
+                    other => errors.push(VerifyError {
+                        code: "ILO-T013",
+                        function: func_ctx.to_string(),
+                        message: format!("'rev' expects a list or text, got {other}"),
+                        hint: None,
+                        span,
+                    }),
+                }
+            }
+            let ret = match arg_types.first() {
+                Some(Ty::List(inner)) => Ty::List(inner.clone()),
+                Some(Ty::Text) => Ty::Text,
+                _ => Ty::Unknown,
+            };
+            (ret, errors)
+        }
+        "srt" => {
+            if let Some(arg) = arg_types.first() {
+                match arg {
+                    Ty::List(inner) => return (Ty::List(inner.clone()), errors),
+                    Ty::Text => return (Ty::Text, errors),
+                    Ty::Unknown => return (Ty::Unknown, errors),
+                    other => errors.push(VerifyError {
+                        code: "ILO-T013",
+                        function: func_ctx.to_string(),
+                        message: format!("'srt' expects a list or text, got {other}"),
+                        hint: None,
+                        span,
+                    }),
+                }
+            }
+            (Ty::Unknown, errors)
+        }
+        "slc" => {
+            if let Some(arg) = arg_types.first() {
+                match arg {
+                    Ty::List(_) | Ty::Text | Ty::Unknown => {}
+                    other => errors.push(VerifyError {
+                        code: "ILO-T013",
+                        function: func_ctx.to_string(),
+                        message: format!("'slc' expects a list or text, got {other}"),
+                        hint: None,
+                        span,
+                    }),
+                }
+            }
+            for (i, idx) in [1usize, 2].iter().enumerate() {
+                if let Some(arg) = arg_types.get(*idx) {
+                    if !compatible(arg, &Ty::Number) {
+                        errors.push(VerifyError {
+                            code: "ILO-T013",
+                            function: func_ctx.to_string(),
+                            message: format!("'slc' arg {} expects n, got {arg}", i + 2),
+                            hint: None,
+                            span,
+                        });
+                    }
+                }
+            }
+            let ret = match arg_types.first() {
+                Some(Ty::List(inner)) => Ty::List(inner.clone()),
+                Some(Ty::Text) => Ty::Text,
+                _ => Ty::Unknown,
+            };
+            (ret, errors)
         }
         "get" => {
             if let Some(arg) = arg_types.first()
@@ -2188,5 +2339,127 @@ mod tests {
         assert!(result.is_err());
         let errors = result.unwrap_err();
         assert!(errors.iter().any(|e| e.message.contains("spl")));
+    }
+
+    #[test]
+    fn cat_valid_call() {
+        assert!(parse_and_verify("f items:L t>t;cat items \",\"").is_ok());
+    }
+
+    #[test]
+    fn cat_wrong_type_arg1() {
+        let result = parse_and_verify("f x:n>t;cat x \",\"");
+        let errors = result.unwrap_err();
+        assert!(errors.iter().any(|e| e.code == "ILO-T013" && e.message.contains("cat")));
+    }
+
+    #[test]
+    fn cat_wrong_arity() {
+        let result = parse_and_verify("f items:L t>t;cat items");
+        let errors = result.unwrap_err();
+        assert!(errors.iter().any(|e| e.message.contains("cat") && e.message.contains("2")));
+    }
+
+    #[test]
+    fn has_valid_list() {
+        assert!(parse_and_verify("f xs:L n x:n>b;has xs x").is_ok());
+    }
+
+    #[test]
+    fn has_valid_text() {
+        assert!(parse_and_verify(r#"f s:t needle:t>b;has s needle"#).is_ok());
+    }
+
+    #[test]
+    fn has_wrong_type_arg1() {
+        let result = parse_and_verify("f x:n y:n>b;has x y");
+        assert!(result.is_err());
+        let errors = result.unwrap_err();
+        assert!(errors.iter().any(|e| e.message.contains("'has' arg 1 expects a list or text")));
+    }
+
+    #[test]
+    fn hd_valid_list() {
+        assert!(parse_and_verify("f xs:L n>n;hd xs").is_ok());
+    }
+
+    #[test]
+    fn tl_valid_list() {
+        assert!(parse_and_verify("f xs:L n>L n;tl xs").is_ok());
+    }
+
+    #[test]
+    fn hd_valid_text() {
+        assert!(parse_and_verify("f s:t>t;hd s").is_ok());
+    }
+
+    #[test]
+    fn hd_wrong_type() {
+        let result = parse_and_verify("f x:n>n;hd x");
+        assert!(result.is_err());
+        let errors = result.unwrap_err();
+        assert!(errors.iter().any(|e| e.message.contains("'hd' expects a list or text, got n")));
+    }
+
+    #[test]
+    fn tl_wrong_type() {
+        let result = parse_and_verify("f x:n>n;tl x");
+        assert!(result.is_err());
+        let errors = result.unwrap_err();
+        assert!(errors.iter().any(|e| e.message.contains("'tl' expects a list or text, got n")));
+    }
+
+    #[test]
+    fn rev_valid_list() {
+        assert!(parse_and_verify("f xs:L n>L n;rev xs").is_ok());
+    }
+
+    #[test]
+    fn rev_valid_text() {
+        assert!(parse_and_verify("f s:t>t;rev s").is_ok());
+    }
+
+    #[test]
+    fn rev_wrong_type() {
+        let result = parse_and_verify("f n:n>L n;rev n");
+        assert!(result.is_err());
+        let errors = result.unwrap_err();
+        assert!(errors.iter().any(|e| e.code == "ILO-T013" && e.message.contains("rev")));
+    }
+
+    #[test]
+    fn srt_valid_list() {
+        assert!(parse_and_verify("f>L n;xs=[3, 1, 2];srt xs").is_ok());
+    }
+
+    #[test]
+    fn srt_wrong_type() {
+        let result = parse_and_verify("f x:n>n;srt x");
+        let errors = result.unwrap_err();
+        assert!(errors.iter().any(|e| e.code == "ILO-T013" && e.message.contains("srt")));
+    }
+
+    #[test]
+    fn slc_valid_list() {
+        assert!(parse_and_verify("f x:L n>L n;slc x 0 2").is_ok());
+    }
+
+    #[test]
+    fn slc_valid_text() {
+        assert!(parse_and_verify("f x:t>t;slc x 0 2").is_ok());
+    }
+
+    #[test]
+    fn slc_wrong_collection_type() {
+        let result = parse_and_verify("f x:n>n;slc x 0 2");
+        let errors = result.unwrap_err();
+        assert!(errors.iter().any(|e| e.code == "ILO-T013" && e.message.contains("slc")));
+    }
+
+    #[test]
+    fn slc_wrong_index_type() {
+        let result = parse_and_verify("f x:L n s:t>L n;slc x s 2");
+        let errors = result.unwrap_err();
+        assert!(errors.iter().any(|e| e.code == "ILO-T013" && e.message.contains("slc")));
     }
 }
