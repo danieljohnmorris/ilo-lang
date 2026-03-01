@@ -323,7 +323,7 @@ Explicit return from anywhere in function body.
 - [x] Interpreter: return `BodyResult::Return(value)` immediately
 - [x] VM: compile expression → register, emit `OP_RET register`
 - [x] Verifier: return type checked via `infer_expr`
-- [ ] Verifier: warn on unreachable code after `ret`
+- [x] Verifier: warn on unreachable code after `ret` (`ILO-T029`)
 - [ ] Cranelift JIT: straightforward — emit return instruction
 - [x] Python codegen: emit as `return expr`
 - [x] Formatter: emit as `ret expr`

@@ -257,6 +257,8 @@ f xs:L n>n;@x xs{>=x 10{ret x}};0  -- return first element >= 10
 
 Guards already provide early return for simple cases. Use `ret` when you need early return inside a loop or deeply nested block.
 
+Code after `ret` or `brk` in the same block is unreachable and triggers a warning (`ILO-T029`).
+
 ### While Loop
 
 `wh cond{body}` loops while condition is truthy:
