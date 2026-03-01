@@ -188,6 +188,7 @@ ilo 'f xs:L t>t;xs.0' 'a,b,c'       → a
 | `~expr` | return ok |
 | `^expr` | return err |
 | `func! args` | call + auto-unwrap Result |
+| `expr>>func` | pipe: pass result as last arg to func |
 
 ---
 
@@ -245,6 +246,18 @@ f xs:L n>n;@x xs{>=x 10{ret x}};0  -- return first element >= 10
 ```
 
 Guards already provide early return for simple cases. Use `ret` when you need early return inside a loop or deeply nested block.
+
+### Pipe Operator
+
+`>>` chains calls by passing the left side as the last argument to the right side:
+
+```
+str x>>len           -- desugars to: len (str x)
+add x 1>>add 2      -- desugars to: add 2 (add x 1)
+f x>>g>>h            -- desugars to: h (g (f x))
+```
+
+Pipes desugar at parse time — no new AST node. Works with `!` for auto-unwrap: `f x>>g!>>h`.
 
 Use braces when the body has multiple statements:
 

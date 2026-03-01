@@ -764,7 +764,8 @@ impl Parser {
             }
             _ => self.parse_expr_inner()?,
         };
-        self.maybe_with(expr)
+        let expr = self.maybe_with(expr)?;
+        self.maybe_pipe(expr)
     }
 
     /// Parse expression, possibly followed by `with`
@@ -789,6 +790,36 @@ impl Parser {
         } else {
             Ok(expr)
         }
+    }
+
+    /// Parse pipe chains: `expr >> func` desugars to `func(expr)`.
+    /// `expr >> func a b` desugars to `func(a, b, expr)` — piped value becomes last arg.
+    fn maybe_pipe(&mut self, mut expr: Expr) -> Result<Expr> {
+        while matches!(self.peek(), Some(Token::PipeOp)) {
+            self.advance(); // consume >>
+            let func_name = self.expect_ident()?;
+            let unwrap = self.peek() == Some(&Token::Bang) && {
+                let prev = self.prev_span();
+                let bang = self.peek_span();
+                prev.end > 0 && bang.start == prev.end
+            };
+            if unwrap {
+                self.advance(); // consume !
+            }
+            // Parse additional args (operands until we hit >>, ;, }, etc.)
+            let mut args = Vec::new();
+            while self.can_start_operand() {
+                args.push(self.parse_operand()?);
+            }
+            // Piped value becomes last arg
+            args.push(expr);
+            expr = Expr::Call {
+                function: func_name,
+                args,
+                unwrap,
+            };
+        }
+        Ok(expr)
     }
 
     /// Core expression parsing — handles prefix ops, match expr, calls, atoms
@@ -2870,6 +2901,46 @@ mod tests {
                 match &body[0].node {
                     Stmt::Return(Expr::BinOp { op: BinOp::Add, .. }) => {}
                     other => panic!("expected Return(BinOp::Add), got {:?}", other),
+                }
+            }
+            _ => panic!("expected function"),
+        }
+    }
+
+    #[test]
+    fn parse_pipe_simple() {
+        // f x>>g desugars to g(f(x))
+        let prog = parse_str("add a:n b:n>n;+a b\nf x:n>n;add x 1>>add 2");
+        match &prog.declarations[1] {
+            Decl::Function { body, .. } => {
+                match &body[0].node {
+                    Stmt::Expr(Expr::Call { function, args, .. }) => {
+                        assert_eq!(function, "add");
+                        assert_eq!(args.len(), 2); // 2 and add(x, 1)
+                    }
+                    other => panic!("expected Call, got {:?}", other),
+                }
+            }
+            _ => panic!("expected function"),
+        }
+    }
+
+    #[test]
+    fn parse_pipe_chain() {
+        // str x>>len desugars to len(str(x))
+        let prog = parse_str("f x:n>n;str x>>len");
+        match &prog.declarations[0] {
+            Decl::Function { body, .. } => {
+                match &body[0].node {
+                    Stmt::Expr(Expr::Call { function, args, .. }) => {
+                        assert_eq!(function, "len");
+                        assert_eq!(args.len(), 1);
+                        match &args[0] {
+                            Expr::Call { function, .. } => assert_eq!(function, "str"),
+                            other => panic!("expected Call(str), got {:?}", other),
+                        }
+                    }
+                    other => panic!("expected Call, got {:?}", other),
                 }
             }
             _ => panic!("expected function"),

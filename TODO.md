@@ -301,34 +301,17 @@ u.?addr.?city
 
 **Inspiration:** Ruby `&.`, Kotlin `?.`, TypeScript `?.`, C# `?.`.
 
-##### F4. Pipe operator — `>>` (medium priority — eliminates intermediate binds)
+##### F4. Pipe operator — `>>` ✅
 
-Linear chains of calls without naming intermediates.
+Linear chains of calls without naming intermediates. Desugars at parse time.
 
-- [ ] Syntax: `f x>>g>>h` — result of left side becomes last argument of right side
-- [ ] Why `>>` not `|>`: `|` is already logical OR; `>>` is visually directional, 1 token in most tokenizers
-- [ ] Parser: recognise `>>` as infix operator; parse right side as function name (or call with additional args)
-- [ ] AST: desugar at parse time — `f x>>g` becomes `g (f x)`. No new AST node needed
-- [ ] Alternative: `a>>g y` means `g y a` (pipe value becomes last arg) — matches Elixir `|>` convention (first arg)
-- [ ] Interpreter: no special handling — desugared before interpretation
-- [ ] VM: no special handling — desugared before compilation
-- [ ] Verifier: type-check the desugared call normally
-- [ ] Interaction with `!`: `f! x>>g!>>h` — each step can auto-unwrap independently
-- [ ] Cranelift JIT: no changes — desugared to normal calls
-- [ ] Python codegen: emit as nested calls or sequential assignments
-- [ ] Tests: simple pipe, multi-step pipe, pipe with extra args, pipe + auto-unwrap, type checking through pipe
-- [ ] SPEC.md: document `>>` operator
-
-**Token comparison:**
-```
-# Current:                        3 binds, 9 tokens
-a=f x;b=g a;h b
-
-# Proposed:                       0 binds, 5 tokens — saves 4
-f x>>g>>h
-```
-
-**Inspiration:** Elixir `|>`, F# `|>`, Bash `|`, Haskell `>>`.
+- [x] Syntax: `f x>>g>>h` — result of left side becomes last argument of right side
+- [x] Lexer: `>>` token (`Token::PipeOp`)
+- [x] Parser: `maybe_pipe()` desugars `expr >> func args` to `func(args..., expr)`
+- [x] AST: no new node — desugars to `Expr::Call`
+- [x] Interaction with `!`: `f x>>g!>>h` — each step can auto-unwrap independently
+- [x] Tests: parser, interpreter, VM (simple, chain, extra args)
+- [x] SPEC.md: documented `>>` operator
 
 ##### F5. Early return — `ret expr` ✅
 
