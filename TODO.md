@@ -615,6 +615,50 @@ Current state: `get`/`$` does synchronous HTTP GET via `minreq`. That's all. The
 - [ ] Content-Type defaults to `application/json` for POST/PUT/PATCH
 - [ ] Status code access: currently `get` only returns body text. Consider `R resp t` where `resp` is a record `{status:n;body:t;headers:M t t}` — or keep simple and add `get-status` variant later
 
+##### G1b. GraphQL (the other API protocol agents hit constantly)
+
+Most modern APIs (GitHub, Shopify, Hasura, Contentful) are GraphQL. It's just POST with a JSON body, but the pattern is so common it deserves first-class support or at least a documented pattern.
+
+- [ ] **Minimal approach:** GraphQL is HTTP POST to a single endpoint with `{"query": "...", "variables": {...}}` body. With G1 `post` + I1 `jp`, it already works:
+  ```
+  q="{\"query\":\"{user(id:1){name email}}\"}";r=post! "https://api.example.com/graphql" q;n=jp! r "data.user.name"
+  ```
+- [ ] **Convenience builtin:** `gql url query vars` — wraps the POST + JSON construction. Returns `R t t` (response data or error)
+  ```
+  r=gql! "https://api.example.com/graphql" "{user(id:1){name email}}" "{}";n=jp! r "user.name"
+  ```
+- [ ] **Design question:** is `gql` worth a dedicated builtin? Or is `post` + `jp` sufficient once those land? GraphQL is common enough that a one-liner matters for token efficiency
+- [ ] Variables as ilo records: `gql url query vars` where `vars` is a record → auto-serialised to JSON. Gates on D1e (Value ↔ JSON)
+- [ ] Error handling: GraphQL returns 200 even on errors. `gql` should check `response.errors` and return `Err` if present
+- [ ] Feature flag: same as `http` — it's just a POST wrapper
+
+##### G1c. gRPC (protobuf-based RPC)
+
+gRPC uses HTTP/2 + Protocol Buffers. Common in microservice architectures (Kubernetes, Google Cloud APIs, many internal systems). More complex than REST/GraphQL.
+
+- [ ] **Tool approach (recommended):** gRPC is complex (HTTP/2 framing, protobuf serialisation, streaming). Best handled as a tool server, not a language builtin
+  ```
+  tool grpc-call"Call gRPC method" endpoint:t method:t payload:t>R t t timeout:10
+  ```
+- [ ] **Why not builtin:** gRPC requires `.proto` schema files, code generation, and HTTP/2. This is fundamentally different from HTTP/1.1 text protocols. A gRPC tool server (in Go, Rust, or Python) translates between JSON and protobuf
+- [ ] **grpcurl pattern:** like `curl` for gRPC — the tool server wraps `grpcurl` or equivalent
+- [ ] **Reflection support:** `tool grpc-list"List gRPC services" endpoint:t>R t t` — discover available methods via gRPC reflection
+- [ ] Feature flag: none in ilo — this lives in a tool server
+- [ ] **If native eventually:** would need protobuf parsing (binary format), HTTP/2 support, and streaming. Massive scope. Gates on G5 (TCP), G6 (streams), G7 (binary data)
+
+##### G1d. Server-Sent Events / SSE (streaming responses)
+
+LLM APIs (OpenAI, Anthropic, etc.) use SSE for streaming responses. Agents calling other LLMs need this.
+
+- [ ] SSE is HTTP GET/POST with `text/event-stream` content type — server sends `data: ...\n\n` frames over a long-lived connection
+- [ ] `sse url` — open SSE connection, returns stream handle (like G6)
+- [ ] `sse-recv h` — receive next event, returns `R t t` (event data or connection error)
+- [ ] `sse-close h` — close SSE connection
+- [ ] **Or:** SSE as a special case of G6 streams — `get` with streaming flag returns a stream handle instead of the full body
+- [ ] **Use case:** agent calls OpenAI streaming API, processes tokens as they arrive, takes action before full response is complete
+- [ ] Feature flag: extend `http` feature — SSE is just HTTP with chunked transfer encoding
+- [ ] Gates on: G6 (streams) for the iteration model
+
 ##### G2. WebSocket client (bidirectional communication)
 
 Required for browser automation (CDP), real-time APIs, and agent-to-agent communication. This is the big one.
@@ -779,6 +823,179 @@ Direct Chrome DevTools Protocol communication from ilo. No Node.js dependency.
 - [ ] Subset of CDP domains: Page, Runtime, DOM, Network, Input
 - [ ] **Massive scope** — CDP has dozens of domains with hundreds of methods. Start with ~10 essential operations
 - [ ] Gates on: G2 (WebSocket), G3 (process spawn), G4 (async for multiplexed CDP), E4 (maps for JSON)
+
+#### Agent essentials — Phase I (what agents actually need daily)
+
+Gap analysis: what do real AI agents do that ilo can't express today? Ordered by how often agents hit the wall without it.
+
+##### I1. JSON parsing (critical — agents live in JSON)
+
+Agents call APIs. APIs return JSON. ilo can fetch JSON (`get url`) but can't do anything with the response except pass it as raw text. This is the #1 gap.
+
+- [ ] `jp text key` — JSON path lookup, returns `R t t`. `jp body "name"` extracts `$.name` as text
+- [ ] `jp text key` on nested paths: `jp body "address.city"` or `jp body "items.0.name"`
+- [ ] `jparse text` — parse JSON text into ilo values (records, lists, numbers, text, bool, nil), returns `R <value> t`
+- [ ] `jdump value` — serialise ilo value to JSON text, returns `t`
+- [ ] **Minimal approach:** `jp` alone covers 80% of cases. Agent gets JSON string from API, picks out fields with `jp`, done. No full parse needed
+- [ ] **Design tension:** manifesto says "format parsing is a tool concern." But JSON is so fundamental to agent work that not having it is like a shell without `grep`. Consider making `jp` a builtin exception, or accept that every agent needs a `json-extract` tool
+- [ ] Feature flag: `json` feature (uses `serde_json` — already a dependency)
+- [ ] **Integration with records:** `jparse text "profile"` could map JSON to a declared record type, verified at parse time — combines D1e (Value ↔ JSON) with a language builtin
+- [ ] **Token comparison:**
+  ```
+  # Python: ~12 tokens
+  data = json.loads(response.text)
+  name = data["user"]["name"]
+
+  # ilo with jp: ~4 tokens
+  n=jp! body "user.name"
+
+  # ilo without (current): impossible without tool
+  ```
+
+##### I2. Shell/command execution (critical — agents shell out constantly)
+
+G3 covers low-level process spawning with handles. But agents need a simple "run this command, give me the output" — like backticks in Perl/Ruby/shell or `subprocess.run` in Python.
+
+- [ ] `sh cmd` — run shell command, wait for completion, returns `R t t` (stdout or error). Stderr captured in error
+- [ ] `sh!` — auto-unwrap variant: `o=sh! "ls -la"`
+- [ ] Exit code: `sh` returns `Err` if non-zero exit. Ok body is stdout text
+- [ ] **vs G3 spawn:** `sh` is the simple one-shot version. `spawn` is for long-running processes you interact with. `sh "ls"` vs `h=spawn "node" "server.js"`
+- [ ] Shell selection: uses `/bin/sh -c` on Unix. Accepts full shell syntax (pipes, redirects)
+- [ ] Feature flag: `shell` feature (uses `std::process::Command`)
+- [ ] **Security:** same concerns as G3. `--allow-shell` flag? Or sandbox to specific commands?
+- [ ] **Backtick syntax option:** some languages use special quoting for shell commands:
+  - Perl/Ruby: `` output = `ls -la` `` — backticks execute and capture stdout
+  - Julia: `` run(`ls -la`) `` — backtick creates Cmd object
+  - ilo option: `` `ls -la` `` as sugar for `sh "ls -la"` — saves quotes, feels natural
+  - **Tradeoff:** backticks as a new string type need lexer changes. `sh` as a builtin needs nothing new
+  - **Recommendation:** start with `sh` builtin (zero language changes), consider backtick syntax later if agents use it heavily enough to justify lexer work
+- [ ] **Token comparison:**
+  ```
+  # Python: ~8 tokens
+  result = subprocess.run(["ls", "-la"], capture_output=True, text=True)
+  output = result.stdout
+
+  # ilo with sh: ~3 tokens
+  o=sh! "ls -la"
+
+  # ilo with backticks (if added): ~2 tokens
+  o=`ls -la`
+  ```
+
+##### I3. Environment variables (critical — every agent needs config)
+
+API keys, base URLs, secrets, feature flags. Every agent program needs to read env vars. Currently impossible in ilo.
+
+- [ ] `env key` — read environment variable, returns `R t t` (value or "not set")
+- [ ] `env! key` — auto-unwrap: `k=env! "API_KEY"`
+- [ ] **No env-set:** writing env vars is rarely needed and creates side effects. Read-only
+- [ ] Feature flag: none needed — `std::env::var` is stdlib
+- [ ] **Token comparison:**
+  ```
+  # Python: ~4 tokens
+  key = os.environ["API_KEY"]
+
+  # ilo: ~2 tokens
+  k=env! "API_KEY"
+  ```
+
+##### I4. String interpolation / templating
+
+Building URLs, prompts, messages. Currently requires chains of `+` which is verbose and error-prone:
+`+++++"Hello " name ", your order " oid " is " status` — 11 tokens for a simple template.
+
+- [ ] **Option A:** Template syntax in strings: `fmt "Hello {name}, order {oid} is {status}"` — clear but needs lexer changes for `{}`-in-strings
+- [ ] **Option B:** Printf-style: `fmt "Hello %s, order %s is %s" name oid status` — no lexer changes, variadic
+- [ ] **Option C:** Stay with `+` — it works, agents generate it fine, and it's already 10/10 accuracy. Token cost is the tradeoff
+- [ ] **Recommendation:** `fmt` builtin with positional `%s` placeholders. No lexer changes, composes with existing types, `str` handles number→text conversion
+- [ ] `fmt pattern args...` — returns `t`. `%s` substitutes args in order. Type-aware: numbers auto-convert via `str`
+- [ ] **Token comparison:**
+  ```
+  # Current ilo: 11 tokens
+  +++++"Hello " name ", order " oid " is " status
+
+  # With fmt: 5 tokens
+  fmt "Hello %s, order %s is %s" name oid status
+  ```
+
+##### I5. Logging / debug output
+
+Agents need observability — what did it do, what's the current state, where did it fail. Currently ilo has no way to print debug output without it being the return value.
+
+- [ ] `log msg` — write to stderr, returns `_` (nil). Does NOT affect return value or program flow
+- [ ] `log` accepts any type — auto-converts via `str` for numbers, `jdump` for records/lists
+- [ ] Log levels: `log msg` (info), `logw msg` (warn), `loge msg` (error), `logd msg` (debug)
+- [ ] Or simpler: just `log msg` and `dbg expr` (debug-print with expression name + value, like Rust's `dbg!`)
+- [ ] `dbg x` — prints `x = <value>` to stderr, returns the value unchanged (transparent — can insert anywhere in a pipeline)
+- [ ] Feature flag: none — stderr is always available
+- [ ] **Design question:** does logging violate the "pure function" feel? No — it's a side effect on stderr, doesn't affect computation. Same as Haskell's `trace`
+
+##### I6. Time and timestamps
+
+Rate limiting, timeouts, cache expiry, audit logs, scheduling. Agents work in time.
+
+- [ ] `now()` — current Unix timestamp as `n` (seconds since epoch, float for sub-second precision)
+- [ ] `sleep n` — pause execution for `n` seconds, returns `_`. For rate limiting, polling loops
+- [ ] `fmt-time n pattern` — format timestamp as text. Deferred — complex, may be a tool concern
+- [ ] **Design question:** `sleep` is a side effect that breaks pure execution. But agents need rate limiting. Alternative: runtime-level rate limiting on tool calls (automatic backoff in ToolProvider)
+
+##### I7. Encoding/decoding (URL, HTML, base64)
+
+Agents build URLs with parameters, handle HTML content, pass binary data.
+
+- [ ] `urlencode t` — percent-encode text for URL parameters, returns `t`
+- [ ] `urldecode t` — decode percent-encoded text, returns `R t t`
+- [ ] `b64enc t` — encode text as base64, returns `t` (overlaps with G7 but works on text directly)
+- [ ] `b64dec t` — decode base64 to text, returns `R t t`
+- [ ] `htmlesc t` — escape HTML entities (`<>&"'`), returns `t`
+- [ ] `htmlunesc t` — unescape HTML entities, returns `R t t`
+- [ ] **Minimal set:** `urlencode` + `b64enc` + `b64dec` cover 90% of agent encoding needs
+- [ ] Feature flag: none — pure string transformations, no deps
+
+##### I8. Regex / pattern matching on text
+
+Extracting structured data from unstructured text — log parsing, HTML scraping, validation.
+
+- [ ] `match text pattern` — first regex match, returns `R t t` (matched text or no-match error)
+- [ ] `matchall text pattern` — all matches, returns `L t`
+- [ ] `sub text pattern replacement` — regex substitution, returns `t`
+- [ ] `suball text pattern replacement` — global substitution, returns `t`
+- [ ] Capture groups: `match text "(\d+)-(\w+)"` → access groups via `.0`, `.1` on result? Or return list of captures?
+- [ ] Feature flag: `regex` feature (uses `regex` crate)
+- [ ] **Design question:** regex is powerful but complex. Alternative: keep text processing as tool concern (a `regex` tool). But like JSON, it's so fundamental that agents hit the wall without it
+- [ ] **Simpler alternative:** just `has` (already exists) + `spl` (exists) + `slc` (exists) cover basic cases. Regex for the hard stuff
+
+##### I9. Hashing and checksums
+
+Content deduplication, cache keys, API signature verification, integrity checks.
+
+- [ ] `hash t` — SHA-256 hash of text, returns `t` (hex string). Single default algorithm
+- [ ] `hmac key msg` — HMAC-SHA256, returns `t`. For API authentication (AWS, Stripe, etc.)
+- [ ] Feature flag: `crypto` feature (uses `sha2` + `hmac` crates, or ring)
+- [ ] **Scope limit:** hashing only, not encryption. Encryption is a tool concern
+- [ ] **Use case:** many APIs require HMAC signatures: `sig=hmac secret (+method +path +timestamp)`
+
+##### I10. Standard output and program I/O
+
+Currently the only output is the return value of the main function. Agents need to write structured output, stream progress, and read input.
+
+- [ ] `print val` — write value to stdout followed by newline, returns `_`
+- [ ] `eprint val` — write to stderr (alias for `log`)
+- [ ] `input prompt` — read line from stdin, returns `R t t`. For interactive mode
+- [ ] **vs return value:** `print` is for streaming output during execution. Return value is the final result. Both matter for agent integration
+- [ ] **Design question:** does `print` conflict with ilo's "return value is the output" model? In agent mode (D4 `ilo serve`), stdout is the protocol channel. `print` would need to go to stderr or a separate channel
+
+##### I11. Sleep / delay / retry helpers
+
+Agents need to wait between API calls (rate limiting), retry on failure, and implement backoff.
+
+- [ ] `sleep n` — pause `n` seconds (also mentioned in I6)
+- [ ] `retry n f args` — call function `f` up to `n` times with exponential backoff, returns first `~` result or last `^` error
+- [ ] **Or:** retry as a pattern, not a builtin. `wh` loop + `sleep` + counter already works:
+  ```
+  poll url:t n:n>R t t;<=n 0{^"timeout"};r=get url;?r{~v:~v;^e:sleep 1;poll url -n 1}
+  ```
+- [ ] **Recommendation:** `sleep` as builtin, retry as a pattern. Keeps builtins minimal
 
 #### Codegen targets
 - JavaScript / TypeScript emit — like Python codegen but for JS ecosystem
