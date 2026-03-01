@@ -342,7 +342,7 @@ Explicit return from anywhere in function body.
 - [x] VM fix: `Stmt::Let` re-binding writes to existing register (needed for loop counters)
 - [x] Verifier: condition + body type checked
 - [ ] Cranelift JIT: standard loop with conditional back-edge
-- [ ] Interaction with break/continue (F9): `brk` jumps to exit, `cnt` jumps to loop_top
+- [x] Interaction with break/continue (F9): `brk` jumps to exit, `cnt` jumps to loop_top
 - [x] Python codegen: emit as `while <cond>: <body>`
 - [x] Formatter: emit as `wh cond{body}`
 - [x] Tests: parser, interpreter (basic, zero-iter, ret), VM (basic, zero-iter, ret)
