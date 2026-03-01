@@ -217,6 +217,30 @@ fn call_function(env: &mut Env, name: &str, args: Vec<Value>) -> Result<Value> {
             other => Err(RuntimeError::new("ILO-R009", format!("{} requires a number, got {:?}", name, other))),
         };
     }
+    if name == "slc" && args.len() == 3 {
+        let start = match &args[1] {
+            Value::Number(n) => *n as usize,
+            other => return Err(RuntimeError::new("ILO-R009", format!("slc: start index must be a number, got {:?}", other))),
+        };
+        let end = match &args[2] {
+            Value::Number(n) => *n as usize,
+            other => return Err(RuntimeError::new("ILO-R009", format!("slc: end index must be a number, got {:?}", other))),
+        };
+        return match &args[0] {
+            Value::List(items) => {
+                let end = end.min(items.len());
+                let start = start.min(end);
+                Ok(Value::List(items[start..end].to_vec()))
+            }
+            Value::Text(s) => {
+                let chars: Vec<char> = s.chars().collect();
+                let end = end.min(chars.len());
+                let start = start.min(end);
+                Ok(Value::Text(chars[start..end].iter().collect()))
+            }
+            other => Err(RuntimeError::new("ILO-R009", format!("slc requires a list or text, got {:?}", other))),
+        };
+    }
     if name == "get" && args.len() == 1 {
         return match &args[0] {
             Value::Text(url) => {
@@ -1718,6 +1742,33 @@ mod tests {
         assert_eq!(
             run_str(source, Some("fib"), vec![Value::Number(10.0)]),
             Value::Number(55.0)
+        );
+    }
+
+    #[test]
+    fn interpret_slc_list() {
+        let source = "f>L n;slc [1, 2, 3, 4, 5] 1 3";
+        assert_eq!(
+            run_str(source, Some("f"), vec![]),
+            Value::List(vec![Value::Number(2.0), Value::Number(3.0)])
+        );
+    }
+
+    #[test]
+    fn interpret_slc_text() {
+        let source = r#"f>t;slc "hello" 1 4"#;
+        assert_eq!(
+            run_str(source, Some("f"), vec![]),
+            Value::Text("ell".to_string())
+        );
+    }
+
+    #[test]
+    fn interpret_slc_clamped() {
+        let source = "f>L n;slc [1, 2, 3] 1 100";
+        assert_eq!(
+            run_str(source, Some("f"), vec![]),
+            Value::List(vec![Value::Number(2.0), Value::Number(3.0)])
         );
     }
 }

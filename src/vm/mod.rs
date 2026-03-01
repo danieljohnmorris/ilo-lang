@@ -109,6 +109,7 @@ pub(crate) const OP_MAX: u8 = 44;        // R[A] = max(R[B], R[C])
 pub(crate) const OP_FLR: u8 = 45;        // R[A] = floor(R[B])
 pub(crate) const OP_CEL: u8 = 46;        // R[A] = ceil(R[B])
 pub(crate) const OP_GET: u8 = 47;        // R[A] = http_get(R[B])  (returns R t t)
+pub(crate) const OP_SLC: u8 = 48;        // R[A] = slc(R[B], R[C], R[C+1])  (slice list or text)
 
 // ABx mode — register + 16-bit operand
 pub(crate) const OP_LOADK: u8 = 20;
@@ -750,6 +751,16 @@ impl RegCompiler {
                         self.emit_abc(OP_UNWRAP, ra, ra, 0);
                         self.next_reg = ra + 1;
                     }
+                    return ra;
+                }
+                if function == "slc" && args.len() == 3 {
+                    let rb = self.compile_expr(&args[0]); // collection
+                    let rc = self.compile_expr(&args[1]); // start index
+                    let rd = self.compile_expr(&args[2]); // end index
+                    // alloc_reg is monotonic, so rd should be rc+1
+                    debug_assert_eq!(rd, rc + 1, "slc args should be consecutive regs");
+                    let ra = self.alloc_reg();
+                    self.emit_abc(OP_SLC, ra, rb, rc);
                     return ra;
                 }
 
@@ -2082,6 +2093,46 @@ impl<'a> VM<'a> {
                     #[cfg(not(feature = "http"))]
                     let result = NanVal::heap_err(NanVal::heap_string("http feature not enabled".to_string()));
                     reg_set!(a, result);
+                }
+                OP_SLC => {
+                    let a = ((inst >> 16) & 0xFF) as usize + base;
+                    let b = ((inst >> 8) & 0xFF) as usize + base;
+                    let c = (inst & 0xFF) as usize + base;
+                    let d = c + 1; // end index in next register
+                    let vb = reg!(b);
+                    let vc = reg!(c);
+                    let vd = reg!(d);
+                    if !vc.is_number() || !vd.is_number() {
+                        return Err(VmError::Type("slc: indices must be numbers"));
+                    }
+                    let start = vc.as_number() as usize;
+                    let end = vd.as_number() as usize;
+                    if vb.is_string() {
+                        // SAFETY: is_string() confirmed heap-tagged string with live RC.
+                        let s = unsafe { match vb.as_heap_ref() { HeapObj::Str(s) => s, _ => unreachable!() } };
+                        let chars: Vec<char> = s.chars().collect();
+                        let end = end.min(chars.len());
+                        let start = start.min(end);
+                        let result: String = chars[start..end].iter().collect();
+                        reg_set!(a, NanVal::heap_string(result));
+                    } else if vb.is_heap() {
+                        // SAFETY: is_heap() confirmed heap-tagged with live RC.
+                        match unsafe { vb.as_heap_ref() } {
+                            HeapObj::List(items) => {
+                                let end = end.min(items.len());
+                                let start = start.min(end);
+                                let mut sliced = Vec::with_capacity(end - start);
+                                for v in &items[start..end] {
+                                    v.clone_rc();
+                                    sliced.push(*v);
+                                }
+                                reg_set!(a, NanVal::heap_list(sliced));
+                            }
+                            _ => return Err(VmError::Type("slc requires a list or text")),
+                        }
+                    } else {
+                        return Err(VmError::Type("slc requires a list or text"));
+                    }
                 }
                 OP_LISTAPPEND => {
                     let a = ((inst >> 16) & 0xFF) as usize + base;
@@ -3857,6 +3908,24 @@ mod tests {
         assert_eq!(
             vm_run(source, Some("fib"), vec![Value::Number(10.0)]),
             Value::Number(55.0)
+        );
+    }
+
+    #[test]
+    fn vm_slc_list() {
+        let source = "f>L n;slc [1, 2, 3, 4, 5] 1 3";
+        assert_eq!(
+            vm_run(source, Some("f"), vec![]),
+            Value::List(vec![Value::Number(2.0), Value::Number(3.0)])
+        );
+    }
+
+    #[test]
+    fn vm_slc_text() {
+        let source = r#"f>t;slc "hello" 1 4"#;
+        assert_eq!(
+            vm_run(source, Some("f"), vec![]),
+            Value::Text("ell".to_string())
         );
     }
 }

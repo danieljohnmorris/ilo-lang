@@ -150,6 +150,7 @@ const BUILTINS: &[(&str, &[&str], &str)] = &[
     ("min", &["n", "n"], "n"),
     ("max", &["n", "n"], "n"),
     ("get", &["t"], "R t t"),
+    ("slc", &["list_or_text", "n", "n"], "list_or_text"),
 ];
 
 fn builtin_arity(name: &str) -> Option<usize> {
@@ -247,6 +248,42 @@ fn builtin_check_args(name: &str, arg_types: &[Ty], func_ctx: &str, span: Option
                 });
             }
             (Ty::Result(Box::new(Ty::Text), Box::new(Ty::Text)), errors)
+        }
+        "slc" => {
+            // arg 0: list or text
+            if let Some(arg) = arg_types.first() {
+                match arg {
+                    Ty::List(_) | Ty::Text | Ty::Unknown => {}
+                    other => errors.push(VerifyError {
+                        code: "ILO-T013",
+                        function: func_ctx.to_string(),
+                        message: format!("'slc' expects a list or text, got {other}"),
+                        hint: None,
+                        span,
+                    }),
+                }
+            }
+            // arg 1, arg 2: must be numbers
+            for (i, idx) in [1usize, 2].iter().enumerate() {
+                if let Some(arg) = arg_types.get(*idx) {
+                    if !compatible(arg, &Ty::Number) {
+                        errors.push(VerifyError {
+                            code: "ILO-T013",
+                            function: func_ctx.to_string(),
+                            message: format!("'slc' arg {} expects n, got {arg}", i + 2),
+                            hint: None,
+                            span,
+                        });
+                    }
+                }
+            }
+            // Return type matches input
+            let ret = match arg_types.first() {
+                Some(Ty::List(inner)) => Ty::List(inner.clone()),
+                Some(Ty::Text) => Ty::Text,
+                _ => Ty::Unknown,
+            };
+            (ret, errors)
         }
         _ => (Ty::Unknown, errors),
     }
@@ -2151,5 +2188,29 @@ mod tests {
             errors.iter().any(|e| e.code == "ILO-T027" && e.message.contains("len")),
             "expected ILO-T027 for builtin name in braceless guard body, got: {:?}", errors
         );
+    }
+
+    #[test]
+    fn builtin_slc_valid_list() {
+        assert!(parse_and_verify("f x:L n>L n;slc x 0 2").is_ok());
+    }
+
+    #[test]
+    fn builtin_slc_valid_text() {
+        assert!(parse_and_verify("f x:t>t;slc x 0 2").is_ok());
+    }
+
+    #[test]
+    fn builtin_slc_wrong_collection_type() {
+        let result = parse_and_verify("f x:n>n;slc x 0 2");
+        let errors = result.unwrap_err();
+        assert!(errors.iter().any(|e| e.code == "ILO-T013" && e.message.contains("slc")));
+    }
+
+    #[test]
+    fn builtin_slc_wrong_index_type() {
+        let result = parse_and_verify("f x:L n s:t>L n;slc x s 2");
+        let errors = result.unwrap_err();
+        assert!(errors.iter().any(|e| e.code == "ILO-T013" && e.message.contains("slc")));
     }
 }
