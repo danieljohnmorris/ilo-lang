@@ -151,6 +151,20 @@ ilo --explain ILO-T004
 
 This matches the manifesto: "verification before execution — all calls resolve, all types align, all dependencies exist."
 
+**Error output formats:**
+```bash
+ilo 'code' -a               # ANSI colour (default for TTY)
+ilo 'code' -t               # plain text (no colour)
+ilo 'code' -j               # JSON (default for piped output)
+NO_COLOR=1 ilo 'code'       # disable colour
+```
+
+**Formatter:**
+```bash
+ilo 'code' --fmt             # dense wire format (canonical)
+ilo 'code' --fmt-expanded    # expanded human-readable format
+```
+
 **Other modes:**
 ```bash
 ilo 'code' --emit python     # transpile to Python
@@ -163,7 +177,7 @@ ilo program.ilo --bench tot 10 20 30  # benchmark
 cargo test
 ```
 
-465 tests: lexer, parser, interpreter, VM, verifier, codegen, diagnostic, and CLI integration tests.
+783 tests: lexer, parser, interpreter, VM, verifier, codegen, diagnostic, formatter, and CLI integration tests.
 
 ## Documentation
 

@@ -37,6 +37,7 @@ pub struct VerifyError {
     pub function: String,
     pub message: String,
     pub hint: Option<String>,
+    pub span: Option<Span>,
 }
 
 impl std::fmt::Display for VerifyError {
@@ -158,7 +159,7 @@ fn is_builtin(name: &str) -> bool {
     BUILTINS.iter().any(|(n, _, _)| *n == name)
 }
 
-fn builtin_check_args(name: &str, arg_types: &[Ty], func_ctx: &str) -> (Ty, Vec<VerifyError>) {
+fn builtin_check_args(name: &str, arg_types: &[Ty], func_ctx: &str, span: Option<Span>) -> (Ty, Vec<VerifyError>) {
     let mut errors = Vec::new();
     match name {
         "len" => {
@@ -170,6 +171,7 @@ fn builtin_check_args(name: &str, arg_types: &[Ty], func_ctx: &str) -> (Ty, Vec<
                         function: func_ctx.to_string(),
                         message: format!("'len' expects a list or text, got {other}"),
                         hint: None,
+                        span,
                     }),
                 }
             }
@@ -184,6 +186,7 @@ fn builtin_check_args(name: &str, arg_types: &[Ty], func_ctx: &str) -> (Ty, Vec<
                     function: func_ctx.to_string(),
                     message: format!("'str' expects n, got {arg}"),
                     hint: None,
+                    span,
                 });
             }
             (Ty::Text, errors)
@@ -197,6 +200,7 @@ fn builtin_check_args(name: &str, arg_types: &[Ty], func_ctx: &str) -> (Ty, Vec<
                     function: func_ctx.to_string(),
                     message: format!("'num' expects t, got {arg}"),
                     hint: None,
+                    span,
                 });
             }
             (Ty::Result(Box::new(Ty::Number), Box::new(Ty::Text)), errors)
@@ -210,6 +214,7 @@ fn builtin_check_args(name: &str, arg_types: &[Ty], func_ctx: &str) -> (Ty, Vec<
                     function: func_ctx.to_string(),
                     message: format!("'{name}' expects n, got {arg}"),
                     hint: None,
+                    span,
                 });
             }
             (Ty::Number, errors)
@@ -222,6 +227,7 @@ fn builtin_check_args(name: &str, arg_types: &[Ty], func_ctx: &str) -> (Ty, Vec<
                         function: func_ctx.to_string(),
                         message: format!("'{name}' arg {} expects n, got {arg}", i + 1),
                         hint: None,
+                        span,
                     });
                 }
             }
@@ -240,12 +246,13 @@ impl VerifyContext {
         }
     }
 
-    fn err(&mut self, code: &'static str, function: &str, message: String, hint: Option<String>) {
+    fn err(&mut self, code: &'static str, function: &str, message: String, hint: Option<String>, span: Option<Span>) {
         self.errors.push(VerifyError {
             code,
             function: function.to_string(),
             message,
             hint,
+            span,
         });
     }
 
@@ -255,7 +262,7 @@ impl VerifyContext {
         for decl in &program.declarations {
             if let Decl::TypeDef { name, fields, .. } = decl {
                 if self.types.contains_key(name) {
-                    self.err("ILO-T001", "<global>", format!("duplicate type definition '{name}'"), None);
+                    self.err("ILO-T001", "<global>", format!("duplicate type definition '{name}'"), None, None);
                 } else {
                     let fields: Vec<(String, Ty)> = fields
                         .iter()
@@ -271,7 +278,7 @@ impl VerifyContext {
             match decl {
                 Decl::Function { name, params, return_type, .. } => {
                     if self.functions.contains_key(name) {
-                        self.err("ILO-T002", "<global>", format!("duplicate function definition '{name}'"), None);
+                        self.err("ILO-T002", "<global>", format!("duplicate function definition '{name}'"), None, None);
                         continue;
                     }
                     let params: Vec<(String, Ty)> = params
@@ -284,7 +291,7 @@ impl VerifyContext {
                 }
                 Decl::Tool { name, params, return_type, .. } => {
                     if self.functions.contains_key(name) {
-                        self.err("ILO-T002", "<global>", format!("duplicate definition '{name}' (tool conflicts with function)"), None);
+                        self.err("ILO-T002", "<global>", format!("duplicate definition '{name}' (tool conflicts with function)"), None, None);
                         continue;
                     }
                     let params: Vec<(String, Ty)> = params
@@ -323,7 +330,7 @@ impl VerifyContext {
                 if !self.types.contains_key(name) {
                     let hint = closest_match(name, self.types.keys())
                         .map(|s| format!("did you mean '{s}'?"));
-                    self.err("ILO-T003", ctx, format!("undefined type '{name}'"), hint);
+                    self.err("ILO-T003", ctx, format!("undefined type '{name}'"), hint, None);
                 }
             }
             Ty::List(inner) => self.validate_named_type_recursive(inner, ctx),
@@ -352,11 +359,13 @@ impl VerifyContext {
                         (Ty::Text, Ty::Number) => Some("use 'num' to parse text (returns R n t)".to_string()),
                         _ => None,
                     };
+                    let last_span = body.last().map(|s| s.span);
                     self.err(
                         "ILO-T008",
                         name,
                         format!("return type mismatch: expected {expected}, got {body_ty}"),
                         hint,
+                        last_span,
                     );
                 }
             }
@@ -366,20 +375,20 @@ impl VerifyContext {
     fn verify_body(&mut self, func: &str, scope: &mut Scope, stmts: &[Spanned<Stmt>]) -> Ty {
         let mut last_ty = Ty::Nil;
         for spanned in stmts {
-            last_ty = self.verify_stmt(func, scope, &spanned.node);
+            last_ty = self.verify_stmt(func, scope, &spanned.node, spanned.span);
         }
         last_ty
     }
 
-    fn verify_stmt(&mut self, func: &str, scope: &mut Scope, stmt: &Stmt) -> Ty {
+    fn verify_stmt(&mut self, func: &str, scope: &mut Scope, stmt: &Stmt, span: Span) -> Ty {
         match stmt {
             Stmt::Let { name, value } => {
-                let ty = self.infer_expr(func, scope, value);
+                let ty = self.infer_expr(func, scope, value, span);
                 scope_insert(scope, name.clone(), ty);
                 Ty::Nil
             }
             Stmt::Guard { condition, body, .. } => {
-                let _ = self.infer_expr(func, scope, condition);
+                let _ = self.infer_expr(func, scope, condition, span);
                 scope.push(HashMap::new());
                 let body_ty = self.verify_body(func, scope, body);
                 scope.pop();
@@ -390,7 +399,7 @@ impl VerifyContext {
             }
             Stmt::Match { subject, arms } => {
                 let subject_ty = match subject {
-                    Some(expr) => self.infer_expr(func, scope, expr),
+                    Some(expr) => self.infer_expr(func, scope, expr, span),
                     None => Ty::Nil,
                 };
                 let mut arm_ty = Ty::Unknown;
@@ -403,16 +412,16 @@ impl VerifyContext {
                     }
                     scope.pop();
                 }
-                self.check_match_exhaustiveness(func, &subject_ty, arms);
+                self.check_match_exhaustiveness(func, &subject_ty, arms, span);
                 arm_ty
             }
             Stmt::ForEach { binding, collection, body } => {
-                let coll_ty = self.infer_expr(func, scope, collection);
+                let coll_ty = self.infer_expr(func, scope, collection, span);
                 let elem_ty = match &coll_ty {
                     Ty::List(inner) => *inner.clone(),
                     Ty::Unknown => Ty::Unknown,
                     other => {
-                        self.err("ILO-T014", func, format!("foreach expects a list, got {other}"), None);
+                        self.err("ILO-T014", func, format!("foreach expects a list, got {other}"), None, Some(span));
                         Ty::Unknown
                     }
                 };
@@ -422,7 +431,7 @@ impl VerifyContext {
                 scope.pop();
                 body_ty
             }
-            Stmt::Expr(expr) => self.infer_expr(func, scope, expr),
+            Stmt::Expr(expr) => self.infer_expr(func, scope, expr, span),
         }
     }
 
@@ -452,7 +461,7 @@ impl VerifyContext {
         }
     }
 
-    fn infer_expr(&mut self, func: &str, scope: &mut Scope, expr: &Expr) -> Ty {
+    fn infer_expr(&mut self, func: &str, scope: &mut Scope, expr: &Expr, span: Span) -> Ty {
         match expr {
             Expr::Literal(lit) => match lit {
                 Literal::Number(_) => Ty::Number,
@@ -469,14 +478,14 @@ impl VerifyContext {
                         .collect();
                     let hint = closest_match(name, candidates.iter())
                         .map(|s| format!("did you mean '{s}'?"));
-                    self.err("ILO-T004", func, format!("undefined variable '{name}'"), hint);
+                    self.err("ILO-T004", func, format!("undefined variable '{name}'"), hint, Some(span));
                     Ty::Unknown
                 }
             }
 
             Expr::Call { function: callee, args } => {
                 // Infer all arg types first
-                let arg_types: Vec<Ty> = args.iter().map(|a| self.infer_expr(func, scope, a)).collect();
+                let arg_types: Vec<Ty> = args.iter().map(|a| self.infer_expr(func, scope, a, span)).collect();
 
                 if is_builtin(callee) {
                     // Check arity
@@ -487,10 +496,11 @@ impl VerifyContext {
                             func,
                             format!("arity mismatch: '{callee}' expects {expected_arity} args, got {}", args.len()),
                             None,
+                            Some(span),
                         );
                         return Ty::Unknown;
                     }
-                    let (ret_ty, errors) = builtin_check_args(callee, &arg_types, func);
+                    let (ret_ty, errors) = builtin_check_args(callee, &arg_types, func, Some(span));
                     self.errors.extend(errors);
                     ret_ty
                 } else if let Some(sig) = self.functions.get(callee) {
@@ -514,6 +524,7 @@ impl VerifyContext {
                                 args.len()
                             ),
                             hint,
+                            Some(span),
                         );
                         return sig_ret;
                     }
@@ -533,6 +544,7 @@ impl VerifyContext {
                                     param_name, callee, param_ty, arg_ty
                                 ),
                                 hint,
+                                Some(span),
                             );
                         }
                         let _ = i;
@@ -551,23 +563,24 @@ impl VerifyContext {
                         func,
                         format!("undefined function '{callee}' (called with {} args)", args.len()),
                         hint,
+                        Some(span),
                     );
                     Ty::Unknown
                 }
             }
 
             Expr::BinOp { op, left, right } => {
-                let lt = self.infer_expr(func, scope, left);
-                let rt = self.infer_expr(func, scope, right);
-                self.check_binop(func, op, &lt, &rt)
+                let lt = self.infer_expr(func, scope, left, span);
+                let rt = self.infer_expr(func, scope, right, span);
+                self.check_binop(func, op, &lt, &rt, span)
             }
 
             Expr::UnaryOp { op, operand } => {
-                let t = self.infer_expr(func, scope, operand);
+                let t = self.infer_expr(func, scope, operand, span);
                 match op {
                     UnaryOp::Negate => {
                         if !compatible(&t, &Ty::Number) {
-                            self.err("ILO-T012", func, format!("negate expects n, got {t}"), None);
+                            self.err("ILO-T012", func, format!("negate expects n, got {t}"), None, Some(span));
                         }
                         Ty::Number
                     }
@@ -579,12 +592,12 @@ impl VerifyContext {
             }
 
             Expr::Ok(inner) => {
-                let t = self.infer_expr(func, scope, inner);
+                let t = self.infer_expr(func, scope, inner, span);
                 Ty::Result(Box::new(t), Box::new(Ty::Unknown))
             }
 
             Expr::Err(inner) => {
-                let t = self.infer_expr(func, scope, inner);
+                let t = self.infer_expr(func, scope, inner, span);
                 Ty::Result(Box::new(Ty::Unknown), Box::new(t))
             }
 
@@ -592,10 +605,10 @@ impl VerifyContext {
                 if items.is_empty() {
                     Ty::List(Box::new(Ty::Unknown))
                 } else {
-                    let first_ty = self.infer_expr(func, scope, &items[0]);
+                    let first_ty = self.infer_expr(func, scope, &items[0], span);
                     // Infer remaining items but don't enforce homogeneity strictly
                     for item in &items[1..] {
-                        let _ = self.infer_expr(func, scope, item);
+                        let _ = self.infer_expr(func, scope, item, span);
                     }
                     Ty::List(Box::new(first_ty))
                 }
@@ -614,6 +627,7 @@ impl VerifyContext {
                                 func,
                                 format!("missing field '{fname}' in record '{type_name}'"),
                                 None,
+                                Some(span),
                             );
                         }
                     }
@@ -630,6 +644,7 @@ impl VerifyContext {
                                 func,
                                 format!("unknown field '{fname}' in record '{type_name}'"),
                                 hint,
+                                Some(span),
                             );
                         }
                     }
@@ -637,13 +652,14 @@ impl VerifyContext {
                     // Check field types
                     for (fname, fty) in &def_fields {
                         if let Some(expr) = provided.get(fname.as_str()) {
-                            let actual = self.infer_expr(func, scope, expr);
+                            let actual = self.infer_expr(func, scope, expr, span);
                             if !compatible(fty, &actual) {
                                 self.err(
                                     "ILO-T017",
                                     func,
                                     format!("field '{fname}' of '{type_name}' expects {fty}, got {actual}"),
                                     None,
+                                    Some(span),
                                 );
                             }
                         }
@@ -653,13 +669,13 @@ impl VerifyContext {
                 } else {
                     let hint = closest_match(type_name, self.types.keys())
                         .map(|s| format!("did you mean '{s}'?"));
-                    self.err("ILO-T003", func, format!("undefined type '{type_name}'"), hint);
+                    self.err("ILO-T003", func, format!("undefined type '{type_name}'"), hint, Some(span));
                     Ty::Unknown
                 }
             }
 
             Expr::Field { object, field } => {
-                let obj_ty = self.infer_expr(func, scope, object);
+                let obj_ty = self.infer_expr(func, scope, object, span);
                 match &obj_ty {
                     Ty::Named(type_name) => {
                         if let Some(type_def) = self.types.get(type_name) {
@@ -674,6 +690,7 @@ impl VerifyContext {
                                     func,
                                     format!("no field '{field}' on type '{type_name}'"),
                                     hint,
+                                    Some(span),
                                 );
                                 Ty::Unknown
                             }
@@ -683,19 +700,19 @@ impl VerifyContext {
                     }
                     Ty::Unknown => Ty::Unknown,
                     other => {
-                        self.err("ILO-T018", func, format!("field access on non-record type {other}"), None);
+                        self.err("ILO-T018", func, format!("field access on non-record type {other}"), None, Some(span));
                         Ty::Unknown
                     }
                 }
             }
 
             Expr::Index { object, .. } => {
-                let obj_ty = self.infer_expr(func, scope, object);
+                let obj_ty = self.infer_expr(func, scope, object, span);
                 match &obj_ty {
                     Ty::List(inner) => *inner.clone(),
                     Ty::Unknown => Ty::Unknown,
                     other => {
-                        self.err("ILO-T023", func, format!("index access on non-list type {other}"), None);
+                        self.err("ILO-T023", func, format!("index access on non-list type {other}"), None, Some(span));
                         Ty::Unknown
                     }
                 }
@@ -703,7 +720,7 @@ impl VerifyContext {
 
             Expr::Match { subject, arms } => {
                 let subject_ty = match subject {
-                    Some(expr) => self.infer_expr(func, scope, expr),
+                    Some(expr) => self.infer_expr(func, scope, expr, span),
                     None => Ty::Nil,
                 };
                 let mut result_ty = Ty::Unknown;
@@ -716,25 +733,26 @@ impl VerifyContext {
                     }
                     scope.pop();
                 }
-                self.check_match_exhaustiveness(func, &subject_ty, arms);
+                self.check_match_exhaustiveness(func, &subject_ty, arms, span);
                 result_ty
             }
 
             Expr::With { object, updates } => {
-                let obj_ty = self.infer_expr(func, scope, object);
+                let obj_ty = self.infer_expr(func, scope, object, span);
                 match &obj_ty {
                     Ty::Named(type_name) => {
                         if let Some(type_def) = self.types.get(type_name) {
                             let def_fields = type_def.fields.clone();
                             for (fname, expr) in updates {
                                 if let Some((_, fty)) = def_fields.iter().find(|(n, _)| n == fname) {
-                                    let actual = self.infer_expr(func, scope, expr);
+                                    let actual = self.infer_expr(func, scope, expr, span);
                                     if !compatible(fty, &actual) {
                                         self.err(
                                             "ILO-T022",
                                             func,
                                             format!("'with' field '{fname}' of '{type_name}' expects {fty}, got {actual}"),
                                             None,
+                                            Some(span),
                                         );
                                     }
                                 } else {
@@ -746,6 +764,7 @@ impl VerifyContext {
                                         func,
                                         format!("unknown field '{fname}' in 'with' on '{type_name}'"),
                                         hint,
+                                        Some(span),
                                     );
                                 }
                             }
@@ -754,7 +773,7 @@ impl VerifyContext {
                     }
                     Ty::Unknown => Ty::Unknown,
                     other => {
-                        self.err("ILO-T020", func, format!("'with' on non-record type {other}"), None);
+                        self.err("ILO-T020", func, format!("'with' on non-record type {other}"), None, Some(span));
                         Ty::Unknown
                     }
                 }
@@ -762,7 +781,7 @@ impl VerifyContext {
         }
     }
 
-    fn check_binop(&mut self, func: &str, op: &BinOp, lt: &Ty, rt: &Ty) -> Ty {
+    fn check_binop(&mut self, func: &str, op: &BinOp, lt: &Ty, rt: &Ty, span: Span) -> Ty {
         match op {
             BinOp::Add => {
                 // Number+Number, Text+Text, List+List
@@ -777,7 +796,7 @@ impl VerifyContext {
                                 Some("convert number to text with 'str' before concatenating".to_string()),
                             _ => None,
                         };
-                        self.err("ILO-T009", func, format!("'+' expects matching n, t, or L types, got {lt} and {rt}"), hint);
+                        self.err("ILO-T009", func, format!("'+' expects matching n, t, or L types, got {lt} and {rt}"), hint, Some(span));
                         Ty::Unknown
                     }
                 }
@@ -787,7 +806,7 @@ impl VerifyContext {
                     let sym = match op { BinOp::Subtract => "-", BinOp::Multiply => "*", _ => "/" };
                     let has_text = matches!(lt, Ty::Text) || matches!(rt, Ty::Text);
                     let hint = if has_text { Some("parse text as number with 'num' first".to_string()) } else { None };
-                    self.err("ILO-T009", func, format!("'{sym}' expects n and n, got {lt} and {rt}"), hint);
+                    self.err("ILO-T009", func, format!("'{sym}' expects n and n, got {lt} and {rt}"), hint, Some(span));
                 }
                 Ty::Number
             }
@@ -796,7 +815,7 @@ impl VerifyContext {
                     (Ty::Number, Ty::Number) | (Ty::Text, Ty::Text) => {}
                     (Ty::Unknown, _) | (_, Ty::Unknown) => {}
                     _ => {
-                        self.err("ILO-T010", func, format!("comparison expects matching n or t, got {lt} and {rt}"), None);
+                        self.err("ILO-T010", func, format!("comparison expects matching n or t, got {lt} and {rt}"), None, Some(span));
                     }
                 }
                 Ty::Bool
@@ -808,13 +827,13 @@ impl VerifyContext {
                 match lt {
                     Ty::List(inner) => {
                         if !compatible(inner, rt) {
-                            self.err("ILO-T011", func, format!("'+=' list element type {inner} doesn't match appended {rt}"), None);
+                            self.err("ILO-T011", func, format!("'+=' list element type {inner} doesn't match appended {rt}"), None, Some(span));
                         }
                         lt.clone()
                     }
                     Ty::Unknown => Ty::Unknown,
                     _ => {
-                        self.err("ILO-T011", func, format!("'+=' expects a list on the left, got {lt}"), None);
+                        self.err("ILO-T011", func, format!("'+=' expects a list on the left, got {lt}"), None, Some(span));
                         Ty::Unknown
                     }
                 }
@@ -822,7 +841,7 @@ impl VerifyContext {
         }
     }
 
-    fn check_match_exhaustiveness(&mut self, func: &str, subject_ty: &Ty, arms: &[MatchArm]) {
+    fn check_match_exhaustiveness(&mut self, func: &str, subject_ty: &Ty, arms: &[MatchArm], span: Span) {
         let has_wildcard = arms.iter().any(|a| matches!(a.pattern, Pattern::Wildcard));
         if has_wildcard {
             return;
@@ -846,6 +865,7 @@ impl VerifyContext {
                         func,
                         format!("non-exhaustive match on Result: missing {}", missing.join(", ")),
                         Some(format!("add: {}", parts.join(" or "))),
+                        Some(span),
                     );
                 }
             }
@@ -866,6 +886,7 @@ impl VerifyContext {
                         func,
                         format!("non-exhaustive match on Bool: missing {}", missing.join(", ")),
                         Some(format!("add: {}", parts.join(" or "))),
+                        Some(span),
                     );
                 }
             }
@@ -880,6 +901,7 @@ impl VerifyContext {
                     func,
                     "non-exhaustive match: no wildcard arm".to_string(),
                     Some("add a wildcard arm: _: <default-expr>".to_string()),
+                    Some(span),
                 );
             }
         }
@@ -1202,6 +1224,7 @@ mod tests {
             function: "f".to_string(),
             message: "undefined variable 'x'".to_string(),
             hint: None,
+            span: None,
         };
         let s = format!("{e}");
         assert!(s.contains("undefined variable 'x'"));
@@ -1216,6 +1239,7 @@ mod tests {
             function: "f".to_string(),
             message: "undefined variable 'x'".to_string(),
             hint: Some("did you mean 'y'?".to_string()),
+            span: None,
         };
         let s = format!("{e}");
         assert!(s.contains("hint: did you mean 'y'?"));
@@ -1719,7 +1743,7 @@ mod tests {
     #[test]
     fn builtin_check_args_len_no_args() {
         // Call directly with empty slice → if let Some(arg) evaluates to None → L175 closing }
-        let (ty, errors) = builtin_check_args("len", &[], "test_func");
+        let (ty, errors) = builtin_check_args("len", &[], "test_func", None);
         assert!(errors.is_empty());
         assert_eq!(ty, Ty::Number);
     }
@@ -1727,7 +1751,7 @@ mod tests {
     // L230: builtin_check_args with unknown name → _ => (Ty::Unknown, errors)
     #[test]
     fn builtin_check_args_unknown_name() {
-        let (ty, errors) = builtin_check_args("unknown_builtin", &[], "test_func");
+        let (ty, errors) = builtin_check_args("unknown_builtin", &[], "test_func", None);
         assert!(errors.is_empty());
         assert_eq!(ty, Ty::Unknown);
     }

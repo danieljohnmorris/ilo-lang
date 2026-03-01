@@ -336,6 +336,99 @@ f x:n>n;a=*x 2;b=+a 1;*b b    -- (x*2 + 1)^2
 
 ---
 
+## Error Diagnostics
+
+ilo verifies programs before execution and reports errors with stable codes, source context, and suggestions.
+
+### Error codes
+
+Every error has a stable code:
+
+| Prefix | Phase |
+|--------|-------|
+| `ILO-L___` | lexer (tokenisation) |
+| `ILO-P___` | parser (syntax) |
+| `ILO-T___` | type verifier (static analysis) |
+| `ILO-R___` | runtime (execution) |
+
+Use `--explain` to see a detailed explanation:
+```
+ilo --explain ILO-T004
+```
+
+### Source context
+
+Errors point at the relevant source location with a caret:
+```
+error[ILO-T005]: undefined function 'foo' (called with 1 args)
+  --> 1:9
+  |
+1 | f x:n>n;foo x
+  |         ^^^^^
+  |
+  = note: in function 'f'
+  = suggestion: did you mean 'f'?
+```
+
+Parser, verifier, and runtime errors all show source spans. The verifier uses the enclosing statement span as the best available location for expression-level errors.
+
+### Suggestions
+
+The verifier provides context-aware hints:
+- **Did you mean?** — Levenshtein-based suggestions for undefined variables, functions, fields, and types
+- **Type conversion** — suggests `str` for n→t, `num` for t→n
+- **Missing arms** — lists uncovered match patterns with types
+- **Arity** — shows expected parameter signature
+
+### Output formats
+
+```
+--ansi / -a     ANSI colour (default for TTY)
+--text / -t     Plain text (no colour)
+--json / -j     JSON (default for piped output)
+NO_COLOR=1      Disable colour (same as --text)
+```
+
+JSON error output follows a structured schema with `severity`, `code`, `message`, `labels` (with spans), `notes`, and `suggestion` fields.
+
+---
+
+## Formatter
+
+Two output modes for reformatting programs:
+
+```
+ilo 'code' --fmt              Dense wire format (canonical, for LLM I/O)
+ilo 'code' --fmt-expanded     Expanded human format (for code review)
+```
+
+### Dense format
+
+Single line per declaration, minimal whitespace. Operators glue to first operand:
+
+```
+cls sp:n>t;>=sp 1000{"gold"};>=sp 500{"silver"};"bronze"
+```
+
+### Expanded format
+
+Multi-line with 2-space indentation. Operators spaced from operands:
+
+```
+cls sp:n > t
+  >= sp 1000 {
+    "gold"
+  }
+  >= sp 500 {
+    "silver"
+  }
+  "bronze"
+```
+
+Dense format is canonical — `dense(parse(dense(parse(src)))) == dense(parse(src))`.
+
+---
+
 ## Complete Example
 
 ```

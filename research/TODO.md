@@ -46,7 +46,7 @@ Manifesto principle: "Verification before execution. All calls resolve, all type
 
 ## Tooling
 
-- [ ] Pretty-printer / formatter — dense wire format for LLM I/O, expanded form for human review (see OPEN.md: "Hybrid approach")
+- [x] Pretty-printer / formatter — dense wire format for LLM I/O, expanded form for human review (see OPEN.md: "Hybrid approach")
 
 ## Error messages — Phase B (infrastructure + rendering)
 

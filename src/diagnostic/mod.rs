@@ -118,6 +118,9 @@ impl From<&crate::verify::VerifyError> for Diagnostic {
         let mut d = Diagnostic::error(&e.message)
             .with_code(e.code)
             .with_note(format!("in function '{}'", e.function));
+        if let Some(span) = e.span {
+            d = d.with_span(span, "");
+        }
         if let Some(hint) = &e.hint {
             d = d.with_suggestion(hint.clone());
         }
@@ -272,6 +275,7 @@ mod tests {
             function: "myFunc".to_string(),
             message: "undefined variable 'x'".to_string(),
             hint: Some("did you mean 'y'?".to_string()),
+            span: None,
         };
         let d = Diagnostic::from(&e);
         assert!(d.message.contains("undefined variable"));
