@@ -981,6 +981,11 @@ impl VerifyContext {
                 result_ty
             }
 
+            Expr::NilCoalesce { value, default } => {
+                let val_ty = self.infer_expr(func, scope, value, span);
+                let def_ty = self.infer_expr(func, scope, default, span);
+                if val_ty == Ty::Nil { def_ty } else { val_ty }
+            }
             Expr::With { object, updates } => {
                 let obj_ty = self.infer_expr(func, scope, object, span);
                 match &obj_ty {

@@ -117,6 +117,7 @@ pub(crate) const OP_TL: u8 = 52;         // R[A] = tl(R[B])  (tail of list/text)
 pub(crate) const OP_REV: u8 = 53;        // R[A] = rev(R[B])  (reverse list or text)
 pub(crate) const OP_SRT: u8 = 54;        // R[A] = srt(R[B])  (sort list or text)
 pub(crate) const OP_SLC: u8 = 55;        // R[A] = slc(R[B], R[C], R[C+1])  (slice list or text)
+pub(crate) const OP_JMPNN: u8 = 56;     // if R[A] is not nil, jump by signed Bx (ABx mode)
 
 // ABx mode — register + 16-bit operand
 pub(crate) const OP_LOADK: u8 = 20;
@@ -1126,6 +1127,18 @@ impl RegCompiler {
                 result_reg
             }
 
+            Expr::NilCoalesce { value, default } => {
+                let val_reg = self.compile_expr(value);
+                // Jump over default if val is not nil
+                let skip_jump = self.emit_abx(OP_JMPNN, val_reg, 0);
+                // Value is nil — compile default and move to val_reg
+                let def_reg = self.compile_expr(default);
+                if def_reg != val_reg {
+                    self.emit_abc(OP_MOVE, val_reg, def_reg, 0);
+                }
+                self.current.patch_jump(skip_jump);
+                val_reg
+            }
             Expr::With { object, updates } => {
                 let obj_reg = self.compile_expr(object);
                 let update_regs: Vec<u8> = updates.iter()
@@ -1908,6 +1921,13 @@ impl<'a> VM<'a> {
                     let a = ((inst >> 16) & 0xFF) as usize + base;
                     let sbx = (inst & 0xFFFF) as i16;
                     if nanval_truthy(reg!(a)) {
+                        ip = (ip as isize + sbx as isize) as usize;
+                    }
+                }
+                OP_JMPNN => {
+                    let a = ((inst >> 16) & 0xFF) as usize + base;
+                    let sbx = (inst & 0xFFFF) as i16;
+                    if reg!(a).0 != TAG_NIL {
                         ip = (ip as isize + sbx as isize) as usize;
                     }
                 }
@@ -4432,5 +4452,24 @@ mod tests {
     fn vm_while_with_ret() {
         let source = "f>n;i=0;wh true{i=+i 1;>=i 3{ret i}};0";
         assert_eq!(vm_run(source, Some("f"), vec![]), Value::Number(3.0));
+    }
+
+    #[test]
+    fn vm_nil_coalesce_nil() {
+        // Function returns nil when guard doesn't fire, ?? falls back
+        let source = "mk x:n>n;>=x 1{x}\nf>n;x=mk 0;x??42";
+        assert_eq!(vm_run(source, Some("f"), vec![]), Value::Number(42.0));
+    }
+
+    #[test]
+    fn vm_nil_coalesce_non_nil() {
+        let source = "f>n;x=10;x??42";
+        assert_eq!(vm_run(source, Some("f"), vec![]), Value::Number(10.0));
+    }
+
+    #[test]
+    fn vm_nil_coalesce_chain() {
+        let source = "mk x:n>n;>=x 1{x}\nf>n;a=mk 0;b=mk 0;a??b??99";
+        assert_eq!(vm_run(source, Some("f"), vec![]), Value::Number(99.0));
     }
 }

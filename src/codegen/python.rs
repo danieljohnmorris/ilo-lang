@@ -53,6 +53,9 @@ fn expr_uses_unwrap(expr: &Expr) -> bool {
             subject.as_ref().is_some_and(|s| expr_uses_unwrap(s))
                 || arms.iter().any(|a| a.body.iter().any(|s| stmt_uses_unwrap(&s.node)))
         }
+        Expr::NilCoalesce { value, default } => {
+            expr_uses_unwrap(value) || expr_uses_unwrap(default)
+        }
         Expr::With { object, updates } => {
             expr_uses_unwrap(object) || updates.iter().any(|(_, e)| expr_uses_unwrap(e))
         }
@@ -314,6 +317,11 @@ fn emit_expr(out: &mut String, level: usize, expr: &Expr) -> String {
         }
         Expr::Match { subject, arms } => {
             emit_match_expr(out, level, subject, arms)
+        }
+        Expr::NilCoalesce { value, default } => {
+            let v = emit_expr(out, level, value);
+            let d = emit_expr(out, level, default);
+            format!("({v} if {v} is not None else {d})")
         }
         Expr::With { object, updates } => {
             let obj = emit_expr(out, level, object);

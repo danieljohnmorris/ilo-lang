@@ -373,6 +373,9 @@ fn fmt_expr(expr: &Expr, mode: FmtMode) -> String {
             let subj = subject.as_ref().map(|e| fmt_expr(e, mode)).unwrap_or_default();
             format!("?{}{{{}}}", subj, fmt_arms_dense(arms))
         }
+        Expr::NilCoalesce { value, default } => {
+            format!("{}??{}", fmt_expr(value, mode), fmt_expr(default, mode))
+        }
         Expr::With { object, updates } => {
             let updates_str: Vec<String> =
                 updates.iter().map(|(n, v)| format!("{}:{}", n, fmt_expr(v, mode))).collect();
