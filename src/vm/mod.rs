@@ -110,6 +110,7 @@ pub(crate) const OP_FLR: u8 = 45;        // R[A] = floor(R[B])
 pub(crate) const OP_CEL: u8 = 46;        // R[A] = ceil(R[B])
 pub(crate) const OP_GET: u8 = 47;        // R[A] = http_get(R[B])  (returns R t t)
 pub(crate) const OP_SPL: u8 = 48;        // R[A] = spl(R[B], R[C])  (split text by separator → L t)
+pub(crate) const OP_REV: u8 = 49;        // R[A] = rev(R[B])  (reverse list or text)
 
 // ABx mode — register + 16-bit operand
 pub(crate) const OP_LOADK: u8 = 20;
@@ -742,6 +743,12 @@ impl RegCompiler {
                     let rc = self.compile_expr(&args[1]);
                     let ra = self.alloc_reg();
                     self.emit_abc(OP_SPL, ra, rb, rc);
+                    return ra;
+                }
+                if function == "rev" && args.len() == 1 {
+                    let rb = self.compile_expr(&args[0]);
+                    let ra = self.alloc_reg();
+                    self.emit_abc(OP_REV, ra, rb, 0);
                     return ra;
                 }
                 if function == "get" && args.len() == 1 {
@@ -2107,6 +2114,29 @@ impl<'a> VM<'a> {
                         .map(|p| NanVal::heap_string(p.to_string()))
                         .collect();
                     reg_set!(a, NanVal::heap_list(items));
+                }
+                OP_REV => {
+                    let a = ((inst >> 16) & 0xFF) as usize + base;
+                    let b = ((inst >> 8) & 0xFF) as usize + base;
+                    let v = reg!(b);
+                    let result = if v.is_string() {
+                        // SAFETY: is_string() confirmed heap-tagged string with live RC.
+                        let s = unsafe { match v.as_heap_ref() { HeapObj::Str(s) => s, _ => unreachable!() } };
+                        NanVal::heap_string(s.chars().rev().collect::<String>())
+                    } else if v.is_heap() {
+                        // SAFETY: is_heap() confirmed heap-tagged with live RC.
+                        match unsafe { v.as_heap_ref() } {
+                            HeapObj::List(items) => {
+                                let mut reversed: Vec<NanVal> = items.iter().map(|item| { item.clone_rc(); *item }).collect();
+                                reversed.reverse();
+                                NanVal::heap_list(reversed)
+                            }
+                            _ => return Err(VmError::Type("rev requires a list or text")),
+                        }
+                    } else {
+                        return Err(VmError::Type("rev requires a list or text"));
+                    };
+                    reg_set!(a, result);
                 }
                 OP_LISTAPPEND => {
                     let a = ((inst >> 16) & 0xFF) as usize + base;
@@ -3904,6 +3934,24 @@ mod tests {
         assert_eq!(
             vm_run(source, Some("f"), vec![]),
             Value::List(vec![Value::Text("".to_string())])
+        );
+    }
+
+    #[test]
+    fn vm_rev_list() {
+        let source = "f>L n;rev [1, 2, 3]";
+        assert_eq!(
+            vm_run(source, Some("f"), vec![]),
+            Value::List(vec![Value::Number(3.0), Value::Number(2.0), Value::Number(1.0)])
+        );
+    }
+
+    #[test]
+    fn vm_rev_text() {
+        let source = r#"f>t;rev "abc""#;
+        assert_eq!(
+            vm_run(source, Some("f"), vec![]),
+            Value::Text("cba".to_string())
         );
     }
 }

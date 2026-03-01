@@ -217,6 +217,17 @@ fn call_function(env: &mut Env, name: &str, args: Vec<Value>) -> Result<Value> {
             other => Err(RuntimeError::new("ILO-R009", format!("{} requires a number, got {:?}", name, other))),
         };
     }
+    if name == "rev" && args.len() == 1 {
+        return match &args[0] {
+            Value::List(items) => {
+                let mut reversed = items.clone();
+                reversed.reverse();
+                Ok(Value::List(reversed))
+            }
+            Value::Text(s) => Ok(Value::Text(s.chars().rev().collect())),
+            other => Err(RuntimeError::new("ILO-R009", format!("rev requires a list or text, got {:?}", other))),
+        };
+    }
     if name == "spl" && args.len() == 2 {
         return match (&args[0], &args[1]) {
             (Value::Text(s), Value::Text(sep)) => {
@@ -1749,6 +1760,33 @@ mod tests {
         assert_eq!(
             run_str(source, Some("f"), vec![]),
             Value::List(vec![Value::Text("".to_string())])
+        );
+    }
+
+    #[test]
+    fn interpret_rev_list() {
+        let source = "f>L n;rev [1, 2, 3]";
+        assert_eq!(
+            run_str(source, Some("f"), vec![]),
+            Value::List(vec![Value::Number(3.0), Value::Number(2.0), Value::Number(1.0)])
+        );
+    }
+
+    #[test]
+    fn interpret_rev_text() {
+        let source = r#"f>t;rev "abc""#;
+        assert_eq!(
+            run_str(source, Some("f"), vec![]),
+            Value::Text("cba".to_string())
+        );
+    }
+
+    #[test]
+    fn interpret_rev_empty_list() {
+        let source = "f>L n;rev []";
+        assert_eq!(
+            run_str(source, Some("f"), vec![]),
+            Value::List(vec![])
         );
     }
 }

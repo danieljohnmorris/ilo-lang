@@ -151,6 +151,7 @@ const BUILTINS: &[(&str, &[&str], &str)] = &[
     ("max", &["n", "n"], "n"),
     ("get", &["t"], "R t t"),
     ("spl", &["t", "t"], "L t"),
+    ("rev", &["list_or_text"], "list_or_text"),
 ];
 
 fn builtin_arity(name: &str) -> Option<usize> {
@@ -248,6 +249,26 @@ fn builtin_check_args(name: &str, arg_types: &[Ty], func_ctx: &str, span: Option
                 }
             }
             (Ty::List(Box::new(Ty::Text)), errors)
+        }
+        "rev" => {
+            if let Some(arg) = arg_types.first() {
+                match arg {
+                    Ty::List(_) | Ty::Text | Ty::Unknown => {}
+                    other => errors.push(VerifyError {
+                        code: "ILO-T013",
+                        function: func_ctx.to_string(),
+                        message: format!("'rev' expects a list or text, got {other}"),
+                        hint: None,
+                        span,
+                    }),
+                }
+            }
+            let ret = match arg_types.first() {
+                Some(Ty::List(inner)) => Ty::List(inner.clone()),
+                Some(Ty::Text) => Ty::Text,
+                _ => Ty::Unknown,
+            };
+            (ret, errors)
         }
         "get" => {
             if let Some(arg) = arg_types.first()
@@ -2166,6 +2187,26 @@ mod tests {
             errors.iter().any(|e| e.code == "ILO-T027" && e.message.contains("len")),
             "expected ILO-T027 for builtin name in braceless guard body, got: {:?}", errors
         );
+    }
+
+    #[test]
+    fn rev_valid_list() {
+        let result = parse_and_verify("f xs:L n>L n;rev xs");
+        assert!(result.is_ok(), "rev with list arg should verify: {:?}", result);
+    }
+
+    #[test]
+    fn rev_valid_text() {
+        let result = parse_and_verify("f s:t>t;rev s");
+        assert!(result.is_ok(), "rev with text arg should verify: {:?}", result);
+    }
+
+    #[test]
+    fn rev_wrong_type() {
+        let result = parse_and_verify("f n:n>L n;rev n");
+        assert!(result.is_err());
+        let errors = result.unwrap_err();
+        assert!(errors.iter().any(|e| e.code == "ILO-T013" && e.message.contains("rev")));
     }
 
     #[test]
