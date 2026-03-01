@@ -483,11 +483,11 @@ impl VerifyContext {
                 }
             }
 
-            Expr::Call { function: callee, args } => {
+            Expr::Call { function: callee, args, unwrap } => {
                 // Infer all arg types first
                 let arg_types: Vec<Ty> = args.iter().map(|a| self.infer_expr(func, scope, a, span)).collect();
 
-                if is_builtin(callee) {
+                let call_ty = if is_builtin(callee) {
                     // Check arity
                     let expected_arity = builtin_arity(callee).unwrap();
                     if args.len() != expected_arity {
@@ -566,6 +566,43 @@ impl VerifyContext {
                         Some(span),
                     );
                     Ty::Unknown
+                };
+
+                // Auto-unwrap: func! args — callee must return Result, enclosing must return Result
+                if *unwrap {
+                    match &call_ty {
+                        Ty::Result(ok_ty, _err_ty) => {
+                            // Check enclosing function returns a Result
+                            if let Some(enc_sig) = self.functions.get(func) {
+                                match &enc_sig.return_type {
+                                    Ty::Result(_, _) => {}
+                                    other => {
+                                        self.err(
+                                            "ILO-T026",
+                                            func,
+                                            format!("'!' used in function '{func}' which returns {other}, not a Result"),
+                                            Some("the enclosing function must return R to propagate errors".to_string()),
+                                            Some(span),
+                                        );
+                                    }
+                                }
+                            }
+                            *ok_ty.clone()
+                        }
+                        Ty::Unknown => Ty::Unknown,
+                        other => {
+                            self.err(
+                                "ILO-T025",
+                                func,
+                                format!("'!' used on call to '{callee}' which returns {other}, not a Result"),
+                                Some("'!' auto-unwraps Result types: Ok(v)→v, Err(e)→propagate".to_string()),
+                                Some(span),
+                            );
+                            Ty::Unknown
+                        }
+                    }
+                } else {
+                    call_ty
                 }
             }
 
@@ -1927,5 +1964,98 @@ mod tests {
         let e = errors.iter().find(|e| e.code == "ILO-T024").unwrap();
         let hint = e.hint.as_ref().unwrap();
         assert!(hint.contains("_: <default-expr>"));
+    }
+
+    #[test]
+    fn unwrap_valid_result_call() {
+        // Construct AST directly to avoid parser boundary issues
+        use crate::ast::*;
+        let rnt = Type::Result(Box::new(Type::Number), Box::new(Type::Text));
+        let prog = Program {
+            declarations: vec![
+                Decl::Function {
+                    name: "inner".to_string(),
+                    params: vec![Param { name: "x".to_string(), ty: Type::Number }],
+                    return_type: rnt.clone(),
+                    body: vec![Spanned::unknown(Stmt::Expr(Expr::Ok(Box::new(Expr::Ref("x".to_string())))))],
+                    span: Span::UNKNOWN,
+                },
+                Decl::Function {
+                    name: "outer".to_string(),
+                    params: vec![Param { name: "x".to_string(), ty: Type::Number }],
+                    return_type: rnt,
+                    body: vec![
+                        Spanned::unknown(Stmt::Let {
+                            name: "d".to_string(),
+                            value: Expr::Call { function: "inner".to_string(), args: vec![Expr::Ref("x".to_string())], unwrap: true },
+                        }),
+                        Spanned::unknown(Stmt::Expr(Expr::Ok(Box::new(Expr::Ref("d".to_string()))))),
+                    ],
+                    span: Span::UNKNOWN,
+                },
+            ],
+            source: None,
+        };
+        let result = verify(&prog);
+        assert!(result.is_ok(), "expected valid, got: {:?}", result);
+    }
+
+    #[test]
+    fn unwrap_t025_non_result_callee() {
+        // Callee returns n, not R — should emit T025
+        use crate::ast::*;
+        let prog = Program {
+            declarations: vec![
+                Decl::Function {
+                    name: "inner".to_string(),
+                    params: vec![Param { name: "x".to_string(), ty: Type::Number }],
+                    return_type: Type::Number,
+                    body: vec![Spanned::unknown(Stmt::Expr(Expr::Ref("x".to_string())))],
+                    span: Span::UNKNOWN,
+                },
+                Decl::Function {
+                    name: "outer".to_string(),
+                    params: vec![Param { name: "x".to_string(), ty: Type::Number }],
+                    return_type: Type::Result(Box::new(Type::Number), Box::new(Type::Text)),
+                    body: vec![Spanned::unknown(Stmt::Expr(
+                        Expr::Call { function: "inner".to_string(), args: vec![Expr::Ref("x".to_string())], unwrap: true },
+                    ))],
+                    span: Span::UNKNOWN,
+                },
+            ],
+            source: None,
+        };
+        let errors = verify(&prog).unwrap_err();
+        assert!(errors.iter().any(|e| e.code == "ILO-T025"), "expected T025, got: {:?}", errors);
+    }
+
+    #[test]
+    fn unwrap_t026_non_result_enclosing() {
+        // Enclosing returns n, not R — should emit T026
+        use crate::ast::*;
+        let rnt = Type::Result(Box::new(Type::Number), Box::new(Type::Text));
+        let prog = Program {
+            declarations: vec![
+                Decl::Function {
+                    name: "inner".to_string(),
+                    params: vec![Param { name: "x".to_string(), ty: Type::Number }],
+                    return_type: rnt,
+                    body: vec![Spanned::unknown(Stmt::Expr(Expr::Ok(Box::new(Expr::Ref("x".to_string())))))],
+                    span: Span::UNKNOWN,
+                },
+                Decl::Function {
+                    name: "outer".to_string(),
+                    params: vec![Param { name: "x".to_string(), ty: Type::Number }],
+                    return_type: Type::Number,
+                    body: vec![Spanned::unknown(Stmt::Expr(
+                        Expr::Call { function: "inner".to_string(), args: vec![Expr::Ref("x".to_string())], unwrap: true },
+                    ))],
+                    span: Span::UNKNOWN,
+                },
+            ],
+            source: None,
+        };
+        let errors = verify(&prog).unwrap_err();
+        assert!(errors.iter().any(|e| e.code == "ILO-T026"), "expected T026, got: {:?}", errors);
     }
 }

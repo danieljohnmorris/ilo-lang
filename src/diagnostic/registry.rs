@@ -504,6 +504,41 @@ arms for each missing case.
 "#,
     },
 
+    ErrorEntry {
+        code: "ILO-T025",
+        short: "'!' used on non-Result call",
+        long: r#"## ILO-T025: '!' used on non-Result call
+
+The `!` auto-unwrap operator can only be used on function calls that
+return a Result type (`R ok err`). The called function returns a
+different type.
+
+**Example:**
+
+    f x:n>n;x
+    g x:n>n;f! x   -- error: f returns n, not R
+
+**Fix:** Remove `!` or change the called function to return `R`.
+"#,
+    },
+    ErrorEntry {
+        code: "ILO-T026",
+        short: "'!' used in non-Result function",
+        long: r#"## ILO-T026: '!' used in non-Result function
+
+The `!` auto-unwrap operator propagates errors to the enclosing
+function, so the enclosing function must return a Result type
+(`R ok err`).
+
+**Example:**
+
+    inner x:n>R n t;~x
+    outer x:n>n;inner! x   -- error: outer returns n, not R
+
+**Fix:** Change the enclosing function's return type to `R`.
+"#,
+    },
+
     // ── Runtime ──────────────────────────────────────────────────────────────
     ErrorEntry {
         code: "ILO-R001",

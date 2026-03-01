@@ -1233,3 +1233,93 @@ fn run_default_no_functions_in_compiled() {
     // Will fail because no function to call, but L434 is hit
     let _ = out;
 }
+
+// --- Auto-unwrap operator ! ---
+
+fn write_temp_ilo(content: &str) -> std::path::PathBuf {
+    use std::sync::atomic::{AtomicU64, Ordering};
+    static COUNTER: AtomicU64 = AtomicU64::new(0);
+    let dir = std::env::temp_dir();
+    let n = COUNTER.fetch_add(1, Ordering::Relaxed);
+    let path = dir.join(format!("ilo_test_{}_{}.ilo", std::process::id(), n));
+    std::fs::write(&path, content).expect("failed to write temp file");
+    path
+}
+
+#[test]
+fn unwrap_ok_path_inline() {
+    // Use ~(inner! x) — parens prevent greedy arg consumption at decl boundary
+    let f = write_temp_ilo("outer x:n>R n t;~(inner! x)\ninner x:n>R n t;~x");
+    let out = ilo()
+        .args([f.to_str().unwrap(), "42"])
+        .output()
+        .expect("failed to run ilo");
+    std::fs::remove_file(&f).ok();
+    assert!(out.status.success(), "stderr: {}", String::from_utf8_lossy(&out.stderr));
+    assert_eq!(String::from_utf8_lossy(&out.stdout).trim(), "~42");
+}
+
+#[test]
+fn unwrap_err_path_inline() {
+    let f = write_temp_ilo("outer x:n>R n t;~(inner! x)\ninner x:n>R n t;^\"fail\"");
+    let out = ilo()
+        .args([f.to_str().unwrap(), "42"])
+        .output()
+        .expect("failed to run ilo");
+    std::fs::remove_file(&f).ok();
+    assert!(out.status.success(), "stderr: {}", String::from_utf8_lossy(&out.stderr));
+    assert_eq!(String::from_utf8_lossy(&out.stdout).trim(), "^fail");
+}
+
+#[test]
+fn unwrap_nested_propagation_inline() {
+    let f = write_temp_ilo("a x:n>R n t;~(b! x)\nb x:n>R n t;~(c! x)\nc x:n>R n t;^\"deep\"");
+    let out = ilo()
+        .args([f.to_str().unwrap(), "1"])
+        .output()
+        .expect("failed to run ilo");
+    std::fs::remove_file(&f).ok();
+    assert!(out.status.success(), "stderr: {}", String::from_utf8_lossy(&out.stderr));
+    assert_eq!(String::from_utf8_lossy(&out.stdout).trim(), "^deep");
+}
+
+#[test]
+fn unwrap_formatter_roundtrip() {
+    let f = write_temp_ilo("outer x:n>R n t;~(inner! x)\ninner x:n>R n t;~x");
+    let out = ilo()
+        .args([f.to_str().unwrap(), "--fmt"])
+        .output()
+        .expect("failed to run ilo");
+    std::fs::remove_file(&f).ok();
+    assert!(out.status.success(), "stderr: {}", String::from_utf8_lossy(&out.stderr));
+    let stdout = String::from_utf8_lossy(&out.stdout);
+    assert!(stdout.contains("inner!"), "expected inner! in formatted output, got: {}", stdout);
+}
+
+#[test]
+fn unwrap_verifier_t025() {
+    // inner returns n, not R — should fail with T025
+    let f = write_temp_ilo("outer x:n>R n t;~(inner! x)\ninner x:n>n;x");
+    let out = ilo()
+        .args([f.to_str().unwrap()])
+        .output()
+        .expect("failed to run ilo");
+    std::fs::remove_file(&f).ok();
+    let stderr = String::from_utf8_lossy(&out.stderr);
+    assert!(stderr.contains("T025") || stderr.contains("not a Result"),
+        "expected T025 error, got: {}", stderr);
+}
+
+#[test]
+fn unwrap_verifier_t026() {
+    // outer returns n, not R — should fail with T026
+    let f = write_temp_ilo("outer x:n>n;(inner! x)\ninner x:n>R n t;~x");
+    let out = ilo()
+        .args([f.to_str().unwrap()])
+        .output()
+        .expect("failed to run ilo");
+    std::fs::remove_file(&f).ok();
+    let stderr = String::from_utf8_lossy(&out.stderr);
+    assert!(stderr.contains("T026") || stderr.contains("not a Result"),
+        "expected T026 error, got: {}", stderr);
+}

@@ -847,7 +847,20 @@ impl Parser {
         if let Expr::Ref(ref name) = atom {
             let name = name.clone();
 
-            // Check for zero-arg call: name()
+            // Check for auto-unwrap: name! (postfix Bang ADJACENT to name, no space)
+            // Distinguish `func!` (unwrap) from `func !x` (call with NOT arg)
+            // by checking if Bang span starts right where the Ident span ended.
+            let unwrap = self.peek() == Some(&Token::Bang) && {
+                let prev = self.prev_span();
+                let bang = self.peek_span();
+                // Adjacent if spans are real (non-zero) and contiguous
+                prev.end > 0 && bang.start == prev.end
+            };
+            if unwrap {
+                self.advance(); // consume !
+            }
+
+            // Check for zero-arg call: name() or name!()
             if self.peek() == Some(&Token::LParen)
                 && self.pos + 1 < self.tokens.len()
                 && self.token_at(self.pos + 1) == Some(&Token::RParen)
@@ -857,6 +870,20 @@ impl Parser {
                 return Ok(Expr::Call {
                     function: name,
                     args: vec![],
+                    unwrap,
+                });
+            }
+
+            // If we consumed !, this must be a call (even with zero args if nothing follows)
+            if unwrap {
+                let mut args = Vec::new();
+                while self.can_start_operand() {
+                    args.push(self.parse_operand()?);
+                }
+                return Ok(Expr::Call {
+                    function: name,
+                    args,
+                    unwrap: true,
                 });
             }
 
@@ -876,6 +903,7 @@ impl Parser {
                 return Ok(Expr::Call {
                     function: name,
                     args,
+                    unwrap: false,
                 });
             }
         }
@@ -1386,7 +1414,7 @@ mod tests {
         match &prog.declarations[0] {
             Decl::Function { body, .. } => {
                 match &body[0].node {
-                    Stmt::Let { value: Expr::Call { function, args }, .. } => {
+                    Stmt::Let { value: Expr::Call { function, args, .. }, .. } => {
                         assert_eq!(function, "fac");
                         assert_eq!(args.len(), 1);
                         assert!(matches!(&args[0], Expr::BinOp { op: BinOp::Subtract, .. }));
@@ -1404,7 +1432,7 @@ mod tests {
         match &prog.declarations[0] {
             Decl::Function { body, .. } => {
                 match &body[0].node {
-                    Stmt::Expr(Expr::Call { function, args }) => {
+                    Stmt::Expr(Expr::Call { function, args, .. }) => {
                         assert_eq!(function, "g");
                         assert!(args.is_empty());
                     }
@@ -1963,7 +1991,7 @@ mod tests {
         match &prog.declarations[0] {
             Decl::Function { body, .. } => {
                 match &body[0].node {
-                    Stmt::Expr(Expr::Call { function, args }) => {
+                    Stmt::Expr(Expr::Call { function, args, .. }) => {
                         assert_eq!(function, "g");
                         assert!(matches!(&args[0], Expr::Ok(_)));
                     }
@@ -1981,7 +2009,7 @@ mod tests {
         match &prog.declarations[0] {
             Decl::Function { body, .. } => {
                 match &body[0].node {
-                    Stmt::Expr(Expr::Call { function, args }) => {
+                    Stmt::Expr(Expr::Call { function, args, .. }) => {
                         assert_eq!(function, "g");
                         assert!(matches!(&args[0], Expr::Err(_)));
                     }
@@ -2290,5 +2318,103 @@ mod tests {
         // Should get ILO-P001 but no hint for a bare number
         let e = errors.iter().find(|e| e.code == "ILO-P001").unwrap();
         assert!(e.hint.is_none());
+    }
+
+    #[test]
+    fn parse_unwrap_call() {
+        // Single function with unwrap call as let-bind (no multi-func boundary issue)
+        let prog = parse_str("f x:n>R n t;d=g! x;~d");
+        match &prog.declarations[0] {
+            Decl::Function { body, .. } => {
+                match &body[0].node {
+                    Stmt::Let { value: Expr::Call { function, args, unwrap }, .. } => {
+                        assert_eq!(function, "g");
+                        assert!(unwrap);
+                        assert_eq!(args.len(), 1);
+                        assert!(matches!(&args[0], Expr::Ref(n) if n == "x"));
+                    }
+                    _ => panic!("expected unwrap call, got {:?}", body[0]),
+                }
+            }
+            _ => panic!("expected function"),
+        }
+    }
+
+    #[test]
+    fn parse_unwrap_zero_arg() {
+        // fetch!() → Call { function: "fetch", unwrap: true, args: [] }
+        let prog = parse_str("f>R t t;d=g!();~d");
+        match &prog.declarations[0] {
+            Decl::Function { body, .. } => {
+                match &body[0].node {
+                    Stmt::Let { value: Expr::Call { function, args, unwrap }, .. } => {
+                        assert_eq!(function, "g");
+                        assert!(unwrap);
+                        assert!(args.is_empty());
+                    }
+                    _ => panic!("expected unwrap zero-arg call, got {:?}", body[0]),
+                }
+            }
+            _ => panic!("expected function"),
+        }
+    }
+
+    #[test]
+    fn parse_bang_not_is_not_unwrap() {
+        // g !x → Call(g, [Not(Ref(x))]), NOT an unwrap call
+        // Single-function to avoid boundary issues
+        let prog = parse_str("f x:b>b;g !x");
+        match &prog.declarations[0] {
+            Decl::Function { body, .. } => {
+                match &body[0].node {
+                    Stmt::Expr(Expr::Call { function, args, unwrap, .. }) => {
+                        assert_eq!(function, "g");
+                        assert!(!unwrap);
+                        assert_eq!(args.len(), 1);
+                        assert!(matches!(&args[0], Expr::UnaryOp { op: UnaryOp::Not, .. }));
+                    }
+                    _ => panic!("expected call with NOT arg, got {:?}", body[0]),
+                }
+            }
+            _ => panic!("expected function"),
+        }
+    }
+
+    #[test]
+    fn parse_unwrap_multi_arg() {
+        // f! a b → Call { function: "f", unwrap: true, args: [Ref("a"), Ref("b")] }
+        // Use let-bind to avoid greedy arg consumption at decl boundary
+        let prog = parse_str("f a:n b:n>R n t;d=g! a b;~d");
+        match &prog.declarations[0] {
+            Decl::Function { body, .. } => {
+                match &body[0].node {
+                    Stmt::Let { value: Expr::Call { function, args, unwrap }, .. } => {
+                        assert_eq!(function, "g");
+                        assert!(unwrap);
+                        assert_eq!(args.len(), 2);
+                    }
+                    _ => panic!("expected unwrap multi-arg call, got {:?}", body[0]),
+                }
+            }
+            _ => panic!("expected function"),
+        }
+    }
+
+    #[test]
+    fn parse_unwrap_as_last_expr() {
+        // Unwrap as the last expression in the body (tail position)
+        let prog = parse_str("f x:n>R n t;g! x");
+        match &prog.declarations[0] {
+            Decl::Function { body, .. } => {
+                match &body[0].node {
+                    Stmt::Expr(Expr::Call { function, unwrap, .. }) => {
+                        assert_eq!(function, "g");
+                        assert!(unwrap);
+                    }
+                    _ => panic!("expected unwrap call expr, got {:?}", body[0]),
+                }
+            }
+            _ => panic!("expected function"),
+        }
     }
 }

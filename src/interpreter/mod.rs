@@ -55,11 +55,13 @@ pub struct RuntimeError {
     pub message: String,
     pub span: Option<crate::ast::Span>,
     pub call_stack: Vec<String>,
+    /// When set, the `!` operator is propagating an Err value — not a real error.
+    pub propagate_value: Option<Value>,
 }
 
 impl RuntimeError {
     fn new(code: &'static str, msg: impl Into<String>) -> Self {
-        RuntimeError { code, message: msg.into(), span: None, call_stack: Vec::new() }
+        RuntimeError { code, message: msg.into(), span: None, call_stack: Vec::new(), propagate_value: None }
     }
 }
 
@@ -259,6 +261,10 @@ fn eval_body(env: &mut Env, stmts: &[Spanned<Stmt>]) -> Result<BodyResult> {
             Ok(Some(BodyResult::Value(v))) => last = v,
             Ok(None) => {}
             Err(mut e) => {
+                // Auto-unwrap propagation: convert to early return
+                if let Some(val) = e.propagate_value.take() {
+                    return Ok(BodyResult::Return(val));
+                }
                 if e.span.is_none() { e.span = Some(spanned.span); }
                 if e.call_stack.is_empty() {
                     e.call_stack = env.call_stack.clone();
@@ -374,12 +380,24 @@ fn eval_expr(env: &mut Env, expr: &Expr) -> Result<Value> {
                 _ => Err(RuntimeError::new("ILO-R006", "index access on non-list")),
             }
         }
-        Expr::Call { function, args } => {
+        Expr::Call { function, args, unwrap } => {
             let mut arg_vals = Vec::new();
             for arg in args {
                 arg_vals.push(eval_expr(env, arg)?);
             }
-            call_function(env, function, arg_vals)
+            let result = call_function(env, function, arg_vals)?;
+            if *unwrap {
+                match result {
+                    Value::Ok(v) => Ok(*v),
+                    Value::Err(e) => Err(RuntimeError {
+                        propagate_value: Some(Value::Err(e)),
+                        ..RuntimeError::new("ILO-R014", "auto-unwrap propagating Err")
+                    }),
+                    other => Ok(other), // non-Result values pass through
+                }
+            } else {
+                Ok(result)
+            }
         }
         Expr::BinOp { op, left, right } => {
             // Short-circuit for logical ops
@@ -589,12 +607,14 @@ mod tests {
     use crate::parser;
 
     fn parse_program(source: &str) -> Program {
-        let tokens: Vec<crate::lexer::Token> = lexer::lex(source)
-            .unwrap()
+        let tokens = lexer::lex(source).unwrap();
+        let token_spans: Vec<(crate::lexer::Token, crate::ast::Span)> = tokens
             .into_iter()
-            .map(|(t, _)| t)
+            .map(|(t, r)| (t, crate::ast::Span { start: r.start, end: r.end }))
             .collect();
-        parser::parse_tokens(tokens).unwrap()
+        let (prog, errors) = parser::parse(token_spans);
+        assert!(errors.is_empty(), "parse errors: {:?}", errors);
+        prog
     }
 
     fn run_str(source: &str, func: Option<&str>, args: Vec<Value>) -> Value {
@@ -1540,5 +1560,105 @@ mod tests {
         assert!(result.is_err());
         let err = result.unwrap_err();
         assert!(err.to_string().contains("failed to parse"), "got: {}", err);
+    }
+
+    fn make_result_program(inner_body: Vec<Spanned<Stmt>>) -> Program {
+        // Build: inner x:n>R n t;{inner_body}  outer x:n>R n t;d=inner! x;~d
+        Program {
+            declarations: vec![
+                Decl::Function {
+                    name: "inner".to_string(),
+                    params: vec![Param { name: "x".to_string(), ty: Type::Number }],
+                    return_type: Type::Result(Box::new(Type::Number), Box::new(Type::Text)),
+                    body: inner_body,
+                    span: Span::UNKNOWN,
+                },
+                Decl::Function {
+                    name: "outer".to_string(),
+                    params: vec![Param { name: "x".to_string(), ty: Type::Number }],
+                    return_type: Type::Result(Box::new(Type::Number), Box::new(Type::Text)),
+                    body: vec![
+                        Spanned::unknown(Stmt::Let {
+                            name: "d".to_string(),
+                            value: Expr::Call {
+                                function: "inner".to_string(),
+                                args: vec![Expr::Ref("x".to_string())],
+                                unwrap: true,
+                            },
+                        }),
+                        Spanned::unknown(Stmt::Expr(Expr::Ok(Box::new(Expr::Ref("d".to_string()))))),
+                    ],
+                    span: Span::UNKNOWN,
+                },
+            ],
+            source: None,
+        }
+    }
+
+    #[test]
+    fn unwrap_ok_path() {
+        let prog = make_result_program(vec![
+            Spanned::unknown(Stmt::Expr(Expr::Ok(Box::new(Expr::Ref("x".to_string()))))),
+        ]);
+        let result = run(&prog, Some("outer"), vec![Value::Number(42.0)]).unwrap();
+        assert_eq!(result, Value::Ok(Box::new(Value::Number(42.0))));
+    }
+
+    #[test]
+    fn unwrap_err_path() {
+        let prog = make_result_program(vec![
+            Spanned::unknown(Stmt::Expr(Expr::Err(Box::new(
+                Expr::Literal(Literal::Text("fail".to_string()))
+            )))),
+        ]);
+        let result = run(&prog, Some("outer"), vec![Value::Number(42.0)]).unwrap();
+        assert_eq!(result, Value::Err(Box::new(Value::Text("fail".to_string()))));
+    }
+
+    #[test]
+    fn unwrap_nested_propagation() {
+        // c returns Err, b uses ! to call c, a uses ! to call b
+        let unwrap_body = |callee: &str| vec![
+            Spanned::unknown(Stmt::Let {
+                name: "d".to_string(),
+                value: Expr::Call {
+                    function: callee.to_string(),
+                    args: vec![Expr::Ref("x".to_string())],
+                    unwrap: true,
+                },
+            }),
+            Spanned::unknown(Stmt::Expr(Expr::Ok(Box::new(Expr::Ref("d".to_string()))))),
+        ];
+        let rnt = Type::Result(Box::new(Type::Number), Box::new(Type::Text));
+        let prog = Program {
+            declarations: vec![
+                Decl::Function {
+                    name: "c".to_string(),
+                    params: vec![Param { name: "x".to_string(), ty: Type::Number }],
+                    return_type: rnt.clone(),
+                    body: vec![Spanned::unknown(Stmt::Expr(
+                        Expr::Err(Box::new(Expr::Literal(Literal::Text("deep".to_string()))))
+                    ))],
+                    span: Span::UNKNOWN,
+                },
+                Decl::Function {
+                    name: "b".to_string(),
+                    params: vec![Param { name: "x".to_string(), ty: Type::Number }],
+                    return_type: rnt.clone(),
+                    body: unwrap_body("c"),
+                    span: Span::UNKNOWN,
+                },
+                Decl::Function {
+                    name: "a".to_string(),
+                    params: vec![Param { name: "x".to_string(), ty: Type::Number }],
+                    return_type: rnt,
+                    body: unwrap_body("b"),
+                    span: Span::UNKNOWN,
+                },
+            ],
+            source: None,
+        };
+        let result = run(&prog, Some("a"), vec![Value::Number(1.0)]).unwrap();
+        assert_eq!(result, Value::Err(Box::new(Value::Text("deep".to_string()))));
     }
 }

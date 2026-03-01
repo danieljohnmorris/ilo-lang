@@ -162,6 +162,7 @@ ilo 'f xs:L t>t;xs.0' 'a,b,c'       → a
 | `@v list{body}` | iterate list |
 | `~expr` | return ok |
 | `^expr` | return err |
+| `func! args` | call + auto-unwrap Result |
 
 ---
 
@@ -266,6 +267,23 @@ Compensate/rollback inline:
 ```
 charge pid amt;?{^e:release rid;^+"Payment failed: "e;~cid:continue}
 ```
+
+### Auto-Unwrap `!`
+
+`func! args` calls `func` and auto-unwraps the Result: if `~v` (Ok), returns `v`; if `^e` (Err), immediately returns `^e` from the enclosing function.
+
+```
+inner x:n>R n t;~x
+outer x:n>R n t;d=inner! x;~d
+```
+
+Equivalent to `r=inner x;?r{~v:v;^e:^e}` but in 1 token instead of 12.
+
+Rules:
+- The called function must return `R` (else verifier error ILO-T025)
+- The enclosing function must return `R` (else verifier error ILO-T026)
+- `!` goes after the function name, before args: `get! url` not `get url!`
+- Zero-arg: `fetch!()`
 
 ---
 

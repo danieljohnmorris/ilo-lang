@@ -186,9 +186,13 @@ pub enum Expr {
     Index { object: Box<Expr>, index: usize },
 
     /// Function call with positional args: `func arg1 arg2`
+    /// When `unwrap` is true, `func! args` auto-unwraps Result:
+    /// Ok(v) → v, Err(e) → propagate Err to enclosing function.
     Call {
         function: String,
         args: Vec<Expr>,
+        #[serde(default)]
+        unwrap: bool,
     },
 
     /// Prefix binary op: `+a b`, `*a b`

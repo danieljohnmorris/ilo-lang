@@ -290,12 +290,13 @@ fn fmt_expr(expr: &Expr, mode: FmtMode) -> String {
         Expr::Ref(name) => name.clone(),
         Expr::Field { object, field } => format!("{}.{}", fmt_expr(object, mode), field),
         Expr::Index { object, index } => format!("{}.{}", fmt_expr(object, mode), index),
-        Expr::Call { function, args } => {
+        Expr::Call { function, args, unwrap } => {
+            let bang = if *unwrap { "!" } else { "" };
             if args.is_empty() {
-                format!("{}()", function)
+                format!("{}{}()", function, bang)
             } else {
                 let args_str: Vec<String> = args.iter().map(|a| fmt_expr(a, mode)).collect();
-                format!("{} {}", function, args_str.join(" "))
+                format!("{}{} {}", function, bang, args_str.join(" "))
             }
         }
         Expr::BinOp { op, left, right } => match mode {

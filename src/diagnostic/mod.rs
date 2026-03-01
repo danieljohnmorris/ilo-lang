@@ -291,6 +291,7 @@ mod tests {
             message: "division by zero".to_string(),
             span: None,
             call_stack: Vec::new(),
+            propagate_value: None,
         };
         let d = Diagnostic::from(&e);
         assert!(d.message.contains("division by zero"));
@@ -306,6 +307,7 @@ mod tests {
             message: "division by zero".to_string(),
             span: Some(Span { start: 5, end: 10 }),
             call_stack: vec!["f".to_string()],
+            propagate_value: None,
         };
         let d = Diagnostic::from(&e);
         assert!(d.message.contains("division by zero"));

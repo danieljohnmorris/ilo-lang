@@ -673,7 +673,7 @@ impl RegCompiler {
                 ra
             }
 
-            Expr::Call { function, args } => {
+            Expr::Call { function, args, unwrap } => {
                 // Builtins — compile to dedicated opcodes
                 if function == "len" && args.len() == 1 {
                     let rb = self.compile_expr(&args[0]);
@@ -748,6 +748,18 @@ impl RegCompiler {
 
                 // After call, only the result register is live
                 self.next_reg = a + 1;
+
+                // Auto-unwrap: Ok(v)→v, Err(e)→return Err to caller
+                if *unwrap {
+                    let check_reg = self.alloc_reg();
+                    self.emit_abc(OP_ISOK, check_reg, a, 0);
+                    let skip_ret = self.emit_jmpt(check_reg);
+                    self.emit_abx(OP_RET, a, 0);        // propagate Err
+                    self.current.patch_jump(skip_ret);
+                    self.emit_abc(OP_UNWRAP, a, a, 0);   // extract Ok inner
+                    self.next_reg = a + 1; // only result register live
+                }
+
                 a
             }
 

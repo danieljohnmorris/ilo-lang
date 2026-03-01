@@ -2,11 +2,58 @@ use crate::ast::*;
 
 pub fn emit(program: &Program) -> String {
     let mut out = String::new();
+    if uses_unwrap(program) {
+        out.push_str("def _ilo_unwrap(r):\n    if r[0] == \"ok\":\n        return r[1]\n    raise RuntimeError(r[1])\n\n");
+    }
     for decl in &program.declarations {
         emit_decl(&mut out, decl, 0);
         out.push('\n');
     }
     out.trim_end().to_string()
+}
+
+fn uses_unwrap(program: &Program) -> bool {
+    program.declarations.iter().any(|d| match d {
+        Decl::Function { body, .. } => body.iter().any(|s| stmt_uses_unwrap(&s.node)),
+        _ => false,
+    })
+}
+
+fn stmt_uses_unwrap(stmt: &Stmt) -> bool {
+    match stmt {
+        Stmt::Let { value, .. } => expr_uses_unwrap(value),
+        Stmt::Guard { condition, body, .. } => {
+            expr_uses_unwrap(condition) || body.iter().any(|s| stmt_uses_unwrap(&s.node))
+        }
+        Stmt::Match { subject, arms } => {
+            subject.as_ref().is_some_and(|s| expr_uses_unwrap(s))
+                || arms.iter().any(|a| a.body.iter().any(|s| stmt_uses_unwrap(&s.node)))
+        }
+        Stmt::ForEach { collection, body, .. } => {
+            expr_uses_unwrap(collection) || body.iter().any(|s| stmt_uses_unwrap(&s.node))
+        }
+        Stmt::Expr(e) => expr_uses_unwrap(e),
+    }
+}
+
+fn expr_uses_unwrap(expr: &Expr) -> bool {
+    match expr {
+        Expr::Call { unwrap, args, .. } => *unwrap || args.iter().any(expr_uses_unwrap),
+        Expr::BinOp { left, right, .. } => expr_uses_unwrap(left) || expr_uses_unwrap(right),
+        Expr::UnaryOp { operand, .. } => expr_uses_unwrap(operand),
+        Expr::Ok(e) | Expr::Err(e) => expr_uses_unwrap(e),
+        Expr::Field { object, .. } | Expr::Index { object, .. } => expr_uses_unwrap(object),
+        Expr::List(items) => items.iter().any(expr_uses_unwrap),
+        Expr::Record { fields, .. } => fields.iter().any(|(_, e)| expr_uses_unwrap(e)),
+        Expr::Match { subject, arms } => {
+            subject.as_ref().is_some_and(|s| expr_uses_unwrap(s))
+                || arms.iter().any(|a| a.body.iter().any(|s| stmt_uses_unwrap(&s.node)))
+        }
+        Expr::With { object, updates } => {
+            expr_uses_unwrap(object) || updates.iter().any(|(_, e)| expr_uses_unwrap(e))
+        }
+        _ => false,
+    }
 }
 
 fn indent(out: &mut String, level: usize) {
@@ -185,10 +232,11 @@ fn emit_expr(out: &mut String, level: usize, expr: &Expr) -> String {
             let obj = emit_expr(out, level, object);
             format!("{}[{}]", obj, index)
         }
-        Expr::Call { function, args } => {
+        Expr::Call { function, args, unwrap } => {
             if function == "num" && args.len() == 1 {
                 let arg = emit_expr(out, level, &args[0]);
-                return format!("(lambda s: (\"ok\", float(s)) if s.replace('.','',1).replace('-','',1).isdigit() else (\"err\", s))({})", arg);
+                let call = format!("(lambda s: (\"ok\", float(s)) if s.replace('.','',1).replace('-','',1).isdigit() else (\"err\", s))({})", arg);
+                return if *unwrap { format!("_ilo_unwrap({})", call) } else { call };
             }
             if function == "flr" && args.len() == 1 {
                 return format!("float(__import__('math').floor({}))", emit_expr(out, level, &args[0]));
@@ -197,7 +245,8 @@ fn emit_expr(out: &mut String, level: usize, expr: &Expr) -> String {
                 return format!("float(__import__('math').ceil({}))", emit_expr(out, level, &args[0]));
             }
             let args_str: Vec<String> = args.iter().map(|a| emit_expr(out, level, a)).collect();
-            format!("{}({})", py_name(function), args_str.join(", "))
+            let call = format!("{}({})", py_name(function), args_str.join(", "));
+            if *unwrap { format!("_ilo_unwrap({})", call) } else { call }
         }
         Expr::BinOp { op, left, right } => {
             let op_str = match op {
