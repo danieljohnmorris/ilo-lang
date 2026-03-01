@@ -597,6 +597,105 @@ Define behaviour shared across record types. Lowest priority — agents generate
 - Debugger — step through execution, inspect bindings at each statement
 - Playground — web-based editor with live evaluation (WASM target)
 
+#### Networking — Phase G (expand I/O beyond HTTP GET)
+
+Current state: `get`/`$` does synchronous HTTP GET via `minreq`. That's all. The following items expand networking to support richer agent interactions (browser automation, bidirectional communication, full HTTP methods).
+
+##### G1. HTTP methods beyond GET
+
+`get` only does GET. Agents calling APIs need POST/PUT/DELETE with bodies and headers.
+
+- [ ] `post url body` — HTTP POST, returns `R t t`. Body is text (JSON serialised by caller or tool)
+- [ ] `put url body` — HTTP PUT, returns `R t t`
+- [ ] `del url` — HTTP DELETE, returns `R t t`
+- [ ] Header support: `post url body hdrs` where `hdrs` is a record or `M t t` map (gates on E4 maps)
+- [ ] Consider a unified `req` builtin: `req "POST" url body hdrs` — more tokens but one builtin instead of four
+- [ ] Feature flag: extend `http` feature, still uses `minreq` (supports all methods)
+- [ ] Content-Type defaults to `application/json` for POST/PUT
+- [ ] Status code access: currently `get` only returns body text. Consider `R resp t` where `resp` is a record `{status:n;body:t;headers:M t t}` — or keep simple and add `get-status` variant later
+
+##### G2. WebSocket client (bidirectional communication)
+
+Required for browser automation (CDP), real-time APIs, and agent-to-agent communication. This is the big one.
+
+- [ ] `ws url` — open WebSocket connection, returns `R ws t` (connection handle or error)
+- [ ] `ws-send conn msg` — send text message, returns `R _ t`
+- [ ] `ws-recv conn` — receive next message (blocking), returns `R t t`
+- [ ] `ws-close conn` — close connection, returns `R _ t`
+- [ ] Connection handle: new `Value::Handle(u64)` — opaque reference to runtime-managed resource
+- [ ] Runtime resource table: `HashMap<u64, Box<dyn Resource>>` in interpreter/VM, handles get indices
+- [ ] Feature flag: `ws` feature, uses `tungstenite` (sync WebSocket, no tokio needed)
+- [ ] Timeout: `ws-recv conn 5` — optional timeout in seconds, returns `Err("timeout")` if exceeded
+- [ ] Binary frames: `ws-recv` returns text frames as `t`, binary frames as base64-encoded `t` (or a new `bytes` type — deferred)
+- [ ] **Design question:** blocking `ws-recv` means the program stalls waiting for messages. For CDP this is fine (request-response pattern). For event streams, may need callback/event model (deferred to G5)
+
+##### G3. Process spawning
+
+Required for launching browsers, running external tools, shell integration.
+
+- [ ] `spawn cmd args` — launch process, returns `R proc t` (process handle or error)
+- [ ] `proc-wait h` — wait for process to exit, returns `R n t` (exit code or error)
+- [ ] `proc-kill h` — kill process, returns `R _ t`
+- [ ] `proc-out h` — read stdout as text, returns `R t t`
+- [ ] Process handle: reuses `Value::Handle(u64)` from G2
+- [ ] Feature flag: `process` feature (uses `std::process`)
+- [ ] **Security:** sandboxing concern — process spawning is powerful. Consider allowlist of executables, or make it tool-provider-only (not a language builtin)
+- [ ] Environment variables: `spawn cmd args env` where `env` is `M t t` (gates on E4)
+
+##### G4. Async runtime (foundation for concurrent I/O)
+
+Current model is fully synchronous. Async unlocks parallel tool calls, non-blocking WebSocket, and multiplexed CDP communication.
+
+- [ ] Introduce `tokio` behind `async` feature flag
+- [ ] `ToolProvider` trait becomes async (already planned in D1d)
+- [ ] Async builtins: `get`, `post`, `ws-send`, `ws-recv` become non-blocking internally
+- [ ] **Language-level async:** deferred — the runtime handles async internally, ilo programs remain sequential from the agent's perspective
+- [ ] **Parallel tool calls:** `par{call1;call2;call3}` — execute tool calls concurrently, collect results. Sugar for runtime-managed parallelism
+- [ ] **Design question:** should ilo expose async to the language (promises, await) or keep it hidden in the runtime? Hidden is simpler and more constrained (manifesto: "one way to do things")
+
+##### G5. Event/callback model (deferred — needs design)
+
+For WebSocket event streams, browser events, server-sent events. Currently out of scope but noting the design space.
+
+- [ ] Event loop concept: `on conn "event-name" {handler body}`
+- [ ] Or pull-based: `poll conns timeout` — wait on multiple connections, return first message
+- [ ] Or channel-based: `ch=chan();spawn-listener conn ch;msg=recv ch`
+- [ ] **Recommendation:** defer until a concrete use case forces the design. CDP's request-response pattern works with blocking `ws-recv`
+
+#### Browser automation — Phase H (Playwright-for-ilo)
+
+See [research/playwright-for-ilo.md](research/playwright-for-ilo.md) for full design exploration.
+
+Two approaches: **tool-server wrapper** (practical, near-term) vs **native CDP client** (ambitious, needs G2+G3+G4).
+
+##### H1. Playwright tool server (recommended first step)
+
+Wrap Playwright (Node.js) as an external tool server. ilo calls it via HTTP or stdio. Gets browser automation without any new language primitives.
+
+- [ ] Tool server: Node.js process running Playwright, exposing actions as HTTP endpoints or stdio JSON-RPC
+- [ ] Tool declarations in ilo:
+  ```
+  tool nav"Navigate to URL" url:t>R _ t timeout:30
+  tool click"Click element" sel:t>R _ t timeout:10
+  tool fill"Fill input" sel:t val:t>R _ t timeout:10
+  tool txt"Get text content" sel:t>R t t timeout:5
+  tool shot"Screenshot" path:t>R t t timeout:10
+  tool eval"Evaluate JS" code:t>R t t timeout:10
+  ```
+- [ ] Session management: tool server maintains browser state between calls
+- [ ] Gates on D1d (ToolProvider infrastructure)
+
+##### H2. Native CDP client (ambitious — needs G2, G3, G4)
+
+Direct Chrome DevTools Protocol communication from ilo. No Node.js dependency.
+
+- [ ] Launch Chromium with `--remote-debugging-port` via G3 process spawning
+- [ ] Connect via WebSocket (G2) to CDP endpoint
+- [ ] CDP message protocol: JSON request/response over WebSocket
+- [ ] Subset of CDP domains: Page, Runtime, DOM, Network, Input
+- [ ] **Massive scope** — CDP has dozens of domains with hundreds of methods. Start with ~10 essential operations
+- [ ] Gates on: G2 (WebSocket), G3 (process spawn), G4 (async for multiplexed CDP), E4 (maps for JSON)
+
 #### Codegen targets
 - JavaScript / TypeScript emit — like Python codegen but for JS ecosystem
 - WASM emit — compile to WebAssembly for browser/edge execution
