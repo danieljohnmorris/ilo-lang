@@ -582,7 +582,7 @@ Define behaviour shared across record types. Lowest priority — agents generate
 - ~~`cat xs sep`~~ ✅
 - ~~`spl t sep`~~ ✅
 - `get k m` — get value from map by key (if maps are added)
-- `rnd` / `rnd a b` — random number (0–1 or range)
+- ~~`rnd` / `rnd a b`~~ ✅
 - `now()` — current timestamp
 
 #### Tooling

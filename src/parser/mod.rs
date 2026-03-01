@@ -1040,6 +1040,15 @@ impl Parser {
                 return self.parse_record(name);
             }
 
+            // Zero-arg builtins: `rnd` with no args → Call with empty args
+            if name == "rnd" && !self.can_start_operand() {
+                return Ok(Expr::Call {
+                    function: name,
+                    args: vec![],
+                    unwrap: false,
+                });
+            }
+
             // Check for function call: name followed by args
             // Use can_start_operand/parse_operand so prefix expressions work as args:
             //   fac -n 1  →  Call(fac, [Subtract(n, 1)])
