@@ -104,6 +104,26 @@ ilo sits between bash and traditional languages:
 
 The composition model is Unix pipes with a type checker. Programs should feel like shell scripts — sequences of tool calls with branching — not like class hierarchies or module systems.
 
+### Format parsing is a tool concern
+
+ilo doesn't parse JSON, XML, HTML, or YAML. Tools do that. ilo composes typed tool results.
+
+`curl -s url | pup 'h1 text{}'` is ~8 tokens to fetch and extract. It works because the parsing complexity lives in `pup`, not in bash. ilo follows the same pattern:
+
+```
+fetch url "h1";?{~t:t;^e:^e}
+```
+
+Curl-level conciseness, but verified. The agent can't call a tool that doesn't exist, return types flow into the next expression, and error handling is structural (`^e`) not textual (`|| echo "failed"`).
+
+Compare the alternative — Python `requests` + `try/except` + `json.loads` + key checking — that's ~80 tokens for what ilo does in ~15. The token savings come from tools doing the heavy lifting while ilo provides the verified composition layer.
+
+This means ilo needs exactly one data format at the tool boundary: **JSON ↔ Value mapping**, guided by the tool's declared return type. The tool declaration *is* the schema. MCP's `inputSchema`/`outputSchema` align directly — ilo records map to JSON Schema objects, ilo types map to JSON Schema primitives.
+
+When the shape is unknown or too complex, the tool declares `>t` and the agent gets raw JSON as text — passable to another tool without parsing. When the shape is known, the tool declares `>R profile t` and the runtime maps the JSON response to a typed record, failing with a structured error if it doesn't match.
+
+No new types needed: `_` handles null, `t` is the escape hatch for untyped data, records handle known shapes, `R ok err` handles fallible tools.
+
 ## Syntax Questions (Resolved by Experiments)
 
 These were open questions that the syntax experiments have now answered:

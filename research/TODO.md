@@ -110,3 +110,124 @@ After language features settle.
 ## Python codegen
 
 - [x] Fix lossy match arm codegen — let bindings in match arms are silently dropped when emitted as ternaries
+
+---
+
+## Agent integration — Phase D (make ilo programs do things)
+
+Manifesto: "a minimal, verified action space." The language verifies and executes locally — Phase D connects it to the outside world.
+
+### D1. Tool Execution (foundation)
+
+Plumbing first — make tool calls actually do things. HTTP-native (tools are APIs, not scripts).
+
+#### D1a. Fix existing bugs
+- [ ] Fix VM empty-chunk bug — tool `Decl` compiles to a chunk with no `OP_RET`, calling a tool from the VM never returns
+
+#### D1b. HTTP builtin: `get` / `$`
+- [ ] `get url` / `$url` — built-in HTTP GET, returns `R t t` (ok=response body, err=error message)
+- [ ] `$` is the terse alias for `get` (same AST node, like `help`/`-h`)
+- [ ] Respects the curl model: one thing in, one thing out, composes with everything
+- [ ] 3 chars / 1 token. `d=get url;d.name` beats `curl -s url | jq '.name'`
+
+#### D1c. Auto-unwrap operator `!` ✅
+- [x] `get! url` — unwrap ok value, propagate err to caller (like Rust's `?`)
+- [x] Works on any `R` return type, not just `get`
+- [x] `d=get! url;d.name` — 18 chars, verified, error-handled
+- [x] Without `!`, use explicit match: `get url;?{~d:d.name;^e:^e}`
+
+#### D1d. Tool provider infrastructure
+- [ ] Add `tokio` + `reqwest` as deps behind a `tools` feature flag
+- [ ] `ToolProvider` trait — async executor interface: `async fn call(&self, name: &str, args: Vec<Value>) -> Result<Value, ToolError>`
+- [ ] `HttpProvider` — tool name maps to an HTTP endpoint. JSON request/response. Respects `timeout` and `retry` from `tool` decl
+- [ ] `StubProvider` — current behaviour (`Ok(Nil)`), used in tests and when no provider configured
+- [ ] Wire into interpreter + VM — both backends receive an `Option<&dyn ToolProvider>`, tool calls dispatch through it
+- [ ] Tool config — `ilo program.ilo --tools tools.json` where `tools.json` maps tool names to URLs/endpoints
+
+#### D1e. Value ↔ JSON at tool boundary
+- [ ] `Value::to_json()` — serialise ilo values to JSON for tool call args
+- [ ] `Value::from_json(type_hint)` — deserialise JSON to ilo values, guided by the tool's declared return type
+- [ ] JSON objects → records (if matching type declared), JSON arrays → lists, primitives → n/t/b, null → nil
+- [ ] Unknown/complex shapes: tool declares `>t`, gets raw JSON string — passable to another tool without parsing
+- [ ] Format parsing is a tool concern, not a language concern (see OPEN.md)
+
+#### D1f. Tests
+- [ ] Mock HTTP server for integration tests
+- [ ] `StubProvider` for unit tests
+- [ ] Test `get`/`$` with real HTTP (httpbin or similar)
+
+### D2. MCP Integration
+
+- [ ] MCP client: connect to MCP servers, discover tools, call them (builds on D1 async infra)
+- [ ] `ilo run program.ilo --mcp server.json` — load tool signatures from MCP server config
+- [ ] Auto-populate tool declarations from MCP server discovery (graph loading option 3: query on demand)
+
+### D3. Tool Discovery & Progressive Disclosure
+
+- [ ] `ilo tools` — list available tools from configured sources
+- [ ] `ilo tools --mcp server.json` — discover and display tool signatures
+- [ ] Progressive disclosure: tool names first (cheap), full signatures on demand
+- [ ] Tool graph: which tools depend on which types, what produces what
+
+### D4. Agent Loop
+
+- [ ] `ilo serve` — stdio-based agent loop (read task → generate program → verify → execute → return result)
+- [ ] JSON protocol for agent integration (task in, result out, errors structured)
+- [ ] The "typed shell" mode: interactive tool composition with verification
+
+### Not yet (deferred)
+
+#### Language hardening
+- Reserve keywords at lexer level — `if`, `return`, `let`, `fn`, `def`, `var`, `const` are currently valid identifiers (only caught as hints at declaration position). Reserving them protects future design space and prevents confusing programs (e.g. a function named `return`). Low urgency while user base is small.
+- Parser body boundary — newlines are filtered and `at_body_end()` only checks `None | RBrace`, so a bare `Ref` at the end of a function body greedily consumes the next declaration's name. Workaround: wrap in parens `~(func! x)`. A proper fix would use newlines as declaration separators in file mode.
+
+#### Control structures
+- Early return — explicit `ret expr` to return from anywhere in body (currently only last expression or guards return)
+- While loop — `wh cond{body}` or similar; currently only `@` (foreach) exists. Needed for non-list iteration (polling, convergence loops)
+- Loop break/continue — `brk` / `cnt` to exit or skip in `@` and `wh` loops
+- Range iteration — `@i 0..n{body}` or `@i (rng 0 n){body}` for index-based loops without constructing a list
+- Multi-arm guards / else — `cond{body}el{alt}` or chained `cond1{a};cond2{b};fallback`. Currently requires stacking guards or using match.
+- Pattern matching on type — `?x{n v:...; t v:...; b v:...}` to branch on runtime type (useful when tools return `t` escape hatch)
+- Destructuring bind — `{a;b}=expr` to extract record fields into locals in one statement
+- Pipe operator — `expr|>func` or similar for chaining calls without intermediate binds. Tension with prefix notation.
+
+#### Type system (Phase E)
+- Optional type — `O n` or `n?` for nullable values (currently using `_` nil but no typed optional)
+- Sum types / tagged unions — `S a b c` for closed sets of variants beyond ok/err
+- Map type — `M t n` for key-value collections (records are fixed-shape; maps are dynamic)
+- Type aliases — `alias id t` to name a type without creating a record
+- Generic functions — `map f:fn(a>b) xs:L a > L b` for higher-order typed transforms
+- Trait/interface — shared behaviour across record types (e.g. `Printable`, `Comparable`)
+
+#### Builtins
+- `map f xs` — apply function to each list element (currently requires `@` loop + accumulator)
+- `flt f xs` / `filter` — filter list by predicate
+- `fld f init xs` / `reduce` — fold/reduce list to single value
+- `rev xs` — reverse list
+- `srt xs` — sort list (natural order)
+- `hd xs` / `tl xs` — head/tail of list
+- `slc xs a b` — slice list or string
+- `has xs v` — membership test for list
+- `cat xs sep` — join list of text with separator (inverse of split)
+- `spl t sep` — split text into list by separator
+- `get k m` — get value from map by key (if maps are added)
+- `rnd` / `rnd a b` — random number (0–1 or range)
+- `now()` — current timestamp
+
+#### Tooling
+- LSP / language server — completions, diagnostics, hover info for editor integration
+- REPL — interactive evaluation for exploration and debugging
+- Debugger — step through execution, inspect bindings at each statement
+- Playground — web-based editor with live evaluation (WASM target)
+
+#### Codegen targets
+- JavaScript / TypeScript emit — like Python codegen but for JS ecosystem
+- WASM emit — compile to WebAssembly for browser/edge execution
+- Shell emit — transpile simple programs to bash (for environments where only shell is available)
+
+#### Program structure
+- Multi-file programs / module system (programs are small by design — may never need this)
+- Imports — `use "other.ilo"` to compose programs from multiple files
+- Namespacing — prevent name collisions when merging declaration graphs from multiple sources
+- Compensation as a first-class concept (keep inline error handling for now)
+- Graph query language (build the graph first, query it later)
