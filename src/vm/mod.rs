@@ -109,6 +109,7 @@ pub(crate) const OP_MAX: u8 = 44;        // R[A] = max(R[B], R[C])
 pub(crate) const OP_FLR: u8 = 45;        // R[A] = floor(R[B])
 pub(crate) const OP_CEL: u8 = 46;        // R[A] = ceil(R[B])
 pub(crate) const OP_GET: u8 = 47;        // R[A] = http_get(R[B])  (returns R t t)
+pub(crate) const OP_SPL: u8 = 48;        // R[A] = spl(R[B], R[C])  (split text by separator → L t)
 
 // ABx mode — register + 16-bit operand
 pub(crate) const OP_LOADK: u8 = 20;
@@ -734,6 +735,13 @@ impl RegCompiler {
                     let op = if function == "flr" { OP_FLR } else { OP_CEL };
                     self.emit_abc(op, ra, rb, 0);
                     self.reg_is_num[ra as usize] = true;
+                    return ra;
+                }
+                if function == "spl" && args.len() == 2 {
+                    let rb = self.compile_expr(&args[0]);
+                    let rc = self.compile_expr(&args[1]);
+                    let ra = self.alloc_reg();
+                    self.emit_abc(OP_SPL, ra, rb, rc);
                     return ra;
                 }
                 if function == "get" && args.len() == 1 {
@@ -2082,6 +2090,23 @@ impl<'a> VM<'a> {
                     #[cfg(not(feature = "http"))]
                     let result = NanVal::heap_err(NanVal::heap_string("http feature not enabled".to_string()));
                     reg_set!(a, result);
+                }
+                OP_SPL => {
+                    let a = ((inst >> 16) & 0xFF) as usize + base;
+                    let b = ((inst >> 8) & 0xFF) as usize + base;
+                    let c = (inst & 0xFF) as usize + base;
+                    let vb = reg!(b);
+                    let vc = reg!(c);
+                    if !vb.is_string() || !vc.is_string() {
+                        return Err(VmError::Type("spl requires two strings"));
+                    }
+                    // SAFETY: is_string() confirmed heap-tagged string with live RC.
+                    let text = unsafe { match vb.as_heap_ref() { HeapObj::Str(s) => s, _ => unreachable!() } };
+                    let sep = unsafe { match vc.as_heap_ref() { HeapObj::Str(s) => s, _ => unreachable!() } };
+                    let items: Vec<NanVal> = text.split(sep.as_str())
+                        .map(|p| NanVal::heap_string(p.to_string()))
+                        .collect();
+                    reg_set!(a, NanVal::heap_list(items));
                 }
                 OP_LISTAPPEND => {
                     let a = ((inst >> 16) & 0xFF) as usize + base;
@@ -3857,6 +3882,28 @@ mod tests {
         assert_eq!(
             vm_run(source, Some("fib"), vec![Value::Number(10.0)]),
             Value::Number(55.0)
+        );
+    }
+
+    #[test]
+    fn vm_spl_basic() {
+        let source = r#"f>L t;spl "a,b,c" ",""#;
+        assert_eq!(
+            vm_run(source, Some("f"), vec![]),
+            Value::List(vec![
+                Value::Text("a".to_string()),
+                Value::Text("b".to_string()),
+                Value::Text("c".to_string()),
+            ])
+        );
+    }
+
+    #[test]
+    fn vm_spl_empty() {
+        let source = r#"f>L t;spl "" ",""#;
+        assert_eq!(
+            vm_run(source, Some("f"), vec![]),
+            Value::List(vec![Value::Text("".to_string())])
         );
     }
 }

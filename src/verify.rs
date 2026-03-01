@@ -150,6 +150,7 @@ const BUILTINS: &[(&str, &[&str], &str)] = &[
     ("min", &["n", "n"], "n"),
     ("max", &["n", "n"], "n"),
     ("get", &["t"], "R t t"),
+    ("spl", &["t", "t"], "L t"),
 ];
 
 fn builtin_arity(name: &str) -> Option<usize> {
@@ -233,6 +234,20 @@ fn builtin_check_args(name: &str, arg_types: &[Ty], func_ctx: &str, span: Option
                 }
             }
             (Ty::Number, errors)
+        }
+        "spl" => {
+            for (i, arg) in arg_types.iter().enumerate() {
+                if !compatible(arg, &Ty::Text) {
+                    errors.push(VerifyError {
+                        code: "ILO-T013",
+                        function: func_ctx.to_string(),
+                        message: format!("'spl' arg {} expects t, got {arg}", i + 1),
+                        hint: None,
+                        span,
+                    });
+                }
+            }
+            (Ty::List(Box::new(Ty::Text)), errors)
         }
         "get" => {
             if let Some(arg) = arg_types.first()
@@ -2151,5 +2166,27 @@ mod tests {
             errors.iter().any(|e| e.code == "ILO-T027" && e.message.contains("len")),
             "expected ILO-T027 for builtin name in braceless guard body, got: {:?}", errors
         );
+    }
+
+    #[test]
+    fn spl_valid() {
+        let result = parse_and_verify(r#"f s:t sep:t>L t;spl s sep"#);
+        assert!(result.is_ok(), "spl with two text args should verify: {:?}", result);
+    }
+
+    #[test]
+    fn spl_wrong_type() {
+        let result = parse_and_verify(r#"f s:t n:n>L t;spl s n"#);
+        assert!(result.is_err());
+        let errors = result.unwrap_err();
+        assert!(errors.iter().any(|e| e.code == "ILO-T013" && e.message.contains("spl")));
+    }
+
+    #[test]
+    fn spl_wrong_arity() {
+        let result = parse_and_verify(r#"f s:t>L t;spl s"#);
+        assert!(result.is_err());
+        let errors = result.unwrap_err();
+        assert!(errors.iter().any(|e| e.message.contains("spl")));
     }
 }
