@@ -664,6 +664,41 @@ Function calls as braceless guard bodies would require braces:
 
 This is safe because function calls in guard bodies are uncommon — guards typically return literal values or simple expressions.
 
+### Preventing retries: error hints for the ambiguous case
+
+The manifesto metric is **total tokens from intent to working code**, including retries. If an agent generates a braceless guard with a function call body, the parser must give an actionable error on the **first attempt** — not a cryptic message that burns a retry cycle.
+
+**The failure scenario:**
+```
+>=sp 1000 classify sp
+```
+Parser sees `>=sp 1000` (complete), `classify` (identifier → guard body), `sp` (dangling → parse error). Without a hint, the agent gets "unexpected identifier `sp`" and has no idea why.
+
+**The fix — targeted hint using existing infrastructure:**
+
+ilo already has `error_hint()` for cross-language syntax detection (`&&` → `&`, `->` → `>`, `def` → ilo syntax). The same mechanism catches braceless guard ambiguity:
+
+1. **Parser-level:** If a braceless guard body is a single identifier and the next token is NOT `;`, `}`, or EOF, emit:
+   ```
+   error[ILO-P0xx]: unexpected token after braceless guard body
+     --> 1:18
+     |
+   1 | f x:n>t;>=sp 1000 classify sp
+     |                    ^^^^^^^^ this looks like a function call
+     |
+     = suggestion: function calls in braceless guards need braces: >=sp 1000{classify sp}
+   ```
+
+2. **Verifier-level:** If a braceless guard body is a single identifier that matches a known function name, emit a warning:
+   ```
+   warning: guard body 'classify' is also a function name — did you mean to call it?
+     = suggestion: use braces for function call bodies: >=sp 1000{classify sp}
+   ```
+
+3. **JSON output:** The hint appears in the `suggestion` field, so agent tooling can auto-fix without human intervention.
+
+**Cost of the hint:** ~0 tokens (computed at parse/verify time, no runtime cost). **Cost of NOT having the hint:** ~100-200 tokens per retry cycle. The hint pays for itself on the first caught ambiguity.
+
 ### Interaction with guard-else (F1)
 
 If braceless guards exist, guard-else needs clear syntax:
