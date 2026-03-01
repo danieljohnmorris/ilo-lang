@@ -603,15 +603,16 @@ Current state: `get`/`$` does synchronous HTTP GET via `minreq`. That's all. The
 
 ##### G1. HTTP methods beyond GET
 
-`get` only does GET. Agents calling APIs need POST/PUT/DELETE with bodies and headers.
+`get` only does GET. Agents calling APIs need POST/PUT/PATCH/DELETE with bodies and headers.
 
 - [ ] `post url body` — HTTP POST, returns `R t t`. Body is text (JSON serialised by caller or tool)
 - [ ] `put url body` — HTTP PUT, returns `R t t`
+- [ ] `patch url body` — HTTP PATCH, returns `R t t`. Partial updates — the most common mutation method in REST APIs
 - [ ] `del url` — HTTP DELETE, returns `R t t`
 - [ ] Header support: `post url body hdrs` where `hdrs` is a record or `M t t` map (gates on E4 maps)
-- [ ] Consider a unified `req` builtin: `req "POST" url body hdrs` — more tokens but one builtin instead of four
+- [ ] Consider a unified `req` builtin: `req "POST" url body hdrs` — more tokens but one builtin instead of five
 - [ ] Feature flag: extend `http` feature, still uses `minreq` (supports all methods)
-- [ ] Content-Type defaults to `application/json` for POST/PUT
+- [ ] Content-Type defaults to `application/json` for POST/PUT/PATCH
 - [ ] Status code access: currently `get` only returns body text. Consider `R resp t` where `resp` is a record `{status:n;body:t;headers:M t t}` — or keep simple and add `get-status` variant later
 
 ##### G2. WebSocket client (bidirectional communication)
