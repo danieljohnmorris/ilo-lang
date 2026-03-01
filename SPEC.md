@@ -136,6 +136,8 @@ Called like functions, compiled to dedicated opcodes.
 | `rev xs` | reverse list or text | same type |
 | `srt xs` | sort list (all-number or all-text) or text chars | same type |
 | `slc xs a b` | slice list or text from index a to b | same type |
+| `rnd` | random float in [0, 1) | `n` |
+| `rnd a b` | random integer in [a, b] inclusive | `n` |
 
 `get` returns `Ok(body)` on success, `Err(message)` on failure (connection error, timeout, DNS failure, etc). `$` is a terse alias:
 

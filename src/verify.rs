@@ -259,6 +259,7 @@ fn builtin_check_args(name: &str, arg_types: &[Ty], func_ctx: &str, span: Option
                         message: format!("'rnd' arg {} expects n, got {arg}", i + 1),
                         hint: None,
                         span,
+                        is_warning: false,
                     });
                 }
             }
