@@ -192,13 +192,126 @@ Plumbing first — make tool calls actually do things. HTTP-native (tools are AP
 - Destructuring bind — `{a;b}=expr` to extract record fields into locals in one statement
 - Pipe operator — `expr|>func` or similar for chaining calls without intermediate binds. Tension with prefix notation.
 
-#### Type system (Phase E)
-- Optional type — `O n` or `n?` for nullable values (currently using `_` nil but no typed optional)
-- Sum types / tagged unions — `S a b c` for closed sets of variants beyond ok/err
-- Map type — `M t n` for key-value collections (records are fixed-shape; maps are dynamic)
-- Type aliases — `alias id t` to name a type without creating a record
-- Generic functions — `map f:fn(a>b) xs:L a > L b` for higher-order typed transforms
-- Trait/interface — shared behaviour across record types (e.g. `Printable`, `Comparable`)
+#### Type system — Phase E (expand the type language)
+
+Manifesto: "constrained — small vocabulary, closed world, one way to do things." Each addition must justify its token cost.
+
+##### E1. Type aliases (pure sugar — no runtime changes)
+
+Lets users name complex types without creating records. No new AST nodes at runtime, just resolution at parse/verify time.
+
+- [ ] Syntax: `alias name type` as a new `Decl` variant — e.g. `alias res R n t`, `alias ids L n`
+- [ ] Parser: recognise `alias` keyword at declaration position, parse name + type
+- [ ] AST: add `Decl::Alias { name: String, target: Type, span: Span }`
+- [ ] Verifier: resolve aliases during declaration collection — expand `Named("res")` → `Result(Number, Text)` before body verification
+- [ ] Cycle detection — `alias a b` + `alias b a` must error (ILO-T0xx: circular type alias)
+- [ ] Error messages: show alias name in user-facing messages, expanded form in notes
+- [ ] Formatter: emit `alias` declarations in both dense and expanded formats
+- [ ] Python codegen: emit type alias as comment or `TypeAlias` (3.12+)
+- [ ] Tests: alias in function signatures, nested aliases (`alias rlist L res`), cycles, shadowing a builtin type name
+- [ ] SPEC.md: document alias syntax
+
+##### E2. Optional type (typed nullability)
+
+Currently `_` (nil) can appear anywhere at runtime with no type-level protection. `O n` means "number or nil" — verifier forces handling before use.
+
+- [ ] Syntax decision: `O n` (prefix, consistent with `L`/`R`) vs `n?` (postfix, familiar). Recommend `O n` for consistency
+- [ ] AST: add `Type::Optional(Box<Type>)` — parsed as `O <type>`
+- [ ] Parser: recognise `O` as type constructor (like `L`, `R`), parse inner type
+- [ ] Verifier `Ty` enum: add `Ty::Optional(Box<Ty>)` with conversion from AST
+- [ ] Verifier: `O n` is not compatible with `n` — must unwrap first
+- [ ] Unwrap via match: `?opt{~v:use v;_:default}` — reuse existing `~`/`_` match arms for Some/None
+- [ ] Unwrap via `!`: `f! x` on `O n` return → propagate nil to caller (requires caller returns `O` too)
+- [ ] Auto-wrap: assigning `n` to `O n` variable is allowed (implicit wrap, like `~x` for Result)
+- [ ] Nil literal `_` has type `O T` for any T (compatible with any optional)
+- [ ] Verifier: field access on `O record` must error — "unwrap optional before accessing fields"
+- [ ] Interpreter: `Value::Nil` already exists — Optional is purely a type-level distinction, no new runtime value
+- [ ] VM: no new opcodes needed — nil is already a value, Optional is compile-time only
+- [ ] Cranelift JIT: no changes needed (type erasure at JIT level)
+- [ ] Error codes: `ILO-T0xx` for "cannot use Optional as T without unwrapping", "field access on optional type"
+- [ ] Match exhaustiveness: `O n` requires both `~v` and `_` arms (like `R` requires `~`/`^`)
+- [ ] Python codegen: emit `Optional[int]` / `x if x is not None else ...`
+- [ ] Tests: optional params, optional returns, nested `O O n` (should warn or flatten?), match exhaustiveness, auto-wrap, `!` propagation
+- [ ] SPEC.md: document Optional type, unwrap patterns
+
+##### E3. Sum types / tagged unions (user-defined variants)
+
+Generalise `R ok err` — users define their own closed set of variants. `R` becomes sugar for a two-variant sum.
+
+- [ ] Syntax decision: `enum name{a:type;b:type;c}` or `type name S a:type b:type c` — needs to declare variant names and optional payload types
+- [ ] AST: add `Decl::Enum { name, variants: Vec<Variant>, span }` where `Variant { name, payload: Option<Type> }`
+- [ ] Parser: recognise enum declaration syntax, parse variant list
+- [ ] AST `Type`: enum types referenced by name (already `Type::Named` — enums are named types)
+- [ ] Verifier: register enum in type environment during declaration collection
+- [ ] Verifier: variant construction — `name.variant payload` or `variant payload` (scoping decision needed)
+- [ ] Verifier: match on enum — require exhaustive coverage of all variants
+- [ ] Runtime `Value`: add `Value::Variant { type_name, variant_name, payload: Option<Box<Value>> }` — or reuse tagged approach
+- [ ] Interpreter: construct variants, match on variant name
+- [ ] VM: opcodes for variant construction (`OP_VARIANT`), variant tag check in match dispatch
+- [ ] Cranelift JIT: variant representation (tagged pointer or tag + payload pair)
+- [ ] Subsumption: `R ok err` could desugar to `enum R{ok:ok_type;err:err_type}` internally — or keep `R` as special syntax that compiles to enum
+- [ ] Error codes: `ILO-T0xx` for non-exhaustive enum match, unknown variant name, wrong payload type
+- [ ] Formatter: emit enum declarations in dense/expanded format
+- [ ] Python codegen: emit as `@dataclass` variants or `Enum` subclasses
+- [ ] Tests: define enum, construct variants, match all arms, exhaustiveness errors, nested enums, enum in lists/results
+- [ ] SPEC.md: document enum syntax, construction, matching
+
+##### E4. Map type (dynamic key-value collections)
+
+Records are fixed-shape (schema known at compile time). Maps are dynamic — keys determined at runtime. Needed for tool responses with variable keys.
+
+- [ ] Syntax: `M key_type val_type` — e.g. `M t n` for string-to-number map
+- [ ] AST: add `Type::Map(Box<Type>, Box<Type>)`
+- [ ] Parser: recognise `M` as type constructor, parse key and value types
+- [ ] Verifier `Ty` enum: add `Ty::Map(Box<Ty>, Box<Ty>)`
+- [ ] Runtime `Value`: add `Value::Map(BTreeMap<String, Value>)` or `HashMap` — key type constrained to `t` initially? Or allow `n` keys?
+- [ ] Interpreter: construct maps, access by key, iterate
+- [ ] VM: opcodes — `OP_MAPNEW`, `OP_MAPGET`, `OP_MAPSET`, `OP_MAPHAS`
+- [ ] Builtins: `get k m` → value lookup (returns `O v` — key might not exist), `has k m` → bool, `keys m` → `L t`, `vals m` → `L v`
+- [ ] Map literal syntax decision: `{k:v;k:v}` conflicts with record construction — maybe `[k=v;k=v]` or `M{k:v;k:v}`
+- [ ] Verifier: type-check key/value types at construction and access
+- [ ] Foreach: `@k m{...}` iterates keys, `@kv m{...}` iterates key-value pairs (syntax TBD)
+- [ ] JSON mapping: JSON objects with variable keys → `M t value_type`
+- [ ] Cranelift JIT: map operations likely interpreter-only (too complex for JIT)
+- [ ] Python codegen: emit as `dict[str, int]` etc.
+- [ ] Tests: construct maps, access keys, missing key returns, iteration, type checking, JSON round-trip
+- [ ] SPEC.md: document Map type, access patterns, builtins
+
+##### E5. Generic functions (parametric polymorphism)
+
+Unlocks `map`, `filter`, `fold` as typed builtins. Without generics, these are either untyped or need per-type variants.
+
+- [ ] Syntax decision: type variables as lowercase single letters — `a`, `b` in type position. `map f:fn(a>b) xs:L a>L b`
+- [ ] Function type syntax: `fn(param_types>return_type)` for higher-order function params
+- [ ] AST `Type`: add `Type::Var(String)` for type variables, `Type::Fn(Vec<Type>, Box<Type>)` for function types
+- [ ] Parser: recognise type variables (lowercase single-char in type position), parse `fn(...)` type
+- [ ] Verifier: generic function verification — collect type variables from signature, unify at call sites
+- [ ] Type unification: when calling `map f xs`, unify `a` with element type of `xs`, `b` with return type of `f`
+- [ ] Monomorphisation vs erasure: decide strategy — monomorphise at verify time (simpler) or erase at runtime (all values already boxed, so erasure is natural)
+- [ ] Verifier: reject ambiguous type variables that can't be inferred from arguments
+- [ ] Lambda / anonymous function syntax (needed for `map`, `filter`): `\x>*x 2` or `{x>*x 2}` — syntax TBD
+- [ ] Interpreter: pass function values (closures) as arguments — `Value::Closure` or `Value::FnRef`
+- [ ] VM: `OP_CALL_INDIRECT` or similar for calling function-typed values
+- [ ] Builtin generic functions: `map`, `flt`, `fld` (see Builtins section) — defined with generic signatures
+- [ ] Cranelift JIT: function pointers / indirect calls for higher-order functions
+- [ ] Error codes: `ILO-T0xx` for "cannot infer type variable", "function type mismatch"
+- [ ] Python codegen: emit `TypeVar`, generic function signatures
+- [ ] Tests: generic identity function, map over list, filter, fold, nested generics, inference failures
+- [ ] SPEC.md: document type variables, function types, generic builtins
+
+##### E6. Traits / interfaces (shared behaviour — lowest priority)
+
+Define behaviour shared across record types. Lowest priority — agents generate concrete code, not abstract frameworks.
+
+- [ ] Syntax decision: `trait name{method:fn(self>return_type)}` or similar
+- [ ] AST: `Decl::Trait { name, methods }`, `Decl::Impl { trait_name, type_name, methods }`
+- [ ] Verifier: check trait implementations satisfy all required methods with correct signatures
+- [ ] Verifier: trait bounds on generic type variables — `f x:a>t where a:Printable`
+- [ ] Runtime dispatch: static (monomorphised) vs dynamic (vtable) — static preferred for token efficiency
+- [ ] Error codes: missing method, wrong signature, duplicate impl
+- [ ] Tests: define trait, implement for multiple types, use in generic context
+- [ ] SPEC.md: document trait syntax
+- [ ] **Gate on E5** — traits require generics to be useful
 
 #### Builtins
 - `map f xs` — apply function to each list element (currently requires `@` loop + accumulator)
