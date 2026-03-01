@@ -240,6 +240,12 @@ pub enum Expr {
         arms: Vec<MatchArm>,
     },
 
+    /// Nil-coalesce: `a ?? b` — if a is nil, evaluate b
+    NilCoalesce {
+        value: Box<Expr>,
+        default: Box<Expr>,
+    },
+
     /// With expression: `obj with field:val`
     With {
         object: Box<Expr>,

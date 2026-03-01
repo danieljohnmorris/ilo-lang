@@ -82,6 +82,13 @@ Prefix notation.
 | `-x` | negate | `n` |
 | `!x` | logical NOT | any (truthy) |
 
+### Infix
+
+| Op | Meaning | Types |
+|----|---------|-------|
+| `a??b` | nil-coalesce (if a is nil, return b) | any |
+| `a>>f` | pipe (desugar to `f(a)`) | any |
+
 Nesting is unambiguous — no parentheses needed:
 
 ```
@@ -270,6 +277,18 @@ f x>>g>>h            -- desugars to: h (g (f x))
 ```
 
 Pipes desugar at parse time — no new AST node. Works with `!` for auto-unwrap: `f x>>g!>>h`.
+
+### Nil-Coalesce Operator
+
+`??` evaluates the left side; if nil, evaluates and returns the right side:
+
+```
+x??42              -- if x is nil, returns 42
+a??b??99           -- chained: first non-nil wins, else 99
+mk 0??"default"   -- works with function results
+```
+
+Compiled via `OP_JMPNN` (jump if not nil) — right side is only evaluated when left is nil.
 
 Use braces when the body has multiple statements:
 

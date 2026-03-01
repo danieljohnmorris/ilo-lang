@@ -250,18 +250,18 @@ r==x 1{a}{b}
 
 Handles the most common Optional/nil pattern: "use this value, or fall back to a default."
 
-- [ ] Syntax: `a??b` — evaluate `a`; if nil, evaluate `b`; otherwise return `a`
-- [ ] Parser: recognise `??` as infix operator (only infix operator in ilo — precedence decision needed)
-- [ ] AST: add `Expr::NilCoalesce { value, default }` or `BinOp::NilCoalesce`
-- [ ] Interpreter: evaluate left; if `Value::Nil`, evaluate right; otherwise return left
-- [ ] VM: compile as `eval left → reg; JMPF (is_nil reg) → skip; eval right → reg; skip:`
-- [ ] Verifier: left must be `O T` or `_`; result type is inner `T` (unwraps the optional). If left is not Optional, warn
+- [x] Syntax: `a??b` — evaluate `a`; if nil, evaluate `b`; otherwise return `a`
+- [x] Parser: recognise `??` as infix operator (parsed between `maybe_with` and `maybe_pipe`)
+- [x] AST: `Expr::NilCoalesce { value, default }`
+- [x] Interpreter: evaluate left; if `Value::Nil`, evaluate right; otherwise return left
+- [x] VM: `OP_JMPNN` (jump if not nil) — compile left → JMPNN skip → compile right → MOVE → skip:
+- [x] Verifier: if left is Nil, result is right type; otherwise left type
 - [ ] Works with Optional (E2): `O n ?? 0` → unwrap to `n` with default `0`
-- [ ] Works without Optional: `val ?? "fallback"` — runtime nil check even without typed Optional
+- [x] Works without Optional: `val ?? "fallback"` — runtime nil check even without typed Optional
 - [ ] Cranelift JIT: nil comparison + conditional move
-- [ ] Python codegen: emit as `a if a is not None else b`
-- [ ] Tests: nil coalesce, non-nil passthrough, nested coalesce `a ?? b ?? c`, type inference
-- [ ] SPEC.md: document `??` operator
+- [x] Python codegen: emit as `(a if a is not None else b)`
+- [x] Tests: nil coalesce, non-nil passthrough, nested coalesce `a ?? b ?? c`
+- [x] SPEC.md: document `??` operator
 
 **Token comparison:**
 ```

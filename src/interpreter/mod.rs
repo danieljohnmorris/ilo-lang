@@ -671,6 +671,14 @@ fn eval_expr(env: &mut Env, expr: &Expr) -> Result<Value> {
             }
             Ok(Value::Nil)
         }
+        Expr::NilCoalesce { value, default } => {
+            let val = eval_expr(env, value)?;
+            if matches!(val, Value::Nil) {
+                eval_expr(env, default)
+            } else {
+                Ok(val)
+            }
+        }
         Expr::With { object, updates } => {
             let obj = eval_expr(env, object)?;
             match obj {
@@ -2137,6 +2145,26 @@ mod tests {
     fn interpret_while_zero_iterations() {
         let source = "f>n;wh false{42};0";
         assert_eq!(run_str(source, Some("f"), vec![]), Value::Number(0.0));
+    }
+
+    #[test]
+    fn interpret_nil_coalesce_nil() {
+        // Function returns nil when guard doesn't fire, ?? falls back
+        let source = "mk x:n>n;>=x 1{x}\nf>n;x=mk 0;x??42";
+        assert_eq!(run_str(source, Some("f"), vec![]), Value::Number(42.0));
+    }
+
+    #[test]
+    fn interpret_nil_coalesce_non_nil() {
+        // Non-nil value passes through
+        let source = "f>n;x=10;x??42";
+        assert_eq!(run_str(source, Some("f"), vec![]), Value::Number(10.0));
+    }
+
+    #[test]
+    fn interpret_nil_coalesce_chain() {
+        let source = "mk x:n>n;>=x 1{x}\nf>n;a=mk 0;b=mk 0;a??b??99";
+        assert_eq!(run_str(source, Some("f"), vec![]), Value::Number(99.0));
     }
 
     #[test]

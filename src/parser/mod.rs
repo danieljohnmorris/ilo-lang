@@ -773,6 +773,7 @@ impl Parser {
             _ => self.parse_expr_inner()?,
         };
         let expr = self.maybe_with(expr)?;
+        let expr = self.maybe_nil_coalesce(expr)?;
         self.maybe_pipe(expr)
     }
 
@@ -798,6 +799,19 @@ impl Parser {
         } else {
             Ok(expr)
         }
+    }
+
+    /// Parse nil-coalesce: `a ?? b` — if a is nil, use b
+    fn maybe_nil_coalesce(&mut self, mut expr: Expr) -> Result<Expr> {
+        while matches!(self.peek(), Some(Token::NilCoalesce)) {
+            self.advance(); // consume ??
+            let default = self.parse_expr_inner()?;
+            expr = Expr::NilCoalesce {
+                value: Box::new(expr),
+                default: Box::new(default),
+            };
+        }
+        Ok(expr)
     }
 
     /// Parse pipe chains: `expr >> func` desugars to `func(expr)`.
