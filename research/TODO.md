@@ -101,11 +101,11 @@ After language features settle.
 - [x] Arity mismatch — show expected vs actual signature
 - [x] Cross-language syntax detection — detect `===`, `&&`, `||`, `function`, `def`, `fn` and suggest ilo equivalents
 
-### C4. Runtime source mapping
-- [ ] Compiler: emit instruction-to-span table alongside bytecode
-- [ ] VM: on error, look up current instruction pointer in span table
-- [ ] Interpreter: thread current Stmt/Expr span through evaluation for error context
-- [ ] Stack trace with source locations for nested function calls
+### C4. Runtime source mapping ✓
+- [x] Compiler: emit instruction-to-span table alongside bytecode
+- [x] VM: on error, look up current instruction pointer in span table
+- [x] Interpreter: thread current Stmt/Expr span through evaluation for error context
+- [x] Stack trace with source locations for nested function calls
 
 ## Python codegen
 
