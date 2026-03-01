@@ -19,13 +19,13 @@ in  local  nil  not  or  repeat  return  then  true  until  while
 
 That is remarkably few for a language with control flow, iteration, local scoping, boolean logic, and function definitions. Every keyword is a single English word. The reference manual is ~100 pages -- smaller than most language tutorials.
 
-**ilo has 0 English keywords.** The core syntax uses sigils (`?`, `!`, `~`, `^`, `@`, `>`, `>>`, `.?`, `??`) and structural tokens (`=`, `;`, `{`, `}`, `:`) instead of words. The only multi-character reserved words are builtins (`len`, `str`, `num`, `get`, `spl`, `cat`, etc.) and the `type`/`tool`/`wh`/`ret` declarations.
+**ilo has ~4 abbreviated English keywords** (`type`, `tool`, `wh`, `ret`, plus `brk`/`cnt` for loop control). The core syntax uses sigils (`?`, `!`, `~`, `^`, `@`, `>`, `>>`, `.?`, `??`) and structural tokens (`=`, `;`, `{`, `}`, `:`) instead of full English words. Builtins (`len`, `str`, `num`, `get`, `spl`, `cat`, etc.) are abbreviated but not reserved words.
 
 **Comparison:**
 
 | Dimension | Lua | ilo |
 |-----------|-----|-----|
-| Reserved words | 22 | 0 English keywords |
+| Reserved words | 22 | ~6 abbreviated (`type`, `tool`, `wh`, `ret`, `brk`, `cnt`) |
 | Control flow | `if/elseif/else/end`, `for/do/end`, `while/do/end`, `repeat/until` | `cond{body}`, `?{arms}`, `@v xs{body}`, `wh cond{body}` |
 | Function def | `function name(params) ... end` | `name params>ret;body` |
 | Error handling | `pcall`/`xpcall` (exception-based) | `R ok err` + `?` + `!` (value-based) |
@@ -100,7 +100,7 @@ Lua's table-as-module pattern is worth noting. In Lua, a module is just a table 
 
 Lua was designed from day one as an embedded language -- a library with a C API, not a standalone program. The standalone interpreter is a tiny application built on top of the library. Embeddability shaped every language design decision:
 
-1. **Small size.** The entire Lua implementation is ~25,000 lines of C. The binary is ~200KB. It must fit inside the host without bloating it.
+1. **Small size.** The entire Lua implementation is ~30,000 lines of C. The binary is ~200KB. It must fit inside the host without bloating it.
 2. **Clean API boundary.** The C API uses a virtual stack for all data exchange. C pushes values, calls Lua functions, reads results. No global state leaks between host and guest.
 3. **Mechanisms over syntax.** Lua favors mechanisms representable through the C API. Syntax is not accessible through an API; functions are. This is why Lua has metatables (callable through the API) instead of operator overloading syntax (which would require parser extensions).
 4. **Host controls policy.** Lua provides the mechanism (tables, functions, coroutines). The host decides the policy (what functions exist, what the sandbox allows, what libraries are loaded).
@@ -300,7 +300,7 @@ Cloudflare's WAF exemplifies this: Lua code representing firewall rules is JIT-c
 | V8 (Node.js) | 18ns/call |
 | CPython | 80ns/call |
 
-ilo's JIT already matches LuaJIT for numeric functions. Both achieve this through the same mechanism: minimal language design enables efficient code generation.
+ilo's JIT is within 2x of LuaJIT for numeric functions (2ns vs 1ns). Both achieve fast codegen through the same mechanism: minimal language design enables efficient code generation.
 
 **What LuaJIT teaches ilo:**
 
@@ -874,10 +874,10 @@ The minimalism spectrum for relevant languages:
 
 ```
 More keywords                                     Fewer keywords
-Java (~50)  Python (~35)  Go (~25)  Lua (~22)  Forth (~0)  ilo (0)
+Java (~50)  Python (~35)  Go (~25)  Lua (~22)  Forth (~0)  ilo (~6)
 ```
 
-Lua sits near the minimal end of mainstream languages. ilo sits at the extreme -- zero English keywords, replaced entirely by single-character sigils and short builtin names.
+Lua sits near the minimal end of mainstream languages. ilo sits at the extreme -- ~6 abbreviated keywords (`type`, `tool`, `wh`, `ret`, `brk`, `cnt`) plus single-character sigils for all control flow.
 
 **What each level of minimalism costs and gains:**
 

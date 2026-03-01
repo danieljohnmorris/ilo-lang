@@ -20,6 +20,11 @@ Evaluated against the manifesto: **total tokens from intent to working code**. A
 | `func! args` | 1 sigil | Call + auto-unwrap Result |
 | `&a b` | 1 sigil | Short-circuit AND |
 | `\|a b` | 1 sigil | Short-circuit OR |
+| `cond{then}{else}` | 1 sigil | Ternary: value without early return |
+| `wh cond{body}` | 1 keyword | While loop |
+| `ret expr` | 1 keyword | Early return from function |
+| `brk` / `brk expr` | 1 keyword | Exit enclosing loop |
+| `cnt` | 1 keyword | Skip to next loop iteration |
 
 This is already terse. The question is: what common patterns still cost too many tokens?
 

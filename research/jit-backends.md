@@ -1,6 +1,6 @@
 # JIT Compilation: From 67ns to 2ns
 
-The ilo register VM runs `tot` at ~67ns/call. LuaJIT does ~1ns, V8 does ~16ns. The remaining gap is dispatch overhead — even with type-specialized opcodes, each instruction still pays for a u32 decode + match branch. JIT compilation eliminates dispatch entirely by emitting native machine code.
+The ilo register VM runs `tot` at ~67ns/call. LuaJIT does ~1ns, V8 does ~18ns. The remaining gap is dispatch overhead — even with type-specialized opcodes, each instruction still pays for a u32 decode + match branch. JIT compilation eliminates dispatch entirely by emitting native machine code.
 
 We built three JIT backends to compare approaches.
 

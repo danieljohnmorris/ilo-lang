@@ -8,7 +8,7 @@ Go's standard library and design philosophy analyzed through ilo's lens: **total
 
 Go and ilo share unusual convictions:
 
-1. **Simplicity is a feature.** Go has ~25 keywords. ilo has ~0 English keywords (sigils replace them). Both reject the "more features = more power" assumption.
+1. **Simplicity is a feature.** Go has ~25 keywords. ilo has ~6 abbreviated keywords (sigils replace most). Both reject the "more features = more power" assumption.
 2. **One way to do things.** Go has one loop (`for`), one string type, one way to handle errors. ilo has one loop sigil (`@`), one conditional form (guard), one error pattern (`R`+`?`+`!`).
 3. **Explicit over implicit.** Go requires explicit error checking (`if err != nil`). ilo requires explicit `?` matching or `!` auto-unwrap. Neither has exceptions.
 4. **Verification before execution.** Go refuses to compile with unused imports or variables. ilo verifies all calls resolve, all types align, all dependencies exist.
