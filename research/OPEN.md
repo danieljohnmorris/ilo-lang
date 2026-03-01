@@ -124,6 +124,38 @@ When the shape is unknown or too complex, the tool declares `>t` and the agent g
 
 No new types needed: `_` handles null, `t` is the escape hatch for untyped data, records handle known shapes, `R ok err` handles fallible tools.
 
+## The "Essential Packages" Principle
+
+Every mainstream language has packages so universally installed they're effectively part of the language: Python's `requests`, Node's `lodash`/`express`, Ruby's `rails`/`nokogiri`, Go's `gorilla/mux`, Rust's `serde`/`tokio`. .NET absorbed `Newtonsoft.Json` into `System.Text.Json` after years of universal dependency.
+
+The gap between what language designers thought was core and what developers actually install reveals what the language got wrong — or more charitably, what real-world usage demanded that the designers didn't anticipate.
+
+**This matters for ilo because agents cannot install packages.** There is no `pip install` or `npm install`. Whatever an ilo program needs must be either a builtin or a declared tool. The "essential packages" of other languages tell us exactly what builtins ilo needs from day one.
+
+Cross-language patterns that emerge:
+
+| Capability | Python | JS/TS | Rust | Go | Ruby |
+|-----------|--------|-------|------|-----|------|
+| HTTP client | `requests` | `axios` | `reqwest` | stdlib | `httparty`/`faraday` |
+| Data validation | `pydantic` | `zod` | `serde` | struct tags | Rails validators |
+| Env vars from file | `python-dotenv` | `dotenv` | `dotenvy` | `godotenv` | `dotenv` |
+| Date/time | stdlib (bad) | `dayjs`/`date-fns` | `chrono` | stdlib | `activesupport` |
+| UUID generation | `uuid` | `uuid` | `uuid` | `google/uuid` | `securerandom` |
+| CLI parsing | `click`/`typer` | `commander` | `clap` | `cobra` | `optparse` |
+| Structured logging | `structlog` | `pino`/`winston` | `tracing` | `zap`/`zerolog` | `logger` |
+| Testing | `pytest` | `jest`/`vitest` | built-in | `testify` | `rspec` |
+
+**Key observations:**
+- **HTTP client** is universally needed and universally underserved by stdlibs. ilo already has `get`/`$`; `post` is the obvious next builtin.
+- **Env loading** (`dotenv`) exists in every ecosystem — proof that env var access is a core agent need, not a niche feature.
+- **Data validation** (`pydantic`/`zod`/`serde`) is the most-installed category across languages. ilo's type system + tool declarations + verifier already serve this role — the type declaration IS the validation schema.
+- **CLI parsing** is a human concern — agents don't need `--help` text or subcommands. ilo's positional function params already handle this.
+- **Testing** is a human workflow concern. Agents don't write test suites; they generate correct programs verified before execution.
+
+**The design heuristic:** if a capability requires a near-universal third-party package in 3+ mainstream languages, it belongs in ilo's builtin set (or as a declared tool with a standard name). If it's universal but human-facing (CLI parsing, testing, formatting), it doesn't.
+
+See `research/essential-packages-research.md` for the full cross-language analysis.
+
 ## Syntax Questions (Resolved by Experiments)
 
 These were open questions that the syntax experiments have now answered:
