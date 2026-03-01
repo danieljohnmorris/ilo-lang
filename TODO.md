@@ -391,22 +391,23 @@ r=get-user! id;n=r.name;e=r.email
 {name;email}=get-user! id
 ```
 
-##### F9. Break/continue — `brk` / `cnt` (lower priority — needs F6)
+##### F9. Break/continue — `brk` / `cnt` ✅
 
 Exit a loop early or skip to the next iteration.
 
-- [ ] Syntax: `brk` — exit enclosing `@` or `wh` loop immediately; `cnt` — skip to next iteration
-- [ ] `brk expr` — exit loop and return `expr` as the loop's value
-- [ ] Parser: recognise `brk` and `cnt` as statement keywords inside loop bodies
-- [ ] AST: add `Stmt::Break { value: Option<Expr> }` and `Stmt::Continue`
-- [ ] Interpreter: return special `BodyResult::Break(value)` / `BodyResult::Continue` from body evaluation; loop handler checks for these
-- [ ] VM: `brk` → `JMP exit_label`; `cnt` → `JMP loop_top_label`. Need loop label stack during compilation
-- [ ] Verifier: `brk`/`cnt` outside a loop → error. `brk expr` type must match loop result type
+- [x] Syntax: `brk` — exit enclosing `@` or `wh` loop immediately; `cnt` — skip to next iteration
+- [x] `brk expr` — exit loop with optional value
+- [x] Parser: recognise `brk` and `cnt` as statement keywords inside loop bodies
+- [x] AST: `Stmt::Break(Option<Expr>)` and `Stmt::Continue`
+- [x] Interpreter: `BodyResult::Break(Value)` / `BodyResult::Continue` propagation through guard, match, foreach, while
+- [x] VM: `LoopContext` with `loop_top`, `continue_patches`, `break_patches`. `brk` → JMP to exit; `cnt` → JMP to loop_top (while) or idx increment (foreach)
+- [x] Verifier: type inference for `brk expr`
+- [ ] Verifier: `brk`/`cnt` outside a loop → error (currently no-op)
 - [ ] Cranelift JIT: jump to loop exit / loop header
-- [ ] Python codegen: emit as `break` / `continue`
-- [ ] Tests: break from @, break from wh, continue in @, break with value, nested loops + break (inner vs outer)
-- [ ] SPEC.md: document `brk`/`cnt` syntax
-- [ ] **Gates on F6** — break/continue are most useful with while loops
+- [x] Python codegen: emit as `break` / `continue`
+- [x] Formatter: emit as `brk` / `brk expr` / `cnt`
+- [x] Tests: break from @, break from wh, continue in @/wh, break with value
+- [x] SPEC.md: documented `brk`/`cnt` syntax
 
 ##### F10. Guard else — `cond{then}{else}` as statement (lower priority)
 
