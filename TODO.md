@@ -653,7 +653,78 @@ Current model is fully synchronous. Async unlocks parallel tool calls, non-block
 - [ ] **Parallel tool calls:** `par{call1;call2;call3}` — execute tool calls concurrently, collect results. Sugar for runtime-managed parallelism
 - [ ] **Design question:** should ilo expose async to the language (promises, await) or keep it hidden in the runtime? Hidden is simpler and more constrained (manifesto: "one way to do things")
 
-##### G5. Event/callback model (deferred — needs design)
+##### G5. TCP/UDP sockets (raw network I/O)
+
+WebSocket and HTTP are application-level protocols. For lower-level networking — talking to databases, custom protocols, inter-process communication — ilo needs raw sockets.
+
+- [ ] `tcp-conn host port` — open TCP connection, returns `R handle t`
+- [ ] `tcp-send h data` — send text over TCP, returns `R n t` (bytes sent or error)
+- [ ] `tcp-recv h max` — receive up to `max` bytes, returns `R t t` (data or error)
+- [ ] `tcp-close h` — close connection, returns `R _ t`
+- [ ] `tcp-listen port` — bind and listen on port, returns `R handle t` (server socket)
+- [ ] `tcp-accept h` — accept incoming connection, returns `R handle t` (blocking)
+- [ ] `udp-bind port` — create UDP socket bound to port, returns `R handle t`
+- [ ] `udp-send h host port data` — send datagram, returns `R n t`
+- [ ] `udp-recv h max` — receive datagram, returns `R t t`
+- [ ] Connection handles: reuse `Value::Handle(u64)` from G2
+- [ ] Feature flag: `net` feature (uses `std::net`)
+- [ ] **Design question:** should raw sockets be language builtins or tool-provider-only? Raw sockets are powerful but dangerous. Builtins keep ilo self-contained; tool-provider-only keeps the sandbox tighter
+- [ ] **Use cases:** database drivers (Postgres wire protocol, Redis RESP), custom agent-to-agent communication, SMTP, DNS lookups
+
+##### G6. Streams and buffered I/O
+
+Current I/O model is request-response (send, then receive complete response). Streams handle continuous/chunked data — log tailing, large file transfer, SSE, streaming LLM responses.
+
+- [ ] `Value::Stream(u64)` — handle to a readable/writable stream (backed by runtime resource table)
+- [ ] `read s max` — read up to `max` bytes/chars from stream, returns `R t t` (data or error). Returns empty string `""` at EOF
+- [ ] `readln s` — read one line from stream (up to `\n`), returns `R t t`
+- [ ] `write s data` — write text to stream, returns `R n t` (bytes written or error)
+- [ ] `flush s` — flush buffered writes, returns `R _ t`
+- [ ] `close s` — close stream, returns `R _ t`
+- [ ] `eof s` — check if stream is at end, returns `b`
+- [ ] Streams wrap: TCP sockets, process stdin/stdout, file handles, WebSocket connections
+- [ ] Buffering: runtime manages read buffers internally (like `BufReader`), ilo programs don't manage buffer sizes
+- [ ] **Line-based iteration:** `@line stream{process line}` — iterate lines from a stream. Natural fit with `@` loop syntax
+- [ ] **Design question:** should streams be a distinct type or just handles that support read/write? Distinct type gives better verifier errors; handles are simpler
+
+##### G7. Buffers and binary data
+
+ilo currently has no binary data type. Everything is `n` (f64) or `t` (string). Binary data matters for: screenshots (PNG), file uploads, protocol framing, cryptographic operations.
+
+- [ ] New type: `B` (bytes / buffer) — raw byte sequence
+- [ ] `B` literals: deferred (no good syntax for binary literals in a token-minimal language)
+- [ ] `b64enc data` — bytes to base64 text, returns `t`
+- [ ] `b64dec text` — base64 text to bytes, returns `R B t`
+- [ ] `buf-new n` — allocate empty buffer of capacity `n`, returns `B`
+- [ ] `buf-len b` — length in bytes, returns `n`
+- [ ] `buf-slc b start end` — slice bytes, returns `B`
+- [ ] `buf-cat a b` — concatenate buffers, returns `B`
+- [ ] `to-buf t` — encode text as UTF-8 bytes, returns `B`
+- [ ] `to-txt b` — decode UTF-8 bytes as text, returns `R t t` (fails if invalid UTF-8)
+- [ ] Integration with streams: `read`/`write` work on `B` as well as `t`
+- [ ] Integration with WebSocket: binary frames return `B` instead of `t`
+- [ ] Integration with `shot` (screenshot): CDP returns base64 PNG — `b64dec` → `B` → file write
+- [ ] Feature flag: no feature flag needed — core type like `L` and `R`
+- [ ] **Design question:** is `B` worth the complexity? Alternative: everything stays as base64 `t`, tools handle encoding. Simpler but wastes memory (base64 is 33% larger)
+
+##### G8. File I/O
+
+ilo has no file system access. Agents need to read configs, write outputs, save screenshots.
+
+- [ ] `fread path` — read entire file as text, returns `R t t`
+- [ ] `fwrite path data` — write text to file (overwrite), returns `R _ t`
+- [ ] `fappend path data` — append text to file, returns `R _ t`
+- [ ] `fexists path` — check if file exists, returns `b`
+- [ ] `freadbin path` — read file as bytes, returns `R B t` (gates on G7 buffers)
+- [ ] `fwritebin path data` — write bytes to file, returns `R _ t` (gates on G7)
+- [ ] Feature flag: `fs` feature (uses `std::fs`)
+- [ ] **Security:** file system access is a sandbox escape. Options:
+  - Allowlist of directories (e.g. only `/tmp` and working directory)
+  - Read-only by default, write requires `--allow-write` flag
+  - Tool-provider-only (no builtins, file I/O via declared tools)
+- [ ] **Design question:** builtins vs tools? File I/O as builtins keeps ilo self-contained for scripting. As tools, it's more constrained but requires tool provider setup for basic file operations
+
+##### G9. Event/callback model (deferred — needs design)
 
 For WebSocket event streams, browser events, server-sent events. Currently out of scope but noting the design space.
 
@@ -661,6 +732,18 @@ For WebSocket event streams, browser events, server-sent events. Currently out o
 - [ ] Or pull-based: `poll conns timeout` — wait on multiple connections, return first message
 - [ ] Or channel-based: `ch=chan();spawn-listener conn ch;msg=recv ch`
 - [ ] **Recommendation:** defer until a concrete use case forces the design. CDP's request-response pattern works with blocking `ws-recv`
+
+##### G10. Resource handles — unified design (foundation for G2-G8)
+
+G2-G8 all introduce "handles" — opaque references to runtime-managed resources (sockets, processes, files, streams). This needs a unified design.
+
+- [ ] `Value::Handle(u64)` — single opaque type for all external resources
+- [ ] Runtime resource table: `HashMap<u64, Box<dyn Resource>>` — indexed by handle ID
+- [ ] `Resource` trait: `close()`, `type_name()` — common interface for cleanup
+- [ ] Auto-cleanup: resources closed when handle goes out of scope (or program exits)
+- [ ] Verifier: handle types are opaque — can't do arithmetic on them, can only pass to handle-accepting builtins
+- [ ] **Typed handles vs untyped:** `ws` vs `tcp` vs `file` — should the verifier distinguish handle types? Typed catches "passing a file handle to ws-send" at verify time. Untyped is simpler
+- [ ] **Type syntax if typed:** `H ws`, `H tcp`, `H file` — or just `ws`, `tcp`, `file` as named types
 
 #### Browser automation — Phase H (Playwright-for-ilo)
 
