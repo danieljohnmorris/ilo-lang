@@ -560,10 +560,10 @@ JSON error output follows a structured schema with `severity`, `code`, `message`
 
 ## Formatter
 
-Two output modes for reformatting programs:
+Dense output is the default — newlines are for humans, not agents. No flag needed for dense format:
 
 ```
-ilo 'code' --fmt              Dense wire format (canonical, for LLM I/O)
+ilo 'code'                    Dense wire format (default)
 ilo 'code' --fmt-expanded     Expanded human format (for code review)
 ```
 
