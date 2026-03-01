@@ -217,6 +217,15 @@ fn call_function(env: &mut Env, name: &str, args: Vec<Value>) -> Result<Value> {
             other => Err(RuntimeError::new("ILO-R009", format!("{} requires a number, got {:?}", name, other))),
         };
     }
+    if name == "spl" && args.len() == 2 {
+        return match (&args[0], &args[1]) {
+            (Value::Text(s), Value::Text(sep)) => {
+                let parts: Vec<Value> = s.split(sep.as_str()).map(|p| Value::Text(p.to_string())).collect();
+                Ok(Value::List(parts))
+            }
+            _ => Err(RuntimeError::new("ILO-R009", "spl requires two text args".to_string())),
+        };
+    }
     if name == "get" && args.len() == 1 {
         return match &args[0] {
             Value::Text(url) => {
@@ -1718,6 +1727,28 @@ mod tests {
         assert_eq!(
             run_str(source, Some("fib"), vec![Value::Number(10.0)]),
             Value::Number(55.0)
+        );
+    }
+
+    #[test]
+    fn interpret_spl_basic() {
+        let source = r#"f>L t;spl "a,b,c" ",""#;
+        assert_eq!(
+            run_str(source, Some("f"), vec![]),
+            Value::List(vec![
+                Value::Text("a".to_string()),
+                Value::Text("b".to_string()),
+                Value::Text("c".to_string()),
+            ])
+        );
+    }
+
+    #[test]
+    fn interpret_spl_empty() {
+        let source = r#"f>L t;spl "" ",""#;
+        assert_eq!(
+            run_str(source, Some("f"), vec![]),
+            Value::List(vec![Value::Text("".to_string())])
         );
     }
 }
