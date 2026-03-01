@@ -56,11 +56,13 @@ Function names follow the same rules. Field names in constructors and external t
 ## Comments
 
 ```
--- this is a comment
-+a b -- inline comment after code
+-- full line comment
++a b -- end of line comment
+-- no multi-line comments; use consecutive -- lines
+-- like this
 ```
 
-`--` to end of line. Stripped at the lexer level before parsing — comments produce no AST nodes and cost zero runtime tokens. Generating `--` costs 1 LLM token, so comments are essentially free.
+Single-line only. `--` to end of line. No multi-line comment syntax — use consecutive `--` lines instead. Stripped at the lexer level before parsing — comments produce no AST nodes and cost zero runtime tokens. Generating `--` costs 1 LLM token, so comments are essentially free.
 
 **Gotcha:** `--x 1` is a comment, not "negate (x minus 1)". The lexer matches `--` greedily as a comment and eats the rest of the line. To negate a subtraction, use a space or bind first:
 
