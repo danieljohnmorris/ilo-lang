@@ -760,21 +760,36 @@ impl RegCompiler {
                 }
             }
 
-            Expr::Field { object, field } => {
+            Expr::Field { object, field, safe } => {
                 let obj_reg = self.compile_expr(object);
-                let ra = self.alloc_reg();
                 let ki = self.current.add_const(Value::Text(field.clone()));
                 assert!(ki <= 255, "constant pool overflow: field name index {} exceeds 8-bit limit in OP_RECFLD", ki);
-                self.emit_abc(OP_RECFLD, ra, obj_reg, ki as u8);
-                ra
+                if *safe {
+                    // Safe nav: if nil, skip field access (obj_reg stays nil)
+                    self.emit_abx(OP_JMPNN, obj_reg, 1); // not nil → skip JMP
+                    self.emit_abx(OP_JMP, 0, 1);         // nil → skip RECFLD
+                    self.emit_abc(OP_RECFLD, obj_reg, obj_reg, ki as u8);
+                    obj_reg
+                } else {
+                    let ra = self.alloc_reg();
+                    self.emit_abc(OP_RECFLD, ra, obj_reg, ki as u8);
+                    ra
+                }
             }
 
-            Expr::Index { object, index } => {
+            Expr::Index { object, index, safe } => {
                 let obj_reg = self.compile_expr(object);
-                let ra = self.alloc_reg();
                 assert!(*index <= 255, "index literal {} exceeds 8-bit limit in OP_INDEX", index);
-                self.emit_abc(OP_INDEX, ra, obj_reg, *index as u8);
-                ra
+                if *safe {
+                    self.emit_abx(OP_JMPNN, obj_reg, 1);
+                    self.emit_abx(OP_JMP, 0, 1);
+                    self.emit_abc(OP_INDEX, obj_reg, obj_reg, *index as u8);
+                    obj_reg
+                } else {
+                    let ra = self.alloc_reg();
+                    self.emit_abc(OP_INDEX, ra, obj_reg, *index as u8);
+                    ra
+                }
             }
 
             Expr::Call { function, args, unwrap } => {
@@ -4471,5 +4486,24 @@ mod tests {
     fn vm_nil_coalesce_chain() {
         let source = "mk x:n>n;>=x 1{x}\nf>n;a=mk 0;b=mk 0;a??b??99";
         assert_eq!(vm_run(source, Some("f"), vec![]), Value::Number(99.0));
+    }
+
+    #[test]
+    fn vm_safe_field_on_nil() {
+        let source = "mk x:n>n;>=x 1{x}\nf>n;v=mk 0;v.?name??99";
+        assert_eq!(vm_run(source, Some("f"), vec![]), Value::Number(99.0));
+    }
+
+    #[test]
+    fn vm_safe_field_on_value() {
+        // Note: type decl must come AFTER function (known VM chunk-index issue)
+        let source = "f>n;p=pt x:5;p.?x\ntype pt{x:n}";
+        assert_eq!(vm_run(source, Some("f"), vec![]), Value::Number(5.0));
+    }
+
+    #[test]
+    fn vm_safe_field_chained() {
+        let source = "mk x:n>n;>=x 1{x}\nf>n;v=mk 0;v.?a.?b??77";
+        assert_eq!(vm_run(source, Some("f"), vec![]), Value::Number(77.0));
     }
 }

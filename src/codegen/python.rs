@@ -247,13 +247,21 @@ fn emit_expr(out: &mut String, level: usize, expr: &Expr) -> String {
     match expr {
         Expr::Literal(lit) => emit_literal(lit),
         Expr::Ref(name) => py_name(name),
-        Expr::Field { object, field } => {
+        Expr::Field { object, field, safe } => {
             let obj = emit_expr(out, level, object);
-            format!("{}[\"{}\"]", obj, field)
+            if *safe {
+                format!("({0}[\"{1}\"] if {0} is not None else None)", obj, field)
+            } else {
+                format!("{}[\"{}\"]", obj, field)
+            }
         }
-        Expr::Index { object, index } => {
+        Expr::Index { object, index, safe } => {
             let obj = emit_expr(out, level, object);
-            format!("{}[{}]", obj, index)
+            if *safe {
+                format!("({0}[{1}] if {0} is not None else None)", obj, index)
+            } else {
+                format!("{}[{}]", obj, index)
+            }
         }
         Expr::Call { function, args, unwrap } => {
             if function == "num" && args.len() == 1 {

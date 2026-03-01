@@ -190,11 +190,11 @@ pub enum Expr {
     /// Variable reference
     Ref(String),
 
-    /// Field access: `obj.field`
-    Field { object: Box<Expr>, field: String },
+    /// Field access: `obj.field` or safe `obj.?field`
+    Field { object: Box<Expr>, field: String, safe: bool },
 
-    /// Index access: `list.0`, `list.1`
-    Index { object: Box<Expr>, index: usize },
+    /// Index access: `list.0`, `list.1` or safe `list.?0`
+    Index { object: Box<Expr>, index: usize, safe: bool },
 
     /// Function call with positional args: `func arg1 arg2`
     /// When `unwrap` is true, `func! args` auto-unwraps Result:

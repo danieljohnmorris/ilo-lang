@@ -1191,7 +1191,8 @@ impl Parser {
                 self.advance();
                 // Check for field access chain: ident.field.field...
                 let mut expr = Expr::Ref(name);
-                while self.peek() == Some(&Token::Dot) {
+                while matches!(self.peek(), Some(Token::Dot) | Some(Token::DotQuestion)) {
+                    let safe = self.peek() == Some(&Token::DotQuestion);
                     self.advance();
                     match self.peek().cloned() {
                         Some(Token::Number(n)) if n.fract() == 0.0 && n >= 0.0 => {
@@ -1199,6 +1200,7 @@ impl Parser {
                             expr = Expr::Index {
                                 object: Box::new(expr),
                                 index: n as usize,
+                                safe,
                             };
                         }
                         _ => {
@@ -1206,6 +1208,7 @@ impl Parser {
                             expr = Expr::Field {
                                 object: Box::new(expr),
                                 field,
+                                safe,
                             };
                         }
                     }
@@ -1467,6 +1470,23 @@ mod tests {
     }
 
     #[test]
+    fn parse_safe_field_access() {
+        let prog = parse_str("f p:point>n;p.?x");
+        match &prog.declarations[0] {
+            Decl::Function { body, .. } => {
+                match &body[0].node {
+                    Stmt::Expr(Expr::Field { field, safe, .. }) => {
+                        assert_eq!(field, "x");
+                        assert!(*safe);
+                    }
+                    _ => panic!("expected safe field access"),
+                }
+            }
+            _ => panic!("expected function"),
+        }
+    }
+
+    #[test]
     fn parse_negated_guard() {
         let prog = parse_str(r#"f x:b>t;!x{"yes"};"no""#);
         match &prog.declarations[0] {
@@ -1679,7 +1699,7 @@ mod tests {
         match &prog.declarations[2] {
             Decl::Function { body, .. } => {
                 match &body[0].node {
-                    Stmt::Expr(Expr::Field { object, field }) => {
+                    Stmt::Expr(Expr::Field { object, field, .. }) => {
                         assert_eq!(field, "v");
                         assert!(matches!(**object, Expr::Field { .. }));
                     }

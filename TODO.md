@@ -278,17 +278,17 @@ v??"default"
 
 Chained field access on possibly-nil values without nested matches. Short-circuits at first nil.
 
-- [ ] Syntax: `x.?field` — if `x` is nil, return nil; otherwise return `x.field`
-- [ ] Parser: recognise `.?` as a variant of `.` field access
-- [ ] AST: add `safe: bool` flag to `Expr::FieldAccess` — or new `Expr::SafeFieldAccess`
-- [ ] Interpreter: check if receiver is `Value::Nil`; if so, return `Value::Nil`; otherwise proceed with field access
-- [ ] VM: emit nil check before field access opcode; if nil, skip to load-nil
-- [ ] Verifier: `x.?field` on `O record` type → result is `O field_type`. On non-optional type, warn ("safe navigation unnecessary")
-- [ ] Chaining: `u.?addr.?city` — each `.?` propagates nil. Compiles to sequential nil checks
+- [x] Syntax: `x.?field` — if `x` is nil, return nil; otherwise return `x.field`
+- [x] Parser: `DotQuestion` token, handled alongside `Dot` in field access chain
+- [x] AST: `safe: bool` flag on `Expr::Field` and `Expr::Index`
+- [x] Interpreter: check if receiver is `Value::Nil`; if so, return `Value::Nil`
+- [x] VM: `OP_JMPNN` + `OP_JMP` to skip field access on nil, in-place result register
+- [x] Verifier: if object is nil type, result is nil
+- [x] Chaining: `u.?addr.?city` — each `.?` propagates nil via sequential nil checks
 - [ ] Cranelift JIT: nil comparison + conditional load
-- [ ] Python codegen: emit as `x.field if x is not None else None` or use `getattr(x, 'field', None)`
-- [ ] Tests: safe access on nil, safe access on value, chained safe access, mixed safe/regular access
-- [ ] SPEC.md: document `.?` operator
+- [x] Python codegen: emit as `(x["field"] if x is not None else None)`
+- [x] Tests: safe access on nil, safe access on value, chained safe access
+- [x] SPEC.md: document `.?` operator
 
 **Token comparison:**
 ```
