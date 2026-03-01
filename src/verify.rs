@@ -150,6 +150,7 @@ const BUILTINS: &[(&str, &[&str], &str)] = &[
     ("min", &["n", "n"], "n"),
     ("max", &["n", "n"], "n"),
     ("get", &["t"], "R t t"),
+    ("srt", &["list_or_text"], "list_or_text"),
 ];
 
 fn builtin_arity(name: &str) -> Option<usize> {
@@ -247,6 +248,23 @@ fn builtin_check_args(name: &str, arg_types: &[Ty], func_ctx: &str, span: Option
                 });
             }
             (Ty::Result(Box::new(Ty::Text), Box::new(Ty::Text)), errors)
+        }
+        "srt" => {
+            if let Some(arg) = arg_types.first() {
+                match arg {
+                    Ty::List(inner) => return (Ty::List(inner.clone()), errors),
+                    Ty::Text => return (Ty::Text, errors),
+                    Ty::Unknown => return (Ty::Unknown, errors),
+                    other => errors.push(VerifyError {
+                        code: "ILO-T013",
+                        function: func_ctx.to_string(),
+                        message: format!("'srt' expects a list or text, got {other}"),
+                        hint: None,
+                        span,
+                    }),
+                }
+            }
+            (Ty::Unknown, errors)
         }
         _ => (Ty::Unknown, errors),
     }
@@ -2151,5 +2169,17 @@ mod tests {
             errors.iter().any(|e| e.code == "ILO-T027" && e.message.contains("len")),
             "expected ILO-T027 for builtin name in braceless guard body, got: {:?}", errors
         );
+    }
+
+    #[test]
+    fn verify_srt_with_list() {
+        assert!(parse_and_verify("f>L n;xs=[3, 1, 2];srt xs").is_ok());
+    }
+
+    #[test]
+    fn verify_srt_wrong_type() {
+        let result = parse_and_verify("f x:n>n;srt x");
+        let errors = result.unwrap_err();
+        assert!(errors.iter().any(|e| e.code == "ILO-T013" && e.message.contains("srt")));
     }
 }

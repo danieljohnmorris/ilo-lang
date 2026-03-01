@@ -109,6 +109,7 @@ pub(crate) const OP_MAX: u8 = 44;        // R[A] = max(R[B], R[C])
 pub(crate) const OP_FLR: u8 = 45;        // R[A] = floor(R[B])
 pub(crate) const OP_CEL: u8 = 46;        // R[A] = ceil(R[B])
 pub(crate) const OP_GET: u8 = 47;        // R[A] = http_get(R[B])  (returns R t t)
+pub(crate) const OP_SRT: u8 = 48;        // R[A] = srt(R[B])  (sort list or text)
 
 // ABx mode — register + 16-bit operand
 pub(crate) const OP_LOADK: u8 = 20;
@@ -734,6 +735,12 @@ impl RegCompiler {
                     let op = if function == "flr" { OP_FLR } else { OP_CEL };
                     self.emit_abc(op, ra, rb, 0);
                     self.reg_is_num[ra as usize] = true;
+                    return ra;
+                }
+                if function == "srt" && args.len() == 1 {
+                    let rb = self.compile_expr(&args[0]);
+                    let ra = self.alloc_reg();
+                    self.emit_abc(OP_SRT, ra, rb, 0);
                     return ra;
                 }
                 if function == "get" && args.len() == 1 {
@@ -2082,6 +2089,49 @@ impl<'a> VM<'a> {
                     #[cfg(not(feature = "http"))]
                     let result = NanVal::heap_err(NanVal::heap_string("http feature not enabled".to_string()));
                     reg_set!(a, result);
+                }
+                OP_SRT => {
+                    let a = ((inst >> 16) & 0xFF) as usize + base;
+                    let b = ((inst >> 8) & 0xFF) as usize + base;
+                    let v = reg!(b);
+                    if v.is_string() {
+                        // Sort characters of a string
+                        // SAFETY: is_string() confirmed heap-tagged string with live RC.
+                        let s = unsafe { match v.as_heap_ref() { HeapObj::Str(s) => s, _ => unreachable!() } };
+                        let mut chars: Vec<char> = s.chars().collect();
+                        chars.sort();
+                        let sorted: String = chars.into_iter().collect();
+                        reg_set!(a, NanVal::heap_string(sorted));
+                    } else if v.is_heap() {
+                        // SAFETY: is_heap() confirmed heap-tagged with live RC.
+                        match unsafe { v.as_heap_ref() } {
+                            HeapObj::List(items) => {
+                                if items.is_empty() {
+                                    reg_set!(a, NanVal::heap_list(vec![]));
+                                } else {
+                                    let all_numbers = items.iter().all(|v| v.is_number());
+                                    let all_strings = items.iter().all(|v| v.is_string());
+                                    if all_numbers {
+                                        let mut sorted: Vec<NanVal> = items.iter().map(|v| { v.clone_rc(); *v }).collect();
+                                        sorted.sort_by(|a, b| {
+                                            a.as_number().partial_cmp(&b.as_number()).unwrap_or(std::cmp::Ordering::Equal)
+                                        });
+                                        reg_set!(a, NanVal::heap_list(sorted));
+                                    } else if all_strings {
+                                        let mut sorted: Vec<NanVal> = items.iter().map(|v| { v.clone_rc(); *v }).collect();
+                                        // SAFETY: all_strings confirmed every element is a heap-tagged string.
+                                        sorted.sort_by(|a, b| unsafe { nanval_str_cmp(*a, *b) });
+                                        reg_set!(a, NanVal::heap_list(sorted));
+                                    } else {
+                                        return Err(VmError::Type("srt: list must contain all numbers or all text"));
+                                    }
+                                }
+                            }
+                            _ => return Err(VmError::Type("srt requires a list or text")),
+                        }
+                    } else {
+                        return Err(VmError::Type("srt requires a list or text"));
+                    }
                 }
                 OP_LISTAPPEND => {
                     let a = ((inst >> 16) & 0xFF) as usize + base;
@@ -3857,6 +3907,28 @@ mod tests {
         assert_eq!(
             vm_run(source, Some("fib"), vec![Value::Number(10.0)]),
             Value::Number(55.0)
+        );
+    }
+
+    #[test]
+    fn vm_srt_numbers() {
+        let source = "f>L n;srt [3, 1, 2]";
+        assert_eq!(
+            vm_run(source, Some("f"), vec![]),
+            Value::List(vec![Value::Number(1.0), Value::Number(2.0), Value::Number(3.0)])
+        );
+    }
+
+    #[test]
+    fn vm_srt_text_list() {
+        let source = r#"f>L t;srt ["c", "a", "b"]"#;
+        assert_eq!(
+            vm_run(source, Some("f"), vec![]),
+            Value::List(vec![
+                Value::Text("a".to_string()),
+                Value::Text("b".to_string()),
+                Value::Text("c".to_string()),
+            ])
         );
     }
 }

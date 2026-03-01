@@ -217,6 +217,46 @@ fn call_function(env: &mut Env, name: &str, args: Vec<Value>) -> Result<Value> {
             other => Err(RuntimeError::new("ILO-R009", format!("{} requires a number, got {:?}", name, other))),
         };
     }
+    if name == "srt" && args.len() == 1 {
+        return match &args[0] {
+            Value::List(items) => {
+                if items.is_empty() {
+                    return Ok(Value::List(vec![]));
+                }
+                let all_numbers = items.iter().all(|v| matches!(v, Value::Number(_)));
+                let all_text = items.iter().all(|v| matches!(v, Value::Text(_)));
+                if all_numbers {
+                    let mut sorted = items.clone();
+                    sorted.sort_by(|a, b| {
+                        if let (Value::Number(x), Value::Number(y)) = (a, b) {
+                            x.partial_cmp(y).unwrap_or(std::cmp::Ordering::Equal)
+                        } else {
+                            unreachable!()
+                        }
+                    });
+                    Ok(Value::List(sorted))
+                } else if all_text {
+                    let mut sorted = items.clone();
+                    sorted.sort_by(|a, b| {
+                        if let (Value::Text(x), Value::Text(y)) = (a, b) {
+                            x.cmp(y)
+                        } else {
+                            unreachable!()
+                        }
+                    });
+                    Ok(Value::List(sorted))
+                } else {
+                    Err(RuntimeError::new("ILO-R009", "srt: list must contain all numbers or all text".to_string()))
+                }
+            }
+            Value::Text(s) => {
+                let mut chars: Vec<char> = s.chars().collect();
+                chars.sort();
+                Ok(Value::Text(chars.into_iter().collect()))
+            }
+            other => Err(RuntimeError::new("ILO-R009", format!("srt requires a list or text, got {:?}", other))),
+        };
+    }
     if name == "get" && args.len() == 1 {
         return match &args[0] {
             Value::Text(url) => {
@@ -1718,6 +1758,37 @@ mod tests {
         assert_eq!(
             run_str(source, Some("fib"), vec![Value::Number(10.0)]),
             Value::Number(55.0)
+        );
+    }
+
+    #[test]
+    fn interpret_srt_numbers() {
+        let source = "f>L n;srt [3, 1, 2]";
+        assert_eq!(
+            run_str(source, Some("f"), vec![]),
+            Value::List(vec![Value::Number(1.0), Value::Number(2.0), Value::Number(3.0)])
+        );
+    }
+
+    #[test]
+    fn interpret_srt_text_list() {
+        let source = r#"f>L t;srt ["c", "a", "b"]"#;
+        assert_eq!(
+            run_str(source, Some("f"), vec![]),
+            Value::List(vec![
+                Value::Text("a".to_string()),
+                Value::Text("b".to_string()),
+                Value::Text("c".to_string()),
+            ])
+        );
+    }
+
+    #[test]
+    fn interpret_srt_text_string() {
+        let source = r#"f>t;srt "cab""#;
+        assert_eq!(
+            run_str(source, Some("f"), vec![]),
+            Value::Text("abc".to_string())
         );
     }
 }
