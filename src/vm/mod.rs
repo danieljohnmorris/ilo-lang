@@ -117,6 +117,8 @@ pub(crate) const OP_TL: u8 = 52;         // R[A] = tl(R[B])  (tail of list/text)
 pub(crate) const OP_REV: u8 = 53;        // R[A] = rev(R[B])  (reverse list or text)
 pub(crate) const OP_SRT: u8 = 54;        // R[A] = srt(R[B])  (sort list or text)
 pub(crate) const OP_SLC: u8 = 55;        // R[A] = slc(R[B], R[C], R[C+1])  (slice list or text)
+pub(crate) const OP_RND0: u8 = 57;       // R[A] = random float in [0,1)
+pub(crate) const OP_RND2: u8 = 58;       // R[A] = random int in [R[B], R[C]]
 pub(crate) const OP_JMPNN: u8 = 56;     // if R[A] is not nil, jump by signed Bx (ABx mode)
 
 // ABx mode — register + 16-bit operand
@@ -967,6 +969,20 @@ impl RegCompiler {
                     debug_assert_eq!(rd, rc + 1, "slc args should be consecutive regs");
                     let ra = self.alloc_reg();
                     self.emit_abc(OP_SLC, ra, rb, rc);
+                    return ra;
+                }
+                if function == "rnd" && args.is_empty() {
+                    let ra = self.alloc_reg();
+                    self.emit_abc(OP_RND0, ra, 0, 0);
+                    self.reg_is_num[ra as usize] = true;
+                    return ra;
+                }
+                if function == "rnd" && args.len() == 2 {
+                    let rb = self.compile_expr(&args[0]);
+                    let rc = self.compile_expr(&args[1]);
+                    let ra = self.alloc_reg();
+                    self.emit_abc(OP_RND2, ra, rb, rc);
+                    self.reg_is_num[ra as usize] = true;
                     return ra;
                 }
                 if function == "get" && args.len() == 1 {
@@ -2311,6 +2327,26 @@ impl<'a> VM<'a> {
                     let n = v.as_number();
                     let result = if op == OP_FLR { n.floor() } else { n.ceil() };
                     reg_set!(a, NanVal::number(result));
+                }
+                OP_RND0 => {
+                    let a = ((inst >> 16) & 0xFF) as usize + base;
+                    reg_set!(a, NanVal::number(fastrand::f64()));
+                }
+                OP_RND2 => {
+                    let a = ((inst >> 16) & 0xFF) as usize + base;
+                    let b = ((inst >> 8) & 0xFF) as usize + base;
+                    let c = (inst & 0xFF) as usize + base;
+                    let vb = reg!(b);
+                    let vc = reg!(c);
+                    if !vb.is_number() || !vc.is_number() {
+                        return Err(VmError::Type("rnd requires two numbers"));
+                    }
+                    let lo = vb.as_number() as i64;
+                    let hi = vc.as_number() as i64;
+                    if lo > hi {
+                        return Err(VmError::Type("rnd: lower bound > upper bound"));
+                    }
+                    reg_set!(a, NanVal::number(fastrand::i64(lo..=hi) as f64));
                 }
                 OP_GET => {
                     let a = ((inst >> 16) & 0xFF) as usize + base;
@@ -4615,5 +4651,43 @@ mod tests {
         // cnt skips rest of body — last value is from last non-skipped iteration
         let source = "f>n;@x [1,2,3,4,5]{>=x 3{cnt};*x 2}";
         assert_eq!(vm_run(source, Some("f"), vec![]), Value::Number(4.0));
+    }
+
+    #[test]
+    fn vm_rnd_no_args() {
+        let source = "f>n;rnd";
+        let result = vm_run(source, Some("f"), vec![]);
+        match result {
+            Value::Number(n) => {
+                assert!(n >= 0.0 && n < 1.0, "rnd should be in [0,1), got {n}");
+            }
+            other => panic!("expected Number, got {:?}", other),
+        }
+    }
+
+    #[test]
+    fn vm_rnd_two_args() {
+        let source = "f>n;rnd 1 10";
+        let result = vm_run(source, Some("f"), vec![]);
+        match result {
+            Value::Number(n) => {
+                assert!(n >= 1.0 && n <= 10.0, "rnd 1 10 should be in [1,10], got {n}");
+                assert_eq!(n, n.floor(), "rnd with two args should return integer");
+            }
+            other => panic!("expected Number, got {:?}", other),
+        }
+    }
+
+    #[test]
+    fn vm_rnd_same_bounds() {
+        let source = "f>n;rnd 5 5";
+        assert_eq!(vm_run(source, Some("f"), vec![]), Value::Number(5.0));
+    }
+
+    #[test]
+    fn vm_rnd_non_number_type_error() {
+        let source = "f>n;rnd \"hello\" 5";
+        let err = vm_run_err(source, Some("f"), vec![]);
+        assert!(err.contains("rnd") || err.contains("number"), "got: {err}");
     }
 }

@@ -24,6 +24,7 @@ cranelift-native = { version = "0.116", optional = true }
 target-lexicon = { version = "0.12", optional = true }
 inkwell = { version = "0.5", features = ["llvm18-0"], optional = true }
 minreq = { version = "2.14", default-features = false, optional = true }
+fastrand = "2"
 
 [profile.release]
 strip = true

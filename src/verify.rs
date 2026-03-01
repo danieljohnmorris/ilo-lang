@@ -160,6 +160,7 @@ const BUILTINS: &[(&str, &[&str], &str)] = &[
     ("rev", &["list_or_text"], "list_or_text"),
     ("srt", &["list_or_text"], "list_or_text"),
     ("slc", &["list_or_text", "n", "n"], "list_or_text"),
+    ("rnd", &[], "n"),
 ];
 
 fn builtin_arity(name: &str) -> Option<usize> {
@@ -244,6 +245,20 @@ fn builtin_check_args(name: &str, arg_types: &[Ty], func_ctx: &str, span: Option
                         hint: None,
                         span,
                         is_warning: false,
+                    });
+                }
+            }
+            (Ty::Number, errors)
+        }
+        "rnd" => {
+            for (i, arg) in arg_types.iter().enumerate() {
+                if !compatible(arg, &Ty::Number) {
+                    errors.push(VerifyError {
+                        code: "ILO-T013",
+                        function: func_ctx.to_string(),
+                        message: format!("'rnd' arg {} expects n, got {arg}", i + 1),
+                        hint: None,
+                        span,
                     });
                 }
             }
@@ -767,13 +782,23 @@ impl VerifyContext {
                 let arg_types: Vec<Ty> = args.iter().map(|a| self.infer_expr(func, scope, a, span)).collect();
 
                 let call_ty = if is_builtin(callee) {
-                    // Check arity
+                    // Check arity (rnd accepts 0 or 2 args)
                     let expected_arity = builtin_arity(callee).unwrap();
-                    if args.len() != expected_arity {
+                    let arity_ok = if callee == "rnd" {
+                        args.len() == 0 || args.len() == 2
+                    } else {
+                        args.len() == expected_arity
+                    };
+                    if !arity_ok {
+                        let arity_desc = if callee == "rnd" {
+                            "0 or 2".to_string()
+                        } else {
+                            expected_arity.to_string()
+                        };
                         self.err(
                             "ILO-T006",
                             func,
-                            format!("arity mismatch: '{callee}' expects {expected_arity} args, got {}", args.len()),
+                            format!("arity mismatch: '{callee}' expects {arity_desc} args, got {}", args.len()),
                             None,
                             Some(span),
                         );
@@ -2657,5 +2682,33 @@ mod tests {
         assert!(result.errors.is_empty());
         assert_eq!(result.warnings.len(), 1);
         assert_eq!(result.warnings[0].code, "ILO-T029");
+    }
+
+    // ---- rnd builtin ----
+
+    #[test]
+    fn rnd_zero_args_valid() {
+        assert!(parse_and_verify("f>n;rnd").is_ok());
+    }
+
+    #[test]
+    fn rnd_two_args_valid() {
+        assert!(parse_and_verify("f>n;rnd 1 10").is_ok());
+    }
+
+    #[test]
+    fn rnd_one_arg_arity_error() {
+        let result = parse_and_verify("f x:n>n;rnd x");
+        assert!(result.is_err());
+        let errors = result.unwrap_err();
+        assert!(errors.iter().any(|e| e.message.contains("arity mismatch") && e.message.contains("rnd")));
+    }
+
+    #[test]
+    fn rnd_type_error() {
+        let result = parse_and_verify(r#"f>n;rnd "hello" 5"#);
+        assert!(result.is_err());
+        let errors = result.unwrap_err();
+        assert!(errors.iter().any(|e| e.code == "ILO-T013" && e.message.contains("rnd")));
     }
 }

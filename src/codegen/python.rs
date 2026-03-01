@@ -287,6 +287,12 @@ fn emit_expr(out: &mut String, level: usize, expr: &Expr) -> String {
                 let call = format!("(lambda s: (\"ok\", float(s)) if s.replace('.','',1).replace('-','',1).isdigit() else (\"err\", s))({})", arg);
                 return if *unwrap { format!("_ilo_unwrap({})", call) } else { call };
             }
+            if function == "rnd" && args.is_empty() {
+                return "(__import__('random').random())".to_string();
+            }
+            if function == "rnd" && args.len() == 2 {
+                return format!("float(__import__('random').randint({}, {}))", emit_expr(out, level, &args[0]), emit_expr(out, level, &args[1]));
+            }
             if function == "flr" && args.len() == 1 {
                 return format!("float(__import__('math').floor({}))", emit_expr(out, level, &args[0]));
             }

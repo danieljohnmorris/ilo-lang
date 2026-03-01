@@ -221,6 +221,24 @@ fn call_function(env: &mut Env, name: &str, args: Vec<Value>) -> Result<Value> {
             other => Err(RuntimeError::new("ILO-R009", format!("{} requires a number, got {:?}", name, other))),
         };
     }
+    if name == "rnd" {
+        if args.is_empty() {
+            return Ok(Value::Number(fastrand::f64()));
+        }
+        if args.len() == 2 {
+            return match (&args[0], &args[1]) {
+                (Value::Number(a), Value::Number(b)) => {
+                    let lo = *a as i64;
+                    let hi = *b as i64;
+                    if lo > hi {
+                        return Err(RuntimeError::new("ILO-R009", format!("rnd: lower bound {} > upper bound {}", lo, hi)));
+                    }
+                    Ok(Value::Number(fastrand::i64(lo..=hi) as f64))
+                }
+                _ => Err(RuntimeError::new("ILO-R009", "rnd requires two numbers".to_string())),
+            };
+        }
+    }
     if name == "spl" && args.len() == 2 {
         return match (&args[0], &args[1]) {
             (Value::Text(s), Value::Text(sep)) => {
@@ -2277,5 +2295,36 @@ mod tests {
         // x=1 → value 2, x=2 → value 4, x=3 → cnt (last stays 4), x=4 → cnt, x=5 → cnt
         let source = "f>n;@x [1,2,3,4,5]{>=x 3{cnt};*x 2}";
         assert_eq!(run_str(source, Some("f"), vec![]), Value::Number(4.0));
+    }
+
+    #[test]
+    fn interpret_rnd_no_args() {
+        let source = "f>n;rnd";
+        let result = run_str(source, Some("f"), vec![]);
+        match result {
+            Value::Number(n) => {
+                assert!(n >= 0.0 && n < 1.0, "rnd should be in [0,1), got {n}");
+            }
+            other => panic!("expected Number, got {:?}", other),
+        }
+    }
+
+    #[test]
+    fn interpret_rnd_two_args() {
+        let source = "f>n;rnd 1 10";
+        let result = run_str(source, Some("f"), vec![]);
+        match result {
+            Value::Number(n) => {
+                assert!(n >= 1.0 && n <= 10.0, "rnd 1 10 should be in [1,10], got {n}");
+                assert_eq!(n, n.floor(), "rnd with two args should return integer");
+            }
+            other => panic!("expected Number, got {:?}", other),
+        }
+    }
+
+    #[test]
+    fn interpret_rnd_same_bounds() {
+        let source = "f>n;rnd 5 5";
+        assert_eq!(run_str(source, Some("f"), vec![]), Value::Number(5.0));
     }
 }
