@@ -402,7 +402,7 @@ Exit a loop early or skip to the next iteration.
 - [x] Interpreter: `BodyResult::Break(Value)` / `BodyResult::Continue` propagation through guard, match, foreach, while
 - [x] VM: `LoopContext` with `loop_top`, `continue_patches`, `break_patches`. `brk` → JMP to exit; `cnt` → JMP to loop_top (while) or idx increment (foreach)
 - [x] Verifier: type inference for `brk expr`
-- [ ] Verifier: `brk`/`cnt` outside a loop → error (currently no-op)
+- [x] Verifier: `brk`/`cnt` outside a loop → error (`ILO-T028`)
 - [ ] Cranelift JIT: jump to loop exit / loop header
 - [x] Python codegen: emit as `break` / `continue`
 - [x] Formatter: emit as `brk` / `brk expr` / `cnt`
