@@ -199,13 +199,13 @@ ilo operators have fixed arity, so the parser always knows when a condition expr
 - [x] Interpreter: no changes — guard body evaluation is the same regardless of brace syntax
 - [x] VM: no changes — same compilation path
 - [x] Formatter: `--fmt` emits braceless form for single-expression guards; `--fmt-expanded` emits braced form
-- [ ] **Ambiguity detection & hints (critical — prevents retries):**
-  - [ ] Detect dangling tokens after braceless guard body: if parser consumes a single identifier as guard body but the next token is NOT `;`, `}`, or EOF, emit a hint
-  - [ ] Hint text: `"function calls in braceless guards need braces: >=sp 1000{classify sp}"` — uses `error_hint()` infrastructure (already exists for `&&`→`&`, `->`→`>`, etc.)
-  - [ ] Verifier cross-check: if braceless guard body is a single identifier that matches a known function name, emit warning `"did you mean to call '<name>'? Use braces: cond{<name> args}"` — reuses existing Levenshtein/scope-aware suggestion system
-  - [ ] JSON error output: hint appears in `suggestion` field so agent tooling can auto-fix
-  - [ ] `--explain` entry for the error code: show braceless vs braced examples, explain when braces are required
-  - [ ] Test: `>=sp 1000 classify sp` → error with hint mentioning braces. `>=sp 1000 classify;` → valid (classify is a variable ref, not a call). Agent gets actionable fix on first error, no retry needed
+- [x] **Ambiguity detection & hints (critical — prevents retries):**
+  - [x] Detect dangling tokens after braceless guard body: if parser consumes a single identifier as guard body but the next token is NOT `;`, `}`, or EOF, emit a hint
+  - [x] Hint text: `"function calls in braceless guards need braces: >=sp 1000{classify sp}"` — uses `error_hint()` infrastructure (already exists for `&&`→`&`, `->`→`>`, etc.)
+  - [x] Verifier cross-check: if braceless guard body is a single identifier that matches a known function name, emit warning `"did you mean to call '<name>'? Use braces: cond{<name> args}"` — reuses existing Levenshtein/scope-aware suggestion system
+  - [x] JSON error output: hint appears in `suggestion` field so agent tooling can auto-fix
+  - [x] `--explain` entry for the error code: show braceless vs braced examples, explain when braces are required
+  - [x] Test: `>=sp 1000 classify sp` → error with hint mentioning braces. `>=sp 1000 classify;` → valid (classify is a variable ref, not a call). Agent gets actionable fix on first error, no retry needed
 - [x] Tests: braceless guard with literal, with operator expression, with ok/err wrap, with variable ref; multi-statement still requires braces; negated braceless guard; mixed braceless and braced in same function
 - [x] SPEC.md: document optional braces for single-expression guards, with explicit note on when braces are required
 

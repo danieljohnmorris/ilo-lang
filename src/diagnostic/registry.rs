@@ -214,6 +214,33 @@ A `tool` declaration requires a string literal as its description.
     tool my-tool "does things" with { ... }  -- correct
 "#,
     },
+    ErrorEntry {
+        code: "ILO-P016",
+        short: "unexpected token after braceless guard body",
+        long: r#"## ILO-P016: unexpected token after braceless guard body
+
+Braceless guards allow a single expression as the body without braces.
+If you need a function call as the guard body, use braces.
+
+**Wrong:**
+
+    cls sp:n>t;>=sp 1000 classify sp
+
+The parser reads `classify` as the guard body and `sp` is left dangling.
+
+**Correct:**
+
+    cls sp:n>t;>=sp 1000{classify sp}
+
+Braces are required when the guard body is a function call, because the
+parser cannot know the function's arity to determine where the body ends.
+
+Single-expression bodies (literals, variables, operators, ok/err wraps)
+do not need braces:
+
+    cls sp:n>t;>=sp 1000 "gold";>=sp 500 "silver";"bronze"
+"#,
+    },
 
     // ── Type / Verifier ──────────────────────────────────────────────────────
     ErrorEntry {
@@ -536,6 +563,28 @@ function, so the enclosing function must return a Result type
     outer x:n>n;inner! x   -- error: outer returns n, not R
 
 **Fix:** Change the enclosing function's return type to `R`.
+"#,
+    },
+    ErrorEntry {
+        code: "ILO-T027",
+        short: "braceless guard body looks like a function name",
+        long: r#"## ILO-T027: braceless guard body looks like a function name
+
+A braceless guard's body is a single identifier that matches a known
+function name. This usually means you intended to call the function
+but forgot to wrap it in braces.
+
+**Wrong:**
+
+    cls sp:n>t;>=sp 1000 classify
+
+`classify` is treated as a variable reference, not a function call.
+
+**Correct:**
+
+    cls sp:n>t;>=sp 1000{classify sp}
+
+Use braces when the guard body is a function call.
 "#,
     },
 
