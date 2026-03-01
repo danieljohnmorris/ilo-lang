@@ -199,6 +199,10 @@ cargo test
 | [research/OPEN.md](research/OPEN.md) | Open design questions |
 | [research/BUILDING-A-LANGUAGE.md](research/BUILDING-A-LANGUAGE.md) | How to build a language — research & plan |
 
+## Community
+
+- [r/ilolang](https://www.reddit.com/r/ilolang/) — discussion, feedback, and updates on Reddit
+
 ```
   _  _          _
  (_)| | ___    | |  __ _  _ __    __ _
