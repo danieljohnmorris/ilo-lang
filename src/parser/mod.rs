@@ -397,17 +397,21 @@ impl Parser {
 
     // ---- Body & Statements ----
 
-    /// Parse a semicolon-separated body
-    fn parse_body(&mut self) -> Result<Vec<Stmt>> {
+    /// Parse a semicolon-separated body, wrapping each statement with its source span.
+    fn parse_body(&mut self) -> Result<Vec<Spanned<Stmt>>> {
         let mut stmts = Vec::new();
         if !self.at_body_end() {
-            stmts.push(self.parse_stmt()?);
+            let span_start = self.peek_span();
+            let stmt = self.parse_stmt()?;
+            stmts.push(Spanned { node: stmt, span: span_start.merge(self.prev_span()) });
             while self.peek() == Some(&Token::Semi) {
                 self.advance();
                 if self.at_body_end() {
                     break;
                 }
-                stmts.push(self.parse_stmt()?);
+                let span_start = self.peek_span();
+                let stmt = self.parse_stmt()?;
+                stmts.push(Spanned { node: stmt, span: span_start.merge(self.prev_span()) });
             }
         }
         Ok(stmts)
@@ -494,17 +498,21 @@ impl Parser {
     }
 
     /// Parse body of a match arm — multiple statements until next arm pattern or `}`
-    fn parse_arm_body(&mut self) -> Result<Vec<Stmt>> {
+    fn parse_arm_body(&mut self) -> Result<Vec<Spanned<Stmt>>> {
         let mut stmts = Vec::new();
         if !self.at_arm_end() {
-            stmts.push(self.parse_stmt()?);
+            let span_start = self.peek_span();
+            let stmt = self.parse_stmt()?;
+            stmts.push(Spanned { node: stmt, span: span_start.merge(self.prev_span()) });
             // Continue consuming statements if `;` is followed by non-pattern content
             while self.peek() == Some(&Token::Semi) && !self.semi_starts_new_arm() {
                 self.advance(); // consume ;
                 if self.at_arm_end() {
                     break;
                 }
-                stmts.push(self.parse_stmt()?);
+                let span_start = self.peek_span();
+                let stmt = self.parse_stmt()?;
+                stmts.push(Spanned { node: stmt, span: span_start.merge(self.prev_span()) });
             }
         }
         Ok(stmts)
@@ -674,7 +682,7 @@ impl Parser {
         }
     }
 
-    fn parse_brace_body(&mut self) -> Result<Vec<Stmt>> {
+    fn parse_brace_body(&mut self) -> Result<Vec<Spanned<Stmt>>> {
         self.expect(&Token::LBrace)?;
         let body = self.parse_body()?;
         self.expect(&Token::RBrace)?;
@@ -1131,7 +1139,7 @@ mod tests {
         match &prog.declarations[0] {
             Decl::Function { body, .. } => {
                 assert_eq!(body.len(), 2);
-                match &body[0] {
+                match &body[0].node {
                     Stmt::Let { name, .. } => assert_eq!(name, "y"),
                     _ => panic!("expected let"),
                 }
@@ -1159,7 +1167,7 @@ mod tests {
             Decl::Function { name, body, .. } => {
                 assert_eq!(name, "cls");
                 assert!(body.len() >= 2);
-                match &body[0] {
+                match &body[0].node {
                     Stmt::Guard { negated, .. } => assert!(!negated),
                     _ => panic!("expected guard, got {:?}", body[0]),
                 }
@@ -1173,7 +1181,7 @@ mod tests {
         let prog = parse_str(r#"f x:n>t;?{^e:^"error";~v:v;_:"default"}"#);
         match &prog.declarations[0] {
             Decl::Function { body, .. } => {
-                match &body[0] {
+                match &body[0].node {
                     Stmt::Match { subject, arms } => {
                         assert!(subject.is_none());
                         assert_eq!(arms.len(), 3);
@@ -1190,7 +1198,7 @@ mod tests {
         let prog = parse_str("f x:n>R n t;~x");
         match &prog.declarations[0] {
             Decl::Function { body, .. } => {
-                match &body[0] {
+                match &body[0].node {
                     Stmt::Expr(Expr::Ok(_)) => {}
                     _ => panic!("expected Ok expr"),
                 }
@@ -1205,7 +1213,7 @@ mod tests {
         match &prog.declarations[0] {
             Decl::Function { body, .. } => {
                 assert!(body.len() >= 3);
-                match &body[1] {
+                match &body[1].node {
                     Stmt::ForEach { binding, .. } => assert_eq!(binding, "x"),
                     _ => panic!("expected foreach"),
                 }
@@ -1225,7 +1233,7 @@ mod tests {
         let prog = parse_str("f a:n b:n c:n>n;+*a b c");
         match &prog.declarations[0] {
             Decl::Function { body, .. } => {
-                match &body[0] {
+                match &body[0].node {
                     Stmt::Expr(Expr::BinOp { op: BinOp::Add, left, .. }) => {
                         assert!(matches!(**left, Expr::BinOp { op: BinOp::Multiply, .. }));
                     }
@@ -1241,7 +1249,7 @@ mod tests {
         let prog = parse_str("f x:n>L n;[x, *x 2, *x 3]");
         match &prog.declarations[0] {
             Decl::Function { body, .. } => {
-                match &body[0] {
+                match &body[0].node {
                     Stmt::Expr(Expr::List(items)) => assert_eq!(items.len(), 3),
                     _ => panic!("expected list"),
                 }
@@ -1255,7 +1263,7 @@ mod tests {
         let prog = parse_str("f p:point>n;p.x");
         match &prog.declarations[0] {
             Decl::Function { body, .. } => {
-                match &body[0] {
+                match &body[0].node {
                     Stmt::Expr(Expr::Field { field, .. }) => assert_eq!(field, "x"),
                     _ => panic!("expected field access"),
                 }
@@ -1269,7 +1277,7 @@ mod tests {
         let prog = parse_str("f xs:L n>n;xs.0");
         match &prog.declarations[0] {
             Decl::Function { body, .. } => {
-                match &body[0] {
+                match &body[0].node {
                     Stmt::Expr(Expr::Index { index, .. }) => assert_eq!(*index, 0),
                     _ => panic!("expected index access"),
                 }
@@ -1283,7 +1291,7 @@ mod tests {
         let prog = parse_str(r#"f x:b>t;!x{"yes"};"no""#);
         match &prog.declarations[0] {
             Decl::Function { body, .. } => {
-                match &body[0] {
+                match &body[0].node {
                     Stmt::Guard { negated, .. } => assert!(negated),
                     _ => panic!("expected guard"),
                 }
@@ -1297,7 +1305,7 @@ mod tests {
         let prog = parse_str("type point{x:n;y:n} f a:n b:n>point;point x:a y:b");
         match &prog.declarations[1] {
             Decl::Function { body, .. } => {
-                match &body[0] {
+                match &body[0].node {
                     Stmt::Expr(Expr::Record { type_name, fields }) => {
                         assert_eq!(type_name, "point");
                         assert_eq!(fields.len(), 2);
@@ -1314,7 +1322,7 @@ mod tests {
         let prog = parse_str("type point{x:n;y:n} f p:point>point;p with x:1 y:2");
         match &prog.declarations[1] {
             Decl::Function { body, .. } => {
-                match &body[0] {
+                match &body[0].node {
                     Stmt::Expr(Expr::With { updates, .. }) => {
                         assert_eq!(updates.len(), 2);
                     }
@@ -1344,7 +1352,7 @@ mod tests {
         let prog = parse_str("f x:R n t>n;?x{~v:v;^e:0}");
         match &prog.declarations[0] {
             Decl::Function { body, .. } => {
-                match &body[0] {
+                match &body[0].node {
                     Stmt::Match { subject, arms } => {
                         assert!(subject.is_some());
                         assert_eq!(arms.len(), 2);
@@ -1362,7 +1370,7 @@ mod tests {
         match &prog.declarations[0] {
             Decl::Function { body, .. } => {
                 assert_eq!(body.len(), 2);
-                match &body[0] {
+                match &body[0].node {
                     Stmt::Let { value: Expr::Match { .. }, .. } => {}
                     _ => panic!("expected let with match expr, got {:?}", body[0]),
                 }
@@ -1377,7 +1385,7 @@ mod tests {
         let prog = parse_str("fac n:n>n;r=fac -n 1;*n r");
         match &prog.declarations[0] {
             Decl::Function { body, .. } => {
-                match &body[0] {
+                match &body[0].node {
                     Stmt::Let { value: Expr::Call { function, args }, .. } => {
                         assert_eq!(function, "fac");
                         assert_eq!(args.len(), 1);
@@ -1395,7 +1403,7 @@ mod tests {
         let prog = parse_str("f>n;g() g>n;42");
         match &prog.declarations[0] {
             Decl::Function { body, .. } => {
-                match &body[0] {
+                match &body[0].node {
                     Stmt::Expr(Expr::Call { function, args }) => {
                         assert_eq!(function, "g");
                         assert!(args.is_empty());
@@ -1412,7 +1420,7 @@ mod tests {
         let prog = parse_str("f x:n>n;*(+x 1) 2");
         match &prog.declarations[0] {
             Decl::Function { body, .. } => {
-                match &body[0] {
+                match &body[0].node {
                     Stmt::Expr(Expr::BinOp { op: BinOp::Multiply, left, .. }) => {
                         assert!(matches!(**left, Expr::BinOp { op: BinOp::Add, .. }));
                     }
@@ -1428,7 +1436,7 @@ mod tests {
         let prog = parse_str("f xs:L n x:n>L n;+=xs x");
         match &prog.declarations[0] {
             Decl::Function { body, .. } => {
-                match &body[0] {
+                match &body[0].node {
                     Stmt::Expr(Expr::BinOp { op: BinOp::Append, .. }) => {}
                     _ => panic!("expected append"),
                 }
@@ -1442,7 +1450,7 @@ mod tests {
         let prog = parse_str("f>L n;[1, 2, 3,]");
         match &prog.declarations[0] {
             Decl::Function { body, .. } => {
-                match &body[0] {
+                match &body[0].node {
                     Stmt::Expr(Expr::List(items)) => assert_eq!(items.len(), 3),
                     _ => panic!("expected list"),
                 }
@@ -1456,7 +1464,7 @@ mod tests {
         let prog = parse_str("f>L n;[]");
         match &prog.declarations[0] {
             Decl::Function { body, .. } => {
-                match &body[0] {
+                match &body[0].node {
                     Stmt::Expr(Expr::List(items)) => assert!(items.is_empty()),
                     _ => panic!("expected list"),
                 }
@@ -1470,9 +1478,9 @@ mod tests {
         let prog = parse_str(r#"f x:R n t>n;?x{^e:^"error";~v:v;_:0}"#);
         match &prog.declarations[0] {
             Decl::Function { body, .. } => {
-                match &body[0] {
+                match &body[0].node {
                     Stmt::Match { arms, .. } => {
-                        match &arms[0].body[0] {
+                        match &arms[0].body[0].node {
                             Stmt::Expr(Expr::Err(_)) => {}
                             _ => panic!("expected Err expr in first arm"),
                         }
@@ -1490,7 +1498,7 @@ mod tests {
         // Should parse as o.i.v (chained field access)
         match &prog.declarations[2] {
             Decl::Function { body, .. } => {
-                match &body[0] {
+                match &body[0].node {
                     Stmt::Expr(Expr::Field { object, field }) => {
                         assert_eq!(field, "v");
                         assert!(matches!(**object, Expr::Field { .. }));
@@ -1507,7 +1515,7 @@ mod tests {
         let prog = parse_str("f x:R n t>n;?x{~v:y=+v 1;*y 2;^e:0}");
         match &prog.declarations[0] {
             Decl::Function { body, .. } => {
-                match &body[0] {
+                match &body[0].node {
                     Stmt::Match { arms, .. } => {
                         assert_eq!(arms[0].body.len(), 2); // y=+v 1, *y 2
                     }
@@ -1524,7 +1532,7 @@ mod tests {
         let prog = parse_str("f x:b>b;!x");
         match &prog.declarations[0] {
             Decl::Function { body, .. } => {
-                match &body[0] {
+                match &body[0].node {
                     Stmt::Expr(Expr::UnaryOp { op: UnaryOp::Not, .. }) => {}
                     _ => panic!("expected NOT expr, got {:?}", body[0]),
                 }
@@ -1538,7 +1546,7 @@ mod tests {
         let prog = parse_str("f x:b>n;?x{true:1;false:0}");
         match &prog.declarations[0] {
             Decl::Function { body, .. } => {
-                match &body[0] {
+                match &body[0].node {
                     Stmt::Match { arms, .. } => {
                         assert!(matches!(arms[0].pattern, Pattern::Literal(Literal::Bool(true))));
                         assert!(matches!(arms[1].pattern, Pattern::Literal(Literal::Bool(false))));
@@ -1555,7 +1563,7 @@ mod tests {
         let prog = parse_str(r#"f x:n>t;?x{1:"one";2:"two";_:"other"}"#);
         match &prog.declarations[0] {
             Decl::Function { body, .. } => {
-                match &body[0] {
+                match &body[0].node {
                     Stmt::Match { arms, .. } => {
                         assert_eq!(arms.len(), 3);
                         assert!(matches!(arms[2].pattern, Pattern::Wildcard));
@@ -1572,7 +1580,7 @@ mod tests {
         let prog = parse_str(r#"f x:t>n;?x{"a":1;"b":2;_:0}"#);
         match &prog.declarations[0] {
             Decl::Function { body, .. } => {
-                match &body[0] {
+                match &body[0].node {
                     Stmt::Match { arms, .. } => {
                         assert_eq!(arms.len(), 3);
                         assert!(matches!(&arms[0].pattern, Pattern::Literal(Literal::Text(s)) if s == "a"));
@@ -1602,7 +1610,7 @@ mod tests {
             let prog = parse_str(&code);
             match &prog.declarations[0] {
                 Decl::Function { body, .. } => {
-                    match &body[0] {
+                    match &body[0].node {
                         Stmt::Expr(Expr::BinOp { op, .. }) => {
                             assert_eq!(*op, expected_op, "failed for expr: {}", expr_str);
                         }
@@ -1737,11 +1745,11 @@ mod tests {
         match &prog.declarations[0] {
             Decl::Function { body, .. } => {
                 assert_eq!(body.len(), 1);
-                match &body[0] {
+                match &body[0].node {
                     Stmt::Match { arms, .. } => {
                         assert_eq!(arms.len(), 2);
                         // Second arm body should be a nested match statement
-                        assert!(matches!(&arms[1].body[0], Stmt::Match { .. }));
+                        assert!(matches!(&arms[1].body[0].node, Stmt::Match { .. }));
                     }
                     _ => panic!("expected match"),
                 }
@@ -1756,7 +1764,7 @@ mod tests {
         match &prog.declarations[0] {
             Decl::Function { body, .. } => {
                 // Should be: +(*(+(x,1), 2), 3)
-                match &body[0] {
+                match &body[0].node {
                     Stmt::Expr(Expr::BinOp { op: BinOp::Add, left, .. }) => {
                         match &**left {
                             Expr::BinOp { op: BinOp::Multiply, left: inner, .. } => {
@@ -1954,7 +1962,7 @@ mod tests {
         let prog = parse_str("f x:n>R n t;g ~x");
         match &prog.declarations[0] {
             Decl::Function { body, .. } => {
-                match &body[0] {
+                match &body[0].node {
                     Stmt::Expr(Expr::Call { function, args }) => {
                         assert_eq!(function, "g");
                         assert!(matches!(&args[0], Expr::Ok(_)));
@@ -1972,7 +1980,7 @@ mod tests {
         let prog = parse_str("f x:n>R n t;g ^x");
         match &prog.declarations[0] {
             Decl::Function { body, .. } => {
-                match &body[0] {
+                match &body[0].node {
                     Stmt::Expr(Expr::Call { function, args }) => {
                         assert_eq!(function, "g");
                         assert!(matches!(&args[0], Expr::Err(_)));
@@ -2010,7 +2018,7 @@ mod tests {
         let prog = parse_str("f x:b>n;x{42}");
         match &prog.declarations[0] {
             Decl::Function { body, .. } => {
-                assert!(matches!(&body[0], Stmt::Guard { negated: false, .. }),
+                assert!(matches!(&body[0].node, Stmt::Guard { negated: false, .. }),
                     "expected non-negated guard, got {:?}", body[0]);
             }
             _ => panic!("expected function"),
@@ -2059,7 +2067,7 @@ mod tests {
         let prog = parse_str("f>n;?{1:;}");
         match &prog.declarations[0] {
             Decl::Function { body, .. } => {
-                match &body[0] {
+                match &body[0].node {
                     Stmt::Match { arms, .. } => {
                         assert_eq!(arms.len(), 1);
                         assert_eq!(arms[0].body.len(), 0); // empty body
@@ -2078,7 +2086,7 @@ mod tests {
         let prog = parse_str("f>n;?0{_:1;}");
         match &prog.declarations[0] {
             Decl::Function { body, .. } => {
-                match &body[0] {
+                match &body[0].node {
                     Stmt::Match { arms, .. } => {
                         assert_eq!(arms.len(), 1);
                         assert_eq!(arms[0].body.len(), 1);

@@ -127,7 +127,27 @@ impl From<&crate::verify::VerifyError> for Diagnostic {
 
 impl From<&crate::interpreter::RuntimeError> for Diagnostic {
     fn from(e: &crate::interpreter::RuntimeError) -> Self {
-        Diagnostic::error(&e.message).with_code(e.code)
+        let mut d = Diagnostic::error(&e.message).with_code(e.code);
+        if let Some(span) = e.span {
+            d = d.with_span(span, "here");
+        }
+        for name in &e.call_stack {
+            d = d.with_note(format!("called from '{name}'"));
+        }
+        d
+    }
+}
+
+impl From<&crate::vm::VmRuntimeError> for Diagnostic {
+    fn from(e: &crate::vm::VmRuntimeError) -> Self {
+        let mut d = Diagnostic::from(&e.error);
+        if let Some(span) = e.span {
+            d = d.with_span(span, "here");
+        }
+        for name in &e.call_stack {
+            d = d.with_note(format!("called from '{name}'"));
+        }
+        d
     }
 }
 
@@ -262,11 +282,46 @@ mod tests {
 
     #[test]
     fn from_runtime_error() {
-        let e = crate::interpreter::RuntimeError { code: "ILO-R003", message: "division by zero".to_string() };
+        let e = crate::interpreter::RuntimeError {
+            code: "ILO-R003",
+            message: "division by zero".to_string(),
+            span: None,
+            call_stack: Vec::new(),
+        };
         let d = Diagnostic::from(&e);
         assert!(d.message.contains("division by zero"));
-        assert!(d.labels.is_empty()); // no span for runtime errors
+        assert!(d.labels.is_empty()); // no span when RuntimeError.span is None
         assert_eq!(d.code, Some("ILO-R003"));
+    }
+
+    #[test]
+    fn from_runtime_error_with_span() {
+        use crate::ast::Span;
+        let e = crate::interpreter::RuntimeError {
+            code: "ILO-R003",
+            message: "division by zero".to_string(),
+            span: Some(Span { start: 5, end: 10 }),
+            call_stack: vec!["f".to_string()],
+        };
+        let d = Diagnostic::from(&e);
+        assert!(d.message.contains("division by zero"));
+        assert_eq!(d.labels.len(), 1);
+        assert_eq!(d.labels[0].span, Span { start: 5, end: 10 });
+        assert!(d.notes.iter().any(|n| n.contains("'f'")));
+    }
+
+    #[test]
+    fn from_vm_runtime_error() {
+        use crate::ast::Span;
+        let e = crate::vm::VmRuntimeError {
+            error: crate::vm::VmError::DivisionByZero,
+            span: Some(Span { start: 3, end: 6 }),
+            call_stack: vec!["g".to_string()],
+        };
+        let d = Diagnostic::from(&e);
+        assert_eq!(d.code, Some("ILO-R003"));
+        assert_eq!(d.labels.len(), 1);
+        assert!(d.notes.iter().any(|n| n.contains("'g'")));
     }
 
     #[test]

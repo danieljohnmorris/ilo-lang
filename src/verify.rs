@@ -363,10 +363,10 @@ impl VerifyContext {
         }
     }
 
-    fn verify_body(&mut self, func: &str, scope: &mut Scope, stmts: &[Stmt]) -> Ty {
+    fn verify_body(&mut self, func: &str, scope: &mut Scope, stmts: &[Spanned<Stmt>]) -> Ty {
         let mut last_ty = Ty::Nil;
-        for stmt in stmts {
-            last_ty = self.verify_stmt(func, scope, stmt);
+        for spanned in stmts {
+            last_ty = self.verify_stmt(func, scope, &spanned.node);
         }
         last_ty
     }

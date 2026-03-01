@@ -21,6 +21,15 @@ pub enum VmError {
 
 type VmResult<T> = Result<T, VmError>;
 
+/// VM error with source location and call-stack context.
+#[derive(Debug)]
+pub struct VmRuntimeError {
+    pub error: VmError,
+    pub span: Option<crate::ast::Span>,
+    /// Call stack: function names from outermost to innermost.
+    pub call_stack: Vec<String>,
+}
+
 #[derive(Debug, thiserror::Error)]
 pub enum CompileError {
     #[error("undefined variable: {name}")]
@@ -120,11 +129,12 @@ pub struct Chunk {
     #[allow(dead_code)] // available for introspection/debugging tools
     pub param_count: u8,
     pub reg_count: u8,
+    pub spans: Vec<crate::ast::Span>,
 }
 
 impl Chunk {
     fn new(param_count: u8) -> Self {
-        Chunk { code: Vec::new(), constants: Vec::new(), param_count, reg_count: param_count }
+        Chunk { code: Vec::new(), constants: Vec::new(), param_count, reg_count: param_count, spans: Vec::new() }
     }
 
     fn add_const(&mut self, val: Value) -> u16 {
@@ -150,9 +160,10 @@ impl Chunk {
         idx as u16
     }
 
-    fn emit(&mut self, inst: u32) -> usize {
+    fn emit(&mut self, inst: u32, span: crate::ast::Span) -> usize {
         let idx = self.code.len();
         self.code.push(inst);
+        self.spans.push(span);
         idx
     }
 
@@ -204,6 +215,7 @@ struct RegCompiler {
     max_reg: u8,
     reg_is_num: [bool; 256],  // track which registers are known numeric
     first_error: Option<CompileError>,
+    current_span: crate::ast::Span,
 }
 
 impl RegCompiler {
@@ -217,6 +229,7 @@ impl RegCompiler {
             max_reg: 0,
             reg_is_num: [false; 256],
             first_error: None,
+            current_span: crate::ast::Span::UNKNOWN,
         }
     }
 
@@ -241,11 +254,11 @@ impl RegCompiler {
     }
 
     fn emit_abc(&mut self, op: u8, a: u8, b: u8, c: u8) -> usize {
-        self.current.emit(encode_abc(op, a, b, c))
+        self.current.emit(encode_abc(op, a, b, c), self.current_span)
     }
 
     fn emit_abx(&mut self, op: u8, a: u8, bx: u16) -> usize {
-        self.current.emit(encode_abx(op, a, bx))
+        self.current.emit(encode_abx(op, a, bx), self.current_span)
     }
 
     fn emit_jmpf(&mut self, reg: u8) -> usize {
@@ -330,11 +343,12 @@ impl RegCompiler {
         Ok(CompiledProgram { chunks: self.chunks, func_names: self.func_names, nan_constants: Vec::new() })
     }
 
-    fn compile_body(&mut self, stmts: &[Stmt]) -> Option<u8> {
+    fn compile_body(&mut self, stmts: &[crate::ast::Spanned<Stmt>]) -> Option<u8> {
         let saved_locals = self.locals.len();
         let mut result = None;
-        for stmt in stmts {
-            result = self.compile_stmt(stmt);
+        for spanned in stmts {
+            self.current_span = spanned.span;
+            result = self.compile_stmt(&spanned.node);
         }
         self.locals.truncate(saved_locals);
         result
@@ -1170,20 +1184,28 @@ pub fn compile(program: &Program) -> Result<CompiledProgram, CompileError> {
     Ok(prog)
 }
 
-pub fn run(compiled: &CompiledProgram, func_name: Option<&str>, args: Vec<Value>) -> VmResult<Value> {
+pub fn run(compiled: &CompiledProgram, func_name: Option<&str>, args: Vec<Value>) -> Result<Value, VmRuntimeError> {
     let target = match func_name {
         Some(name) => name.to_string(),
-        None => compiled.func_names.first().ok_or(VmError::NoFunctionsDefined)?.clone(),
+        None => compiled.func_names.first().ok_or_else(|| VmRuntimeError {
+            error: VmError::NoFunctionsDefined,
+            span: None,
+            call_stack: Vec::new(),
+        })?.clone(),
     };
     let func_idx = compiled.func_index(&target)
-        .ok_or(VmError::UndefinedFunction { name: target })?;
+        .ok_or_else(|| VmRuntimeError {
+            error: VmError::UndefinedFunction { name: target.clone() },
+            span: None,
+            call_stack: Vec::new(),
+        })?;
     VM::new(compiled).call(func_idx, args)
 }
 
 #[cfg(test)]
 pub fn compile_and_run(program: &Program, func_name: Option<&str>, args: Vec<Value>) -> Result<Value, Box<dyn std::error::Error>> {
     let compiled = compile(program)?;
-    Ok(run(&compiled, func_name, args)?)
+    Ok(run(&compiled, func_name, args).map_err(|e| e.error)?)
 }
 
 /// Reusable VM handle — avoids re-allocating stack/frames per call.
@@ -1206,7 +1228,7 @@ impl<'a> VmState<'a> {
             .ok_or_else(|| VmError::UndefinedFunction { name: func_name.to_string() })?;
         let nan_args: Vec<NanVal> = args.iter().map(NanVal::from_value).collect();
         self.vm.setup_call(func_idx, nan_args, 0);
-        self.vm.execute()
+        self.vm.execute()  // returns VmError for bench compatibility
     }
 }
 
@@ -1221,6 +1243,9 @@ struct VM<'a> {
     program: &'a CompiledProgram,
     stack: Vec<NanVal>,
     frames: Vec<CallFrame>,
+    /// Last dispatched instruction position — for error span capture.
+    last_ci: usize,
+    last_ip: usize,
 }
 
 impl<'a> Drop for VM<'a> {
@@ -1233,7 +1258,7 @@ impl<'a> Drop for VM<'a> {
 
 impl<'a> VM<'a> {
     fn new(program: &'a CompiledProgram) -> Self {
-        VM { program, stack: Vec::with_capacity(256), frames: Vec::with_capacity(64) }
+        VM { program, stack: Vec::with_capacity(256), frames: Vec::with_capacity(64), last_ci: 0, last_ip: 0 }
     }
 
     fn setup_call(&mut self, func_idx: u16, args: Vec<NanVal>, result_reg: u8) {
@@ -1257,10 +1282,22 @@ impl<'a> VM<'a> {
         });
     }
 
-    fn call(&mut self, func_idx: u16, args: Vec<Value>) -> VmResult<Value> {
+    fn call(&mut self, func_idx: u16, args: Vec<Value>) -> Result<Value, VmRuntimeError> {
         let nan_args: Vec<NanVal> = args.iter().map(NanVal::from_value).collect();
         self.setup_call(func_idx, nan_args, 0);
-        self.execute()
+        self.execute().map_err(|e| self.make_runtime_error(e))
+    }
+
+    /// Build a `VmRuntimeError` from a `VmError`, capturing span and call stack.
+    fn make_runtime_error(&self, error: VmError) -> VmRuntimeError {
+        let span = self.program.chunks.get(self.last_ci)
+            .and_then(|chunk| chunk.spans.get(self.last_ip))
+            .copied()
+            .filter(|s| *s != crate::ast::Span::UNKNOWN);
+        let call_stack: Vec<String> = self.frames.iter()
+            .filter_map(|f| self.program.func_names.get(f.chunk_idx as usize).cloned())
+            .collect();
+        VmRuntimeError { error, span, call_stack }
     }
 
     // reg!/reg_set! carry their own unsafe {} — clippy flags them as redundant when
@@ -1308,6 +1345,9 @@ impl<'a> VM<'a> {
 
             // SAFETY: ip < code.len() was verified by the bounds check above.
             let inst = unsafe { *code.get_unchecked(ip) };
+            // Track position for error span capture (before incrementing ip).
+            self.last_ci = ci;
+            self.last_ip = ip;
             ip += 1;
             let op = (inst >> 24) as u8;
 

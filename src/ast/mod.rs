@@ -24,14 +24,13 @@ impl Span {
 }
 
 /// Wraps a node with its source span. Transparent to serde (serializes as inner node only).
-#[allow(dead_code)] // forward infrastructure for PR 2 (parser-spans)
 #[derive(Debug, Clone, PartialEq)]
 pub struct Spanned<T> {
     pub node: T,
     pub span: Span,
 }
 
-#[allow(dead_code)] // forward infrastructure for PR 2 (parser-spans)
+#[allow(dead_code)] // used in tests and as codegen infrastructure
 impl<T> Spanned<T> {
     pub fn new(node: T, span: Span) -> Self {
         Spanned { node, span }
@@ -90,7 +89,7 @@ pub enum Decl {
         name: String,
         params: Vec<Param>,
         return_type: Type,
-        body: Vec<Stmt>,
+        body: Vec<Spanned<Stmt>>,
         #[serde(skip)]
         span: Span,
     },
@@ -134,7 +133,7 @@ pub enum Stmt {
     Guard {
         condition: Expr,
         negated: bool,
-        body: Vec<Stmt>,
+        body: Vec<Spanned<Stmt>>,
     },
 
     /// `?expr{arms}` or `?{arms}`
@@ -147,7 +146,7 @@ pub enum Stmt {
     ForEach {
         binding: String,
         collection: Expr,
-        body: Vec<Stmt>,
+        body: Vec<Spanned<Stmt>>,
     },
 
     /// Expression as statement (last expr is return value)
@@ -157,7 +156,7 @@ pub enum Stmt {
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct MatchArm {
     pub pattern: Pattern,
-    pub body: Vec<Stmt>,
+    pub body: Vec<Spanned<Stmt>>,
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -362,7 +361,7 @@ mod tests {
             name: "f".to_string(),
             params: vec![],
             return_type: Type::Number,
-            body: vec![Stmt::Expr(Expr::Literal(Literal::Number(1.0)))],
+            body: vec![Spanned::unknown(Stmt::Expr(Expr::Literal(Literal::Number(1.0))))],
             span: Span { start: 0, end: 10 },
         };
         let json = serde_json::to_string(&decl).unwrap();
@@ -388,7 +387,7 @@ mod tests {
                 name: "f".to_string(),
                 params: vec![Param { name: "x".to_string(), ty: Type::Number }],
                 return_type: Type::Number,
-                body: vec![Stmt::Expr(Expr::Ref("x".to_string()))],
+                body: vec![Spanned::unknown(Stmt::Expr(Expr::Ref("x".to_string())))],
                 span: Span { start: 0, end: 13 },
             }],
             source: Some("f x:n>n;x".to_string()),

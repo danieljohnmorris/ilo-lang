@@ -60,15 +60,15 @@ fn emit_decl(out: &mut String, decl: &Decl, level: usize) {
     }
 }
 
-fn emit_body(out: &mut String, stmts: &[Stmt], level: usize, is_fn_body: bool) {
+fn emit_body(out: &mut String, stmts: &[Spanned<Stmt>], level: usize, is_fn_body: bool) {
     if stmts.is_empty() {
         indent(out, level);
         out.push_str("pass\n");
         return;
     }
-    for (i, stmt) in stmts.iter().enumerate() {
+    for (i, spanned) in stmts.iter().enumerate() {
         let is_last = i == stmts.len() - 1;
-        emit_stmt(out, stmt, level, is_fn_body && is_last);
+        emit_stmt(out, &spanned.node, level, is_fn_body && is_last);
     }
 }
 
@@ -168,7 +168,7 @@ fn arm_needs_statements(arm: &MatchArm) -> bool {
         _ => {}
     }
     arm.body.len() > 1
-        || arm.body.first().is_some_and(|s| matches!(s, Stmt::Let { .. }))
+        || arm.body.first().is_some_and(|s| matches!(s.node, Stmt::Let { .. }))
 }
 
 /// Emit an expression, potentially writing preamble statements to `out`.
@@ -360,14 +360,15 @@ fn emit_match_expr_complex(out: &mut String, level: usize, subject: &Option<Box<
 }
 
 /// Emit a match arm body, assigning the last expression to a temp variable.
-fn emit_match_arm_body_to_tmp(out: &mut String, body: &[Stmt], level: usize, tmp: &str) {
+fn emit_match_arm_body_to_tmp(out: &mut String, body: &[Spanned<Stmt>], level: usize, tmp: &str) {
     if body.is_empty() {
         indent(out, level);
         out.push_str(&format!("{} = None\n", tmp));
         return;
     }
-    for (i, stmt) in body.iter().enumerate() {
+    for (i, spanned) in body.iter().enumerate() {
         let is_last = i == body.len() - 1;
+        let stmt = &spanned.node;
         if is_last {
             // Last statement: assign its value to tmp instead of emitting as-is
             match stmt {
@@ -389,9 +390,9 @@ fn emit_match_arm_body_to_tmp(out: &mut String, body: &[Stmt], level: usize, tmp
     }
 }
 
-fn emit_arm_value(out: &mut String, level: usize, body: &[Stmt]) -> String {
+fn emit_arm_value(out: &mut String, level: usize, body: &[Spanned<Stmt>]) -> String {
     if let Some(last) = body.last() {
-        match last {
+        match &last.node {
             Stmt::Expr(e) => emit_expr(out, level, e),
             _ => "None".to_string(),
         }
@@ -845,7 +846,7 @@ mod tests {
         // Wildcard with multi-stmt body (needs_statements=true) is arm index 0
         // Note: wildcard must come LAST in actual ilo programs; here we test codegen behavior only
         // We pass AST directly to bypass parser validation of arm order
-        use crate::ast::{Expr, Literal, MatchArm, Pattern, Stmt};
+        use crate::ast::{Expr, Literal, MatchArm, Pattern, Spanned, Stmt};
         let tokens: Vec<crate::lexer::Token> = lexer::lex("f>n;42")
             .unwrap().into_iter().map(|(t, _)| t).collect();
         let mut prog = parser::parse_tokens(tokens).unwrap();
@@ -857,14 +858,14 @@ mod tests {
                 MatchArm {
                     pattern: Pattern::Wildcard,
                     body: vec![
-                        Stmt::Let { name: "z".to_string(), value: Expr::Literal(Literal::Number(1.0)) },
-                        Stmt::Expr(Expr::Ref("z".to_string())),
+                        Spanned::unknown(Stmt::Let { name: "z".to_string(), value: Expr::Literal(Literal::Number(1.0)) }),
+                        Spanned::unknown(Stmt::Expr(Expr::Ref("z".to_string()))),
                     ],
                 },
             ],
         };
         if let crate::ast::Decl::Function { ref mut body, .. } = prog.declarations[0] {
-            *body = vec![Stmt::Expr(match_expr)];
+            *body = vec![Spanned::unknown(Stmt::Expr(match_expr))];
         }
         let py = emit(&prog);
         assert!(py.contains("_m"), "expected temp var in: {py}");
@@ -874,7 +875,7 @@ mod tests {
     fn emit_match_arm_body_to_tmp_empty_body() {
         // Cover L365-367: emit_match_arm_body_to_tmp called with empty body.
         // Inject a complex match (Ok pattern → needs_statements=true) with one arm having empty body.
-        use crate::ast::{Expr, Literal, MatchArm, Pattern, Stmt};
+        use crate::ast::{Expr, Literal, MatchArm, Pattern, Spanned, Stmt};
         let tokens: Vec<crate::lexer::Token> = lexer::lex("f>n;42")
             .unwrap()
             .into_iter()
@@ -891,12 +892,12 @@ mod tests {
                 },
                 MatchArm {
                     pattern: Pattern::Wildcard,
-                    body: vec![Stmt::Expr(Expr::Literal(Literal::Number(0.0)))],
+                    body: vec![Spanned::unknown(Stmt::Expr(Expr::Literal(Literal::Number(0.0))))],
                 },
             ],
         };
         if let crate::ast::Decl::Function { ref mut body, .. } = prog.declarations[0] {
-            *body = vec![Stmt::Expr(match_expr)];
+            *body = vec![Spanned::unknown(Stmt::Expr(match_expr))];
         }
         let py = emit(&prog);
         // The arm body was empty → `_m = None` was emitted
@@ -907,7 +908,7 @@ mod tests {
     fn emit_arm_value_non_expr_last_stmt() {
         // Cover L396: emit_arm_value where body.last() is not Stmt::Expr.
         // Inject a simple match arm (arm_needs_statements=false) with body=[Stmt::Guard].
-        use crate::ast::{Expr, Literal, MatchArm, Pattern, Stmt};
+        use crate::ast::{Expr, Literal, MatchArm, Pattern, Spanned, Stmt};
         let tokens: Vec<crate::lexer::Token> = lexer::lex("f>n;42")
             .unwrap()
             .into_iter()
@@ -920,20 +921,20 @@ mod tests {
             arms: vec![
                 MatchArm {
                     pattern: Pattern::Literal(Literal::Number(1.0)),
-                    body: vec![Stmt::Guard {
+                    body: vec![Spanned::unknown(Stmt::Guard {
                         condition: Expr::Literal(Literal::Bool(true)),
                         negated: false,
                         body: vec![],
-                    }],
+                    })],
                 },
                 MatchArm {
                     pattern: Pattern::Wildcard,
-                    body: vec![Stmt::Expr(Expr::Literal(Literal::Number(0.0)))],
+                    body: vec![Spanned::unknown(Stmt::Expr(Expr::Literal(Literal::Number(0.0))))],
                 },
             ],
         };
         if let crate::ast::Decl::Function { ref mut body, .. } = prog.declarations[0] {
-            *body = vec![Stmt::Expr(match_expr)];
+            *body = vec![Spanned::unknown(Stmt::Expr(match_expr))];
         }
         let py = emit(&prog);
         // The Guard arm returns None from emit_arm_value (L396)
@@ -944,7 +945,7 @@ mod tests {
     fn emit_arm_value_empty_body() {
         // Cover L399: emit_arm_value where body is empty (body.last() returns None).
         // Inject a simple match arm (arm_needs_statements=false) with body=[].
-        use crate::ast::{Expr, Literal, MatchArm, Pattern, Stmt};
+        use crate::ast::{Expr, Literal, MatchArm, Pattern, Spanned, Stmt};
         let tokens: Vec<crate::lexer::Token> = lexer::lex("f>n;42")
             .unwrap()
             .into_iter()
@@ -961,12 +962,12 @@ mod tests {
                 },
                 MatchArm {
                     pattern: Pattern::Wildcard,
-                    body: vec![Stmt::Expr(Expr::Literal(Literal::Number(0.0)))],
+                    body: vec![Spanned::unknown(Stmt::Expr(Expr::Literal(Literal::Number(0.0))))],
                 },
             ],
         };
         if let crate::ast::Decl::Function { ref mut body, .. } = prog.declarations[0] {
-            *body = vec![Stmt::Expr(match_expr)];
+            *body = vec![Spanned::unknown(Stmt::Expr(match_expr))];
         }
         let py = emit(&prog);
         // The empty arm returns None from emit_arm_value (L399)

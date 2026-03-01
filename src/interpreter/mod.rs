@@ -53,11 +53,13 @@ impl std::fmt::Display for Value {
 pub struct RuntimeError {
     pub code: &'static str,
     pub message: String,
+    pub span: Option<crate::ast::Span>,
+    pub call_stack: Vec<String>,
 }
 
 impl RuntimeError {
     fn new(code: &'static str, msg: impl Into<String>) -> Self {
-        RuntimeError { code, message: msg.into() }
+        RuntimeError { code, message: msg.into(), span: None, call_stack: Vec::new() }
     }
 }
 
@@ -66,6 +68,7 @@ type Result<T> = std::result::Result<T, RuntimeError>;
 struct Env {
     scopes: Vec<HashMap<String, Value>>,
     functions: HashMap<String, Decl>,
+    call_stack: Vec<String>,
 }
 
 impl Env {
@@ -73,6 +76,7 @@ impl Env {
         Env {
             scopes: vec![HashMap::new()],
             functions: HashMap::new(),
+            call_stack: Vec::new(),
         }
     }
 
@@ -214,7 +218,7 @@ fn call_function(env: &mut Env, name: &str, args: Vec<Value>) -> Result<Value> {
 
     let decl = env.function(name)?;
     match decl {
-        Decl::Function { params, body, .. } => {
+        Decl::Function { params, body, name: func_name, .. } => {
             if args.len() != params.len() {
                 return Err(RuntimeError::new("ILO-R004", format!(
                     "{}: expected {} args, got {}", name, params.len(), args.len()
@@ -224,7 +228,9 @@ fn call_function(env: &mut Env, name: &str, args: Vec<Value>) -> Result<Value> {
             for (param, arg) in params.iter().zip(args) {
                 env.set(&param.name, arg);
             }
+            env.call_stack.push(func_name.clone());
             let result = eval_body(env, &body);
+            env.call_stack.pop();
             env.pop_scope();
             match result? {
                 BodyResult::Value(v) | BodyResult::Return(v) => Ok(v),
@@ -244,14 +250,21 @@ fn call_function(env: &mut Env, name: &str, args: Vec<Value>) -> Result<Value> {
     }
 }
 
-fn eval_body(env: &mut Env, stmts: &[Stmt]) -> Result<BodyResult> {
+fn eval_body(env: &mut Env, stmts: &[Spanned<Stmt>]) -> Result<BodyResult> {
     let mut last = Value::Nil;
-    for (i, stmt) in stmts.iter().enumerate() {
+    for (i, spanned) in stmts.iter().enumerate() {
         let is_last = i == stmts.len() - 1;
-        match eval_stmt(env, stmt, is_last)? {
-            Some(BodyResult::Return(v)) => return Ok(BodyResult::Return(v)),
-            Some(BodyResult::Value(v)) => last = v,
-            None => {}
+        match eval_stmt(env, &spanned.node, is_last) {
+            Ok(Some(BodyResult::Return(v))) => return Ok(BodyResult::Return(v)),
+            Ok(Some(BodyResult::Value(v))) => last = v,
+            Ok(None) => {}
+            Err(mut e) => {
+                if e.span.is_none() { e.span = Some(spanned.span); }
+                if e.call_stack.is_empty() {
+                    e.call_stack = env.call_stack.clone();
+                }
+                return Err(e);
+            }
         }
     }
     Ok(BodyResult::Value(last))
