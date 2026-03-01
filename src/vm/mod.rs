@@ -108,6 +108,7 @@ pub(crate) const OP_MIN: u8 = 43;        // R[A] = min(R[B], R[C])
 pub(crate) const OP_MAX: u8 = 44;        // R[A] = max(R[B], R[C])
 pub(crate) const OP_FLR: u8 = 45;        // R[A] = floor(R[B])
 pub(crate) const OP_CEL: u8 = 46;        // R[A] = ceil(R[B])
+pub(crate) const OP_GET: u8 = 47;        // R[A] = http_get(R[B])  (returns R t t)
 
 // ABx mode — register + 16-bit operand
 pub(crate) const OP_LOADK: u8 = 20;
@@ -733,6 +734,22 @@ impl RegCompiler {
                     let op = if function == "flr" { OP_FLR } else { OP_CEL };
                     self.emit_abc(op, ra, rb, 0);
                     self.reg_is_num[ra as usize] = true;
+                    return ra;
+                }
+                if function == "get" && args.len() == 1 {
+                    let rb = self.compile_expr(&args[0]);
+                    let ra = self.alloc_reg();
+                    self.emit_abc(OP_GET, ra, rb, 0);
+                    // get returns R t t — handle auto-unwrap
+                    if *unwrap {
+                        let check_reg = self.alloc_reg();
+                        self.emit_abc(OP_ISOK, check_reg, ra, 0);
+                        let skip_ret = self.emit_jmpt(check_reg);
+                        self.emit_abx(OP_RET, ra, 0);
+                        self.current.patch_jump(skip_ret);
+                        self.emit_abc(OP_UNWRAP, ra, ra, 0);
+                        self.next_reg = ra + 1;
+                    }
                     return ra;
                 }
 
@@ -2042,6 +2059,26 @@ impl<'a> VM<'a> {
                     let n = v.as_number();
                     let result = if op == OP_FLR { n.floor() } else { n.ceil() };
                     reg_set!(a, NanVal::number(result));
+                }
+                OP_GET => {
+                    let a = ((inst >> 16) & 0xFF) as usize + base;
+                    let b = ((inst >> 8) & 0xFF) as usize + base;
+                    let v = reg!(b);
+                    if !v.is_string() {
+                        return Err(VmError::Type("get requires a string"));
+                    }
+                    #[cfg(feature = "http")]
+                    let result = {
+                        // SAFETY: is_string() confirmed heap-tagged string with live RC.
+                        let url = unsafe { match v.as_heap_ref() { HeapObj::Str(s) => s, _ => unreachable!() } };
+                        match minreq::get(url.as_str()).send() {
+                            Ok(resp) => NanVal::heap_ok(NanVal::heap_string(resp.as_str().unwrap_or("").to_string())),
+                            Err(e) => NanVal::heap_err(NanVal::heap_string(e.to_string())),
+                        }
+                    };
+                    #[cfg(not(feature = "http"))]
+                    let result = NanVal::heap_err(NanVal::heap_string("http feature not enabled".to_string()));
+                    reg_set!(a, result);
                 }
                 OP_LISTAPPEND => {
                     let a = ((inst >> 16) & 0xFF) as usize + base;
@@ -3761,5 +3798,25 @@ mod tests {
         let result = vm_run("f>b;!3", Some("f"), vec![]);
         // !3 → OP_NOT on Number(3): nanval_truthy(3.0) = true → !true = false
         assert_eq!(result, Value::Bool(false));
+    }
+
+    #[test]
+    fn vm_get_compiles() {
+        // Verify that `get` compiles to OP_GET (doesn't fall through to OP_CALL)
+        let prog = parse_program(r#"f url:t>R t t;get url"#);
+        let compiled = compile(&prog).unwrap();
+        let chunk = &compiled.chunks[0];
+        let has_get_op = chunk.code.iter().any(|inst| (inst >> 24) as u8 == OP_GET);
+        assert!(has_get_op, "expected OP_GET in bytecode");
+    }
+
+    #[test]
+    fn vm_dollar_desugars_to_get() {
+        // $url should compile the same as get url
+        let prog = parse_program(r#"f url:t>R t t;$url"#);
+        let compiled = compile(&prog).unwrap();
+        let chunk = &compiled.chunks[0];
+        let has_get_op = chunk.code.iter().any(|inst| (inst >> 24) as u8 == OP_GET);
+        assert!(has_get_op, "expected OP_GET in bytecode from $ syntax");
     }
 }

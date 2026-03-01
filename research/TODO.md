@@ -125,11 +125,11 @@ Plumbing first — make tool calls actually do things. HTTP-native (tools are AP
 - [x] Fix VM empty-chunk bug — tool `Decl` compiles stub chunk (LOADK Nil → WRAPOK → RET), returns `Ok(Nil)` matching interpreter
 - [x] Fix VM test helper `parse_program` discarding token spans (broke auto-unwrap `!` adjacency check)
 
-#### D1b. HTTP builtin: `get` / `$`
-- [ ] `get url` / `$url` — built-in HTTP GET, returns `R t t` (ok=response body, err=error message)
-- [ ] `$` is the terse alias for `get` (same AST node, like `help`/`-h`)
-- [ ] Respects the curl model: one thing in, one thing out, composes with everything
-- [ ] 3 chars / 1 token. `d=get url;d.name` beats `curl -s url | jq '.name'`
+#### D1b. HTTP builtin: `get` / `$` ✅
+- [x] `get url` / `$url` — built-in HTTP GET, returns `R t t` (ok=response body, err=error message)
+- [x] `$` is the terse alias for `get` (same AST node, like `help`/`-h`)
+- [x] Respects the curl model: one thing in, one thing out, composes with everything
+- [x] 3 chars / 1 token. `d=get url;d.name` beats `curl -s url | jq '.name'`
 
 #### D1c. Auto-unwrap operator `!` ✅
 - [x] `get! url` — unwrap ok value, propagate err to caller (like Rust's `?`)

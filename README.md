@@ -41,7 +41,7 @@ Across 25 expression patterns: **22% fewer tokens, 42% fewer characters** vs inf
 1. **Token-conservative** — every choice evaluated against total token cost across the full loop: generation, retries, error feedback, context loading.
 2. **Constrained** — small vocabulary, closed world, one way to do things. Fewer valid next-tokens = fewer wrong choices = fewer retries.
 3. **Self-contained** — each unit carries its own context: deps, types, rules. The spec travels with the program.
-4. **Language-agnostic** — structural tokens (`@`, `>`, `?`, `^`, `~`, `!`) over English words.
+4. **Language-agnostic** — structural tokens (`@`, `>`, `?`, `^`, `~`, `!`, `$`) over English words.
 5. **Graph-native** — programs express relationships (calls, depends-on, has-type). Navigable as a graph, not just readable as linear text.
 
 See [MANIFESTO.md](MANIFESTO.md) for the full rationale.
@@ -161,6 +161,21 @@ ilo 'inner x:n>R n t;~x outer x:n>R n t;~(inner! x)' 42
 # → 42
 ```
 
+**HTTP GET** — `get url` or `$url` (terse alias). Returns `R t t` (Ok=body, Err=error message):
+```bash
+# fetch a URL, get Ok/Err result
+ilo 'f url:t>R t t;get url' "http://httpbin.org/get"
+# → ~{ ... }
+
+# $ is shorthand for get
+ilo 'f url:t>R t t;$url' "http://httpbin.org/get"
+# → ~{ ... }
+
+# auto-unwrap with $! — 18 chars for a verified, error-handled HTTP call
+ilo 'f url:t>R t t;~($!url)' "http://httpbin.org/get"
+# → ~{ ... }
+```
+
 **Error output formats:**
 ```bash
 ilo 'code' -a               # ANSI colour (default for TTY)
@@ -187,7 +202,7 @@ ilo program.ilo --bench tot 10 20 30  # benchmark
 cargo test
 ```
 
-800 tests: lexer, parser, interpreter, VM, verifier, codegen, diagnostic, formatter, and CLI integration tests.
+818 tests: lexer, parser, interpreter, VM, verifier, codegen, diagnostic, formatter, and CLI integration tests.
 
 ## Documentation
 

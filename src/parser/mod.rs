@@ -746,6 +746,8 @@ impl Parser {
                     operand: Box::new(operand),
                 })
             }
+            // Dollar prefix: $expr → get expr
+            Some(Token::Dollar) => self.parse_dollar(),
             // Prefix binary operators: +a b, *a b, etc.
             Some(Token::Plus) | Some(Token::Star) | Some(Token::Slash)
             | Some(Token::Greater) | Some(Token::Less) | Some(Token::GreaterEq)
@@ -758,6 +760,26 @@ impl Parser {
             Some(Token::Question) => self.parse_match_expr(),
             _ => self.parse_call_or_atom(),
         }
+    }
+
+    /// `$expr` → `get expr`, `$!expr` → `get! expr`
+    fn parse_dollar(&mut self) -> Result<Expr> {
+        self.advance(); // consume $
+        // Check for $! (auto-unwrap)
+        let unwrap = self.peek() == Some(&Token::Bang) && {
+            let prev = self.prev_span();
+            let bang = self.peek_span();
+            prev.end > 0 && bang.start == prev.end
+        };
+        if unwrap {
+            self.advance(); // consume !
+        }
+        let arg = self.parse_operand()?;
+        Ok(Expr::Call {
+            function: "get".to_string(),
+            args: vec![arg],
+            unwrap,
+        })
     }
 
     /// Parse match as expression: `?expr{arms}` or `?{arms}`
@@ -969,6 +991,7 @@ impl Parser {
                     | Some(Token::Bang)
                     | Some(Token::Tilde)
                     | Some(Token::Caret)
+                    | Some(Token::Dollar)
             )
     }
 
@@ -1002,6 +1025,7 @@ impl Parser {
                 let inner = self.parse_operand()?;
                 Ok(Expr::Err(Box::new(inner)))
             }
+            Some(Token::Dollar) => self.parse_dollar(),
             _ => self.parse_atom(),
         }
     }
@@ -2412,6 +2436,59 @@ mod tests {
                         assert!(unwrap);
                     }
                     _ => panic!("expected unwrap call expr, got {:?}", body[0]),
+                }
+            }
+            _ => panic!("expected function"),
+        }
+    }
+
+    #[test]
+    fn parse_dollar_desugars_to_get() {
+        let prog = parse_str(r#"f url:t>R t t;$url"#);
+        match &prog.declarations[0] {
+            Decl::Function { body, .. } => {
+                match &body[0].node {
+                    Stmt::Expr(Expr::Call { function, args, unwrap }) => {
+                        assert_eq!(function, "get");
+                        assert_eq!(args.len(), 1);
+                        assert!(!unwrap);
+                    }
+                    _ => panic!("expected get call, got {:?}", body[0]),
+                }
+            }
+            _ => panic!("expected function"),
+        }
+    }
+
+    #[test]
+    fn parse_dollar_bang_desugars_to_get_unwrap() {
+        let prog = parse_str(r#"f url:t>t;$!url"#);
+        match &prog.declarations[0] {
+            Decl::Function { body, .. } => {
+                match &body[0].node {
+                    Stmt::Expr(Expr::Call { function, args, unwrap }) => {
+                        assert_eq!(function, "get");
+                        assert_eq!(args.len(), 1);
+                        assert!(unwrap);
+                    }
+                    _ => panic!("expected get! call, got {:?}", body[0]),
+                }
+            }
+            _ => panic!("expected function"),
+        }
+    }
+
+    #[test]
+    fn parse_dollar_with_string_literal() {
+        let prog = parse_str(r#"f>R t t;$"http://example.com""#);
+        match &prog.declarations[0] {
+            Decl::Function { body, .. } => {
+                match &body[0].node {
+                    Stmt::Expr(Expr::Call { function, args, .. }) => {
+                        assert_eq!(function, "get");
+                        assert!(matches!(&args[0], Expr::Literal(Literal::Text(_))));
+                    }
+                    _ => panic!("expected get call, got {:?}", body[0]),
                 }
             }
             _ => panic!("expected function"),

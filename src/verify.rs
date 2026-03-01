@@ -149,6 +149,7 @@ const BUILTINS: &[(&str, &[&str], &str)] = &[
     ("cel", &["n"], "n"),
     ("min", &["n", "n"], "n"),
     ("max", &["n", "n"], "n"),
+    ("get", &["t"], "R t t"),
 ];
 
 fn builtin_arity(name: &str) -> Option<usize> {
@@ -232,6 +233,20 @@ fn builtin_check_args(name: &str, arg_types: &[Ty], func_ctx: &str, span: Option
                 }
             }
             (Ty::Number, errors)
+        }
+        "get" => {
+            if let Some(arg) = arg_types.first()
+                && !compatible(arg, &Ty::Text)
+            {
+                errors.push(VerifyError {
+                    code: "ILO-T013",
+                    function: func_ctx.to_string(),
+                    message: format!("'get' expects t, got {arg}"),
+                    hint: None,
+                    span,
+                });
+            }
+            (Ty::Result(Box::new(Ty::Text), Box::new(Ty::Text)), errors)
         }
         _ => (Ty::Unknown, errors),
     }
@@ -2057,5 +2072,32 @@ mod tests {
         };
         let errors = verify(&prog).unwrap_err();
         assert!(errors.iter().any(|e| e.code == "ILO-T026"), "expected T026, got: {:?}", errors);
+    }
+
+    #[test]
+    fn builtin_get_valid() {
+        assert!(parse_and_verify(r#"f url:t>R t t;get url"#).is_ok());
+    }
+
+    #[test]
+    fn builtin_get_wrong_type() {
+        let result = parse_and_verify("f x:n>R t t;get x");
+        assert!(result.is_err());
+        let errors = result.unwrap_err();
+        assert!(errors.iter().any(|e| e.message.contains("'get' expects t")));
+    }
+
+    #[test]
+    fn builtin_get_wrong_arity() {
+        let result = parse_and_verify(r#"f x:t y:t>R t t;get x y"#);
+        assert!(result.is_err());
+        let errors = result.unwrap_err();
+        assert!(errors.iter().any(|e| e.message.contains("arity")));
+    }
+
+    #[test]
+    fn dollar_desugars_to_get() {
+        // $url should parse and verify the same as get url
+        assert!(parse_and_verify(r#"f url:t>R t t;$url"#).is_ok());
     }
 }

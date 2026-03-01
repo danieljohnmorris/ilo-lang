@@ -1323,3 +1323,42 @@ fn unwrap_verifier_t026() {
     assert!(stderr.contains("T026") || stderr.contains("not a Result"),
         "expected T026 error, got: {}", stderr);
 }
+
+// --- HTTP get builtin + $ syntax ---
+
+#[test]
+fn get_verifier_wrong_type() {
+    // get with number arg should fail verification
+    let out = ilo()
+        .args(["f x:n>R t t;get x"])
+        .output()
+        .expect("failed to run ilo");
+    let stderr = String::from_utf8_lossy(&out.stderr);
+    assert!(stderr.contains("T013") || stderr.contains("expects t"),
+        "expected type error for get with number, got: {}", stderr);
+}
+
+#[test]
+fn dollar_parses_inline() {
+    // $"url" should parse and verify without error (returns AST when no args)
+    let out = ilo()
+        .args([r#"f url:t>R t t;$url"#])
+        .output()
+        .expect("failed to run ilo");
+    assert!(out.status.success(), "stderr: {}", String::from_utf8_lossy(&out.stderr));
+    let stdout = String::from_utf8_lossy(&out.stdout);
+    // No args → AST output
+    assert!(stdout.contains("get"), "expected 'get' in AST output, got: {}", stdout);
+}
+
+#[test]
+fn dollar_bang_parses_inline() {
+    // $!url should parse as get! url — enclosing function must return R t t for ! to verify
+    let out = ilo()
+        .args([r#"f url:t>R t t;~($!url)"#])
+        .output()
+        .expect("failed to run ilo");
+    assert!(out.status.success(), "stderr: {}", String::from_utf8_lossy(&out.stderr));
+    let stdout = String::from_utf8_lossy(&out.stdout);
+    assert!(stdout.contains("get"), "expected 'get' in AST output, got: {}", stdout);
+}

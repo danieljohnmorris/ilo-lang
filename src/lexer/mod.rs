@@ -69,6 +69,8 @@ pub enum Token {
     Caret,
     #[token("~")]
     Tilde,
+    #[token("$")]
+    Dollar,
 
     // Punctuation
     #[token(":")]
@@ -193,10 +195,10 @@ mod tests {
 
     #[test]
     fn lex_special_tokens() {
-        let source = "?@!^~";
+        let source = "?@!^~$";
         let tokens = lex(source).unwrap();
         let types: Vec<_> = tokens.iter().map(|(t, _)| t.clone()).collect();
-        assert_eq!(types, vec![Token::Question, Token::At, Token::Bang, Token::Caret, Token::Tilde]);
+        assert_eq!(types, vec![Token::Question, Token::At, Token::Bang, Token::Caret, Token::Tilde, Token::Dollar]);
     }
 
     #[test]
@@ -277,12 +279,9 @@ mod tests {
     }
 
     #[test]
-    fn lex_error_invalid_char() {
-        let result = lex("$");
-        assert!(result.is_err());
-        let err = result.unwrap_err();
-        assert_eq!(err.snippet, "$");
-        assert!(err.suggestion.contains("Unexpected character"));
+    fn lex_dollar_token() {
+        let tokens = lex("$").unwrap();
+        assert_eq!(tokens[0].0, Token::Dollar);
     }
 
     #[test]
@@ -301,7 +300,7 @@ mod tests {
 
     #[test]
     fn lex_suggest_fix_generic() {
-        let (code, suggestion) = super::lex_error_kind("$");
+        let (code, suggestion) = super::lex_error_kind("#");
         assert_eq!(code, "ILO-L001");
         assert!(suggestion.contains("Unexpected character"), "got: {}", suggestion);
     }

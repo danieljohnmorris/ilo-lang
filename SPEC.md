@@ -120,6 +120,18 @@ Called like functions, compiled to dedicated opcodes.
 | `max a b` | maximum of two numbers | `n` |
 | `flr n` | floor (round toward negative infinity) | `n` |
 | `cel n` | ceiling (round toward positive infinity) | `n` |
+| `get url` | HTTP GET | `R t t` |
+
+`get` returns `Ok(body)` on success, `Err(message)` on failure (connection error, timeout, DNS failure, etc). `$` is a terse alias:
+
+```
+get url          -- R t t: Ok=response body, Err=error message
+$url             -- same as get url
+get! url         -- auto-unwrap: Ok→body, Err→propagate to caller
+$!url            -- same as get! url
+```
+
+Behind the `http` feature flag (on by default). Without the feature, `get` returns `Err("http feature not enabled")`.
 
 ---
 

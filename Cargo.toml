@@ -5,7 +5,8 @@ edition = "2024"
 description = "ilo — a constructed language for AI agents"
 
 [features]
-default = ["cranelift"]
+default = ["cranelift", "http"]
+http = ["dep:minreq"]
 cranelift = ["dep:cranelift-codegen", "dep:cranelift-frontend", "dep:cranelift-jit", "dep:cranelift-module", "dep:cranelift-native", "dep:target-lexicon"]
 llvm = ["dep:inkwell"]
 
@@ -22,6 +23,7 @@ cranelift-module = { version = "0.116", optional = true }
 cranelift-native = { version = "0.116", optional = true }
 target-lexicon = { version = "0.12", optional = true }
 inkwell = { version = "0.5", features = ["llvm18-0"], optional = true }
+minreq = { version = "2.14", default-features = false, optional = true }
 
 [profile.release]
 strip = true
