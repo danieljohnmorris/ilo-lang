@@ -30,6 +30,18 @@ pub struct VmRuntimeError {
     pub call_stack: Vec<String>,
 }
 
+impl std::fmt::Display for VmRuntimeError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "{}", self.error)
+    }
+}
+
+impl std::error::Error for VmRuntimeError {
+    fn source(&self) -> Option<&(dyn std::error::Error + 'static)> {
+        Some(&self.error)
+    }
+}
+
 #[derive(Debug, thiserror::Error)]
 pub enum CompileError {
     #[error("undefined variable: {name}")]
