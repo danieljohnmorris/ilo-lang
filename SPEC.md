@@ -279,7 +279,7 @@ f>n;i=0;s=0;wh <i 5{i=+i 1;>=i 3{cnt};s=+s i};s   -- s = 3 (skips i>=3)
 
 `brk expr` provides an optional value (currently discarded — the loop result is the last body value before the break).
 
-Both `brk` and `cnt` work inside guards within loops. Using them outside a loop is a compile-time error (no-op in current implementation).
+Both `brk` and `cnt` work inside guards within loops. Using them outside a loop is a compile-time error (`ILO-T028`).
 
 ### Pipe Operator
 
