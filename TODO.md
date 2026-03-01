@@ -856,30 +856,40 @@ Agents call APIs. APIs return JSON. ilo can fetch JSON (`get url`) but can't do 
 
 G3 covers low-level process spawning with handles. But agents need a simple "run this command, give me the output" — like backticks in Perl/Ruby/shell or `subprocess.run` in Python.
 
-- [ ] `sh cmd` — run shell command, wait for completion, returns `R t t` (stdout or error). Stderr captured in error
-- [ ] `sh!` — auto-unwrap variant: `o=sh! "ls -la"`
-- [ ] Exit code: `sh` returns `Err` if non-zero exit. Ok body is stdout text
-- [ ] **vs G3 spawn:** `sh` is the simple one-shot version. `spawn` is for long-running processes you interact with. `sh "ls"` vs `h=spawn "node" "server.js"`
-- [ ] Shell selection: uses `/bin/sh -c` on Unix. Accepts full shell syntax (pipes, redirects)
+**Two forms:** `run` (builtin, verbose) and `` ` `` (backtick syntax, terse). Same relationship as `get url` and `$url`.
+
+- [ ] `run cmd` — run system command, wait for completion, returns `R t t` (stdout or error). Stderr captured in error
+- [ ] `run!` — auto-unwrap variant: `o=run! "ls -la"`
+- [ ] `` `cmd` `` — terse alias for `run "cmd"`. Backtick-delimited string is executed as a shell command, returns `R t t`
+- [ ] `` `!cmd` `` — terse auto-unwrap: `` o=`!ls -la` `` (or `o=run! "ls -la"`)
+- [ ] Exit code: `run` returns `Err` if non-zero exit. Ok body is stdout text
+- [ ] **vs G3 spawn:** `run` is the simple one-shot version. `spawn` is for long-running processes you interact with. `run "ls"` vs `h=spawn "node" "server.js"`
+- [ ] **Cross-platform shell selection:**
+  - macOS/Linux: `/bin/sh -c "..."`
+  - Windows: `cmd.exe /C "..."` (or `powershell -Command "..."` — configurable)
+  - Agent writes `run "git status"` — works everywhere. Platform-specific commands (`ls` vs `dir`) are the agent's problem, not the language's
 - [ ] Feature flag: `shell` feature (uses `std::process::Command`)
 - [ ] **Security:** same concerns as G3. `--allow-shell` flag? Or sandbox to specific commands?
-- [ ] **Backtick syntax option:** some languages use special quoting for shell commands:
-  - Perl/Ruby: `` output = `ls -la` `` — backticks execute and capture stdout
-  - Julia: `` run(`ls -la`) `` — backtick creates Cmd object
-  - ilo option: `` `ls -la` `` as sugar for `sh "ls -la"` — saves quotes, feels natural
-  - **Tradeoff:** backticks as a new string type need lexer changes. `sh` as a builtin needs nothing new
-  - **Recommendation:** start with `sh` builtin (zero language changes), consider backtick syntax later if agents use it heavily enough to justify lexer work
+- [ ] **Lexer changes for backticks:**
+  - New token: `Token::Backtick(String)` — contents between `` ` `` delimiters
+  - Escape: `` \` `` inside backticks for literal backtick (rare)
+  - Parser: desugar `` `cmd` `` to `Call("run", [StringLit("cmd")])` — same AST as `run "cmd"`
+  - `!` position: `` `!cmd` `` — `!` immediately after opening backtick, consistent with `$!url` pattern
+- [ ] **Precedent in ilo:** `$url` is terse alias for `get url`. `` `cmd` `` is terse alias for `run "cmd"`. Both are sigil-based shortcuts for common operations. Pattern: frequent operations get single-character syntax
 - [ ] **Token comparison:**
   ```
   # Python: ~8 tokens
   result = subprocess.run(["ls", "-la"], capture_output=True, text=True)
   output = result.stdout
 
-  # ilo with sh: ~3 tokens
-  o=sh! "ls -la"
+  # ilo with run: ~3 tokens
+  o=run! "ls -la"
 
-  # ilo with backticks (if added): ~2 tokens
+  # ilo with backticks: ~2 tokens
   o=`ls -la`
+
+  # terse auto-unwrap: ~2 tokens
+  o=`!ls -la`
   ```
 
 ##### I3. Environment variables (critical — every agent needs config)
