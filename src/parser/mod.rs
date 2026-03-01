@@ -448,16 +448,8 @@ impl Parser {
                         negated: false,
                         body,
                     })
-                } else if is_guard_eligible_condition(&expr) && self.can_start_operand() {
-                    // Braceless guard: comparison/logical condition followed by single expression
-                    let body_start = self.peek_span();
-                    let body_expr = self.parse_expr()?;
-                    let body_span = body_start.merge(self.prev_span());
-                    Ok(Stmt::Guard {
-                        condition: expr,
-                        negated: false,
-                        body: vec![Spanned::new(Stmt::Expr(body_expr), body_span)],
-                    })
+                } else if let Some(guard) = self.try_braceless_guard(expr.clone(), false)? {
+                    Ok(guard)
                 } else {
                     Ok(Stmt::Expr(expr))
                 }
@@ -662,16 +654,8 @@ impl Parser {
                 negated: true,
                 body,
             })
-        } else if is_guard_eligible_condition(&inner) && self.can_start_operand() {
-            // Braceless negated guard: !cond body
-            let body_start = self.peek_span();
-            let body_expr = self.parse_expr()?;
-            let body_span = body_start.merge(self.prev_span());
-            Ok(Stmt::Guard {
-                condition: inner,
-                negated: true,
-                body: vec![Spanned::new(Stmt::Expr(body_expr), body_span)],
-            })
+        } else if let Some(guard) = self.try_braceless_guard(inner.clone(), true)? {
+            Ok(guard)
         } else {
             // Logical NOT as expression statement: !expr
             Ok(Stmt::Expr(Expr::UnaryOp {
@@ -700,18 +684,27 @@ impl Parser {
                 negated: false,
                 body,
             })
-        } else if is_guard_eligible_condition(&expr) && self.can_start_operand() {
-            // Braceless guard: comparison/logical condition followed by single expression
+        } else if let Some(guard) = self.try_braceless_guard(expr.clone(), false)? {
+            Ok(guard)
+        } else {
+            Ok(Stmt::Expr(expr))
+        }
+    }
+
+    /// Try to parse a braceless guard: `cond expr` where `cond` is a comparison/logical
+    /// operator. Returns `None` if the condition isn't eligible or no operand follows.
+    fn try_braceless_guard(&mut self, condition: Expr, negated: bool) -> Result<Option<Stmt>> {
+        if is_guard_eligible_condition(&condition) && self.can_start_operand() {
             let body_start = self.peek_span();
             let body_expr = self.parse_expr()?;
             let body_span = body_start.merge(self.prev_span());
-            Ok(Stmt::Guard {
-                condition: expr,
-                negated: false,
+            Ok(Some(Stmt::Guard {
+                condition,
+                negated,
                 body: vec![Spanned::new(Stmt::Expr(body_expr), body_span)],
-            })
+            }))
         } else {
-            Ok(Stmt::Expr(expr))
+            Ok(None)
         }
     }
 
