@@ -121,8 +121,9 @@ Manifesto: "a minimal, verified action space." The language verifies and execute
 
 Plumbing first — make tool calls actually do things. HTTP-native (tools are APIs, not scripts).
 
-#### D1a. Fix existing bugs
-- [ ] Fix VM empty-chunk bug — tool `Decl` compiles to a chunk with no `OP_RET`, calling a tool from the VM never returns
+#### D1a. Fix existing bugs ✅
+- [x] Fix VM empty-chunk bug — tool `Decl` compiles stub chunk (LOADK Nil → WRAPOK → RET), returns `Ok(Nil)` matching interpreter
+- [x] Fix VM test helper `parse_program` discarding token spans (broke auto-unwrap `!` adjacency check)
 
 #### D1b. HTTP builtin: `get` / `$`
 - [ ] `get url` / `$url` — built-in HTTP GET, returns `R t t` (ok=response body, err=error message)

@@ -344,6 +344,23 @@ impl RegCompiler {
 
                 self.current.reg_count = self.max_reg;
                 self.chunks.push(self.current.clone());
+            } else if let Decl::Tool { params, .. } = decl {
+                // Tool stub: emit LOADK Nil → WRAPOK → RET  (returns Ok(Nil))
+                // Matches interpreter behaviour (interpreter/mod.rs:241–244)
+                self.current = Chunk::new(params.len() as u8);
+                self.next_reg = params.len() as u8;
+                self.max_reg = self.next_reg;
+
+                let nil_reg = self.alloc_reg();
+                let ki = self.current.add_const(Value::Nil);
+                self.emit_abx(OP_LOADK, nil_reg, ki);
+
+                let ok_reg = self.alloc_reg();
+                self.emit_abc(OP_WRAPOK, ok_reg, nil_reg, 0);
+                self.emit_abx(OP_RET, ok_reg, 0);
+
+                self.current.reg_count = self.max_reg;
+                self.chunks.push(self.current.clone());
             } else {
                 self.chunks.push(Chunk::new(0));
             }
@@ -2144,12 +2161,14 @@ mod tests {
     use crate::parser;
 
     fn parse_program(source: &str) -> Program {
-        let tokens: Vec<crate::lexer::Token> = lexer::lex(source)
-            .unwrap()
+        let tokens = lexer::lex(source).unwrap();
+        let token_spans: Vec<(crate::lexer::Token, crate::ast::Span)> = tokens
             .into_iter()
-            .map(|(t, _)| t)
+            .map(|(t, r)| (t, crate::ast::Span { start: r.start, end: r.end }))
             .collect();
-        parser::parse_tokens(tokens).unwrap()
+        let (prog, errors) = parser::parse(token_spans);
+        assert!(errors.is_empty(), "parse errors: {:?}", errors);
+        prog
     }
 
     fn vm_run(source: &str, func: Option<&str>, args: Vec<Value>) -> Value {
@@ -2222,6 +2241,53 @@ mod tests {
         let source = "f x:n>R n t;~x";
         let result = vm_run(source, Some("f"), vec![Value::Number(42.0)]);
         assert_eq!(result, Value::Ok(Box::new(Value::Number(42.0))));
+    }
+
+    #[test]
+    fn vm_tool_call() {
+        let source = "tool fetch\"HTTP GET\" url:t>R _ t timeout:30\nf>R _ t;fetch \"http://example.com\"";
+        let result = vm_run(source, Some("f"), vec![]);
+        assert_eq!(result, Value::Ok(Box::new(Value::Nil)));
+    }
+
+    #[test]
+    fn vm_tool_call_multi_param() {
+        let source = "tool send\"send msg\" to:t body:t>R _ t\nf>R _ t;send \"alice\" \"hello\"";
+        let result = vm_run(source, Some("f"), vec![]);
+        assert_eq!(result, Value::Ok(Box::new(Value::Nil)));
+    }
+
+    #[test]
+    fn vm_tool_call_unwrap() {
+        // auto-unwrap: fetch returns Ok(Nil), ! unwraps to Nil
+        // caller wraps result in Ok with ~
+        let source = "tool fetch\"get\" url:t>R _ t\nf>R _ t;v=fetch! \"http://x\";~v";
+        let result = vm_run(source, Some("f"), vec![]);
+        assert_eq!(result, Value::Ok(Box::new(Value::Nil)));
+    }
+
+    #[test]
+    fn vm_tool_call_match() {
+        // match on tool result
+        let source = "tool fetch\"get\" url:t>R _ t\nf>t;r=fetch \"http://x\";?r{~v:\"ok\";^e:\"err\"}";
+        let result = vm_run(source, Some("f"), vec![]);
+        assert_eq!(result, Value::Text("ok".into()));
+    }
+
+    #[test]
+    fn vm_tool_mixed_with_functions() {
+        // tool between two functions — chunk indices must stay aligned
+        let source = "add a:n b:n>n;+a b\ntool fetch\"get\" url:t>R _ t\nf>n;add 1 2";
+        let result = vm_run(source, Some("f"), vec![]);
+        assert_eq!(result, Value::Number(3.0));
+    }
+
+    #[test]
+    fn vm_multiple_tools() {
+        // two tools, call the second — func_names/chunks stay in sync
+        let source = "tool a\"first\" x:t>R _ t\ntool b\"second\" x:t>R _ t\nf>R _ t;b \"test\"";
+        let result = vm_run(source, Some("f"), vec![]);
+        assert_eq!(result, Value::Ok(Box::new(Value::Nil)));
     }
 
     #[test]
