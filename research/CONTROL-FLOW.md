@@ -548,3 +548,143 @@ F11 (reduce) ──────────── gates on E5 (generics)
 ```
 
 The first group (expression-level features) are highest value and lowest implementation cost. They add no new opcodes — just parser productions and verifier rules.
+
+---
+
+## F0. Braceless single-expression guards
+
+**Status:** Under investigation. Potentially the highest-frequency token saving — every guard in every program benefits.
+
+### The insight
+
+ilo operators have **fixed arity**. `>=` always takes exactly 2 operands. The parser always knows when a condition expression is complete. This means a single-expression guard body doesn't need braces — the parser can tell where the condition ends and the body begins.
+
+### Current syntax
+
+```
+cls sp:n>t;>=sp 1000{"gold"};>=sp 500{"silver"};"bronze"
+```
+
+Each guard costs `{` + `}` = **2 tokens, 2 chars** of delimiter overhead.
+
+### Proposed syntax
+
+```
+cls sp:n>t;>=sp 1000 "gold";>=sp 500 "silver";"bronze"
+```
+
+Braces optional when the guard body is a single expression (atom, operator expression, or function call). Multi-statement bodies still require braces.
+
+### Why it works in prefix notation
+
+In infix: `x >= 1000 "gold"` is ambiguous — is `"gold"` part of the comparison?
+
+In ilo's prefix: `>=sp 1000` is provably complete — `>=` takes exactly 2 operands (`sp` and `1000`). The parser knows the condition is finished. The next token (`"gold"`) must be the guard body.
+
+This extends to all conditions:
+```
+>=sp 1000 "gold"           # binary op: 2 operands → complete
+!verified "not ok"         # unary op: 1 operand → complete
+=len xs 0 "empty"          # nested: =(len(xs), 0) → complete
+&>x 0 <x 100 "in range"   # AND of two comparisons → complete
+```
+
+### Token savings analysis
+
+Every guard saves 2 tokens (the braces). A typical ilo program has 2-5 guards.
+
+```
+# classify (3 guards): saves 4 tokens (last guard already braceless)
+>=sp 1000 "gold";>=sp 500 "silver";"bronze"
+
+# notify (2 guards): saves 2 tokens
+!d.verified "not ok";...
+
+# checkout (1 guard): saves 2 tokens
+=len its 0 ^"empty cart";...
+```
+
+**Average saving: 2-8 tokens per program.** Small per guard, but applies to every guard in every program. High frequency × small saving = significant total.
+
+### Comparison with other languages
+
+| Language | Braceless conditional | Notes |
+|----------|----------------------|-------|
+| Ruby | `return "gold" if spend >= 1000` | Postfix — condition after action |
+| Perl | `print "yes" if $x > 10` | Postfix — same as Ruby |
+| Python | `return "gold" if spend >= 1000 else "silver"` | Inline ternary |
+| Haskell | `\| spend >= 1000 = "gold"` | Guard clause — no braces |
+| CoffeeScript | `"gold" if spend >= 1000` | Postfix — returns expression |
+| ilo (proposed) | `>=sp 1000 "gold"` | Prefix — condition before action, no braces |
+
+ilo's approach is unique: prefix notation makes the condition self-delimiting, so no keyword (`if`) or delimiter (`{}`) is needed. The parser exploits fixed arity to know exactly where the condition ends.
+
+### Disambiguation rules
+
+1. **Single atom follows complete condition:** braceless guard body
+   ```
+   >=sp 1000 "gold"          # "gold" is guard body
+   ```
+
+2. **`{` follows complete condition:** braced guard body (existing behaviour)
+   ```
+   >=sp 1000{a=+sp 1;"gold"} # multi-statement body
+   ```
+
+3. **`;` follows complete condition:** expression statement (no guard)
+   ```
+   >=sp 1000;                 # bare comparison, result discarded
+   ```
+
+4. **Operator follows complete condition:** guard body is the operator expression
+   ```
+   >=sp 1000 +x 1            # guard body is +x 1
+   ```
+
+5. **Function call follows:** guard body is the call + its args
+   ```
+   >=sp 1000 classify sp     # guard body is classify(sp)
+   ```
+
+Rule 5 is tricky: how many tokens belong to the call? The parser would need to consume the call greedily (function name + its known arity worth of args), or limit braceless guards to atom/operator bodies only.
+
+### Conservative approach: atoms and operators only
+
+To avoid ambiguity with function calls, braceless guards could be limited to:
+- **Atoms:** literals, variable refs, field access — `"gold"`, `x`, `d.name`
+- **Prefix operators:** `+x 1`, `*a b`, nested ops
+- **Ok/Err wraps:** `~x`, `^"error"`
+
+Function calls as braceless guard bodies would require braces:
+```
+>=sp 1000 "gold"              # ok — atom
+>=sp 1000 +x 1                # ok — prefix operator
+>=sp 1000{classify sp}        # braces required — function call
+```
+
+This is safe because function calls in guard bodies are uncommon — guards typically return literal values or simple expressions.
+
+### Interaction with guard-else (F1)
+
+If braceless guards exist, guard-else needs clear syntax:
+```
+# Braceless guard (returns from function):
+>=sp 1000 "gold"
+
+# Guard-else (local conditional):
+>=sp 1000{"gold"}{"silver"}    # braces required for else form
+```
+
+Braceless guards and guard-else can coexist: braceless is for the simple return case, braced is for the if/else case.
+
+### Interaction with negated guards
+
+```
+# Current:
+!verified{"not ok"}
+
+# Braceless:
+!verified "not ok"
+```
+
+Works naturally — `!verified` is a complete unary expression, `"not ok"` is the body.

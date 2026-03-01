@@ -186,6 +186,35 @@ Plumbing first — make tool calls actually do things. HTTP-native (tools are AP
 
 Ranked by token savings × frequency. See [research/CONTROL-FLOW.md](research/CONTROL-FLOW.md) for full research (Perl, Ruby, Bash, APL/K, Haskell, Elixir, Rust, Awk, Forth).
 
+##### F0. Braceless single-expression guards (highest frequency — every guard benefits)
+
+ilo operators have fixed arity, so the parser always knows when a condition expression is complete. This means single-expression guard bodies don't need `{}` — the parser can tell where the condition ends and the body begins. Inspired by Ruby/Perl postfix conditionals, but exploiting prefix notation's self-delimiting property.
+
+- [ ] Syntax: `>=sp 1000 "gold"` — braces optional when guard body is a single expression. Multi-statement bodies still require braces
+- [ ] Parser: after parsing a complete condition expression, if next token is NOT `{` and NOT `;`, parse one expression as the guard body
+- [ ] Scope: braceless bodies are single expressions — atoms, prefix operators, ok/err wraps (`~x`, `^"err"`)
+- [ ] Conservative limit: function calls in braceless guards may be ambiguous (unknown arity at parse time) — require braces for call bodies: `>=sp 1000{classify sp}`
+- [ ] Negated guards: `!verified "not ok"` — `!verified` is complete unary, `"not ok"` is body
+- [ ] No AST changes — parsed into the same `Stmt::Guard` node, body is a single-expression `Vec<Spanned<Stmt>>`
+- [ ] Interpreter: no changes — guard body evaluation is the same regardless of brace syntax
+- [ ] VM: no changes — same compilation path
+- [ ] Formatter: `--fmt` emits braceless form for single-expression guards; `--fmt-expanded` emits braced form
+- [ ] Tests: braceless guard with literal, with operator expression, with ok/err wrap, with variable ref; multi-statement still requires braces; negated braceless guard; mixed braceless and braced in same function
+- [ ] SPEC.md: document optional braces for single-expression guards
+
+**Token comparison:**
+```
+# Current:                            26 chars, braces on each guard
+cls sp:n>t;>=sp 1000{"gold"};>=sp 500{"silver"};"bronze"
+
+# Proposed:                           22 chars — saves 4 chars, 4 tokens
+cls sp:n>t;>=sp 1000 "gold";>=sp 500 "silver";"bronze"
+```
+
+**Why it works:** `>=sp 1000` takes exactly 2 operands — the parser knows it's complete. The next token (`"gold"`) must be the guard body. This disambiguation is free in prefix notation but impossible in infix.
+
+See [research/CONTROL-FLOW.md](research/CONTROL-FLOW.md) § F0 for full analysis.
+
 ##### F1. Ternary / guard-else expression (highest priority — no new opcodes)
 
 Guards return from the function. There's no expression-level conditional that stays local. Match-as-expression works but costs 5+ tokens for a simple if/else.
