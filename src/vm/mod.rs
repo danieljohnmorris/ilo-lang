@@ -4360,4 +4360,22 @@ mod tests {
         let list = Value::List(vec![Value::Number(1.0), Value::Number(15.0), Value::Number(3.0)]);
         assert_eq!(vm_run(source, Some("f"), vec![list]), Value::Number(15.0));
     }
+
+    #[test]
+    fn vm_pipe_simple() {
+        let source = "f x:n>n;str x>>len";
+        assert_eq!(vm_run(source, Some("f"), vec![Value::Number(42.0)]), Value::Number(2.0));
+    }
+
+    #[test]
+    fn vm_pipe_chain() {
+        let source = "dbl x:n>n;*x 2\nadd1 x:n>n;+x 1\nf x:n>n;dbl x>>add1";
+        assert_eq!(vm_run(source, Some("f"), vec![Value::Number(5.0)]), Value::Number(11.0));
+    }
+
+    #[test]
+    fn vm_pipe_with_extra_args() {
+        let source = "add a:n b:n>n;+a b\nf x:n>n;add x 1>>add 2";
+        assert_eq!(vm_run(source, Some("f"), vec![Value::Number(5.0)]), Value::Number(8.0));
+    }
 }

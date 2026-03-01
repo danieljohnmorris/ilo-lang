@@ -2083,6 +2083,26 @@ mod tests {
     }
 
     #[test]
+    fn interpret_pipe_simple() {
+        // str x>>len desugars to len(str(x))
+        let source = "f x:n>n;str x>>len";
+        assert_eq!(run_str(source, Some("f"), vec![Value::Number(42.0)]), Value::Number(2.0));
+    }
+
+    #[test]
+    fn interpret_pipe_chain() {
+        let source = "dbl x:n>n;*x 2\nadd1 x:n>n;+x 1\nf x:n>n;dbl x>>add1";
+        assert_eq!(run_str(source, Some("f"), vec![Value::Number(5.0)]), Value::Number(11.0));
+    }
+
+    #[test]
+    fn interpret_pipe_with_extra_args() {
+        // add x 1>>add 2 → add(2, add(x, 1))
+        let source = "add a:n b:n>n;+a b\nf x:n>n;add x 1>>add 2";
+        assert_eq!(run_str(source, Some("f"), vec![Value::Number(5.0)]), Value::Number(8.0));
+    }
+
+    #[test]
     fn interpret_ret_in_foreach() {
         let source = "f xs:L n>n;@x xs{>=x 10{ret x}};0";
         let list = Value::List(vec![Value::Number(1.0), Value::Number(15.0), Value::Number(3.0)]);
