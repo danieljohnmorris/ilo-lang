@@ -320,8 +320,14 @@ fn fmt_expr(expr: &Expr, mode: FmtMode) -> String {
     match expr {
         Expr::Literal(lit) => fmt_literal(lit),
         Expr::Ref(name) => name.clone(),
-        Expr::Field { object, field } => format!("{}.{}", fmt_expr(object, mode), field),
-        Expr::Index { object, index } => format!("{}.{}", fmt_expr(object, mode), index),
+        Expr::Field { object, field, safe } => {
+            let dot = if *safe { ".?" } else { "." };
+            format!("{}{}{}", fmt_expr(object, mode), dot, field)
+        }
+        Expr::Index { object, index, safe } => {
+            let dot = if *safe { ".?" } else { "." };
+            format!("{}{}{}", fmt_expr(object, mode), dot, index)
+        }
         Expr::Call { function, args, unwrap } => {
             let bang = if *unwrap { "!" } else { "" };
             if args.is_empty() {

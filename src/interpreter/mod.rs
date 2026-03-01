@@ -561,8 +561,11 @@ fn eval_expr(env: &mut Env, expr: &Expr) -> Result<Value> {
     match expr {
         Expr::Literal(lit) => Ok(eval_literal(lit)),
         Expr::Ref(name) => env.get(name),
-        Expr::Field { object, field } => {
+        Expr::Field { object, field, safe } => {
             let obj = eval_expr(env, object)?;
+            if *safe && matches!(obj, Value::Nil) {
+                return Ok(Value::Nil);
+            }
             match obj {
                 Value::Record { fields, .. } => {
                     fields.get(field).cloned().ok_or_else(|| {
@@ -572,8 +575,11 @@ fn eval_expr(env: &mut Env, expr: &Expr) -> Result<Value> {
                 _ => Err(RuntimeError::new("ILO-R005", format!("cannot access field '{}' on non-record", field))),
             }
         }
-        Expr::Index { object, index } => {
+        Expr::Index { object, index, safe } => {
             let obj = eval_expr(env, object)?;
+            if *safe && matches!(obj, Value::Nil) {
+                return Ok(Value::Nil);
+            }
             match obj {
                 Value::List(items) => {
                     items.get(*index).cloned().ok_or_else(|| {
@@ -2165,6 +2171,27 @@ mod tests {
     fn interpret_nil_coalesce_chain() {
         let source = "mk x:n>n;>=x 1{x}\nf>n;a=mk 0;b=mk 0;a??b??99";
         assert_eq!(run_str(source, Some("f"), vec![]), Value::Number(99.0));
+    }
+
+    #[test]
+    fn interpret_safe_field_on_nil() {
+        // Safe field access on nil returns nil
+        let source = "mk x:n>n;>=x 1{x}\nf>n;v=mk 0;v.?name??99";
+        assert_eq!(run_str(source, Some("f"), vec![]), Value::Number(99.0));
+    }
+
+    #[test]
+    fn interpret_safe_field_on_value() {
+        // Safe field access on record returns field value
+        let source = "f>n;p=pt x:5;p.?x\ntype pt{x:n}";
+        assert_eq!(run_str(source, Some("f"), vec![]), Value::Number(5.0));
+    }
+
+    #[test]
+    fn interpret_safe_field_chained() {
+        // Chained safe navigation: nil propagates through chain
+        let source = "mk x:n>n;>=x 1{x}\nf>n;v=mk 0;v.?a.?b??77";
+        assert_eq!(run_str(source, Some("f"), vec![]), Value::Number(77.0));
     }
 
     #[test]

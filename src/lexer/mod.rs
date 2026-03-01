@@ -81,6 +81,8 @@ pub enum Token {
     Colon,
     #[token(";")]
     Semi,
+    #[token(".?")]
+    DotQuestion,
     #[token(".")]
     Dot,
     #[token(",")]

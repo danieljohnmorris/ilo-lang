@@ -278,6 +278,18 @@ f x>>g>>h            -- desugars to: h (g (f x))
 
 Pipes desugar at parse time — no new AST node. Works with `!` for auto-unwrap: `f x>>g!>>h`.
 
+### Safe Field Navigation
+
+`.?` accesses a field only if the object is not nil; returns nil if it is:
+
+```
+user.?name         -- nil if user is nil, else user.name
+user.?addr.?city   -- chained: nil propagates through chain
+x.?name??"unknown" -- combine with ?? for defaults
+```
+
+Compiled via `OP_JMPNN` + `OP_JMP` to skip field access on nil values.
+
 ### Nil-Coalesce Operator
 
 `??` evaluates the left side; if nil, evaluates and returns the right side:

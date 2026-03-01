@@ -918,8 +918,11 @@ impl VerifyContext {
                 }
             }
 
-            Expr::Field { object, field } => {
+            Expr::Field { object, field, safe } => {
                 let obj_ty = self.infer_expr(func, scope, object, span);
+                if *safe && obj_ty == Ty::Nil {
+                    return Ty::Nil;
+                }
                 match &obj_ty {
                     Ty::Named(type_name) => {
                         if let Some(type_def) = self.types.get(type_name) {
@@ -950,8 +953,11 @@ impl VerifyContext {
                 }
             }
 
-            Expr::Index { object, .. } => {
+            Expr::Index { object, safe, .. } => {
                 let obj_ty = self.infer_expr(func, scope, object, span);
+                if *safe && obj_ty == Ty::Nil {
+                    return Ty::Nil;
+                }
                 match &obj_ty {
                     Ty::List(inner) => *inner.clone(),
                     Ty::Unknown => Ty::Unknown,
