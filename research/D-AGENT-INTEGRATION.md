@@ -1,6 +1,6 @@
 # Phase D: Agent Integration — Design Notes
 
-Captured design thinking from Phase D exploration sessions. For the roadmap, see [TODO.md](TODO.md). For open questions, see [OPEN.md](OPEN.md).
+Captured design thinking from Phase D exploration sessions. For the roadmap, see [TODO.md](../TODO.md). For open questions, see [OPEN.md](OPEN.md).
 
 ## D1: Type System Decisions
 

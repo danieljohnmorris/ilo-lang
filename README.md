@@ -195,7 +195,7 @@ cargo test
 |----------|---------|
 | [SPEC.md](SPEC.md) | Language specification |
 | [MANIFESTO.md](MANIFESTO.md) | Design rationale |
-| [research/TODO.md](research/TODO.md) | Planned work |
+| [TODO.md](TODO.md) | Planned work |
 | [research/OPEN.md](research/OPEN.md) | Open design questions |
 | [research/BUILDING-A-LANGUAGE.md](research/BUILDING-A-LANGUAGE.md) | How to build a language — research & plan |
 

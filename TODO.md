@@ -182,15 +182,258 @@ Plumbing first — make tool calls actually do things. HTTP-native (tools are AP
 - Reserve keywords at lexer level — `if`, `return`, `let`, `fn`, `def`, `var`, `const` are currently valid identifiers (only caught as hints at declaration position). Reserving them protects future design space and prevents confusing programs (e.g. a function named `return`). Low urgency while user base is small.
 - Parser body boundary — newlines are filtered and `at_body_end()` only checks `None | RBrace`, so a bare `Ref` at the end of a function body greedily consumes the next declaration's name. Workaround: wrap in parens `~(func! x)`. A proper fix would use newlines as declaration separators in file mode.
 
-#### Control structures
-- Early return — explicit `ret expr` to return from anywhere in body (currently only last expression or guards return)
-- While loop — `wh cond{body}` or similar; currently only `@` (foreach) exists. Needed for non-list iteration (polling, convergence loops)
-- Loop break/continue — `brk` / `cnt` to exit or skip in `@` and `wh` loops
-- Range iteration — `@i 0..n{body}` or `@i (rng 0 n){body}` for index-based loops without constructing a list
-- Multi-arm guards / else — `cond{body}el{alt}` or chained `cond1{a};cond2{b};fallback`. Currently requires stacking guards or using match.
-- Pattern matching on type — `?x{n v:...; t v:...; b v:...}` to branch on runtime type (useful when tools return `t` escape hatch)
-- Destructuring bind — `{a;b}=expr` to extract record fields into locals in one statement
-- Pipe operator — `expr|>func` or similar for chaining calls without intermediate binds. Tension with prefix notation.
+#### Control structures — Phase F (expand control flow)
+
+Ranked by token savings × frequency. See [research/CONTROL-FLOW.md](research/CONTROL-FLOW.md) for full research (Perl, Ruby, Bash, APL/K, Haskell, Elixir, Rust, Awk, Forth).
+
+##### F1. Ternary / guard-else expression (highest priority — no new opcodes)
+
+Guards return from the function. There's no expression-level conditional that stays local. Match-as-expression works but costs 5+ tokens for a simple if/else.
+
+- [ ] Syntax: `cond{then}{else}` — two adjacent brace bodies after a condition expression
+- [ ] Semantics: evaluate condition; if truthy, evaluate first body; if falsy, evaluate second body. Does NOT return from function (unlike guard)
+- [ ] Parser: detect second `{` after guard body close `}`. If present, parse as ternary expression; if absent, parse as guard (existing behaviour)
+- [ ] AST: add `Expr::IfElse { condition, then_body, else_body }` — or reuse `Stmt::Guard` with an `else_body: Option<Vec<Spanned<Stmt>>>`
+- [ ] Interpreter: evaluate condition, push scope for chosen branch, evaluate body, pop scope
+- [ ] VM: compile as `JMPF cond → else_label; <then body>; JMP end; else_label: <else body>; end:`
+- [ ] Verifier: both branches must produce compatible types. Infer result type from branch types
+- [ ] Cranelift JIT: straightforward conditional — same as guard but without `RET`
+- [ ] Error codes: type mismatch between then/else branches
+- [ ] Python codegen: emit as `<then> if <cond> else <else>` (ternary expression)
+- [ ] Tests: basic ternary, nested ternary, ternary in let binding, type mismatch between branches, ternary vs guard disambiguation
+- [ ] SPEC.md: document guard-else syntax, contrast with guard (returns) vs ternary (local)
+
+**Token comparison:**
+```
+# Current (match-as-expression):  8 tokens
+r=?{=x 1:a;_:b}
+
+# Proposed (guard-else):          5 tokens — saves 3
+r==x 1{a}{b}
+```
+
+##### F2. Nil-coalescing operator — `??` (high priority — expression-level)
+
+Handles the most common Optional/nil pattern: "use this value, or fall back to a default."
+
+- [ ] Syntax: `a??b` — evaluate `a`; if nil, evaluate `b`; otherwise return `a`
+- [ ] Parser: recognise `??` as infix operator (only infix operator in ilo — precedence decision needed)
+- [ ] AST: add `Expr::NilCoalesce { value, default }` or `BinOp::NilCoalesce`
+- [ ] Interpreter: evaluate left; if `Value::Nil`, evaluate right; otherwise return left
+- [ ] VM: compile as `eval left → reg; JMPF (is_nil reg) → skip; eval right → reg; skip:`
+- [ ] Verifier: left must be `O T` or `_`; result type is inner `T` (unwraps the optional). If left is not Optional, warn
+- [ ] Works with Optional (E2): `O n ?? 0` → unwrap to `n` with default `0`
+- [ ] Works without Optional: `val ?? "fallback"` — runtime nil check even without typed Optional
+- [ ] Cranelift JIT: nil comparison + conditional move
+- [ ] Python codegen: emit as `a if a is not None else b`
+- [ ] Tests: nil coalesce, non-nil passthrough, nested coalesce `a ?? b ?? c`, type inference
+- [ ] SPEC.md: document `??` operator
+
+**Token comparison:**
+```
+# Current:                        7 tokens
+?v{_:"default";~x:x}
+
+# Proposed:                       2 tokens — saves 5
+v??"default"
+```
+
+**Inspiration:** Perl `//`, C# `??`, Kotlin `?:`, Swift `??`, JS `??`.
+
+##### F3. Safe field navigation — `.?` (high priority — prevents nil crashes)
+
+Chained field access on possibly-nil values without nested matches. Short-circuits at first nil.
+
+- [ ] Syntax: `x.?field` — if `x` is nil, return nil; otherwise return `x.field`
+- [ ] Parser: recognise `.?` as a variant of `.` field access
+- [ ] AST: add `safe: bool` flag to `Expr::FieldAccess` — or new `Expr::SafeFieldAccess`
+- [ ] Interpreter: check if receiver is `Value::Nil`; if so, return `Value::Nil`; otherwise proceed with field access
+- [ ] VM: emit nil check before field access opcode; if nil, skip to load-nil
+- [ ] Verifier: `x.?field` on `O record` type → result is `O field_type`. On non-optional type, warn ("safe navigation unnecessary")
+- [ ] Chaining: `u.?addr.?city` — each `.?` propagates nil. Compiles to sequential nil checks
+- [ ] Cranelift JIT: nil comparison + conditional load
+- [ ] Python codegen: emit as `x.field if x is not None else None` or use `getattr(x, 'field', None)`
+- [ ] Tests: safe access on nil, safe access on value, chained safe access, mixed safe/regular access
+- [ ] SPEC.md: document `.?` operator
+
+**Token comparison:**
+```
+# Current (nested match):         ~15 tokens
+?u{_:_;~u:?u.addr{_:_;~a:a.city}}
+
+# Proposed (safe nav):            3 tokens — saves 12
+u.?addr.?city
+```
+
+**Inspiration:** Ruby `&.`, Kotlin `?.`, TypeScript `?.`, C# `?.`.
+
+##### F4. Pipe operator — `>>` (medium priority — eliminates intermediate binds)
+
+Linear chains of calls without naming intermediates.
+
+- [ ] Syntax: `f x>>g>>h` — result of left side becomes last argument of right side
+- [ ] Why `>>` not `|>`: `|` is already logical OR; `>>` is visually directional, 1 token in most tokenizers
+- [ ] Parser: recognise `>>` as infix operator; parse right side as function name (or call with additional args)
+- [ ] AST: desugar at parse time — `f x>>g` becomes `g (f x)`. No new AST node needed
+- [ ] Alternative: `a>>g y` means `g y a` (pipe value becomes last arg) — matches Elixir `|>` convention (first arg)
+- [ ] Interpreter: no special handling — desugared before interpretation
+- [ ] VM: no special handling — desugared before compilation
+- [ ] Verifier: type-check the desugared call normally
+- [ ] Interaction with `!`: `f! x>>g!>>h` — each step can auto-unwrap independently
+- [ ] Cranelift JIT: no changes — desugared to normal calls
+- [ ] Python codegen: emit as nested calls or sequential assignments
+- [ ] Tests: simple pipe, multi-step pipe, pipe with extra args, pipe + auto-unwrap, type checking through pipe
+- [ ] SPEC.md: document `>>` operator
+
+**Token comparison:**
+```
+# Current:                        3 binds, 9 tokens
+a=f x;b=g a;h b
+
+# Proposed:                       0 binds, 5 tokens — saves 4
+f x>>g>>h
+```
+
+**Inspiration:** Elixir `|>`, F# `|>`, Bash `|`, Haskell `>>`.
+
+##### F5. Early return — `ret expr` (medium priority)
+
+Explicit return from anywhere in function body. Currently only guards and last expression can return.
+
+- [ ] Syntax: `ret expr` — immediately return `expr` from the enclosing function
+- [ ] Parser: recognise `ret` keyword at statement position, parse following expression
+- [ ] AST: add `Stmt::Return { value: Expr }`
+- [ ] Interpreter: return `BodyResult::Return(value)` immediately — already supported by the body evaluation loop
+- [ ] VM: compile expression → register, emit `OP_RET register`
+- [ ] Verifier: return type must be compatible with function's declared return type
+- [ ] Verifier: warn on unreachable code after `ret`
+- [ ] Cranelift JIT: straightforward — emit return instruction
+- [ ] Python codegen: emit as `return expr`
+- [ ] Tests: early return, return in loop, return in nested guard, unreachable code warning
+- [ ] SPEC.md: document `ret` syntax
+
+##### F6. While loop — `wh cond{body}` (medium priority — new capability)
+
+`@` only iterates lists. While enables polling, convergence, and stateful loops.
+
+- [ ] Syntax: `wh cond{body}` — evaluate condition; if truthy, execute body; repeat
+- [ ] Parser: recognise `wh` keyword, parse condition expression + brace body
+- [ ] AST: add `Stmt::While { condition: Expr, body: Vec<Spanned<Stmt>> }`
+- [ ] Interpreter: loop while `is_truthy(eval_expr(condition))`, execute body each iteration, return last body value
+- [ ] VM: compile as `loop_top: eval cond → reg; JMPF reg → exit; <body>; JMP loop_top; exit:`
+- [ ] Verifier: condition must be truthy-compatible; body type is the loop's result type
+- [ ] Cranelift JIT: standard loop with conditional back-edge
+- [ ] Interaction with break/continue (F9): `brk` jumps to exit, `cnt` jumps to loop_top
+- [ ] Python codegen: emit as `while <cond>: <body>`
+- [ ] Tests: basic while, while with accumulator, infinite loop guard (max iterations?), while + break
+- [ ] SPEC.md: document `wh` syntax
+
+##### F7. Range iteration — `@i 0..n{body}` (medium priority)
+
+Index-based loops without constructing a list. Avoids list allocation for numeric ranges.
+
+- [ ] Syntax: `@i 0..n{body}` — bind `i` to each integer in `[0, n)`
+- [ ] Parser: recognise `..` between two numeric expressions in `@` collection position
+- [ ] AST: add `Expr::Range { start, end }` or extend `ForEach` with range variant
+- [ ] Interpreter: iterate from start (inclusive) to end (exclusive), bind each integer to loop variable
+- [ ] VM: compile like existing foreach but with integer counter instead of list indexing — no `OP_LISTGET`, just `OP_ADD` + `OP_LT`
+- [ ] Verifier: start and end must be `n`; loop variable is `n`
+- [ ] Dynamic end: `@i 0..len xs{xs.i}` — end expression evaluated once before loop starts
+- [ ] Step variant (deferred): `@i 0..10..2{body}` for step=2 — lower priority
+- [ ] Cranelift JIT: standard counted loop — optimal for JIT
+- [ ] Python codegen: emit as `for i in range(start, end):`
+- [ ] Tests: basic range, range with expressions, range variable in body, empty range (start >= end), range + break
+- [ ] SPEC.md: document range syntax
+
+##### F8. Destructuring bind — `{a;b}=expr` (medium priority)
+
+Extract multiple record fields into local variables in one statement.
+
+- [ ] Syntax: `{a;b;c}=expr` — bind `a` to `expr.a`, `b` to `expr.b`, `c` to `expr.c`
+- [ ] Field names match variable names (ilo convention: short field names)
+- [ ] Parser: recognise `{` at statement start followed by identifiers + `}=`
+- [ ] AST: add `Stmt::Destructure { bindings: Vec<String>, value: Expr }`
+- [ ] Interpreter: evaluate expression, extract each named field, bind to scope
+- [ ] VM: compile expression → register, emit `OP_GETFIELD` for each binding
+- [ ] Verifier: expression must be a record type with all named fields present. Bind each variable to its field's type
+- [ ] Renaming syntax (deferred): `{name:n;email:e}=expr` — bind `n` to `expr.name`. Lower priority
+- [ ] Cranelift JIT: sequence of field loads from record
+- [ ] Python codegen: emit as `a, b, c = expr.a, expr.b, expr.c`
+- [ ] Tests: basic destructure, missing field error, type inference from fields, destructure in loop body
+- [ ] SPEC.md: document destructuring syntax
+
+**Token comparison:**
+```
+# Current:                        9 tokens
+r=get-user! id;n=r.name;e=r.email
+
+# Proposed:                       5 tokens — saves 4
+{name;email}=get-user! id
+```
+
+##### F9. Break/continue — `brk` / `cnt` (lower priority — needs F6)
+
+Exit a loop early or skip to the next iteration.
+
+- [ ] Syntax: `brk` — exit enclosing `@` or `wh` loop immediately; `cnt` — skip to next iteration
+- [ ] `brk expr` — exit loop and return `expr` as the loop's value
+- [ ] Parser: recognise `brk` and `cnt` as statement keywords inside loop bodies
+- [ ] AST: add `Stmt::Break { value: Option<Expr> }` and `Stmt::Continue`
+- [ ] Interpreter: return special `BodyResult::Break(value)` / `BodyResult::Continue` from body evaluation; loop handler checks for these
+- [ ] VM: `brk` → `JMP exit_label`; `cnt` → `JMP loop_top_label`. Need loop label stack during compilation
+- [ ] Verifier: `brk`/`cnt` outside a loop → error. `brk expr` type must match loop result type
+- [ ] Cranelift JIT: jump to loop exit / loop header
+- [ ] Python codegen: emit as `break` / `continue`
+- [ ] Tests: break from @, break from wh, continue in @, break with value, nested loops + break (inner vs outer)
+- [ ] SPEC.md: document `brk`/`cnt` syntax
+- [ ] **Gates on F6** — break/continue are most useful with while loops
+
+##### F10. Guard else — `cond{then}{else}` as statement (lower priority)
+
+Non-returning if/else at statement level. Different from F1 (expression-level): this is a statement that doesn't produce a value, just executes one branch.
+
+- [ ] Syntax: same as F1 but at statement position — `cond{stmts}{stmts}`
+- [ ] Semantics: execute then-branch or else-branch. Does not return from function. Falls through to next statement
+- [ ] May be unified with F1 — if guard-else is always an expression (last value is the result), it works at both statement and expression level
+- [ ] Tests: guard-else at statement level, guard-else as last expression, mixed with regular guards
+
+**Note:** F1 and F10 may be the same feature. If ternary expressions are implemented as `cond{a}{b}`, they naturally work at both expression and statement level.
+
+##### F11. Type pattern matching — `?x{n v:...; t v:...}` (lower priority)
+
+Branch on runtime type of a value. Needed when tools return `t` as escape hatch for unknown shapes.
+
+- [ ] Syntax: `?x{n v:body; t v:body; b v:body; _:body}` — match on runtime type, bind to typed variable
+- [ ] Parser: recognise type names (`n`, `t`, `b`, `L`, `R`) in pattern position, followed by binding name
+- [ ] AST: add `Pattern::Type { type_tag: Type, binding: String }`
+- [ ] Interpreter: check runtime type of value, bind to variable with narrowed type
+- [ ] VM: emit type-tag comparison opcodes (check Value discriminant)
+- [ ] Verifier: variable `v` in `n v:body` has type `n` within the arm body. Exhaustiveness check across type tags
+- [ ] Interaction with sum types (E3): type patterns on enum variants are a generalization
+- [ ] Cranelift JIT: discriminant comparison + conditional jump
+- [ ] Python codegen: emit as `isinstance(x, int)` / `isinstance(x, str)` checks
+- [ ] Tests: match on all scalar types, match on list/result, wildcard arm, exhaustiveness
+- [ ] SPEC.md: document type patterns
+
+##### F12. Reduce operator (deferred — gates on E5 generics)
+
+Fold a list with an operator. The single most token-saving list operation from APL/K.
+
+- [ ] Syntax: `fld op init list` — fold list with binary operator, starting from init value
+- [ ] Examples: `fld + 0 xs` (sum), `fld * 1 xs` (product), `fld max 0 xs` (maximum)
+- [ ] Requires E5 (generics) to type-check: `fld` has signature `fn(fn(a a>a), a, L a) > a`
+- [ ] Alternative (non-generic): hardcode `fld` for common operators (`+`, `*`, `max`, `min`) — monomorphic special cases
+- [ ] See Builtins section for full `map`/`flt`/`fld` signatures
+- [ ] **Gates on E5** unless implemented as monomorphic special cases
+
+**Token comparison (APL-inspired):**
+```
+# Current:                        8 tokens
+s=0;@x xs{s=+s x};s
+
+# Proposed:                       4 tokens — saves 4
+fld + 0 xs
+```
 
 #### Type system — Phase E (expand the type language)
 
