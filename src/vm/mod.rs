@@ -2072,7 +2072,10 @@ impl<'a> VM<'a> {
                         // SAFETY: is_string() confirmed heap-tagged string with live RC.
                         let url = unsafe { match v.as_heap_ref() { HeapObj::Str(s) => s, _ => unreachable!() } };
                         match minreq::get(url.as_str()).send() {
-                            Ok(resp) => NanVal::heap_ok(NanVal::heap_string(resp.as_str().unwrap_or("").to_string())),
+                            Ok(resp) => match resp.as_str() {
+                                Ok(body) => NanVal::heap_ok(NanVal::heap_string(body.to_string())),
+                                Err(e) => NanVal::heap_err(NanVal::heap_string(format!("response is not valid UTF-8: {e}"))),
+                            },
                             Err(e) => NanVal::heap_err(NanVal::heap_string(e.to_string())),
                         }
                     };

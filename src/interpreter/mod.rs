@@ -223,7 +223,10 @@ fn call_function(env: &mut Env, name: &str, args: Vec<Value>) -> Result<Value> {
                 #[cfg(feature = "http")]
                 {
                     match minreq::get(url.as_str()).send() {
-                        Ok(resp) => Ok(Value::Ok(Box::new(Value::Text(resp.as_str().unwrap_or("").to_string())))),
+                        Ok(resp) => match resp.as_str() {
+                            Ok(body) => Ok(Value::Ok(Box::new(Value::Text(body.to_string())))),
+                            Err(e) => Ok(Value::Err(Box::new(Value::Text(format!("response is not valid UTF-8: {e}"))))),
+                        },
                         Err(e) => Ok(Value::Err(Box::new(Value::Text(e.to_string())))),
                     }
                 }
