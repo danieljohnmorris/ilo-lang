@@ -404,6 +404,24 @@ impl VerifyContext {
             }
             Stmt::Guard { condition, body, .. } => {
                 let _ = self.infer_expr(func, scope, condition, span);
+
+                // Warn if braceless guard body is a single identifier matching a function name.
+                // This likely means the user forgot braces: `>=sp 1000 classify` vs `>=sp 1000{classify sp}`
+                if body.len() == 1 {
+                    if let Stmt::Expr(Expr::Ref(ref name)) = body[0].node {
+                        if self.functions.contains_key(name) || is_builtin(name) {
+                            let body_span = body[0].span;
+                            self.err(
+                                "ILO-T027",
+                                func,
+                                format!("braceless guard body '{name}' is a function name — did you mean to call it?"),
+                                Some(format!("use braces for function calls: cond{{{name} args}}")),
+                                Some(body_span),
+                            );
+                        }
+                    }
+                }
+
                 scope.push(HashMap::new());
                 let body_ty = self.verify_body(func, scope, body);
                 scope.pop();
@@ -2099,5 +2117,39 @@ mod tests {
     fn dollar_desugars_to_get() {
         // $url should parse and verify the same as get url
         assert!(parse_and_verify(r#"f url:t>R t t;$url"#).is_ok());
+    }
+
+    // ---- Braceless guard ambiguity detection (ILO-T027) ----
+
+    #[test]
+    fn braceless_guard_body_is_function_name() {
+        // `classify` is a known function — warn that it looks like a forgotten call
+        let result = parse_and_verify("classify n:n>t;\"done\"\ncls sp:n>t;>=sp 1000 classify;\"fallback\"");
+        let errors = result.unwrap_err();
+        assert!(
+            errors.iter().any(|e| e.code == "ILO-T027" && e.message.contains("classify")),
+            "expected ILO-T027 for function name in braceless guard body, got: {:?}", errors
+        );
+        assert!(
+            errors.iter().any(|e| e.hint.as_ref().is_some_and(|h| h.contains("braces"))),
+            "expected hint about braces, got: {:?}", errors
+        );
+    }
+
+    #[test]
+    fn braceless_guard_body_is_variable_no_warning() {
+        // `x` is a variable, not a function — no T027 warning
+        assert!(parse_and_verify("f x:n>n;>=x 10 x").is_ok());
+    }
+
+    #[test]
+    fn braceless_guard_body_is_builtin_name() {
+        // `len` is a builtin — warn
+        let result = parse_and_verify("f x:n>n;>=x 0 len;x");
+        let errors = result.unwrap_err();
+        assert!(
+            errors.iter().any(|e| e.code == "ILO-T027" && e.message.contains("len")),
+            "expected ILO-T027 for builtin name in braceless guard body, got: {:?}", errors
+        );
     }
 }

@@ -692,11 +692,24 @@ impl Parser {
     }
 
     /// Parse the body of a braceless guard after eligibility has been confirmed.
-    /// Caller must check `is_guard_eligible_condition` and `can_start_operand` first.
+    /// Uses `parse_operand` (not `parse_expr`) so function calls are NOT consumed —
+    /// call bodies require braces: `>=sp 1000{classify sp}`.
     fn parse_braceless_guard_body(&mut self, condition: Expr, negated: bool) -> Result<Stmt> {
         let body_start = self.peek_span();
-        let body_expr = self.parse_expr()?;
+        let body_expr = self.parse_operand()?;
         let body_span = body_start.merge(self.prev_span());
+
+        // Dangling token detection: after a braceless guard body, the next token
+        // must be `;`, `}`, or EOF. If something else follows, the user likely
+        // wrote a function call without braces: `>=sp 1000 classify sp`
+        if !matches!(self.peek(), None | Some(Token::Semi) | Some(Token::RBrace)) {
+            return Err(self.error_hint(
+                "ILO-P016",
+                "unexpected token after braceless guard body".to_string(),
+                "function calls in braceless guards need braces: >=cond val{func args}".to_string(),
+            ));
+        }
+
         Ok(Stmt::Guard {
             condition,
             negated,
@@ -2715,6 +2728,34 @@ mod tests {
                     }
                     _ => panic!("expected guard, got {:?}", body[0]),
                 }
+            }
+            _ => panic!("expected function"),
+        }
+    }
+
+    // ---- Braceless guard ambiguity detection (ILO-P016) ----
+
+    #[test]
+    fn braceless_guard_dangling_token_error() {
+        // >=sp 1000 classify sp — `classify` is body, `sp` dangles → ILO-P016
+        let (_, errors) = parse_str_errors("cls sp:n>t;>=sp 1000 classify sp");
+        assert!(
+            errors.iter().any(|e| e.code == "ILO-P016"),
+            "expected ILO-P016 error, got: {:?}", errors
+        );
+        assert!(
+            errors.iter().any(|e| e.hint.as_ref().is_some_and(|h| h.contains("braces"))),
+            "expected hint about braces, got: {:?}", errors
+        );
+    }
+
+    #[test]
+    fn braceless_guard_valid_semicolon_terminates() {
+        // >=sp 1000 classify; — `classify` as variable ref, semicolon terminates → valid
+        let prog = parse_str("cls sp:n>t;>=sp 1000 classify;\"fallback\"");
+        match &prog.declarations[0] {
+            Decl::Function { body, .. } => {
+                assert!(matches!(&body[0].node, Stmt::Guard { .. }));
             }
             _ => panic!("expected function"),
         }
