@@ -10,7 +10,7 @@
 6. **Logging** (I5) — `log`/`dbg` to stderr
 7. **HTTP methods** (G1) — `post`, `put`, `patch`, `del`
 8. **Cranelift JIT gaps** — nil coalesce, safe nav, while, break/continue, range, early return
-9. **Verifier gaps** — unreachable code warning after `ret`, `brk`/`cnt` outside loop error
+9. ~~**Verifier gaps**~~ ✅ — unreachable code warning (`ILO-T029`) and `brk`/`cnt` outside loop (`ILO-T028`) both implemented
 10. **Optional type** (E2) — typed nullability with `O n`
 11. **Destructuring bind** (F8) — `{a;b}=expr`
 
@@ -344,7 +344,7 @@ Explicit return from anywhere in function body.
 - [x] Interpreter: return `BodyResult::Return(value)` immediately
 - [x] VM: compile expression → register, emit `OP_RET register`
 - [x] Verifier: return type checked via `infer_expr`
-- [ ] Verifier: warn on unreachable code after `ret`
+- [x] Verifier: warn on unreachable code after `ret` (`ILO-T029`)
 - [ ] Cranelift JIT: straightforward — emit return instruction
 - [x] Python codegen: emit as `return expr`
 - [x] Formatter: emit as `ret expr`
@@ -424,7 +424,7 @@ Exit a loop early or skip to the next iteration.
 - [x] Interpreter: `BodyResult::Break(Value)` / `BodyResult::Continue` propagation through guard, match, foreach, while
 - [x] VM: `LoopContext` with `loop_top`, `continue_patches`, `break_patches`. `brk` → JMP to exit; `cnt` → JMP to loop_top (while) or idx increment (foreach)
 - [x] Verifier: type inference for `brk expr`
-- [ ] Verifier: `brk`/`cnt` outside a loop → error (currently no-op)
+- [x] Verifier: `brk`/`cnt` outside a loop → error (`ILO-T028`)
 - [ ] Cranelift JIT: jump to loop exit / loop header
 - [x] Python codegen: emit as `break` / `continue`
 - [x] Formatter: emit as `brk` / `brk expr` / `cnt`
