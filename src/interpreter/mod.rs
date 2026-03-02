@@ -457,20 +457,20 @@ fn call_function(env: &mut Env, name: &str, args: Vec<Value>) -> Result<Value> {
                     Ok(root) => {
                         let mut current = &root;
                         for segment in path.split('.') {
-                            if let Ok(idx) = segment.parse::<usize>() {
-                                match current.get(idx) {
-                                    Some(v) => current = v,
-                                    None => return Ok(Value::Err(Box::new(Value::Text(
-                                        format!("index {} out of bounds", idx)
-                                    )))),
+                            let next = if current.is_array() {
+                                if let Ok(idx) = segment.parse::<usize>() {
+                                    current.get(idx)
+                                } else {
+                                    None
                                 }
                             } else {
-                                match current.get(segment) {
-                                    Some(v) => current = v,
-                                    None => return Ok(Value::Err(Box::new(Value::Text(
-                                        format!("key '{}' not found", segment)
-                                    )))),
-                                }
+                                current.get(segment)
+                            };
+                            match next {
+                                Some(v) => current = v,
+                                None => return Ok(Value::Err(Box::new(Value::Text(
+                                    format!("key '{}' not found", segment)
+                                )))),
                             }
                         }
                         let text = match current {
@@ -483,7 +483,7 @@ fn call_function(env: &mut Env, name: &str, args: Vec<Value>) -> Result<Value> {
                     Err(e) => Ok(Value::Err(Box::new(Value::Text(format!("invalid JSON: {e}"))))),
                 }
             }
-            _ => Err(RuntimeError::new("ILO-R009", format!("jp requires two text args"))),
+            _ => Err(RuntimeError::new("ILO-R009", "jp requires two text args".to_string())),
         };
     }
     if name == "jd" && args.len() == 1 {
