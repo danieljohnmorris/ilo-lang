@@ -12,7 +12,7 @@
 8. **Cranelift JIT gaps** — nil coalesce, safe nav, while, break/continue, range, early return
 9. ~~**Verifier gaps**~~ ✅ — unreachable code warning (`ILO-T029`) and `brk`/`cnt` outside loop (`ILO-T028`) both implemented
 10. **Optional type** (E2) — typed nullability with `O n`
-11. **Destructuring bind** (F8) — `{a;b}=expr`
+11. ~~**Destructuring bind**~~ ✅ (F8) — `{a;b}=expr`
 
 See detailed specs for each below.
 
@@ -387,22 +387,23 @@ Index-based loops without constructing a list. Avoids list allocation for numeri
 - [x] Tests: basic range, range with expressions, range variable in body, empty range (start >= end), range + break/continue
 - [x] SPEC.md: documented range syntax
 
-##### F8. Destructuring bind — `{a;b}=expr` (medium priority)
+##### F8. Destructuring bind — `{a;b}=expr` ✅
 
 Extract multiple record fields into local variables in one statement.
 
-- [ ] Syntax: `{a;b;c}=expr` — bind `a` to `expr.a`, `b` to `expr.b`, `c` to `expr.c`
-- [ ] Field names match variable names (ilo convention: short field names)
-- [ ] Parser: recognise `{` at statement start followed by identifiers + `}=`
-- [ ] AST: add `Stmt::Destructure { bindings: Vec<String>, value: Expr }`
-- [ ] Interpreter: evaluate expression, extract each named field, bind to scope
-- [ ] VM: compile expression → register, emit `OP_GETFIELD` for each binding
-- [ ] Verifier: expression must be a record type with all named fields present. Bind each variable to its field's type
+- [x] Syntax: `{a;b;c}=expr` — bind `a` to `expr.a`, `b` to `expr.b`, `c` to `expr.c`
+- [x] Field names match variable names (ilo convention: short field names)
+- [x] Parser: recognise `{` at statement start followed by identifiers + `}=`
+- [x] AST: add `Stmt::Destructure { bindings: Vec<String>, value: Expr }`
+- [x] Interpreter: evaluate expression, extract each named field, bind to scope
+- [x] VM: compile expression → register, emit `OP_RECFLD` for each binding
+- [x] Verifier: expression must be a record type with all named fields present. Bind each variable to its field's type
 - [ ] Renaming syntax (deferred): `{name:n;email:e}=expr` — bind `n` to `expr.name`. Lower priority
 - [ ] Cranelift JIT: sequence of field loads from record
-- [ ] Python codegen: emit as `a, b, c = expr.a, expr.b, expr.c`
-- [ ] Tests: basic destructure, missing field error, type inference from fields, destructure in loop body
-- [ ] SPEC.md: document destructuring syntax
+- [x] Python codegen: emit as `a = p["a"]; b = p["b"]`
+- [x] Formatter: `{a;b}=expr` (dense) / `{a;b} = expr` (expanded)
+- [x] Tests: basic destructure, missing field error, type inference from fields, destructure in loop body
+- [x] SPEC.md: document destructuring syntax
 
 **Token comparison:**
 ```

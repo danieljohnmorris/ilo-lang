@@ -56,6 +56,7 @@ struct FuncSig {
     return_type: Ty,
 }
 
+#[derive(Clone)]
 struct TypeDef {
     fields: Vec<(String, Ty)>,
 }
@@ -778,6 +779,54 @@ impl VerifyContext {
             Stmt::Let { name, value } => {
                 let ty = self.infer_expr(func, scope, value, span);
                 scope_insert(scope, name.clone(), ty);
+                Ty::Nil
+            }
+            Stmt::Destructure { bindings, value } => {
+                let record_ty = self.infer_expr(func, scope, value, span);
+                match &record_ty {
+                    Ty::Named(type_name) => {
+                        if let Some(type_def) = self.types.get(type_name).cloned() {
+                            for binding in bindings {
+                                if let Some((_, fty)) = type_def.fields.iter().find(|(n, _)| n == binding) {
+                                    scope_insert(scope, binding.clone(), fty.clone());
+                                } else {
+                                    let field_names: Vec<String> = type_def.fields.iter().map(|(n, _)| n.clone()).collect();
+                                    let hint = closest_match(binding, field_names.iter())
+                                        .map(|s| format!("did you mean '{s}'?"));
+                                    self.err(
+                                        "ILO-T019",
+                                        func,
+                                        format!("no field '{binding}' on type '{type_name}'"),
+                                        hint,
+                                        Some(span),
+                                    );
+                                    scope_insert(scope, binding.clone(), Ty::Unknown);
+                                }
+                            }
+                        } else {
+                            for binding in bindings {
+                                scope_insert(scope, binding.clone(), Ty::Unknown);
+                            }
+                        }
+                    }
+                    Ty::Unknown => {
+                        for binding in bindings {
+                            scope_insert(scope, binding.clone(), Ty::Unknown);
+                        }
+                    }
+                    other => {
+                        self.err(
+                            "ILO-T009",
+                            func,
+                            format!("destructure requires a record type, got {other}"),
+                            None,
+                            Some(span),
+                        );
+                        for binding in bindings {
+                            scope_insert(scope, binding.clone(), Ty::Unknown);
+                        }
+                    }
+                }
                 Ty::Nil
             }
             Stmt::Guard { condition, body, else_body, .. } => {
@@ -2987,5 +3036,36 @@ mod tests {
     fn alias_complex_type() {
         // alias with nested L and R
         assert!(parse_and_verify("alias deep L R n t\nf>deep;[~1, ~2]").is_ok());
+    }
+
+    // ---- Destructuring bind tests ----
+
+    #[test]
+    fn destructure_ok() {
+        assert!(parse_and_verify("type pt{x:n;y:n}\nf p:pt>n;{x;y}=p;+x y").is_ok());
+    }
+
+    #[test]
+    fn destructure_infers_types() {
+        // After destructuring, x should be n and usable in arithmetic
+        assert!(parse_and_verify("type pt{x:n;y:n}\nf p:pt>n;{x;y}=p;*x y").is_ok());
+    }
+
+    #[test]
+    fn destructure_wrong_field() {
+        let errs = parse_and_verify("type pt{x:n;y:n}\nf p:pt>n;{x;z}=p;x").unwrap_err();
+        assert!(errs.iter().any(|e| e.code == "ILO-T019" && e.message.contains("no field 'z'")));
+    }
+
+    #[test]
+    fn destructure_non_record() {
+        let errs = parse_and_verify("f x:n>n;{a}=x;a").unwrap_err();
+        assert!(errs.iter().any(|e| e.message.contains("destructure requires a record")));
+    }
+
+    #[test]
+    fn destructure_text_type_error() {
+        let errs = parse_and_verify("f x:t>n;{a}=x;a").unwrap_err();
+        assert!(errs.iter().any(|e| e.message.contains("destructure requires a record")));
     }
 }

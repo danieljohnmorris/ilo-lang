@@ -397,6 +397,12 @@ p.x
 ord.addr.country
 ```
 
+Destructure:
+```
+{x;y}=p
+```
+Binds `x` to `p.x` and `y` to `p.y`. All named fields must exist on the record.
+
 Update:
 ```
 ord with total:fin cost:sh

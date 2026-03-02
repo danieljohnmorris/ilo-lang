@@ -42,6 +42,7 @@ fn stmt_uses_unwrap(stmt: &Stmt) -> bool {
         Stmt::Break(Some(e)) => expr_uses_unwrap(e),
         Stmt::Break(None) => false,
         Stmt::Continue => false,
+        Stmt::Destructure { value, .. } => expr_uses_unwrap(value),
         Stmt::Expr(e) => expr_uses_unwrap(e),
     }
 }
@@ -142,6 +143,13 @@ fn emit_stmt(out: &mut String, stmt: &Stmt, level: usize, implicit_return: bool)
             let val = emit_expr(out, level, value);
             indent(out, level);
             out.push_str(&format!("{} = {}\n", py_name(name), val));
+        }
+        Stmt::Destructure { bindings, value } => {
+            let record = emit_expr(out, level, value);
+            for binding in bindings {
+                indent(out, level);
+                out.push_str(&format!("{} = {}[\"{}\"]\n", py_name(binding), record, binding));
+            }
         }
         Stmt::Guard { condition, negated, body, else_body } => {
             let cond = emit_expr(out, level, condition);
@@ -1189,5 +1197,12 @@ mod tests {
     fn emit_safe_index() {
         let py = parse_and_emit("f xs:L n>n;xs.?0");
         assert!(py.contains("is not None else None"), "got: {py}");
+    }
+
+    #[test]
+    fn emit_destructure() {
+        let py = parse_and_emit("type pt{x:n;y:n}\nf p:pt>n;{x;y}=p;+x y");
+        assert!(py.contains("[\"x\"]"), "got: {py}");
+        assert!(py.contains("[\"y\"]"), "got: {py}");
     }
 }
