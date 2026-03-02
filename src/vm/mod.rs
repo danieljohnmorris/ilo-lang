@@ -121,6 +121,9 @@ pub(crate) const OP_RND0: u8 = 57;       // R[A] = random float in [0,1)
 pub(crate) const OP_RND2: u8 = 58;       // R[A] = random int in [R[B], R[C]]
 pub(crate) const OP_NOW: u8 = 59;        // R[A] = current unix timestamp (seconds, float)
 pub(crate) const OP_ENV: u8 = 60;        // R[A] = env(R[B])  (returns R t t)
+pub(crate) const OP_JPTH: u8 = 61;         // R[A] = jpth(R[B], R[C])  (JSON path lookup → R t t)
+pub(crate) const OP_JDMP: u8 = 62;         // R[A] = jdmp(R[B])  (value to JSON string → t)
+pub(crate) const OP_JPAR: u8 = 63;         // R[A] = jpar(R[B])  (parse JSON string → R ? t)
 pub(crate) const OP_JMPNN: u8 = 56;     // if R[A] is not nil, jump by signed Bx (ABx mode)
 
 // ABx mode — register + 16-bit operand
@@ -1110,6 +1113,43 @@ impl RegCompiler {
                     }
                     return ra;
                 }
+                if function == "jpth" && args.len() == 2 {
+                    let rb = self.compile_expr(&args[0]);
+                    let rc = self.compile_expr(&args[1]);
+                    let ra = self.alloc_reg();
+                    self.emit_abc(OP_JPTH, ra, rb, rc);
+                    if *unwrap {
+                        let check_reg = self.alloc_reg();
+                        self.emit_abc(OP_ISOK, check_reg, ra, 0);
+                        let skip_ret = self.emit_jmpt(check_reg);
+                        self.emit_abx(OP_RET, ra, 0);
+                        self.current.patch_jump(skip_ret);
+                        self.emit_abc(OP_UNWRAP, ra, ra, 0);
+                        self.next_reg = ra + 1;
+                    }
+                    return ra;
+                }
+                if function == "jdmp" && args.len() == 1 {
+                    let rb = self.compile_expr(&args[0]);
+                    let ra = self.alloc_reg();
+                    self.emit_abc(OP_JDMP, ra, rb, 0);
+                    return ra;
+                }
+                if function == "jpar" && args.len() == 1 {
+                    let rb = self.compile_expr(&args[0]);
+                    let ra = self.alloc_reg();
+                    self.emit_abc(OP_JPAR, ra, rb, 0);
+                    if *unwrap {
+                        let check_reg = self.alloc_reg();
+                        self.emit_abc(OP_ISOK, check_reg, ra, 0);
+                        let skip_ret = self.emit_jmpt(check_reg);
+                        self.emit_abx(OP_RET, ra, 0);
+                        self.current.patch_jump(skip_ret);
+                        self.emit_abc(OP_UNWRAP, ra, ra, 0);
+                        self.next_reg = ra + 1;
+                    }
+                    return ra;
+                }
 
                 let arg_regs: Vec<u8> = args.iter().map(|a| self.compile_expr(a)).collect();
                 let func_idx = self.func_names.iter().position(|n| n == function)
@@ -1446,7 +1486,7 @@ impl Drop for HeapObj {
 }
 
 #[derive(Clone, Copy)]
-pub(crate) struct NanVal(u64);
+pub struct NanVal(pub u64);
 
 impl NanVal {
     #[inline]
@@ -1552,7 +1592,7 @@ impl NanVal {
         }
     }
 
-    pub(crate) fn from_value(val: &Value) -> Self {
+    pub fn from_value(val: &Value) -> Self {
         match val {
             Value::Number(n) => NanVal::number(*n),
             Value::Bool(b) => NanVal::boolean(*b),
@@ -1572,7 +1612,7 @@ impl NanVal {
         }
     }
 
-    pub(crate) fn to_value(self) -> Value {
+    pub fn to_value(self) -> Value {
         if self.is_number() {
             return Value::Number(self.as_number());
         }
@@ -2503,6 +2543,76 @@ impl<'a> VM<'a> {
                     let result = NanVal::heap_err(NanVal::heap_string("http feature not enabled".to_string()));
                     reg_set!(a, result);
                 }
+                OP_JPTH => {
+                    let a = ((inst >> 16) & 0xFF) as usize + base;
+                    let b = ((inst >> 8) & 0xFF) as usize + base;
+                    let c = (inst & 0xFF) as usize + base;
+                    let vb = reg!(b);
+                    let vc = reg!(c);
+                    if !vb.is_string() || !vc.is_string() {
+                        return Err(VmError::Type("jpth requires two strings"));
+                    }
+                    // SAFETY: is_string() confirmed heap-tagged string with live RC.
+                    let json_str = unsafe { match vb.as_heap_ref() { HeapObj::Str(s) => s, _ => unreachable!() } };
+                    let path_str = unsafe { match vc.as_heap_ref() { HeapObj::Str(s) => s, _ => unreachable!() } };
+                    let result = match serde_json::from_str::<serde_json::Value>(json_str) {
+                        Ok(parsed) => {
+                            let mut current = &parsed;
+                            let mut found = true;
+                            let mut missing_key = String::new();
+                            for key in path_str.split('.') {
+                                if let Ok(idx) = key.parse::<usize>() {
+                                    if let Some(v) = current.as_array().and_then(|a| a.get(idx)) {
+                                        current = v;
+                                    } else {
+                                        found = false;
+                                        missing_key = key.to_string();
+                                        break;
+                                    }
+                                } else if let Some(v) = current.get(key) {
+                                    current = v;
+                                } else {
+                                    found = false;
+                                    missing_key = key.to_string();
+                                    break;
+                                }
+                            }
+                            if found {
+                                let result_str = match current {
+                                    serde_json::Value::String(s) => s.clone(),
+                                    other => other.to_string(),
+                                };
+                                NanVal::heap_ok(NanVal::heap_string(result_str))
+                            } else {
+                                NanVal::heap_err(NanVal::heap_string(format!("key not found: {missing_key}")))
+                            }
+                        }
+                        Err(e) => NanVal::heap_err(NanVal::heap_string(e.to_string())),
+                    };
+                    reg_set!(a, result);
+                }
+                OP_JDMP => {
+                    let a = ((inst >> 16) & 0xFF) as usize + base;
+                    let b = ((inst >> 8) & 0xFF) as usize + base;
+                    let v = reg!(b);
+                    let json_val = nanval_to_json(v);
+                    reg_set!(a, NanVal::heap_string(json_val.to_string()));
+                }
+                OP_JPAR => {
+                    let a = ((inst >> 16) & 0xFF) as usize + base;
+                    let b = ((inst >> 8) & 0xFF) as usize + base;
+                    let v = reg!(b);
+                    if !v.is_string() {
+                        return Err(VmError::Type("jpar requires a string"));
+                    }
+                    // SAFETY: is_string() confirmed heap-tagged string with live RC.
+                    let text = unsafe { match v.as_heap_ref() { HeapObj::Str(s) => s, _ => unreachable!() } };
+                    let result = match serde_json::from_str::<serde_json::Value>(text) {
+                        Ok(parsed) => NanVal::heap_ok(serde_json_to_nanval(parsed)),
+                        Err(e) => NanVal::heap_err(NanVal::heap_string(e.to_string())),
+                    };
+                    reg_set!(a, result);
+                }
                 OP_SPL => {
                     let a = ((inst >> 16) & 0xFF) as usize + base;
                     let b = ((inst >> 8) & 0xFF) as usize + base;
@@ -2769,6 +2879,61 @@ unsafe fn nanval_str_cmp(a: NanVal, b: NanVal) -> std::cmp::Ordering {
     }
 }
 
+fn nanval_to_json(v: NanVal) -> serde_json::Value {
+    if v.is_number() {
+        let n = v.as_number();
+        if n.fract() == 0.0 && n.abs() < 1e15 {
+            return serde_json::Value::Number(serde_json::Number::from(n as i64));
+        }
+        return serde_json::Number::from_f64(n)
+            .map(serde_json::Value::Number)
+            .unwrap_or(serde_json::Value::Null);
+    }
+    match v.0 {
+        TAG_NIL => serde_json::Value::Null,
+        TAG_TRUE => serde_json::Value::Bool(true),
+        TAG_FALSE => serde_json::Value::Bool(false),
+        _ if v.is_heap() => {
+            // SAFETY: is_heap() confirmed heap-tagged with live RC.
+            unsafe {
+                match v.as_heap_ref() {
+                    HeapObj::Str(s) => serde_json::Value::String(s.clone()),
+                    HeapObj::List(items) => {
+                        serde_json::Value::Array(items.iter().map(|i| nanval_to_json(*i)).collect())
+                    }
+                    HeapObj::Record { fields, .. } => {
+                        let map: serde_json::Map<String, serde_json::Value> = fields.iter()
+                            .map(|(k, v)| (k.clone(), nanval_to_json(*v)))
+                            .collect();
+                        serde_json::Value::Object(map)
+                    }
+                    HeapObj::OkVal(inner) => nanval_to_json(*inner),
+                    HeapObj::ErrVal(inner) => nanval_to_json(*inner),
+                }
+            }
+        }
+        _ => serde_json::Value::Null,
+    }
+}
+
+fn serde_json_to_nanval(v: serde_json::Value) -> NanVal {
+    match v {
+        serde_json::Value::Object(map) => {
+            let fields: HashMap<String, NanVal> = map.into_iter()
+                .map(|(k, v)| (k, serde_json_to_nanval(v)))
+                .collect();
+            NanVal::heap_record("json".to_string(), fields)
+        }
+        serde_json::Value::Array(arr) => {
+            NanVal::heap_list(arr.into_iter().map(serde_json_to_nanval).collect())
+        }
+        serde_json::Value::String(s) => NanVal::heap_string(s),
+        serde_json::Value::Number(n) => NanVal::number(n.as_f64().unwrap_or(0.0)),
+        serde_json::Value::Bool(b) => NanVal::boolean(b),
+        serde_json::Value::Null => NanVal::nil(),
+    }
+}
+
 fn nanval_equal(a: NanVal, b: NanVal) -> bool {
     if a.is_number() && b.is_number() {
         (a.as_number() - b.as_number()).abs() < f64::EPSILON
@@ -2808,6 +2973,802 @@ fn nanval_truthy(v: NanVal) -> bool {
             }
         }
     }
+}
+
+// ── JIT helper functions (extern "C", callable from JIT-compiled code) ──
+//
+// Each function operates on NanVal u64 bit patterns directly.
+// The JIT loads/stores u64 registers and calls these for non-trivial ops.
+
+#[cfg(feature = "cranelift")]
+#[unsafe(no_mangle)]
+pub(crate) extern "C" fn jit_add(a: u64, b: u64) -> u64 {
+    let av = NanVal(a);
+    let bv = NanVal(b);
+    if av.is_number() && bv.is_number() {
+        return NanVal::number(av.as_number() + bv.as_number()).0;
+    }
+    if av.is_string() && bv.is_string() {
+        let result = unsafe {
+            let sa = match av.as_heap_ref() { HeapObj::Str(s) => s, _ => unreachable!() };
+            let sb = match bv.as_heap_ref() { HeapObj::Str(s) => s, _ => unreachable!() };
+            let mut out = String::with_capacity(sa.len() + sb.len());
+            out.push_str(sa);
+            out.push_str(sb);
+            NanVal::heap_string(out)
+        };
+        return result.0;
+    }
+    if av.is_heap() && bv.is_heap() {
+        let aref = unsafe { av.as_heap_ref() };
+        let bref = unsafe { bv.as_heap_ref() };
+        if let (HeapObj::List(left), HeapObj::List(right)) = (aref, bref) {
+            let mut new_items = Vec::with_capacity(left.len() + right.len());
+            for v in left { v.clone_rc(); new_items.push(*v); }
+            for v in right { v.clone_rc(); new_items.push(*v); }
+            return NanVal::heap_list(new_items).0;
+        }
+    }
+    TAG_NIL // error fallback
+}
+
+#[cfg(feature = "cranelift")]
+#[unsafe(no_mangle)]
+pub(crate) extern "C" fn jit_sub(a: u64, b: u64) -> u64 {
+    let av = NanVal(a);
+    let bv = NanVal(b);
+    if av.is_number() && bv.is_number() {
+        return NanVal::number(av.as_number() - bv.as_number()).0;
+    }
+    TAG_NIL
+}
+
+#[cfg(feature = "cranelift")]
+#[unsafe(no_mangle)]
+pub(crate) extern "C" fn jit_mul(a: u64, b: u64) -> u64 {
+    let av = NanVal(a);
+    let bv = NanVal(b);
+    if av.is_number() && bv.is_number() {
+        return NanVal::number(av.as_number() * bv.as_number()).0;
+    }
+    TAG_NIL
+}
+
+#[cfg(feature = "cranelift")]
+#[unsafe(no_mangle)]
+pub(crate) extern "C" fn jit_div(a: u64, b: u64) -> u64 {
+    let av = NanVal(a);
+    let bv = NanVal(b);
+    if av.is_number() && bv.is_number() {
+        let dv = bv.as_number();
+        if dv == 0.0 { return TAG_NIL; }
+        return NanVal::number(av.as_number() / dv).0;
+    }
+    TAG_NIL
+}
+
+#[cfg(feature = "cranelift")]
+#[unsafe(no_mangle)]
+pub(crate) extern "C" fn jit_eq(a: u64, b: u64) -> u64 {
+    NanVal::boolean(nanval_equal(NanVal(a), NanVal(b))).0
+}
+
+#[cfg(feature = "cranelift")]
+#[unsafe(no_mangle)]
+pub(crate) extern "C" fn jit_ne(a: u64, b: u64) -> u64 {
+    NanVal::boolean(!nanval_equal(NanVal(a), NanVal(b))).0
+}
+
+#[cfg(feature = "cranelift")]
+#[unsafe(no_mangle)]
+pub(crate) extern "C" fn jit_gt(a: u64, b: u64) -> u64 {
+    let av = NanVal(a);
+    let bv = NanVal(b);
+    if av.is_number() && bv.is_number() {
+        return NanVal::boolean(av.as_number() > bv.as_number()).0;
+    }
+    if av.is_string() && bv.is_string() {
+        return NanVal::boolean(unsafe { nanval_str_cmp(av, bv) == std::cmp::Ordering::Greater }).0;
+    }
+    TAG_FALSE
+}
+
+#[cfg(feature = "cranelift")]
+#[unsafe(no_mangle)]
+pub(crate) extern "C" fn jit_lt(a: u64, b: u64) -> u64 {
+    let av = NanVal(a);
+    let bv = NanVal(b);
+    if av.is_number() && bv.is_number() {
+        return NanVal::boolean(av.as_number() < bv.as_number()).0;
+    }
+    if av.is_string() && bv.is_string() {
+        return NanVal::boolean(unsafe { nanval_str_cmp(av, bv) == std::cmp::Ordering::Less }).0;
+    }
+    TAG_FALSE
+}
+
+#[cfg(feature = "cranelift")]
+#[unsafe(no_mangle)]
+pub(crate) extern "C" fn jit_ge(a: u64, b: u64) -> u64 {
+    let av = NanVal(a);
+    let bv = NanVal(b);
+    if av.is_number() && bv.is_number() {
+        return NanVal::boolean(av.as_number() >= bv.as_number()).0;
+    }
+    if av.is_string() && bv.is_string() {
+        return NanVal::boolean(unsafe { nanval_str_cmp(av, bv) != std::cmp::Ordering::Less }).0;
+    }
+    TAG_FALSE
+}
+
+#[cfg(feature = "cranelift")]
+#[unsafe(no_mangle)]
+pub(crate) extern "C" fn jit_le(a: u64, b: u64) -> u64 {
+    let av = NanVal(a);
+    let bv = NanVal(b);
+    if av.is_number() && bv.is_number() {
+        return NanVal::boolean(av.as_number() <= bv.as_number()).0;
+    }
+    if av.is_string() && bv.is_string() {
+        return NanVal::boolean(unsafe { nanval_str_cmp(av, bv) != std::cmp::Ordering::Greater }).0;
+    }
+    TAG_FALSE
+}
+
+#[cfg(feature = "cranelift")]
+#[unsafe(no_mangle)]
+pub(crate) extern "C" fn jit_not(a: u64) -> u64 {
+    NanVal::boolean(!nanval_truthy(NanVal(a))).0
+}
+
+#[cfg(feature = "cranelift")]
+#[unsafe(no_mangle)]
+pub(crate) extern "C" fn jit_neg(a: u64) -> u64 {
+    let v = NanVal(a);
+    if v.is_number() {
+        return NanVal::number(-v.as_number()).0;
+    }
+    TAG_NIL
+}
+
+#[cfg(feature = "cranelift")]
+#[unsafe(no_mangle)]
+pub(crate) extern "C" fn jit_truthy(a: u64) -> u64 {
+    if nanval_truthy(NanVal(a)) { 1 } else { 0 }
+}
+
+#[cfg(feature = "cranelift")]
+#[unsafe(no_mangle)]
+pub(crate) extern "C" fn jit_wrapok(v: u64) -> u64 {
+    let nv = NanVal(v);
+    if !nv.is_number() { nv.clone_rc(); }
+    NanVal::heap_ok(nv).0
+}
+
+#[cfg(feature = "cranelift")]
+#[unsafe(no_mangle)]
+pub(crate) extern "C" fn jit_wraperr(v: u64) -> u64 {
+    let nv = NanVal(v);
+    if !nv.is_number() { nv.clone_rc(); }
+    NanVal::heap_err(nv).0
+}
+
+#[cfg(feature = "cranelift")]
+#[unsafe(no_mangle)]
+pub(crate) extern "C" fn jit_isok(v: u64) -> u64 {
+    NanVal::boolean((v & TAG_MASK) == TAG_OK).0
+}
+
+#[cfg(feature = "cranelift")]
+#[unsafe(no_mangle)]
+pub(crate) extern "C" fn jit_iserr(v: u64) -> u64 {
+    NanVal::boolean((v & TAG_MASK) == TAG_ERR).0
+}
+
+#[cfg(feature = "cranelift")]
+#[unsafe(no_mangle)]
+pub(crate) extern "C" fn jit_unwrap(v: u64) -> u64 {
+    let nv = NanVal(v);
+    if !nv.is_heap() { return TAG_NIL; }
+    unsafe {
+        match nv.as_heap_ref() {
+            HeapObj::OkVal(inner) | HeapObj::ErrVal(inner) => {
+                inner.clone_rc();
+                inner.0
+            }
+            _ => TAG_NIL,
+        }
+    }
+}
+
+#[cfg(feature = "cranelift")]
+#[unsafe(no_mangle)]
+pub(crate) extern "C" fn jit_move(v: u64) -> u64 {
+    let nv = NanVal(v);
+    nv.clone_rc(); // no-op for non-heap values (numbers, nil, true, false)
+    v
+}
+
+#[cfg(feature = "cranelift")]
+#[unsafe(no_mangle)]
+pub(crate) extern "C" fn jit_clone_rc(v: u64) {
+    NanVal(v).clone_rc();
+}
+
+#[cfg(feature = "cranelift")]
+#[unsafe(no_mangle)]
+pub(crate) extern "C" fn jit_drop_rc(v: u64) {
+    NanVal(v).drop_rc();
+}
+
+#[cfg(feature = "cranelift")]
+#[unsafe(no_mangle)]
+pub(crate) extern "C" fn jit_len(a: u64) -> u64 {
+    let v = NanVal(a);
+    if v.is_string() {
+        let s = unsafe { match v.as_heap_ref() { HeapObj::Str(s) => s, _ => unreachable!() } };
+        return NanVal::number(s.len() as f64).0;
+    }
+    if v.is_heap()
+        && let HeapObj::List(items) = unsafe { v.as_heap_ref() } {
+            return NanVal::number(items.len() as f64).0;
+    }
+    TAG_NIL
+}
+
+#[cfg(feature = "cranelift")]
+#[unsafe(no_mangle)]
+pub(crate) extern "C" fn jit_str(a: u64) -> u64 {
+    let v = NanVal(a);
+    if !v.is_number() { return TAG_NIL; }
+    let n = v.as_number();
+    let s = if n.fract() == 0.0 && n.abs() < 1e15 {
+        format!("{}", n as i64)
+    } else {
+        format!("{}", n)
+    };
+    NanVal::heap_string(s).0
+}
+
+#[cfg(feature = "cranelift")]
+#[unsafe(no_mangle)]
+pub(crate) extern "C" fn jit_num(a: u64) -> u64 {
+    let v = NanVal(a);
+    if !v.is_string() { return TAG_NIL; }
+    let s = unsafe { match v.as_heap_ref() { HeapObj::Str(s) => s, _ => unreachable!() } };
+    match s.parse::<f64>() {
+        Ok(n) => NanVal::heap_ok(NanVal::number(n)).0,
+        Err(_) => {
+            v.clone_rc();
+            NanVal::heap_err(v).0
+        }
+    }
+}
+
+#[cfg(feature = "cranelift")]
+#[unsafe(no_mangle)]
+pub(crate) extern "C" fn jit_abs(a: u64) -> u64 {
+    let v = NanVal(a);
+    if v.is_number() { NanVal::number(v.as_number().abs()).0 } else { TAG_NIL }
+}
+
+#[cfg(feature = "cranelift")]
+#[unsafe(no_mangle)]
+pub(crate) extern "C" fn jit_min(a: u64, b: u64) -> u64 {
+    let av = NanVal(a);
+    let bv = NanVal(b);
+    if av.is_number() && bv.is_number() {
+        NanVal::number(av.as_number().min(bv.as_number())).0
+    } else { TAG_NIL }
+}
+
+#[cfg(feature = "cranelift")]
+#[unsafe(no_mangle)]
+pub(crate) extern "C" fn jit_max(a: u64, b: u64) -> u64 {
+    let av = NanVal(a);
+    let bv = NanVal(b);
+    if av.is_number() && bv.is_number() {
+        NanVal::number(av.as_number().max(bv.as_number())).0
+    } else { TAG_NIL }
+}
+
+#[cfg(feature = "cranelift")]
+#[unsafe(no_mangle)]
+pub(crate) extern "C" fn jit_flr(a: u64) -> u64 {
+    let v = NanVal(a);
+    if v.is_number() { NanVal::number(v.as_number().floor()).0 } else { TAG_NIL }
+}
+
+#[cfg(feature = "cranelift")]
+#[unsafe(no_mangle)]
+pub(crate) extern "C" fn jit_cel(a: u64) -> u64 {
+    let v = NanVal(a);
+    if v.is_number() { NanVal::number(v.as_number().ceil()).0 } else { TAG_NIL }
+}
+
+#[cfg(feature = "cranelift")]
+#[unsafe(no_mangle)]
+pub(crate) extern "C" fn jit_rnd0() -> u64 {
+    NanVal::number(fastrand::f64()).0
+}
+
+#[cfg(feature = "cranelift")]
+#[unsafe(no_mangle)]
+pub(crate) extern "C" fn jit_rnd2(a: u64, b: u64) -> u64 {
+    let av = NanVal(a);
+    let bv = NanVal(b);
+    if av.is_number() && bv.is_number() {
+        let lo = av.as_number() as i64;
+        let hi = bv.as_number() as i64;
+        if lo > hi { return TAG_NIL; }
+        NanVal::number(fastrand::i64(lo..=hi) as f64).0
+    } else { TAG_NIL }
+}
+
+#[cfg(feature = "cranelift")]
+#[unsafe(no_mangle)]
+pub(crate) extern "C" fn jit_now() -> u64 {
+    let ts = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .unwrap()
+        .as_secs_f64();
+    NanVal::number(ts).0
+}
+
+#[cfg(feature = "cranelift")]
+#[unsafe(no_mangle)]
+pub(crate) extern "C" fn jit_env(a: u64) -> u64 {
+    let v = NanVal(a);
+    if !v.is_string() { return TAG_NIL; }
+    let key = unsafe { match v.as_heap_ref() { HeapObj::Str(s) => s, _ => unreachable!() } };
+    match std::env::var(key.as_str()) {
+        Ok(val) => NanVal::heap_ok(NanVal::heap_string(val)).0,
+        Err(_) => NanVal::heap_err(NanVal::heap_string(format!("env var '{}' not set", key))).0,
+    }
+}
+
+#[cfg(feature = "cranelift")]
+#[unsafe(no_mangle)]
+pub(crate) extern "C" fn jit_get(a: u64) -> u64 {
+    let v = NanVal(a);
+    if !v.is_string() { return TAG_NIL; }
+    #[cfg(feature = "http")]
+    {
+        let url = unsafe { match v.as_heap_ref() { HeapObj::Str(s) => s, _ => unreachable!() } };
+        match minreq::get(url.as_str()).send() {
+            Ok(resp) => match resp.as_str() {
+                Ok(body) => NanVal::heap_ok(NanVal::heap_string(body.to_string())).0,
+                Err(e) => NanVal::heap_err(NanVal::heap_string(format!("response is not valid UTF-8: {e}"))).0,
+            },
+            Err(e) => NanVal::heap_err(NanVal::heap_string(e.to_string())).0,
+        }
+    }
+    #[cfg(not(feature = "http"))]
+    {
+        NanVal::heap_err(NanVal::heap_string("http feature not enabled".to_string())).0
+    }
+}
+
+#[cfg(feature = "cranelift")]
+#[unsafe(no_mangle)]
+pub(crate) extern "C" fn jit_spl(a: u64, b: u64) -> u64 {
+    let av = NanVal(a);
+    let bv = NanVal(b);
+    if !av.is_string() || !bv.is_string() { return TAG_NIL; }
+    let text = unsafe { match av.as_heap_ref() { HeapObj::Str(s) => s, _ => unreachable!() } };
+    let sep = unsafe { match bv.as_heap_ref() { HeapObj::Str(s) => s, _ => unreachable!() } };
+    let items: Vec<NanVal> = text.split(sep.as_str()).map(|p| NanVal::heap_string(p.to_string())).collect();
+    NanVal::heap_list(items).0
+}
+
+#[cfg(feature = "cranelift")]
+#[unsafe(no_mangle)]
+pub(crate) extern "C" fn jit_cat(a: u64, b: u64) -> u64 {
+    let av = NanVal(a);
+    let bv = NanVal(b);
+    if !bv.is_string() || !av.is_heap() { return TAG_NIL; }
+    let sep = unsafe { match bv.as_heap_ref() { HeapObj::Str(s) => s, _ => unreachable!() } };
+    let items = match unsafe { av.as_heap_ref() } {
+        HeapObj::List(l) => l,
+        _ => return TAG_NIL,
+    };
+    let mut parts = Vec::with_capacity(items.len());
+    for item in items {
+        if !item.is_string() { return TAG_NIL; }
+        let s = unsafe { match item.as_heap_ref() { HeapObj::Str(s) => s, _ => unreachable!() } };
+        parts.push(s.as_str());
+    }
+    NanVal::heap_string(parts.join(sep.as_str())).0
+}
+
+#[cfg(feature = "cranelift")]
+#[unsafe(no_mangle)]
+pub(crate) extern "C" fn jit_has(a: u64, b: u64) -> u64 {
+    let collection = NanVal(a);
+    let needle = NanVal(b);
+    if collection.is_string() {
+        if !needle.is_string() { return TAG_FALSE; }
+        let found = unsafe {
+            let haystack = match collection.as_heap_ref() { HeapObj::Str(s) => s, _ => unreachable!() };
+            let needle_s = match needle.as_heap_ref() { HeapObj::Str(s) => s, _ => unreachable!() };
+            haystack.contains(needle_s.as_str())
+        };
+        return NanVal::boolean(found).0;
+    }
+    if collection.is_heap()
+        && let HeapObj::List(items) = unsafe { collection.as_heap_ref() } {
+            let found = items.iter().any(|item| nanval_equal(*item, needle));
+            return NanVal::boolean(found).0;
+    }
+    TAG_FALSE
+}
+
+#[cfg(feature = "cranelift")]
+#[unsafe(no_mangle)]
+pub(crate) extern "C" fn jit_hd(a: u64) -> u64 {
+    let v = NanVal(a);
+    if v.is_string() {
+        let s = unsafe { match v.as_heap_ref() { HeapObj::Str(s) => s, _ => unreachable!() } };
+        if s.is_empty() { return TAG_NIL; }
+        return NanVal::heap_string(s.chars().next().unwrap().to_string()).0;
+    }
+    if v.is_heap()
+        && let HeapObj::List(items) = unsafe { v.as_heap_ref() } {
+            if items.is_empty() { return TAG_NIL; }
+            items[0].clone_rc();
+            return items[0].0;
+    }
+    TAG_NIL
+}
+
+#[cfg(feature = "cranelift")]
+#[unsafe(no_mangle)]
+pub(crate) extern "C" fn jit_tl(a: u64) -> u64 {
+    let v = NanVal(a);
+    if v.is_string() {
+        let s = unsafe { match v.as_heap_ref() { HeapObj::Str(s) => s, _ => unreachable!() } };
+        if s.is_empty() { return TAG_NIL; }
+        let mut chars = s.chars();
+        chars.next();
+        return NanVal::heap_string(chars.collect()).0;
+    }
+    if v.is_heap()
+        && let HeapObj::List(items) = unsafe { v.as_heap_ref() } {
+            if items.is_empty() { return TAG_NIL; }
+            let tail: Vec<NanVal> = items[1..].iter().map(|item| { item.clone_rc(); *item }).collect();
+            return NanVal::heap_list(tail).0;
+    }
+    TAG_NIL
+}
+
+#[cfg(feature = "cranelift")]
+#[unsafe(no_mangle)]
+pub(crate) extern "C" fn jit_rev(a: u64) -> u64 {
+    let v = NanVal(a);
+    if v.is_string() {
+        let s = unsafe { match v.as_heap_ref() { HeapObj::Str(s) => s, _ => unreachable!() } };
+        return NanVal::heap_string(s.chars().rev().collect::<String>()).0;
+    }
+    if v.is_heap()
+        && let HeapObj::List(items) = unsafe { v.as_heap_ref() } {
+            let mut reversed: Vec<NanVal> = items.iter().map(|item| { item.clone_rc(); *item }).collect();
+            reversed.reverse();
+            return NanVal::heap_list(reversed).0;
+    }
+    TAG_NIL
+}
+
+#[cfg(feature = "cranelift")]
+#[unsafe(no_mangle)]
+pub(crate) extern "C" fn jit_srt(a: u64) -> u64 {
+    let v = NanVal(a);
+    if v.is_string() {
+        let s = unsafe { match v.as_heap_ref() { HeapObj::Str(s) => s, _ => unreachable!() } };
+        let mut chars: Vec<char> = s.chars().collect();
+        chars.sort();
+        return NanVal::heap_string(chars.into_iter().collect()).0;
+    }
+    if v.is_heap()
+        && let HeapObj::List(items) = unsafe { v.as_heap_ref() } {
+            if items.is_empty() { return NanVal::heap_list(vec![]).0; }
+            let all_numbers = items.iter().all(|v| v.is_number());
+            let all_strings = items.iter().all(|v| v.is_string());
+            if all_numbers {
+                let mut sorted: Vec<NanVal> = items.iter().map(|v| { v.clone_rc(); *v }).collect();
+                sorted.sort_by(|a, b| a.as_number().partial_cmp(&b.as_number()).unwrap_or(std::cmp::Ordering::Equal));
+                return NanVal::heap_list(sorted).0;
+            }
+            if all_strings {
+                let mut sorted: Vec<NanVal> = items.iter().map(|v| { v.clone_rc(); *v }).collect();
+                sorted.sort_by(|a, b| unsafe { nanval_str_cmp(*a, *b) });
+                return NanVal::heap_list(sorted).0;
+            }
+    }
+    TAG_NIL
+}
+
+#[cfg(feature = "cranelift")]
+#[unsafe(no_mangle)]
+pub(crate) extern "C" fn jit_slc(a: u64, start: u64, end: u64) -> u64 {
+    let vb = NanVal(a);
+    let vc = NanVal(start);
+    let vd = NanVal(end);
+    if !vc.is_number() || !vd.is_number() { return TAG_NIL; }
+    let s_idx = vc.as_number() as usize;
+    let e_idx = vd.as_number() as usize;
+    if vb.is_string() {
+        let s = unsafe { match vb.as_heap_ref() { HeapObj::Str(s) => s, _ => unreachable!() } };
+        let chars: Vec<char> = s.chars().collect();
+        let e = e_idx.min(chars.len());
+        let s = s_idx.min(e);
+        return NanVal::heap_string(chars[s..e].iter().collect()).0;
+    }
+    if vb.is_heap()
+        && let HeapObj::List(items) = unsafe { vb.as_heap_ref() } {
+            let e = e_idx.min(items.len());
+            let s = s_idx.min(e);
+            let mut sliced = Vec::with_capacity(e - s);
+            for v in &items[s..e] { v.clone_rc(); sliced.push(*v); }
+            return NanVal::heap_list(sliced).0;
+    }
+    TAG_NIL
+}
+
+#[cfg(feature = "cranelift")]
+#[unsafe(no_mangle)]
+pub(crate) extern "C" fn jit_listappend(a: u64, b: u64) -> u64 {
+    let list_val = NanVal(a);
+    let item_val = NanVal(b);
+    if !list_val.is_heap() { return TAG_NIL; }
+    match unsafe { list_val.as_heap_ref() } {
+        HeapObj::List(items) => {
+            let mut new_items = Vec::with_capacity(items.len() + 1);
+            for v in items { v.clone_rc(); new_items.push(*v); }
+            item_val.clone_rc();
+            new_items.push(item_val);
+            NanVal::heap_list(new_items).0
+        }
+        _ => TAG_NIL,
+    }
+}
+
+#[cfg(feature = "cranelift")]
+#[unsafe(no_mangle)]
+pub(crate) extern "C" fn jit_index(a: u64, idx: u64) -> u64 {
+    let obj = NanVal(a);
+    let i = idx as usize;
+    if !obj.is_heap() { return TAG_NIL; }
+    match unsafe { obj.as_heap_ref() } {
+        HeapObj::List(items) => {
+            if i < items.len() {
+                items[i].clone_rc();
+                items[i].0
+            } else { TAG_NIL }
+        }
+        _ => TAG_NIL,
+    }
+}
+
+#[cfg(feature = "cranelift")]
+#[unsafe(no_mangle)]
+pub(crate) extern "C" fn jit_recfld(rec: u64, field_ptr: *const u8, field_len: u64) -> u64 {
+    let rv = NanVal(rec);
+    if !rv.is_heap() { return TAG_NIL; }
+    // SAFETY: field_ptr/field_len come from JIT-embedded static string constants (Box::leak'd UTF-8)
+    let field_name = unsafe { std::str::from_utf8_unchecked(std::slice::from_raw_parts(field_ptr, field_len as usize)) };
+    match unsafe { rv.as_heap_ref() } {
+        HeapObj::Record { fields, .. } => {
+            match fields.get(field_name) {
+                Some(&val) => { val.clone_rc(); val.0 }
+                None => TAG_NIL,
+            }
+        }
+        _ => TAG_NIL,
+    }
+}
+
+/// Create a new record. `desc_ptr`/`desc_len` point to the record descriptor constant
+/// (serialised as "TypeName\0field1\0field2\0..."), `regs` is a pointer to n_fields u64 values.
+#[cfg(feature = "cranelift")]
+#[unsafe(no_mangle)]
+pub(crate) extern "C" fn jit_recnew(desc_ptr: *const u8, desc_len: u64, regs: *const u64, n_fields: u64) -> u64 {
+    // SAFETY: desc_ptr/desc_len come from JIT-embedded static constants (Box::leak'd UTF-8).
+    // regs points to a Cranelift stack slot containing n_fields u64 register values.
+    let desc_bytes = unsafe { std::slice::from_raw_parts(desc_ptr, desc_len as usize) };
+    let desc_str = unsafe { std::str::from_utf8_unchecked(desc_bytes) };
+    let parts: Vec<&str> = desc_str.split('\0').collect();
+    if parts.is_empty() { return TAG_NIL; }
+    let type_name = parts[0].to_string();
+    let field_names = &parts[1..];
+    let n = n_fields as usize;
+    let mut fields = HashMap::new();
+    for (i, &name) in field_names.iter().enumerate().take(n) {
+        let v = NanVal(unsafe { *regs.add(i) });
+        v.clone_rc();
+        fields.insert(name.to_string(), v);
+    }
+    NanVal::heap_record(type_name, fields).0
+}
+
+/// Record-with: copy old record, overwrite specified fields.
+/// `names_ptr`/`names_len` = "field1\0field2\0..." and `regs` has n_fields new values.
+#[cfg(feature = "cranelift")]
+#[unsafe(no_mangle)]
+pub(crate) extern "C" fn jit_recwith(rec: u64, names_ptr: *const u8, names_len: u64, regs: *const u64, n_fields: u64) -> u64 {
+    let rv = NanVal(rec);
+    if !rv.is_heap() { return TAG_NIL; }
+    // SAFETY: names_ptr/names_len come from JIT-embedded static constants (Box::leak'd UTF-8).
+    // regs points to a Cranelift stack slot containing n_fields u64 register values.
+    let names_bytes = unsafe { std::slice::from_raw_parts(names_ptr, names_len as usize) };
+    let names_str = unsafe { std::str::from_utf8_unchecked(names_bytes) };
+    let field_names: Vec<&str> = names_str.split('\0').collect();
+    match unsafe { rv.as_heap_ref() } {
+        HeapObj::Record { type_name, fields } => {
+            let mut new_fields = HashMap::new();
+            for (k, v) in fields { v.clone_rc(); new_fields.insert(k.clone(), *v); }
+            let n = n_fields as usize;
+            for (i, name) in field_names.iter().enumerate().take(n) {
+                let val = NanVal(unsafe { *regs.add(i) });
+                val.clone_rc();
+                if let Some(old) = new_fields.insert(name.to_string(), val) {
+                    old.drop_rc();
+                }
+            }
+            NanVal::heap_record(type_name.clone(), new_fields).0
+        }
+        _ => TAG_NIL,
+    }
+}
+
+/// Create a new list from n items pointed to by `regs`.
+#[cfg(feature = "cranelift")]
+#[unsafe(no_mangle)]
+pub(crate) extern "C" fn jit_listnew(regs: *const u64, n: u64) -> u64 {
+    let count = n as usize;
+    let mut items = Vec::with_capacity(count);
+    for i in 0..count {
+        let v = NanVal(unsafe { *regs.add(i) });
+        v.clone_rc();
+        items.push(v);
+    }
+    NanVal::heap_list(items).0
+}
+
+/// LISTGET for foreach loops: returns Ok(item) if found, TAG_NIL if out of bounds.
+#[cfg(feature = "cranelift")]
+#[unsafe(no_mangle)]
+pub(crate) extern "C" fn jit_listget(list: u64, idx: u64) -> u64 {
+    let lv = NanVal(list);
+    let iv = NanVal(idx);
+    if !lv.is_heap() || !iv.is_number() { return TAG_NIL; }
+    let i = iv.as_number() as usize;
+    match unsafe { lv.as_heap_ref() } {
+        HeapObj::List(items) => {
+            if i < items.len() {
+                items[i].clone_rc();
+                NanVal::heap_ok(items[i]).0
+            } else {
+                TAG_NIL
+            }
+        }
+        _ => TAG_NIL,
+    }
+}
+
+#[cfg(feature = "cranelift")]
+#[unsafe(no_mangle)]
+pub(crate) extern "C" fn jit_jpth(a: u64, b: u64) -> u64 {
+    let av = NanVal(a);
+    let bv = NanVal(b);
+    if !av.is_string() || !bv.is_string() { return TAG_NIL; }
+    let json_str = unsafe { match av.as_heap_ref() { HeapObj::Str(s) => s, _ => unreachable!() } };
+    let path_str = unsafe { match bv.as_heap_ref() { HeapObj::Str(s) => s, _ => unreachable!() } };
+    match serde_json::from_str::<serde_json::Value>(json_str) {
+        Ok(parsed) => {
+            let mut current = &parsed;
+            let mut found = true;
+            let mut missing_key = String::new();
+            for key in path_str.split('.') {
+                if let Ok(idx) = key.parse::<usize>() {
+                    if let Some(v) = current.as_array().and_then(|a| a.get(idx)) {
+                        current = v;
+                    } else {
+                        found = false; missing_key = key.to_string(); break;
+                    }
+                } else if let Some(v) = current.get(key) {
+                    current = v;
+                } else {
+                    found = false; missing_key = key.to_string(); break;
+                }
+            }
+            if found {
+                let result_str = match current {
+                    serde_json::Value::String(s) => s.clone(),
+                    other => other.to_string(),
+                };
+                NanVal::heap_ok(NanVal::heap_string(result_str)).0
+            } else {
+                NanVal::heap_err(NanVal::heap_string(format!("key not found: {missing_key}"))).0
+            }
+        }
+        Err(e) => NanVal::heap_err(NanVal::heap_string(e.to_string())).0,
+    }
+}
+
+#[cfg(feature = "cranelift")]
+#[unsafe(no_mangle)]
+pub(crate) extern "C" fn jit_jdmp(a: u64) -> u64 {
+    let v = NanVal(a);
+    let json_val = nanval_to_json(v);
+    NanVal::heap_string(json_val.to_string()).0
+}
+
+#[cfg(feature = "cranelift")]
+#[unsafe(no_mangle)]
+pub(crate) extern "C" fn jit_jpar(a: u64) -> u64 {
+    let v = NanVal(a);
+    if !v.is_string() { return TAG_NIL; }
+    let text = unsafe { match v.as_heap_ref() { HeapObj::Str(s) => s, _ => unreachable!() } };
+    match serde_json::from_str::<serde_json::Value>(text) {
+        Ok(parsed) => NanVal::heap_ok(serde_json_to_nanval(parsed)).0,
+        Err(e) => NanVal::heap_err(NanVal::heap_string(e.to_string())).0,
+    }
+}
+
+/// Call a VM function from JIT code. `func_idx` is the chunk index,
+/// `regs` points to `n_args` u64 values. Returns the result as u64.
+#[cfg(feature = "cranelift")]
+#[unsafe(no_mangle)]
+pub(crate) extern "C" fn jit_call(program_ptr: *const CompiledProgram, func_idx: u64, regs: *const u64, n_args: u64) -> u64 {
+    // SAFETY: program_ptr is the address of the CompiledProgram that owns this JIT function.
+    // It remains valid for the lifetime of the JIT call. regs points to a Cranelift stack slot.
+    let program = unsafe { &*program_ptr };
+    let n = n_args as usize;
+    let mut nan_args = Vec::with_capacity(n);
+    for i in 0..n {
+        let v = NanVal(unsafe { *regs.add(i) });
+        v.clone_rc();
+        nan_args.push(v);
+    }
+    let mut vm = VM::new(program);
+    vm.setup_call(func_idx as u16, nan_args, 0);
+    match vm.execute() {
+        Ok(val) => NanVal::from_value(&val).0,
+        Err(e) => {
+            let msg = format!("{:?}", e);
+            NanVal::heap_err(NanVal::heap_string(msg)).0
+        }
+    }
+}
+
+// ── Block leader analysis (shared by JIT backends) ──────────────────
+
+/// Identify basic block leaders in bytecode. A leader is:
+/// - instruction 0 (entry point)
+/// - the target of any jump
+/// - the instruction after any jump
+#[cfg(feature = "cranelift")]
+pub(crate) fn find_block_leaders(code: &[u32]) -> Vec<usize> {
+    let mut leaders = std::collections::BTreeSet::new();
+    leaders.insert(0);
+    for (i, &inst) in code.iter().enumerate() {
+        let op = (inst >> 24) as u8;
+        match op {
+            OP_JMP | OP_JMPF | OP_JMPT | OP_JMPNN => {
+                let sbx = (inst & 0xFFFF) as i16;
+                let target = (i as isize + 1 + sbx as isize) as usize;
+                leaders.insert(target);
+                leaders.insert(i + 1);
+            }
+            OP_LISTGET => {
+                // LISTGET may skip the next instruction (JMP), so both i+1 and i+2 are leaders
+                leaders.insert(i + 1);
+                leaders.insert(i + 2);
+            }
+            _ => {}
+        }
+    }
+    leaders.into_iter().filter(|&l| l <= code.len()).collect()
 }
 
 fn unpack_record_desc(desc: Value) -> VmResult<(String, Vec<String>)> {
@@ -4953,5 +5914,178 @@ mod tests {
     fn vm_destructure_in_loop() {
         let source = "type pt{x:n;y:n} f>n;ps=[pt x:1 y:2,pt x:3 y:4];@p ps{{x;y}=p;+x y}";
         assert_eq!(vm_run(source, Some("f"), vec![]), Value::Number(7.0));
+    }
+
+    // ── JSON builtins (VM) ──────────────────────────────────────────────
+
+    #[test]
+    fn vm_jp_basic() {
+        let source = r#"f j:t p:t>R t t;jpth j p"#;
+        let result = vm_run(source, Some("f"), vec![
+            Value::Text(r#"{"name":"alice"}"#.to_string()),
+            Value::Text("name".to_string()),
+        ]);
+        assert_eq!(result, Value::Ok(Box::new(Value::Text("alice".to_string()))));
+    }
+
+    #[test]
+    fn vm_jp_nested() {
+        let source = r#"f j:t p:t>R t t;jpth j p"#;
+        let result = vm_run(source, Some("f"), vec![
+            Value::Text(r#"{"user":{"name":"bob"}}"#.to_string()),
+            Value::Text("user.name".to_string()),
+        ]);
+        assert_eq!(result, Value::Ok(Box::new(Value::Text("bob".to_string()))));
+    }
+
+    #[test]
+    fn vm_jp_array_index() {
+        let source = r#"f j:t p:t>R t t;jpth j p"#;
+        let result = vm_run(source, Some("f"), vec![
+            Value::Text(r#"[10,20,30]"#.to_string()),
+            Value::Text("1".to_string()),
+        ]);
+        assert_eq!(result, Value::Ok(Box::new(Value::Text("20".to_string()))));
+    }
+
+    #[test]
+    fn vm_jp_missing_key() {
+        let source = r#"f j:t p:t>R t t;jpth j p"#;
+        let result = vm_run(source, Some("f"), vec![
+            Value::Text(r#"{"a":1}"#.to_string()),
+            Value::Text("b".to_string()),
+        ]);
+        match result {
+            Value::Err(e) => assert!(e.to_string().contains("key not found"), "got: {}", e),
+            other => panic!("expected Err, got {:?}", other),
+        }
+    }
+
+    #[test]
+    fn vm_jp_unwrap() {
+        let source = r#"f j:t p:t>t;jpth! j p"#;
+        let result = vm_run(source, Some("f"), vec![
+            Value::Text(r#"{"x":"hello"}"#.to_string()),
+            Value::Text("x".to_string()),
+        ]);
+        assert_eq!(result, Value::Text("hello".to_string()));
+    }
+
+    #[test]
+    fn vm_jp_compiles_to_opcode() {
+        let prog = parse_program(r#"f j:t p:t>R t t;jpth j p"#);
+        let compiled = compile(&prog).unwrap();
+        let chunk = &compiled.chunks[0];
+        let has_jp_op = chunk.code.iter().any(|inst| (inst >> 24) as u8 == OP_JPTH);
+        assert!(has_jp_op, "expected OP_JPTH in bytecode");
+    }
+
+    #[test]
+    fn vm_jd_number() {
+        let source = "f x:n>t;jdmp x";
+        let result = vm_run(source, Some("f"), vec![Value::Number(42.0)]);
+        assert_eq!(result, Value::Text("42".to_string()));
+    }
+
+    #[test]
+    fn vm_jd_text() {
+        let source = r#"f x:t>t;jdmp x"#;
+        let result = vm_run(source, Some("f"), vec![Value::Text("hello".to_string())]);
+        assert_eq!(result, Value::Text(r#""hello""#.to_string()));
+    }
+
+    #[test]
+    fn vm_jd_list() {
+        let source = "f>t;xs=[1, 2, 3];jdmp xs";
+        let result = vm_run(source, Some("f"), vec![]);
+        assert_eq!(result, Value::Text("[1,2,3]".to_string()));
+    }
+
+    #[test]
+    fn vm_jd_record() {
+        let source = "type pt{x:n;y:n} f>t;p=pt x:1 y:2;jdmp p";
+        let result = vm_run(source, Some("f"), vec![]);
+        let text = match &result { Value::Text(s) => s.clone(), _ => panic!("expected text") };
+        let parsed: serde_json::Value = serde_json::from_str(&text).unwrap();
+        assert_eq!(parsed["x"], 1);
+        assert_eq!(parsed["y"], 2);
+    }
+
+    #[test]
+    fn vm_jd_compiles_to_opcode() {
+        let prog = parse_program("f x:n>t;jdmp x");
+        let compiled = compile(&prog).unwrap();
+        let chunk = &compiled.chunks[0];
+        let has_jd_op = chunk.code.iter().any(|inst| (inst >> 24) as u8 == OP_JDMP);
+        assert!(has_jd_op, "expected OP_JDMP in bytecode");
+    }
+
+    #[test]
+    fn vm_jparse_object() {
+        let source = r#"f j:t>R t t;jpar j"#;
+        let result = vm_run(source, Some("f"), vec![
+            Value::Text(r#"{"a":1,"b":"two"}"#.to_string()),
+        ]);
+        match result {
+            Value::Ok(inner) => match *inner {
+                Value::Record { type_name, fields } => {
+                    assert_eq!(type_name, "json");
+                    assert_eq!(fields.get("a"), Some(&Value::Number(1.0)));
+                    assert_eq!(fields.get("b"), Some(&Value::Text("two".to_string())));
+                }
+                other => panic!("expected record, got {:?}", other),
+            },
+            other => panic!("expected Ok, got {:?}", other),
+        }
+    }
+
+    #[test]
+    fn vm_jparse_array() {
+        let source = r#"f j:t>R t t;jpar j"#;
+        let result = vm_run(source, Some("f"), vec![
+            Value::Text("[1,2,3]".to_string()),
+        ]);
+        match result {
+            Value::Ok(inner) => assert_eq!(*inner, Value::List(vec![Value::Number(1.0), Value::Number(2.0), Value::Number(3.0)])),
+            other => panic!("expected Ok, got {:?}", other),
+        }
+    }
+
+    #[test]
+    fn vm_jparse_invalid() {
+        let source = r#"f j:t>R t t;jpar j"#;
+        let result = vm_run(source, Some("f"), vec![
+            Value::Text("not json".to_string()),
+        ]);
+        assert!(matches!(result, Value::Err(_)));
+    }
+
+    #[test]
+    fn vm_jparse_unwrap() {
+        let source = r#"f j:t>t;jpar! j"#;
+        let result = vm_run(source, Some("f"), vec![Value::Text(r#"{"x":1}"#.to_string())]);
+        match result {
+            Value::Record { type_name, fields } => {
+                assert_eq!(type_name, "json");
+                assert_eq!(fields.get("x"), Some(&Value::Number(1.0)));
+            }
+            other => panic!("expected record, got {:?}", other),
+        }
+    }
+
+    #[test]
+    fn vm_jparse_compiles_to_opcode() {
+        let prog = parse_program(r#"f j:t>R t t;jpar j"#);
+        let compiled = compile(&prog).unwrap();
+        let chunk = &compiled.chunks[0];
+        let has_jparse_op = chunk.code.iter().any(|inst| (inst >> 24) as u8 == OP_JPAR);
+        assert!(has_jparse_op, "expected OP_JPAR in bytecode");
+    }
+
+    #[test]
+    fn vm_jparse_then_field_access() {
+        let source = r#"f j:t>n;r=jpar! j;r.x"#;
+        let result = vm_run(source, Some("f"), vec![Value::Text(r#"{"x":42}"#.to_string())]);
+        assert_eq!(result, Value::Number(42.0));
     }
 }
