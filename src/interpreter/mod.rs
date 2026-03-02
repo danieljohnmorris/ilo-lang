@@ -489,6 +489,21 @@ fn eval_stmt(env: &mut Env, stmt: &Stmt, is_last: bool) -> Result<Option<BodyRes
             env.set(name, val);
             Ok(None)
         }
+        Stmt::Destructure { bindings, value } => {
+            let val = eval_expr(env, value)?;
+            match val {
+                Value::Record { fields, .. } => {
+                    for binding in bindings {
+                        let field_val = fields.get(binding).cloned().ok_or_else(|| {
+                            RuntimeError::new("ILO-R005", format!("no field '{}' on record", binding))
+                        })?;
+                        env.set(binding, field_val);
+                    }
+                    Ok(None)
+                }
+                _ => Err(RuntimeError::new("ILO-R005", "destructure requires a record".to_string())),
+            }
+        }
         Stmt::Guard { condition, negated, body, else_body } => {
             let cond = eval_expr(env, condition)?;
             let truth = is_truthy(&cond);
@@ -2576,5 +2591,45 @@ mod tests {
     fn ok_srt_empty_list() {
         let source = "f>L n;srt []";
         assert_eq!(run_str(source, Some("f"), vec![]), Value::List(vec![]));
+    }
+
+    // ---- Destructuring bind tests ----
+
+    #[test]
+    fn destructure_basic() {
+        let source = "type pt{x:n;y:n} f>n;p=pt x:3 y:4;{x;y}=p;+x y";
+        assert_eq!(run_str(source, Some("f"), vec![]), Value::Number(7.0));
+    }
+
+    #[test]
+    fn destructure_single_field() {
+        let source = "type pt{x:n;y:n} f>n;p=pt x:10 y:20;{x}=p;x";
+        assert_eq!(run_str(source, Some("f"), vec![]), Value::Number(10.0));
+    }
+
+    #[test]
+    fn destructure_with_text_fields() {
+        let source = "type usr{name:t;email:t} f>t;u=usr name:\"alice\" email:\"a@b\";{name;email}=u;name";
+        assert_eq!(run_str(source, Some("f"), vec![]), Value::Text("alice".to_string()));
+    }
+
+    #[test]
+    fn destructure_in_loop() {
+        // Destructure inside a foreach — last iteration value is returned
+        let source = "type pt{x:n;y:n} f>n;ps=[pt x:1 y:2,pt x:3 y:4];@p ps{{x;y}=p;+x y}";
+        assert_eq!(run_str(source, Some("f"), vec![]), Value::Number(7.0));
+    }
+
+    #[test]
+    fn destructure_non_record_error() {
+        let err = run_str_err("f x:n>n;{a}=x;a", Some("f"), vec![Value::Number(5.0)]);
+        assert!(err.contains("destructure requires a record"), "got: {}", err);
+    }
+
+    #[test]
+    fn destructure_missing_field_error() {
+        let source = "type pt{x:n;y:n} f>n;p=pt x:3 y:4;{x;z}=p;x";
+        let err = run_str_err(source, Some("f"), vec![]);
+        assert!(err.contains("no field 'z'"), "got: {}", err);
     }
 }

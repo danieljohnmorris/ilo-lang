@@ -462,6 +462,9 @@ impl Parser {
                 self.expect(&Token::RBrace)?;
                 Ok(Stmt::While { condition, body })
             }
+            Some(Token::LBrace) if self.is_destructure_pattern() => {
+                self.parse_destructure()
+            }
             Some(Token::Ident(_)) => {
                 // Check for let binding: ident '='
                 if self.pos + 1 < self.tokens.len() && self.token_at(self.pos + 1) == Some(&Token::Eq) {
@@ -509,6 +512,40 @@ impl Parser {
         self.expect(&Token::Eq)?;
         let value = self.parse_expr()?;
         Ok(Stmt::Let { name, value })
+    }
+
+    /// Lookahead: `{ident;ident...}=` — destructure pattern
+    fn is_destructure_pattern(&self) -> bool {
+        let mut pos = self.pos + 1; // skip `{`
+        loop {
+            match self.token_at(pos) {
+                Some(Token::Ident(_)) => pos += 1,
+                Some(Token::Semi) => pos += 1,
+                Some(Token::RBrace) => {
+                    return self.token_at(pos + 1) == Some(&Token::Eq);
+                }
+                _ => return false,
+            }
+        }
+    }
+
+    /// `{a;b;c}=expr` — destructure record fields into bindings
+    fn parse_destructure(&mut self) -> Result<Stmt> {
+        self.expect(&Token::LBrace)?;
+        let mut bindings = Vec::new();
+        loop {
+            let name = self.expect_ident()?;
+            bindings.push(name);
+            if self.peek() == Some(&Token::Semi) {
+                self.advance(); // consume `;`
+            } else {
+                break;
+            }
+        }
+        self.expect(&Token::RBrace)?;
+        self.expect(&Token::Eq)?;
+        let value = self.parse_expr()?;
+        Ok(Stmt::Destructure { bindings, value })
     }
 
     /// `?{arms}` or `?expr{arms}`
@@ -3165,6 +3202,54 @@ mod tests {
                 other => panic!("expected Call, got {:?}", other),
             },
             _ => panic!("expected function"),
+        }
+    }
+
+    // ---- Destructuring bind tests ----
+
+    #[test]
+    fn parse_destructure_two_fields() {
+        let prog = parse_str("type pt{x:n;y:n} f p:pt>n;{x;y}=p;+x y");
+        let func = match &prog.declarations[1] {
+            Decl::Function { body, .. } => body,
+            _ => panic!("expected function"),
+        };
+        match &func[0].node {
+            Stmt::Destructure { bindings, value } => {
+                assert_eq!(bindings, &["x", "y"]);
+                assert!(matches!(value, Expr::Ref(name) if name == "p"));
+            }
+            other => panic!("expected Destructure, got {:?}", other),
+        }
+    }
+
+    #[test]
+    fn parse_destructure_single_field() {
+        let prog = parse_str("type pt{x:n} f p:pt>n;{x}=p;x");
+        let func = match &prog.declarations[1] {
+            Decl::Function { body, .. } => body,
+            _ => panic!("expected function"),
+        };
+        match &func[0].node {
+            Stmt::Destructure { bindings, .. } => {
+                assert_eq!(bindings, &["x"]);
+            }
+            other => panic!("expected Destructure, got {:?}", other),
+        }
+    }
+
+    #[test]
+    fn parse_destructure_three_fields() {
+        let prog = parse_str("type pt{a:n;b:t;c:b} f p:pt>n;{a;b;c}=p;a");
+        let func = match &prog.declarations[1] {
+            Decl::Function { body, .. } => body,
+            _ => panic!("expected function"),
+        };
+        match &func[0].node {
+            Stmt::Destructure { bindings, .. } => {
+                assert_eq!(bindings, &["a", "b", "c"]);
+            }
+            other => panic!("expected Destructure, got {:?}", other),
         }
     }
 }

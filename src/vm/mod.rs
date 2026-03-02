@@ -385,9 +385,8 @@ impl RegCompiler {
 
                 self.current.reg_count = self.max_reg;
                 self.chunks.push(self.current.clone());
-            } else {
-                self.chunks.push(Chunk::new(0));
             }
+            // TypeDef, Alias, Error — no chunk emitted (not in func_names)
         }
 
         if let Some(e) = self.first_error {
@@ -419,6 +418,22 @@ impl RegCompiler {
                 } else {
                     let reg = self.compile_expr(value);
                     self.add_local(name, reg);
+                }
+                None
+            }
+
+            Stmt::Destructure { bindings, value } => {
+                let record_reg = self.compile_expr(value);
+                for binding in bindings {
+                    let ki = self.current.add_const(Value::Text(binding.clone()));
+                    assert!(ki <= 255, "constant pool overflow: field name index {} exceeds 8-bit limit in OP_RECFLD", ki);
+                    if let Some(existing_reg) = self.resolve_local(binding) {
+                        self.emit_abc(OP_RECFLD, existing_reg, record_reg, ki as u8);
+                    } else {
+                        let field_reg = self.alloc_reg();
+                        self.emit_abc(OP_RECFLD, field_reg, record_reg, ki as u8);
+                        self.add_local(binding, field_reg);
+                    }
                 }
                 None
             }
@@ -4850,5 +4865,25 @@ mod tests {
         // .?0 on a list returns the element
         let source = "f>n;xs=[10,20,30];xs.?0";
         assert_eq!(vm_run(source, Some("f"), vec![]), Value::Number(10.0));
+    }
+
+    // ---- Destructuring bind tests ----
+
+    #[test]
+    fn vm_destructure_basic() {
+        let source = "type pt{x:n;y:n} f>n;p=pt x:3 y:4;{x;y}=p;+x y";
+        assert_eq!(vm_run(source, Some("f"), vec![]), Value::Number(7.0));
+    }
+
+    #[test]
+    fn vm_destructure_single_field() {
+        let source = "type pt{x:n;y:n} f>n;p=pt x:10 y:20;{y}=p;y";
+        assert_eq!(vm_run(source, Some("f"), vec![]), Value::Number(20.0));
+    }
+
+    #[test]
+    fn vm_destructure_in_loop() {
+        let source = "type pt{x:n;y:n} f>n;ps=[pt x:1 y:2,pt x:3 y:4];@p ps{{x;y}=p;+x y}";
+        assert_eq!(vm_run(source, Some("f"), vec![]), Value::Number(7.0));
     }
 }

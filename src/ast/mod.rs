@@ -182,6 +182,12 @@ pub enum Stmt {
     /// `cnt` — skip to next iteration of enclosing loop
     Continue,
 
+    /// `{a;b;c}=expr` — destructure record fields into local bindings
+    Destructure {
+        bindings: Vec<String>,
+        value: Expr,
+    },
+
     /// Expression as statement (last expr is return value)
     Expr(Expr),
 }

@@ -189,6 +189,9 @@ fn fmt_body_dense(stmts: &[Spanned<Stmt>]) -> String {
 fn fmt_stmt_dense(stmt: &Stmt) -> String {
     match stmt {
         Stmt::Let { name, value } => format!("{}={}", name, fmt_expr(value, FmtMode::Dense)),
+        Stmt::Destructure { bindings, value } => {
+            format!("{{{}}}={}", bindings.join(";"), fmt_expr(value, FmtMode::Dense))
+        }
         Stmt::Guard { condition, negated, body, else_body } => {
             let prefix = if *negated { "!" } else { "" };
             let main = format!("{}{}{{{}}}", prefix, fmt_expr(condition, FmtMode::Dense), fmt_body_dense(body));
@@ -244,6 +247,14 @@ fn fmt_stmt_expanded(out: &mut String, stmt: &Stmt, indent_level: usize) {
             out.push_str(&ind);
             out.push_str(name);
             out.push_str(" = ");
+            out.push_str(&fmt_expr(value, FmtMode::Expanded));
+            out.push('\n');
+        }
+        Stmt::Destructure { bindings, value } => {
+            out.push_str(&ind);
+            out.push('{');
+            out.push_str(&bindings.join(";"));
+            out.push_str("} = ");
             out.push_str(&fmt_expr(value, FmtMode::Expanded));
             out.push('\n');
         }
@@ -1049,5 +1060,24 @@ mod tests {
     #[test]
     fn round_trip_safe_field() {
         assert_round_trip("f x:n>n;x.?name");
+    }
+
+    // ---- Destructuring bind tests ----
+
+    #[test]
+    fn dense_destructure() {
+        let s = dense("type pt{x:n;y:n}\nf p:pt>n;{x;y}=p;+x y");
+        assert!(s.contains("{x;y}=p"), "got: {s}");
+    }
+
+    #[test]
+    fn expanded_destructure() {
+        let s = expanded("type pt{x:n;y:n}\nf p:pt>n;{x;y}=p;+x y");
+        assert!(s.contains("{x;y} = p"), "got: {s}");
+    }
+
+    #[test]
+    fn round_trip_destructure() {
+        assert_round_trip("type pt{x:n;y:n}\nf p:pt>n;{x;y}=p;+x y");
     }
 }
