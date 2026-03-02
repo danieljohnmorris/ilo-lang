@@ -1663,9 +1663,10 @@ impl ArenaRecord {
         unsafe { (self as *const Self as *const u8).add(8).cast::<u64>().add(idx) }
     }
 
+    /// Mutable field pointer. Callers must ensure exclusive access.
     #[inline]
-    pub(crate) unsafe fn field_ptr_mut(&self, idx: usize) -> *mut u64 {
-        unsafe { (self as *const Self as *mut u8).add(8).cast::<u64>().add(idx) }
+    pub(crate) unsafe fn field_ptr_mut(&mut self, idx: usize) -> *mut u64 {
+        unsafe { (self as *mut Self as *mut u8).add(8).cast::<u64>().add(idx) }
     }
 }
 
@@ -1682,11 +1683,12 @@ pub(crate) struct BumpArena {
 
 impl BumpArena {
     pub(crate) fn new() -> Self {
-        let mut buf = vec![0u8; ARENA_DEFAULT_SIZE];
-        let ptr = buf.as_mut_ptr();
-        let cap = buf.capacity();
-        std::mem::forget(buf); // we manage the memory now
-        BumpArena { buf_ptr: ptr, buf_cap: cap, offset: 0 }
+        let layout = std::alloc::Layout::from_size_align(ARENA_DEFAULT_SIZE, 8).unwrap();
+        // SAFETY: layout is non-zero (64KB, 8-align). No zero-fill needed since
+        // arena tracks its own offset and only reads initialized records.
+        let ptr = unsafe { std::alloc::alloc(layout) };
+        if ptr.is_null() { std::alloc::handle_alloc_error(layout); }
+        BumpArena { buf_ptr: ptr, buf_cap: ARENA_DEFAULT_SIZE, offset: 0 }
     }
 
     #[inline]
@@ -1734,8 +1736,8 @@ impl Drop for BumpArena {
     fn drop(&mut self) {
         self.reset(); // drop_rc all heap fields
         unsafe {
-            // Reconstruct Vec to free the buffer
-            let _ = Vec::from_raw_parts(self.buf_ptr, 0, self.buf_cap);
+            let layout = std::alloc::Layout::from_size_align(self.buf_cap, 8).unwrap();
+            std::alloc::dealloc(self.buf_ptr, layout);
         }
     }
 }
@@ -2722,7 +2724,7 @@ impl<'a> VM<'a> {
                     // Try arena allocation first (fast path)
                     if let Some(rec_ptr) = self.arena.alloc_record(type_id, n_fields) {
                         unsafe {
-                            let rec = &*rec_ptr;
+                            let rec = &mut *rec_ptr;
                             for i in 0..n_fields {
                                 let v = reg!(a + 1 + i);
                                 v.clone_rc(); // no-op for numbers; needed for heap strings etc.
@@ -2770,7 +2772,7 @@ impl<'a> VM<'a> {
                         if let Some(new_ptr) = self.arena.alloc_record(type_id, old_n) {
                             unsafe {
                                 let old_rec = old_record.as_arena_record();
-                                let new_rec = &*new_ptr;
+                                let new_rec = &mut *new_ptr;
                                 // Copy all fields from old record (clone_rc for heap refs)
                                 for i in 0..old_n {
                                     let v = NanVal(*old_rec.field_ptr(i));
@@ -4182,7 +4184,7 @@ pub(crate) extern "C" fn jit_recnew(arena_ptr: u64, type_id_and_nfields: u64, re
     // Try arena allocation first (fast path)
     if let Some(rec_ptr) = arena.alloc_record(tid, n) {
         unsafe {
-            let rec = &*rec_ptr;
+            let rec = &mut *rec_ptr;
             for i in 0..n {
                 let v = NanVal(*regs.add(i));
                 v.clone_rc();
@@ -4225,7 +4227,7 @@ pub(crate) extern "C" fn jit_recwith(rec: u64, indices_ptr: *const u8, n_updates
             });
 
             if let Some(new_ptr) = arena_result {
-                let new_rec = &*new_ptr;
+                let new_rec = &mut *new_ptr;
                 // Copy all fields
                 for i in 0..old_n {
                     let v = NanVal(*old_rec.field_ptr(i));
