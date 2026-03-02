@@ -320,8 +320,8 @@ fn main() {
         #[cfg(feature = "cranelift")]
         {
             let func_name = if args.len() > m + 1 { Some(args[m + 1].as_str()) } else { None };
-            let run_args: Vec<f64> = if args.len() > m + 2 {
-                args[m + 2..].iter().map(|a| a.parse::<f64>().expect("JIT args must be numbers")).collect()
+            let run_args: Vec<interpreter::Value> = if args.len() > m + 2 {
+                args[m + 2..].iter().map(|a| parse_cli_arg(a)).collect()
             } else {
                 vec![]
             };
@@ -332,17 +332,15 @@ fn main() {
                 .unwrap_or_else(|| { eprintln!("undefined function: {}", target); std::process::exit(1); });
             let chunk = &compiled.chunks[func_idx];
             let nan_consts = &compiled.nan_constants[func_idx];
+            let nan_args: Vec<u64> = run_args.iter().map(|v| vm::NanVal::from_value(v).0).collect();
 
-            match vm::jit_cranelift::compile_and_call(chunk, nan_consts, &run_args) {
-                Some(result) => {
-                    if result == (result as i64) as f64 {
-                        println!("{}", result as i64);
-                    } else {
-                        println!("{}", result);
-                    }
+            match vm::jit_cranelift::compile_and_call(chunk, nan_consts, &nan_args, &compiled) {
+                Some(result_bits) => {
+                    let result = vm::NanVal(result_bits).to_value();
+                    println!("{}", result);
                 }
                 None => {
-                    eprintln!("Cranelift JIT: function not eligible for compilation");
+                    eprintln!("Cranelift JIT: compilation failed");
                     std::process::exit(1);
                 }
             }
@@ -450,30 +448,22 @@ fn main() {
 }
 
 fn run_default(program: &ast::Program, func_name: Option<&str>, args: Vec<interpreter::Value>, source: &str, mode: OutputMode) {
-    // Try Cranelift JIT first: requires all-numeric args and JIT-eligible function
+    // Try Cranelift JIT first — all functions are now eligible
     #[cfg(feature = "cranelift")]
     {
-        let jit_args: Vec<f64> = args.iter().filter_map(|a| match a {
-            interpreter::Value::Number(n) => Some(*n),
-            _ => None,
-        }).collect();
-
-        if jit_args.len() == args.len()
-            && let Ok(compiled) = vm::compile(program) {
-                let target = func_name.unwrap_or(compiled.func_names.first().map(|s| s.as_str()).unwrap_or("main"));
-                if let Some(func_idx) = compiled.func_names.iter().position(|n| n == target) {
-                    let chunk = &compiled.chunks[func_idx];
-                    let nan_consts = &compiled.nan_constants[func_idx];
-                    if let Some(result) = vm::jit_cranelift::compile_and_call(chunk, nan_consts, &jit_args) {
-                        if result == (result as i64) as f64 {
-                            println!("{}", result as i64);
-                        } else {
-                            println!("{}", result);
-                        }
-                        return;
-                    }
+        if let Ok(compiled) = vm::compile(program) {
+            let target = func_name.unwrap_or(compiled.func_names.first().map(|s| s.as_str()).unwrap_or("main"));
+            if let Some(func_idx) = compiled.func_names.iter().position(|n| n == target) {
+                let chunk = &compiled.chunks[func_idx];
+                let nan_consts = &compiled.nan_constants[func_idx];
+                let nan_args: Vec<u64> = args.iter().map(|v| vm::NanVal::from_value(v).0).collect();
+                if let Some(result_bits) = vm::jit_cranelift::compile_and_call(chunk, nan_consts, &nan_args, &compiled) {
+                    let result = vm::NanVal(result_bits).to_value();
+                    println!("{}", result);
+                    return;
                 }
             }
+        }
     }
 
     // Fall back to interpreter
@@ -603,36 +593,33 @@ fn run_bench(program: &ast::Program, func_name: Option<&str>, args: &[interprete
 
     let mut jit_cranelift_ns: Option<u128> = None;
     #[cfg(feature = "cranelift")]
-    if let Some(fi) = func_idx_jit
-        && all_numeric {
-            let chunk = &compiled.chunks[fi];
-            let nan_consts = &compiled.nan_constants[fi];
-            if let Some(jit_func) = vm::jit_cranelift::compile(chunk, nan_consts) {
-                for _ in 0..100 {
-                    let _ = vm::jit_cranelift::call(&jit_func, &jit_args);
-                }
-
-                let start = Instant::now();
-                let mut jit_result = 0.0f64;
-                for _ in 0..iterations {
-                    jit_result = vm::jit_cranelift::call(&jit_func, &jit_args).expect("Cranelift JIT error during benchmark");
-                }
-                let jit_dur = start.elapsed();
-                let ns = jit_dur.as_nanos() / iterations as u128;
-                jit_cranelift_ns = Some(ns);
-
-                println!("Cranelift JIT");
-                if jit_result == (jit_result as i64) as f64 {
-                    println!("  result:     {}", jit_result as i64);
-                } else {
-                    println!("  result:     {}", jit_result);
-                }
-                println!("  iterations: {}", iterations);
-                println!("  total:      {:.2}ms", jit_dur.as_nanos() as f64 / 1e6);
-                println!("  per call:   {}ns", ns);
-                println!();
+    if let Some(fi) = func_idx_jit {
+        let chunk = &compiled.chunks[fi];
+        let nan_consts = &compiled.nan_constants[fi];
+        let nan_args: Vec<u64> = args.iter().map(|v| vm::NanVal::from_value(v).0).collect();
+        if let Some(jit_func) = vm::jit_cranelift::compile(chunk, nan_consts, &compiled) {
+            for _ in 0..100 {
+                let _ = vm::jit_cranelift::call(&jit_func, &nan_args);
             }
+
+            let start = Instant::now();
+            let mut jit_result_bits = 0u64;
+            for _ in 0..iterations {
+                jit_result_bits = vm::jit_cranelift::call(&jit_func, &nan_args).expect("Cranelift JIT error during benchmark");
+            }
+            let jit_dur = start.elapsed();
+            let ns = jit_dur.as_nanos() / iterations as u128;
+            jit_cranelift_ns = Some(ns);
+
+            let jit_result = vm::NanVal(jit_result_bits).to_value();
+            println!("Cranelift JIT");
+            println!("  result:     {}", jit_result);
+            println!("  iterations: {}", iterations);
+            println!("  total:      {:.2}ms", jit_dur.as_nanos() as f64 / 1e6);
+            println!("  per call:   {}ns", ns);
+            println!();
         }
+    }
 
     #[allow(unused_variables)]
     let jit_llvm_ns: Option<u128> = None;

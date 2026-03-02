@@ -1079,29 +1079,28 @@ fn run_cranelift_float_result() {
 #[cfg(feature = "cranelift")]
 #[test]
 fn run_cranelift_not_eligible() {
-    // Match expression uses OP_JEQ → not JIT-eligible → None → L304-305
+    // Match expression is now JIT-eligible with NanVal JIT — should succeed
     let out = ilo()
         .args(["f x:n>n;?x{1:2;_:3}", "--run-cranelift", "f", "5"])
         .output()
         .expect("failed to run ilo");
-    assert!(!out.status.success(), "should fail with not-eligible function");
-    let stderr = String::from_utf8_lossy(&out.stderr);
-    assert!(
-        stderr.contains("not eligible") || stderr.contains("eligible"),
-        "expected not-eligible message, got: {stderr}"
-    );
+    assert!(out.status.success(), "match should be JIT-eligible now, stderr: {}", String::from_utf8_lossy(&out.stderr));
+    let stdout = String::from_utf8_lossy(&out.stdout);
+    assert!(stdout.trim() == "3", "expected wildcard arm result 3, got: {stdout}");
 }
 
 // L441-443: run_default interpreter fallback error
 #[test]
 fn run_default_interpreter_error() {
-    // f xs:L n>n;xs.0 with empty list [] → skip JIT (non-numeric arg),
-    // interpreter hits out-of-bounds index → Err → L441-443
+    // f xs:L n>n;xs.0 with empty list [] — JIT now handles this,
+    // returns nil for out-of-bounds index
     let out = ilo()
         .args(["f xs:L n>n;xs.0", "f", "[]"])
         .output()
         .expect("failed to run ilo");
-    assert!(!out.status.success(), "should fail on empty list index");
+    assert!(out.status.success(), "JIT handles empty list index, stderr: {}", String::from_utf8_lossy(&out.stderr));
+    let stdout = String::from_utf8_lossy(&out.stdout);
+    assert!(stdout.trim() == "nil", "expected nil for empty list index, got: {stdout}");
 }
 
 // run_bench: L448-746 — bench with simple function covers the full run_bench path
@@ -1181,9 +1180,7 @@ fn bench_jit_float_result() {
 // Uses a function with a text constant: JIT can't compile it → returns None
 #[test]
 fn bench_jit_non_numeric_const() {
-    // f x:n>n;y="hi";x — text constant in body causes JIT to return None
-    // → arm64 L197 (LOADK non-number) + L560 (closing }, JIT=None)
-    // → Cranelift L161 (LOADK non-number) + L593 (closing }, JIT=None)
+    // f x:n>n;y="hi";x — NanVal JIT now handles text constants
     let out = ilo()
         .args(["f x:n>n;y=\"hi\";x", "--bench", "f", "5"])
         .output()
@@ -1191,9 +1188,9 @@ fn bench_jit_non_numeric_const() {
     assert!(out.status.success(), "stderr: {}", String::from_utf8_lossy(&out.stderr));
     let stdout = String::from_utf8_lossy(&out.stdout);
     assert!(stdout.contains("Rust interpreter"), "expected bench output, got: {stdout}");
-    // JIT sections should NOT appear since JIT returns None for non-numeric constants
-    assert!(!stdout.contains("Custom JIT (arm64)"), "arm64 JIT should not compile text-const fn");
-    assert!(!stdout.contains("Cranelift JIT"), "cranelift JIT should not compile text-const fn");
+    // Cranelift JIT now compiles text-const functions via NanVal
+    #[cfg(feature = "cranelift")]
+    assert!(stdout.contains("Cranelift JIT"), "cranelift JIT should compile text-const fn with NanVal");
 }
 
 // vm/jit_arm64.rs L207-209 (OP_MOVE with a != b) + vm/jit_cranelift.rs L167-170 (OP_MOVE with a != b)
