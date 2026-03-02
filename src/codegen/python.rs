@@ -352,6 +352,7 @@ fn emit_expr(out: &mut String, level: usize, expr: &Expr) -> String {
                 let call = format!("(lambda s: (\"ok\", __import__('json').loads(s)))({})", arg);
                 return if *unwrap { format!("_ilo_unwrap({})", call) } else { call };
             }
+
             if function == "env" && args.len() == 1 {
                 let arg = emit_expr(out, level, &args[0]);
                 let call = format!("(lambda k: (\"ok\", __import__('os').environ[k]) if k in __import__('os').environ else (\"err\", f\"env var '{{k}}' not set\"))({})", arg);

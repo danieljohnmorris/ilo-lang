@@ -3439,10 +3439,10 @@ impl<'a> VM<'a> {
                         return Err(VmError::Type("env requires a string"));
                     }
                     // SAFETY: is_string() confirmed heap-tagged string with live RC.
-                    let key = unsafe { match v.as_heap_ref() { HeapObj::Str(s) => s, _ => unreachable!() } };
-                    let result = match std::env::var(key.as_str()) {
+                    let key_str: String = unsafe { match v.as_heap_ref() { HeapObj::Str(s) => s.as_str().to_owned(), _ => unreachable!() } };
+                    let result = match std::env::var(&key_str) {
                         Ok(val) => NanVal::heap_ok(NanVal::heap_string(val)),
-                        Err(_) => NanVal::heap_err(NanVal::heap_string(format!("env var '{}' not set", key))),
+                        Err(_) => NanVal::heap_err(NanVal::heap_string(format!("env var '{}' not set", key_str))),
                     };
                     reg_set!(a, result);
                 }
@@ -4843,6 +4843,8 @@ mod tests {
     use super::*;
     use crate::lexer;
     use crate::parser;
+
+    static ENV_TEST_MUTEX: std::sync::Mutex<()> = std::sync::Mutex::new(());
 
     fn parse_program(source: &str) -> Program {
         let tokens = lexer::lex(source).unwrap();
@@ -6839,6 +6841,7 @@ mod tests {
 
     #[test]
     fn vm_env_existing_var() {
+        let _guard = ENV_TEST_MUTEX.lock().unwrap();
         unsafe { std::env::set_var("ILO_VM_TEST", "vmval"); }
         let source = r#"f k:t>R t t;env k"#;
         let result = vm_run(source, Some("f"), vec![Value::Text("ILO_VM_TEST".into())]);
@@ -6848,6 +6851,7 @@ mod tests {
 
     #[test]
     fn vm_env_missing_var() {
+        let _guard = ENV_TEST_MUTEX.lock().unwrap();
         let source = r#"f k:t>R t t;env k"#;
         let result = vm_run(source, Some("f"), vec![Value::Text("ILO_VM_NONEXIST_999".into())]);
         match result {

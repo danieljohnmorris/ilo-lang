@@ -590,6 +590,7 @@ fn call_function(env: &mut Env, name: &str, args: Vec<Value>) -> Result<Value> {
             other => Err(RuntimeError::new("ILO-R009", format!("jpar requires text, got {:?}", other))),
         };
     }
+
     if name == "env" && args.len() == 1 {
         return match &args[0] {
             Value::Text(key) => {
@@ -662,6 +663,7 @@ fn call_function(env: &mut Env, name: &str, args: Vec<Value>) -> Result<Value> {
     // Dynamic dispatch: callee resolved to a FnRef at runtime
     // (e.g. calling a function passed as a parameter: `fn x` where fn:F n n)
     // This is handled by looking up `name` in scope within eval_expr, not here.
+
 
     let decl = env.function(name)?;
     match decl {
@@ -1275,6 +1277,8 @@ mod tests {
     use super::*;
     use crate::lexer;
     use crate::parser;
+
+    static ENV_TEST_MUTEX: std::sync::Mutex<()> = std::sync::Mutex::new(());
 
     fn parse_program(source: &str) -> Program {
         let tokens = lexer::lex(source).unwrap();
@@ -2743,6 +2747,7 @@ mod tests {
 
     #[test]
     fn interpret_env_existing_var() {
+        let _guard = ENV_TEST_MUTEX.lock().unwrap();
         unsafe { std::env::set_var("ILO_TEST_VAR", "hello"); }
         let source = r#"f k:t>R t t;env k"#;
         let result = run_str(source, Some("f"), vec![Value::Text("ILO_TEST_VAR".into())]);
@@ -2752,6 +2757,7 @@ mod tests {
 
     #[test]
     fn interpret_env_missing_var() {
+        let _guard = ENV_TEST_MUTEX.lock().unwrap();
         let source = r#"f k:t>R t t;env k"#;
         let result = run_str(source, Some("f"), vec![Value::Text("ILO_NONEXISTENT_12345".into())]);
         match result {
@@ -2767,6 +2773,7 @@ mod tests {
 
     #[test]
     fn interpret_env_unwrap() {
+        let _guard = ENV_TEST_MUTEX.lock().unwrap();
         unsafe { std::env::set_var("ILO_TEST_UNWRAP", "world"); }
         let source = r#"f k:t>R t t;~(env! k)"#;
         let result = run_str(source, Some("f"), vec![Value::Text("ILO_TEST_UNWRAP".into())]);
