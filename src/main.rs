@@ -154,14 +154,14 @@ fn main() {
         } else if args.len() > 2 && args[2] == "ai" {
             print!("{}", compact_spec());
         } else {
-            println!("ilo — a constructed language for AI agents\n");
+            println!("ilo — a programming language for AI agents\n");
             println!("Usage:");
             println!("  ilo <code> [args...]              Run (Cranelift JIT, falls back to interpreter)");
             println!("  ilo <file.ilo> [args...]          Run from file");
             println!("  ilo <code> func [args...]         Run a specific function");
             println!("  ilo <code> --emit python          Transpile to Python");
-            println!("  ilo <code> --fmt                  Reformat (dense wire format)");
-            println!("  ilo <code> --fmt-expanded          Reformat (expanded human format)");
+            println!("  ilo <code> --dense / -d             Reformat (dense wire format)");
+            println!("  ilo <code> --expanded / -e          Reformat (expanded human format)");
             println!("  ilo <code>                        Print AST as JSON (no args)");
             println!("  ilo <code> --bench func [args...] Benchmark a function");
             println!("  ilo help lang                     Show language specification");
@@ -274,9 +274,9 @@ fn main() {
             eprintln!("Unknown emit target. Supported: python");
             std::process::exit(1);
         }
-    } else if args.len() > m && args[m] == "--fmt" {
+    } else if args.len() > m && matches!(args[m].as_str(), "--dense" | "-d" | "--fmt") {
         println!("{}", codegen::fmt::format(&program, codegen::fmt::FmtMode::Dense));
-    } else if args.len() > m && args[m] == "--fmt-expanded" {
+    } else if args.len() > m && matches!(args[m].as_str(), "--expanded" | "-e" | "--fmt-expanded") {
         print!("{}", codegen::fmt::format(&program, codegen::fmt::FmtMode::Expanded));
     } else if args.len() > m && args[m] == "--run-jit" {
         // --run-jit [func] [args...] — ARM64 JIT (aarch64 only)

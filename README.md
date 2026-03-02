@@ -1,6 +1,6 @@
 # ilo
 
-*ilo* — Toki Pona for "tool" ([sona.pona.la/wiki/ilo](https://sona.pona.la/wiki/ilo)). A constructed language for AI agents.
+*ilo* — Toki Pona for "tool" ([sona.pona.la/wiki/ilo](https://sona.pona.la/wiki/ilo)). A programming language for AI agents.
 
 Languages were designed for humans — visual parsing, readable syntax, spatial navigation. AI agents are not humans. They generate tokens. Every token costs latency, money, and context window. The only metric that matters is **total tokens from intent to working code**.
 
@@ -119,13 +119,13 @@ ilo -ai                      # same as ilo help ai
 
 **Backends:**
 
-By default, ilo uses Cranelift JIT and falls back to the interpreter for non-JIT-eligible functions.
+ilo programs can run interpreted or compiled. The default is JIT compilation via Cranelift — every program is verified before execution (all calls resolve, all types align), so the compiler can trust the code and generate efficient native machine code. Falls back to the interpreter for functions using strings, lists, or records (not yet JIT-eligible).
 
 ```bash
 ilo 'code' args              # default: Cranelift JIT → interpreter fallback
 ilo 'code' --run-interp ...  # tree-walking interpreter
-ilo 'code' --run-vm ...      # register VM
-ilo 'code' --run-cranelift . # Cranelift JIT
+ilo 'code' --run-vm ...      # register VM (bytecode compiled)
+ilo 'code' --run-cranelift . # Cranelift JIT (compiled to native code)
 ilo 'code' --run-jit ...     # custom ARM64 JIT (macOS Apple Silicon only)
 ```
 
@@ -186,11 +186,11 @@ NO_COLOR=1 ilo 'code'       # disable colour
 
 **Formatter:**
 
-Newlines are for humans — agents don't need them. An entire ilo program can be one line. Dense output is the default:
+Newlines are for humans — agents don't need them. An entire ilo program can be one line:
 
 ```bash
-ilo 'code' --fmt              # reformat (dense wire format)
-ilo 'code' --fmt-expanded     # reformat (expanded human format)
+ilo 'code' --dense / -d       # reformat (dense wire format)
+ilo 'code' --expanded / -e    # reformat (expanded human format)
 ```
 
 **Other modes:**
