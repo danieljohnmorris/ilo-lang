@@ -1,0 +1,19 @@
+-- Text: concatenation, length, number-to-text conversion.
+-- Text values print without quotes.
+-- Note: calls can't be used as operands — bind results first (r=call arg; use r).
+
+-- Greet by name: +"prefix" arg is a binary concat expression (safe in any position)
+greet nm:t>t;+"Hello, " nm
+
+-- Describe a number: str n returns text — must bind before using as operand
+desc n:n>t;r=str n;+"Value is " r
+
+-- Number of bytes in a word (last function — bare call is safe at EOF)
+sz w:t>n;len w
+
+-- run: greet World
+-- out: Hello, World
+-- run: desc 42
+-- out: Value is 42
+-- run: sz hello
+-- out: 5

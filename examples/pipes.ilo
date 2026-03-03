@@ -1,0 +1,20 @@
+-- Pipes: >> passes result as the argument to the next function.
+-- x>>f desugars to f(x). Chains left-to-right, no intermediate bindings needed.
+-- Non-last pipe chains wrapped in () to prevent greedy arg parsing across functions.
+
+dbl x:n>n;*x 2
+inc x:n>n;+x 1
+sq x:n>n;*x x
+
+-- Chain: double then increment
+dbl-inc x:n>n;(x>>dbl>>inc)
+
+-- Chain: increment then square (last function — bare pipe safe at EOF)
+inc-sq x:n>n;x>>inc>>sq
+
+-- run: dbl-inc 5
+-- out: 11
+-- run: dbl-inc 10
+-- out: 21
+-- run: inc-sq 4
+-- out: 25

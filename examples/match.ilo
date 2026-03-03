@@ -1,0 +1,21 @@
+-- Match: exhaustive pattern matching. Arms separated by ;. First match wins.
+-- _ is the wildcard arm (required for exhaustiveness on open types like n).
+
+-- Describe a small number
+desc n:n>t;?n{0:"zero";1:"one";2:"two";_:"many"}
+
+-- Map HTTP status to a label
+status c:n>t;?c{200:"ok";404:"not found";500:"server error";_:"unknown"}
+
+-- run: desc 0
+-- out: zero
+-- run: desc 2
+-- out: two
+-- run: desc 99
+-- out: many
+-- run: status 200
+-- out: ok
+-- run: status 404
+-- out: not found
+-- run: status 418
+-- out: unknown
