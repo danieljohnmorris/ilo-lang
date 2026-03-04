@@ -31,6 +31,27 @@ A named argument like `amount: 42` costs more tokens than positional `42`. We in
 
 **Prefix notation** eliminates parentheses and saves tokens at every nesting level. `(a * b) + c` becomes `+*a b c` — 4 fewer characters, 1 fewer token. Deeper nesting saves more: `((a + b) * c) >= 100` becomes `>=*+a b c 100` — 7 fewer characters, 3 fewer tokens. Across 25 expression patterns, prefix notation saves 22% of tokens and 42% of characters vs infix. See the [prefix-vs-infix benchmark](research/explorations/prefix-vs-infix/) for the full analysis.
 
+**Guards instead of if/else** eliminate nesting depth. In a traditional language, conditional logic stacks:
+
+```python
+if a:
+    if b:
+        if c:
+            return x
+```
+
+Each level adds indentation, a closing brace, and more state for the agent to track. In ilo, guards are flat statements that return early and chain vertically:
+
+```
+>=a 0 x   -- if a >= 0, return x; otherwise continue
+>=b 0 y   -- if b >= 0, return y; otherwise continue
+z         -- default return
+```
+
+No nesting. No closing braces to match. Each guard is a single statement the agent can emit and forget. Depth stays constant regardless of how many conditions there are.
+
+**Match instead of switch** eliminates fall-through — a common source of bugs in C-style languages where missing a `break` causes execution to bleed into the next case. In ilo, each match arm is independent and exhaustive. There is no fall-through because there is no execution path between arms.
+
 **Naming rule:** prefer single-word identifiers. Across all major LLM tokenisers (OpenAI, Anthropic), common English words are 1 token. Hyphenated compounds are always 2 — the hyphen forces a token split. Every hyphen in a name doubles its token cost. Abbreviations (`uid` vs `user`) save characters but not tokens — tokenisers encode common words as single tokens either way. Both styles score 10/10 in generation accuracy.
 
 ### 2. Constrained
