@@ -383,12 +383,49 @@ impl Parser {
                 let err_type = self.parse_type()?;
                 Ok(Type::Result(Box::new(ok_type), Box::new(err_type)))
             }
+            Some(Token::FnType) => {
+                self.advance();
+                // Collect all following types; last is return type, preceding are params.
+                // Stop when the next token cannot start a type, is >, ;, }, or is an Ident
+                // followed by : (which would be a new parameter name, not a type).
+                let mut types = Vec::new();
+                loop {
+                    if !self.can_start_type() {
+                        break;
+                    }
+                    // An Ident followed by Colon is a param name, not a type.
+                    if matches!(self.peek(), Some(Token::Ident(_)))
+                        && self.token_at(self.pos + 1) == Some(&Token::Colon)
+                    {
+                        break;
+                    }
+                    types.push(self.parse_type()?);
+                }
+                if types.is_empty() {
+                    return Err(self.error("ILO-P009", "F type requires at least a return type".into()));
+                }
+                let return_type = types.pop().unwrap();
+                Ok(Type::Fn(types, Box::new(return_type)))
+            }
             Some(Token::Ident(name)) => {
                 self.advance();
                 Ok(Type::Named(name))
             }
             Some(tok) => Err(self.error("ILO-P007", format!("expected type, got {:?}", tok))),
             None => Err(self.error("ILO-P008", "expected type, got EOF".into())),
+        }
+    }
+
+    /// Returns true if the current token can begin a type expression.
+    fn can_start_type(&self) -> bool {
+        match self.peek() {
+            Some(Token::Ident(s)) => matches!(s.as_str(), "n" | "t" | "b")
+                || self.token_at(self.pos + 1) != Some(&Token::Colon),
+            Some(Token::Underscore) => true,
+            Some(Token::ListType) => true,
+            Some(Token::ResultType) => true,
+            Some(Token::FnType) => true,
+            _ => false,
         }
     }
 

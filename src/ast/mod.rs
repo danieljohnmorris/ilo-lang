@@ -69,9 +69,10 @@ pub enum Type {
     Text,    // t
     Bool,    // b
     Nil,     // _
-    List(Box<Type>),             // L type
+    List(Box<Type>),              // L type
     Result(Box<Type>, Box<Type>), // R ok err
-    Named(String),               // user-defined type name
+    Fn(Vec<Type>, Box<Type>),     // F param... return  (last type is return)
+    Named(String),                // user-defined type name
 }
 
 /// A parameter: `name:type`

@@ -12,6 +12,8 @@ pub enum Ty {
     Nil,
     List(Box<Ty>),
     Result(Box<Ty>, Box<Ty>),
+    /// Function type: params then return. `F n n` = Fn(vec![Number], Number).
+    Fn(Vec<Ty>, Box<Ty>),
     Named(String),
     Unknown,
 }
@@ -25,6 +27,11 @@ impl std::fmt::Display for Ty {
             Ty::Nil => write!(f, "_"),
             Ty::List(inner) => write!(f, "L {inner}"),
             Ty::Result(ok, err) => write!(f, "R {ok} {err}"),
+            Ty::Fn(params, ret) => {
+                write!(f, "F")?;
+                for p in params { write!(f, " {p}")?; }
+                write!(f, " {ret}")
+            }
             Ty::Named(name) => write!(f, "{name}"),
             Ty::Unknown => write!(f, "?"),
         }
@@ -121,6 +128,10 @@ fn convert_type_with_aliases(ast_ty: &Type, aliases: &HashMap<String, Ty>) -> Ty
             Box::new(convert_type_with_aliases(ok, aliases)),
             Box::new(convert_type_with_aliases(err, aliases)),
         ),
+        Type::Fn(params, ret) => Ty::Fn(
+            params.iter().map(|p| convert_type_with_aliases(p, aliases)).collect(),
+            Box::new(convert_type_with_aliases(ret, aliases)),
+        ),
         Type::Named(name) => {
             if let Some(resolved) = aliases.get(name) {
                 resolved.clone()
@@ -141,6 +152,11 @@ fn compatible(a: &Ty, b: &Ty) -> bool {
         (Ty::Nil, Ty::Nil) => true,
         (Ty::List(a), Ty::List(b)) => compatible(a, b),
         (Ty::Result(ao, ae), Ty::Result(bo, be)) => compatible(ao, bo) && compatible(ae, be),
+        (Ty::Fn(ap, ar), Ty::Fn(bp, br)) => {
+            ap.len() == bp.len()
+                && ap.iter().zip(bp).all(|(a, b)| compatible(a, b))
+                && compatible(ar, br)
+        }
         (Ty::Named(a), Ty::Named(b)) => a == b,
         _ => false,
     }
@@ -201,6 +217,10 @@ const BUILTINS: &[(&str, &[&str], &str)] = &[
     ("jpth", &["t", "t"], "R t t"),
     ("jdmp", &["any"], "t"),
     ("jpar", &["t"], "R ? t"),
+    // Higher-order: map/flt/fld take a function ref as first arg (special-cased in builtin_check_args)
+    ("map", &["fn", "list"], "list"),
+    ("flt", &["fn", "list"], "list"),
+    ("fld", &["fn", "list", "any"], "any"),
 ];
 
 fn builtin_arity(name: &str) -> Option<usize> {
@@ -521,6 +541,75 @@ fn builtin_check_args(name: &str, arg_types: &[Ty], func_ctx: &str, span: Option
                 });
             }
             (Ty::Result(Box::new(Ty::Unknown), Box::new(Ty::Text)), errors)
+        }
+        "map" => {
+            // map fn:F a b xs:L a → L b
+            // First arg must be a function type; second must be a list.
+            if let Some(fn_ty) = arg_types.first() {
+                if !matches!(fn_ty, Ty::Fn(_, _) | Ty::Unknown) {
+                    errors.push(VerifyError {
+                        code: "ILO-T013",
+                        function: func_ctx.to_string(),
+                        message: format!("'map' first arg must be a function (F ...), got {fn_ty}"),
+                        hint: Some("pass a function name: map sq xs".to_string()),
+                        span,
+                        is_warning: false,
+                    });
+                }
+            }
+            // Return type: L of the function's return type, or L Unknown
+            let ret_elem = match arg_types.first() {
+                Some(Ty::Fn(_, ret)) => *ret.clone(),
+                _ => Ty::Unknown,
+            };
+            (Ty::List(Box::new(ret_elem)), errors)
+        }
+        "flt" => {
+            // flt fn:F a b xs:L a → L a
+            // First arg: function returning bool; second: list.
+            if let Some(fn_ty) = arg_types.first() {
+                if !matches!(fn_ty, Ty::Fn(_, _) | Ty::Unknown) {
+                    errors.push(VerifyError {
+                        code: "ILO-T013",
+                        function: func_ctx.to_string(),
+                        message: format!("'flt' first arg must be a function (F ...), got {fn_ty}"),
+                        hint: Some("pass a function name: flt pred xs".to_string()),
+                        span,
+                        is_warning: false,
+                    });
+                }
+            }
+            // Return type: same list type as input
+            let ret = match arg_types.get(1) {
+                Some(ty @ Ty::List(_)) => ty.clone(),
+                _ => Ty::Unknown,
+            };
+            (ret, errors)
+        }
+        "fld" => {
+            // fld fn:F a b b xs:L a init:b → b
+            // First arg: function; second: list; third: initial accumulator.
+            if let Some(fn_ty) = arg_types.first() {
+                if !matches!(fn_ty, Ty::Fn(_, _) | Ty::Unknown) {
+                    errors.push(VerifyError {
+                        code: "ILO-T013",
+                        function: func_ctx.to_string(),
+                        message: format!("'fld' first arg must be a function (F ...), got {fn_ty}"),
+                        hint: Some("pass a function name: fld f xs init".to_string()),
+                        span,
+                        is_warning: false,
+                    });
+                }
+            }
+            // Return type: accumulator type (third arg) or function return type
+            let ret = match arg_types.get(2) {
+                Some(ty) if !matches!(ty, Ty::Unknown) => ty.clone(),
+                _ => match arg_types.first() {
+                    Some(Ty::Fn(_, ret)) => *ret.clone(),
+                    _ => Ty::Unknown,
+                },
+            };
+            (ret, errors)
         }
         _ => (Ty::Unknown, errors),
     }
@@ -1018,10 +1107,15 @@ impl VerifyContext {
             Expr::Ref(name) => {
                 if let Some(ty) = scope_lookup(scope, name) {
                     ty
+                } else if let Some(sig) = self.functions.get(name) {
+                    // Function name used as a value — resolve to Ty::Fn
+                    let params: Vec<Ty> = sig.params.iter().map(|(_, t)| t.clone()).collect();
+                    Ty::Fn(params, Box::new(sig.return_type.clone()))
                 } else {
-                    let candidates: Vec<String> = scope.iter()
+                    let mut candidates: Vec<String> = scope.iter()
                         .flat_map(|frame| frame.keys().cloned())
                         .collect();
+                    candidates.extend(self.functions.keys().cloned());
                     let hint = closest_match(name, candidates.iter())
                         .map(|s| format!("did you mean '{s}'?"));
                     self.err("ILO-T004", func, format!("undefined variable '{name}'"), hint, Some(span));
@@ -1107,6 +1201,30 @@ impl VerifyContext {
                     }
 
                     sig_ret
+                } else if let Some(Ty::Fn(param_types, ret_type)) = scope_lookup(scope, callee) {
+                    // Dynamic dispatch: calling a function-ref held in a variable.
+                    if args.len() != param_types.len() {
+                        self.err(
+                            "ILO-T006",
+                            func,
+                            format!("arity mismatch: function parameter '{callee}' expects {} args, got {}", param_types.len(), args.len()),
+                            None,
+                            Some(span),
+                        );
+                    } else {
+                        for (i, (param_ty, arg_ty)) in param_types.iter().zip(arg_types.iter()).enumerate() {
+                            if !compatible(param_ty, arg_ty) {
+                                self.err(
+                                    "ILO-T007",
+                                    func,
+                                    format!("type mismatch: arg {} of '{callee}' expects {param_ty}, got {arg_ty}", i + 1),
+                                    None,
+                                    Some(span),
+                                );
+                            }
+                        }
+                    }
+                    *ret_type
                 } else {
                     let mut candidates: Vec<String> = self.functions.keys().cloned().collect();
                     for (n, _, _) in BUILTINS {

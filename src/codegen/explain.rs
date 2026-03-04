@@ -140,6 +140,10 @@ fn fmt_type_long(ty: &Type) -> String {
         Type::Nil             => "nil".into(),
         Type::List(inner)     => format!("list of {}", fmt_type_long(inner)),
         Type::Result(ok, err) => format!("Result ok={} err={}", fmt_type_long(ok), fmt_type_long(err)),
+        Type::Fn(params, ret) => {
+            let ps: Vec<_> = params.iter().map(fmt_type_long).collect();
+            format!("fn({}) → {}", ps.join(", "), fmt_type_long(ret))
+        }
         Type::Named(name)     => name.clone(),
     }
 }
@@ -152,6 +156,12 @@ fn fmt_type(ty: &Type) -> String {
         Type::Nil             => "_".into(),
         Type::List(inner)     => format!("L {}", fmt_type(inner)),
         Type::Result(ok, err) => format!("R {} {}", fmt_type(ok), fmt_type(err)),
+        Type::Fn(params, ret) => {
+            let mut s = "F".to_string();
+            for p in params { s.push(' '); s.push_str(&fmt_type(p)); }
+            s.push(' '); s.push_str(&fmt_type(ret));
+            s
+        }
         Type::Named(name)     => name.clone(),
     }
 }

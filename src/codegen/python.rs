@@ -585,6 +585,10 @@ fn emit_type(ty: &Type) -> String {
         Type::Nil => "None".to_string(),
         Type::List(inner) => format!("list[{}]", emit_type(inner)),
         Type::Result(ok, err) => format!("tuple[str, {} | {}]", emit_type(ok), emit_type(err)),
+        Type::Fn(params, ret) => {
+            let ps: Vec<_> = params.iter().map(emit_type).collect();
+            format!("Callable[[{}], {}]", ps.join(", "), emit_type(ret))
+        }
         Type::Named(_name) => "dict".to_string(),
     }
 }

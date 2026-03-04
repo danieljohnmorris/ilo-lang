@@ -1781,6 +1781,7 @@ impl NanVal {
             }
             Value::Ok(inner) => NanVal::heap_ok(NanVal::from_value(inner)),
             Value::Err(inner) => NanVal::heap_err(NanVal::from_value(inner)),
+            Value::FnRef(name) => NanVal::heap_string(format!("<fn:{}>", name)),
         }
     }
 

@@ -21,6 +21,8 @@ pub enum Token {
     ListType,
     #[token("R")]
     ResultType,
+    #[token("F")]
+    FnType,
 
     // Boolean literals
     #[token("true")]
