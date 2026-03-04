@@ -32,14 +32,27 @@ pub fn explain(program: &Program) -> String {
                 } else {
                     format!("{} {}>{}", name, fmt_params_sig(params), fmt_type(return_type))
                 };
-                out.push_str(&annotate_line(&sig, "fn start", 0));
 
+                // Collect all (code, role, indent) lines so we can compute a shared column
+                let mut lines: Vec<(String, String, usize)> = Vec::new();
+                lines.push((sig, "fn start".into(), 0));
                 let n = body.len();
                 for (i, spanned) in body.iter().enumerate() {
                     let is_last = i == n - 1;
-                    let src = extract(source, spanned.span.start, spanned.span.end);
+                    let src = extract(source, spanned.span.start, spanned.span.end).to_string();
                     let role = role_of(&spanned.node, is_last);
-                    out.push_str(&annotate_line(src, &role, 3));
+                    lines.push((src, role, 3));
+                }
+
+                // Comment column = max(indent + code_len) + 2 gap, minimum 22
+                let col = lines.iter()
+                    .map(|(code, _, indent)| indent + code.chars().count())
+                    .max()
+                    .unwrap_or(0)
+                    .max(20) + 2;
+
+                for (code, role, indent) in &lines {
+                    out.push_str(&annotate_line_col(code, role, *indent, col));
                 }
             }
 
@@ -67,18 +80,17 @@ pub fn explain(program: &Program) -> String {
     out
 }
 
-/// Format one annotated line: `{indent}{code:<col_width}  {role}`
+/// Format one annotated line with an explicit comment column.
+fn annotate_line_col(code: &str, role: &str, indent: usize, col: usize) -> String {
+    let used = indent + code.chars().count();
+    let pad = if used < col { col - used } else { 1 };
+    format!("{}{}{}-- {}\n", " ".repeat(indent), code, " ".repeat(pad), role)
+}
+
+/// Format a single-line decl with auto column.
 fn annotate_line(code: &str, role: &str, indent: usize) -> String {
-    const CODE_COL: usize = 20;
-    let padded_code = indent + code.chars().count();
-    // Use at least CODE_COL total width for the code+indent column
-    let pad = if padded_code < CODE_COL { CODE_COL - padded_code } else { 2 };
-    format!("{}{}{}-- {}\n",
-        " ".repeat(indent),
-        code,
-        " ".repeat(pad),
-        role,
-    )
+    let col = (indent + code.chars().count()).max(20) + 2;
+    annotate_line_col(code, role, indent, col)
 }
 
 fn role_of(stmt: &Stmt, is_last: bool) -> String {
