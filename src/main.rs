@@ -269,7 +269,8 @@ fn main() {
         };
         run_bench(&program, func_name, &run_args);
     } else if args.len() > m && matches!(args[m].as_str(), "--explain" | "-x") {
-        print!("{}", codegen::explain::explain(&program));
+        let filename = if std::path::Path::new(&args[1]).is_file() { Some(args[1].as_str()) } else { None };
+        print!("{}", codegen::explain::explain(&program, filename));
     } else if args.len() > m && args[m] == "--emit" {
         if args.len() > m + 1 && args[m + 1] == "python" {
             println!("{}", codegen::python::emit(&program));

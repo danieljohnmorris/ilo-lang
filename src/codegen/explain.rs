@@ -15,9 +15,12 @@
 ///      +a b                return
 use crate::ast::{Decl, Param, Program, Stmt, Type};
 
-pub fn explain(program: &Program) -> String {
+pub fn explain(program: &Program, filename: Option<&str>) -> String {
     let source = program.source.as_deref().unwrap_or("");
     let mut out = String::new();
+    if let Some(name) = filename {
+        out.push_str(&format!("file: {name}\n\n"));
+    }
     let mut first = true;
 
     for decl in &program.declarations {
@@ -36,6 +39,10 @@ pub fn explain(program: &Program) -> String {
                 // Collect all (code, role, indent) lines so we can compute a shared column
                 let mut lines: Vec<(String, String, usize)> = Vec::new();
                 lines.push((sig, "fn start".into(), 0));
+                for p in params {
+                    lines.push((format!("{}:{}", p.name, fmt_type(&p.ty)), format!("param → {}", fmt_type_long(&p.ty)), 3));
+                }
+                lines.push((format!(">{}", fmt_type(return_type)), format!("returns {}", fmt_type_long(return_type)), 3));
                 let n = body.len();
                 for (i, spanned) in body.iter().enumerate() {
                     let is_last = i == n - 1;
@@ -123,6 +130,18 @@ fn fmt_params_sig(params: &[Param]) -> String {
         .map(|p| format!("{}:{}", p.name, fmt_type(&p.ty)))
         .collect::<Vec<_>>()
         .join(" ")
+}
+
+fn fmt_type_long(ty: &Type) -> String {
+    match ty {
+        Type::Number          => "number".into(),
+        Type::Text            => "text".into(),
+        Type::Bool            => "bool".into(),
+        Type::Nil             => "nil".into(),
+        Type::List(inner)     => format!("list of {}", fmt_type_long(inner)),
+        Type::Result(ok, err) => format!("Result ok={} err={}", fmt_type_long(ok), fmt_type_long(err)),
+        Type::Named(name)     => name.clone(),
+    }
 }
 
 fn fmt_type(ty: &Type) -> String {
