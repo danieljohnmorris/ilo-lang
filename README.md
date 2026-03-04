@@ -44,6 +44,8 @@ Across 25 expression patterns: **22% fewer tokens, 42% fewer characters** vs inf
 4. **Language-agnostic** — structural tokens (`@`, `>`, `?`, `^`, `~`, `!`, `$`) over English words.
 5. **Graph-native** — programs express relationships (calls, depends-on, has-type). Navigable as a graph, not just readable as linear text.
 
+**Guards instead of if/else** — flat statements that return early and chain vertically. No nesting depth, no closing braces to match. **Match instead of switch** — no fall-through, each arm is independent.
+
 See [MANIFESTO.md](MANIFESTO.md) for the full rationale.
 
 ## Syntax Variants
@@ -95,6 +97,31 @@ No flags needed. The first arg is code (or a file path — auto-detected). Remai
 
 ```bash
 ilo 'dbl x:n>n;s=*x 2;+s 0 tot p:n q:n r:n>n;s=*p q;t=*s r;+s t' tot 10 20 30
+```
+
+**Higher-order functions** — `map`, `flt`, `fld` take a function name as first arg:
+```bash
+# map: apply function to each element
+ilo 'sq x:n>n;*x x main xs:L n>L n;map sq xs' main 1,2,3,4,5
+# → [1, 4, 9, 16, 25]
+
+# flt: filter list by predicate
+ilo 'pos x:n>b;>x 0 main xs:L n>L n;flt pos xs' main -3,-1,0,2,4
+# → [2, 4]
+
+# fld: fold/reduce with accumulator
+ilo 'add a:n b:n>n;+a b main xs:L n>n;fld add xs 0' main 1,2,3,4,5
+# → 15
+```
+
+**Pipe `>>`** — pass result of left as last arg to right. Chains transforms without intermediate names:
+```bash
+# xs >> flt pos >> map sq  =  map sq (flt pos xs)
+ilo 'sq x:n>n;*x x pos x:n>b;>x 0 main xs:L n>L n;xs >> flt pos >> map sq' main -3,-1,0,2,4
+# → [4, 16]
+
+# binding the result of a pipe chain:
+# clean=xs >> flt pos >> map dbl
 ```
 
 **Pass list arguments** with commas:
@@ -214,13 +241,14 @@ ilo program.ilo --bench tot 10 20 30  # benchmark
 cargo test
 ```
 
-1169 tests: lexer, parser, interpreter, VM, verifier, codegen, diagnostic, formatter, and CLI integration tests.
+Tests cover: lexer, parser, interpreter, VM, verifier, codegen, diagnostic, formatter, CLI integration, and annotated example programs.
 
 ## Documentation
 
 | Document | Purpose |
 |----------|---------|
 | [SPEC.md](SPEC.md) | Language specification |
+| [examples/](examples/) | Runnable example programs (also `cargo test` regression suite) |
 | [MANIFESTO.md](MANIFESTO.md) | Design rationale |
 | [research/TODO.md](research/TODO.md) | Planned work |
 | [research/OPEN.md](research/OPEN.md) | Open design questions |

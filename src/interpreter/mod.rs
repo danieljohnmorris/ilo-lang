@@ -11,6 +11,8 @@ pub enum Value {
     Record { type_name: String, fields: HashMap<String, Value> },
     Ok(Box<Value>),
     Err(Box<Value>),
+    /// A reference to a named function — produced when a function name is used as a value.
+    FnRef(String),
 }
 
 impl std::fmt::Display for Value {
@@ -44,6 +46,7 @@ impl std::fmt::Display for Value {
             }
             Value::Ok(v) => write!(f, "~{}", v),
             Value::Err(v) => write!(f, "^{}", v),
+            Value::FnRef(name) => write!(f, "<fn:{}>", name),
         }
     }
 }
@@ -101,6 +104,10 @@ impl Env {
             if let Some(val) = scope.get(name) {
                 return Ok(val.clone());
             }
+        }
+        // Function names resolve to FnRef when used as values
+        if self.functions.contains_key(name) {
+            return Ok(Value::FnRef(name.to_string()));
         }
         Err(RuntimeError::new("ILO-R001", format!("undefined variable: {}", name)))
     }
@@ -473,6 +480,67 @@ fn call_function(env: &mut Env, name: &str, args: Vec<Value>) -> Result<Value> {
         };
     }
 
+    // Higher-order builtins: map, flt, fld
+    // A function reference can be Value::FnRef(name) or Value::Text(name) when the
+    // function name was passed as a CLI string argument.
+    fn resolve_fn_ref(val: &Value) -> Option<String> {
+        match val {
+            Value::FnRef(n) => Some(n.clone()),
+            Value::Text(n) => Some(n.clone()),
+            _ => None,
+        }
+    }
+    if name == "map" && args.len() == 2 {
+        let fn_name = resolve_fn_ref(&args[0]).ok_or_else(|| {
+            RuntimeError::new("ILO-R009", format!("map: first arg must be a function reference, got {:?}", args[0]))
+        })?;
+        let items = match &args[1] {
+            Value::List(l) => l.clone(),
+            other => return Err(RuntimeError::new("ILO-R009", format!("map: second arg must be a list, got {:?}", other))),
+        };
+        let mut result = Vec::with_capacity(items.len());
+        for item in items {
+            result.push(call_function(env, &fn_name, vec![item])?);
+        }
+        return Ok(Value::List(result));
+    }
+    if name == "flt" && args.len() == 2 {
+        let fn_name = resolve_fn_ref(&args[0]).ok_or_else(|| {
+            RuntimeError::new("ILO-R009", format!("flt: first arg must be a function reference, got {:?}", args[0]))
+        })?;
+        let items = match &args[1] {
+            Value::List(l) => l.clone(),
+            other => return Err(RuntimeError::new("ILO-R009", format!("flt: second arg must be a list, got {:?}", other))),
+        };
+        let mut result = Vec::new();
+        for item in items {
+            match call_function(env, &fn_name, vec![item.clone()])? {
+                Value::Bool(true) => result.push(item),
+                Value::Bool(false) => {}
+                other => return Err(RuntimeError::new("ILO-R009", format!("flt: predicate must return bool, got {:?}", other))),
+            }
+        }
+        return Ok(Value::List(result));
+    }
+    if name == "fld" && args.len() == 3 {
+        let fn_name = resolve_fn_ref(&args[0]).ok_or_else(|| {
+            RuntimeError::new("ILO-R009", format!("fld: first arg must be a function reference, got {:?}", args[0]))
+        })?;
+        let items = match &args[1] {
+            Value::List(l) => l.clone(),
+            other => return Err(RuntimeError::new("ILO-R009", format!("fld: second arg must be a list, got {:?}", other))),
+        };
+        let mut acc = args[2].clone();
+        for item in items {
+            acc = call_function(env, &fn_name, vec![acc, item])?;
+        }
+        return Ok(acc);
+    }
+
+    // Dynamic dispatch: callee resolved to a FnRef at runtime
+    // (e.g. calling a function passed as a parameter: `fn x` where fn:F n n)
+    // This is handled by looking up `name` in scope within eval_expr, not here.
+
     let decl = env.function(name)?;
     match decl {
         Decl::Function { params, body, name: func_name, .. } => {
@@ -534,6 +602,7 @@ fn value_to_json(val: &Value) -> serde_json::Value {
         }
         Value::Ok(inner) => value_to_json(inner),
         Value::Err(inner) => value_to_json(inner),
+        Value::FnRef(name) => serde_json::Value::String(format!("<fn:{}>", name)),
     }
 }
 
@@ -800,7 +869,17 @@ fn eval_expr(env: &mut Env, expr: &Expr) -> Result<Value> {
             for arg in args {
                 arg_vals.push(eval_expr(env, arg)?);
             }
-            let result = call_function(env, function, arg_vals)?;
+            // If `function` is a local variable holding a FnRef (or a Text that names a
+            // function), resolve dynamically. This enables user-defined HOFs and CLI usage.
+            let callee_from_scope = env.scopes.iter().rev()
+                .find_map(|s| s.get(function.as_str()))
+                .cloned();
+            let callee = match callee_from_scope {
+                Some(Value::FnRef(name)) => name,
+                Some(Value::Text(name)) if env.functions.contains_key(&name) => name,
+                _ => function.clone(),
+            };
+            let result = call_function(env, &callee, arg_vals)?;
             if *unwrap {
                 match result {
                     Value::Ok(v) => Ok(*v),
@@ -2934,5 +3013,54 @@ mod tests {
         let source = r#"f j:t>n;r=jpar! j;r.x"#;
         let result = run_str(source, Some("f"), vec![Value::Text(r#"{"x":42}"#.to_string())]);
         assert_eq!(result, Value::Number(42.0));
+    }
+
+    #[test]
+    fn interp_map_squares() {
+        // map sq over [1,2,3,4,5] → [1,4,9,16,25]
+        let source = "sq x:n>n;*x x main xs:L n>L n;map sq xs";
+        let result = run_str(source, Some("main"), vec![
+            Value::List(vec![1.0, 2.0, 3.0, 4.0, 5.0].into_iter().map(Value::Number).collect())
+        ]);
+        assert_eq!(result, Value::List(vec![1.0, 4.0, 9.0, 16.0, 25.0].into_iter().map(Value::Number).collect()));
+    }
+
+    #[test]
+    fn interp_flt_positive() {
+        // flt pos over [-3,-1,0,2,4] → [2,4]
+        let source = "pos x:n>b;>x 0 main xs:L n>L n;flt pos xs";
+        let result = run_str(source, Some("main"), vec![
+            Value::List(vec![-3.0, -1.0, 0.0, 2.0, 4.0].into_iter().map(Value::Number).collect())
+        ]);
+        assert_eq!(result, Value::List(vec![2.0, 4.0].into_iter().map(Value::Number).collect()));
+    }
+
+    #[test]
+    fn interp_fld_sum() {
+        // fld add over [1..5] with init 0 → 15
+        let source = "add a:n b:n>n;+a b main xs:L n>n;fld add xs 0";
+        let result = run_str(source, Some("main"), vec![
+            Value::List(vec![1.0, 2.0, 3.0, 4.0, 5.0].into_iter().map(Value::Number).collect())
+        ]);
+        assert_eq!(result, Value::Number(15.0));
+    }
+
+    #[test]
+    fn interp_user_hof_fn_type() {
+        // User-defined HOF: apl fn:F n n x:n>n;fn x
+        let source = "sq x:n>n;*x x apl fn:F n n x:n>n;fn x";
+        let result = run_str(source, Some("apl"), vec![
+            Value::FnRef("sq".to_string()),
+            Value::Number(7.0),
+        ]);
+        assert_eq!(result, Value::Number(49.0));
+    }
+
+    #[test]
+    fn interp_fn_ref_via_ref_expr() {
+        // Using a function name as a value (Expr::Ref resolves to FnRef)
+        let source = "dbl x:n>n;*x 2 main>n;f=dbl;f 10";
+        let result = run_str(source, Some("main"), vec![]);
+        assert_eq!(result, Value::Number(20.0));
     }
 }

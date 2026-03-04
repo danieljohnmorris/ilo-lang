@@ -1,0 +1,18 @@
+-- Arithmetic: prefix operators, no parentheses needed for nesting.
+-- All numbers are f64; whole numbers print without .0.
+
+-- Add two numbers
+add a:n b:n>n;+a b
+
+-- (a * b) + c — inner op becomes an operand, no parens required
+mul-add a:n b:n c:n>n;+*a b c
+
+-- Average of three: a + (b + c), divided by 3
+avg a:n b:n c:n>n;/+a +b c 3
+
+-- run: add 10 20
+-- out: 30
+-- run: mul-add 3 4 5
+-- out: 17
+-- run: avg 10 20 30
+-- out: 20

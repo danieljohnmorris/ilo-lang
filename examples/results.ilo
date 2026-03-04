@@ -1,0 +1,16 @@
+-- Results: R ok err type for explicit error handling.
+-- ~ wraps a value in Ok, ^ wraps in Err.
+-- Display: ~value for Ok, ^value for Err.
+
+-- Safe division: Err on divide-by-zero (ends with ~/a b — WrapOk of a binary expr, safe)
+div a:n b:n>R n t;=b 0 ^"divide by zero";~/a b
+
+-- Delegate to num builtin: parses text to number or Err (last function — call safe at EOF)
+parse tx:t>R n t;num tx
+
+-- run: div 10 2
+-- out: ~5
+-- run: div 10 0
+-- out: ^divide by zero
+-- run: parse three
+-- out: ^three

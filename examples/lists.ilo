@@ -1,0 +1,23 @@
+-- Lists: ordered same-type collections. Pass as [1,2,3] on the CLI.
+-- Index access xs.0, xs.1 etc. are safe expression endings (not Ref, no greedy parsing).
+
+-- First element via index (safe — xs.0 is an index expression, not a bare Ref)
+fst xs:L n>n;xs.0
+
+-- Third element (safe — index expression)
+thr xs:L n>n;xs.2
+
+-- Square each element, return last squared value (safe — foreach ends with })
+sq-last xs:L n>n;@x xs{*x x}
+
+-- Length of list (last function — bare call safe at EOF)
+sz xs:L n>n;len xs
+
+-- run: fst [10,20,30]
+-- out: 10
+-- run: thr [10,20,30]
+-- out: 30
+-- run: sq-last [3,4,5]
+-- out: 25
+-- run: sz [1,2,3,4,5]
+-- out: 5

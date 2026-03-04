@@ -383,12 +383,49 @@ impl Parser {
                 let err_type = self.parse_type()?;
                 Ok(Type::Result(Box::new(ok_type), Box::new(err_type)))
             }
+            Some(Token::FnType) => {
+                self.advance();
+                // Collect all following types; last is return type, preceding are params.
+                // Stop when the next token cannot start a type, is >, ;, }, or is an Ident
+                // followed by : (which would be a new parameter name, not a type).
+                let mut types = Vec::new();
+                loop {
+                    if !self.can_start_type() {
+                        break;
+                    }
+                    // An Ident followed by Colon is a param name, not a type.
+                    if matches!(self.peek(), Some(Token::Ident(_)))
+                        && self.token_at(self.pos + 1) == Some(&Token::Colon)
+                    {
+                        break;
+                    }
+                    types.push(self.parse_type()?);
+                }
+                if types.is_empty() {
+                    return Err(self.error("ILO-P009", "F type requires at least a return type".into()));
+                }
+                let return_type = types.pop().unwrap();
+                Ok(Type::Fn(types, Box::new(return_type)))
+            }
             Some(Token::Ident(name)) => {
                 self.advance();
                 Ok(Type::Named(name))
             }
             Some(tok) => Err(self.error("ILO-P007", format!("expected type, got {:?}", tok))),
             None => Err(self.error("ILO-P008", "expected type, got EOF".into())),
+        }
+    }
+
+    /// Returns true if the current token can begin a type expression.
+    fn can_start_type(&self) -> bool {
+        match self.peek() {
+            Some(Token::Ident(s)) => matches!(s.as_str(), "n" | "t" | "b")
+                || self.token_at(self.pos + 1) != Some(&Token::Colon),
+            Some(Token::Underscore) => true,
+            Some(Token::ListType) => true,
+            Some(Token::ResultType) => true,
+            Some(Token::FnType) => true,
+            _ => false,
         }
     }
 
@@ -1169,7 +1206,15 @@ impl Parser {
     }
 
     /// Can the next token start an operand? (atom or prefix operator)
+    /// Returns false if the current position looks like the start of a new function
+    /// declaration — `Ident >` (zero-param) or `Ident Ident :` (parameterised) — so
+    /// that a non-last function ending with a call doesn't greedily consume the next
+    /// function's name as an argument.
     fn can_start_operand(&self) -> bool {
+        // If the upcoming token is an Ident that begins a new declaration, stop here.
+        if self.is_fn_decl_start(self.pos) {
+            return false;
+        }
         self.can_start_atom()
             || matches!(
                 self.peek(),
@@ -3250,6 +3295,107 @@ mod tests {
                 assert_eq!(bindings, &["a", "b", "c"]);
             }
             other => panic!("expected Destructure, got {:?}", other),
+        }
+    }
+
+    // ---- Greedy argument parsing regression tests ----
+
+    /// A non-last function ending with a call must not consume the next function's
+    /// name as an argument.  `len xs` should parse as Call(len, [xs]), and `g` must
+    /// become its own zero-param declaration.
+    #[test]
+    fn greedy_arg_stops_at_zero_param_decl() {
+        // `len xs` ends the first function; `g` starts a zero-param function (g>n)
+        let prog = parse_str("f xs:n>n;len xs g>n;2");
+        assert_eq!(prog.declarations.len(), 2, "expected exactly 2 declarations");
+        match &prog.declarations[0] {
+            Decl::Function { name, body, .. } => {
+                assert_eq!(name, "f");
+                // Body has one statement: Call(len, [xs])
+                match &body[0].node {
+                    Stmt::Expr(Expr::Call { function, args, .. }) => {
+                        assert_eq!(function, "len");
+                        assert_eq!(args.len(), 1, "len should have exactly 1 arg, not consume `g`");
+                        assert!(matches!(&args[0], Expr::Ref(n) if n == "xs"));
+                    }
+                    other => panic!("expected Call(len, [xs]), got {:?}", other),
+                }
+            }
+            _ => panic!("expected function f"),
+        }
+        match &prog.declarations[1] {
+            Decl::Function { name, .. } => assert_eq!(name, "g"),
+            _ => panic!("expected function g"),
+        }
+    }
+
+    /// A non-last function ending with a call must not consume the next function's
+    /// name (parameterised form) as an argument.
+    #[test]
+    fn greedy_arg_stops_at_parameterised_decl() {
+        // `len xs` ends the first function; `g y:n>n` is a parameterised function
+        let prog = parse_str("f xs:n>n;len xs g y:n>n;*y 2");
+        assert_eq!(prog.declarations.len(), 2, "expected exactly 2 declarations");
+        match &prog.declarations[0] {
+            Decl::Function { name, body, .. } => {
+                assert_eq!(name, "f");
+                match &body[0].node {
+                    Stmt::Expr(Expr::Call { function, args, .. }) => {
+                        assert_eq!(function, "len");
+                        assert_eq!(args.len(), 1, "len should have exactly 1 arg, not consume `g`");
+                    }
+                    other => panic!("expected Call(len, [xs]), got {:?}", other),
+                }
+            }
+            _ => panic!("expected function f"),
+        }
+        match &prog.declarations[1] {
+            Decl::Function { name, params, .. } => {
+                assert_eq!(name, "g");
+                assert_eq!(params.len(), 1);
+                assert_eq!(params[0].name, "y");
+            }
+            _ => panic!("expected function g"),
+        }
+    }
+
+    /// Three functions in sequence — the middle one ends with a call.
+    #[test]
+    fn greedy_arg_three_functions_middle_ends_with_call() {
+        let prog = parse_str("f xs:n>n;len xs g y:n>n;*y 2 h z:n>n;+z 1");
+        assert_eq!(prog.declarations.len(), 3, "expected 3 declarations");
+        match &prog.declarations[0] {
+            Decl::Function { name, .. } => assert_eq!(name, "f"),
+            _ => panic!("expected function f"),
+        }
+        match &prog.declarations[1] {
+            Decl::Function { name, .. } => assert_eq!(name, "g"),
+            _ => panic!("expected function g"),
+        }
+        match &prog.declarations[2] {
+            Decl::Function { name, .. } => assert_eq!(name, "h"),
+            _ => panic!("expected function h"),
+        }
+    }
+
+    /// A function call with multiple valid args must still get all of them when the
+    /// tokens after the args are NOT a declaration boundary.
+    #[test]
+    fn greedy_arg_still_collects_multiple_args_within_single_function() {
+        // `tot p q r` with three numeric args should still parse as Call(tot, [1, 2, 3])
+        let prog = parse_str("f>n;tot 1 2 3");
+        assert_eq!(prog.declarations.len(), 1);
+        match &prog.declarations[0] {
+            Decl::Function { body, .. } => {
+                match &body[0].node {
+                    Stmt::Expr(Expr::Call { function, args, .. }) => {
+                        assert_eq!(function, "tot");
+                        assert_eq!(args.len(), 3);
+                    }
+                    other => panic!("expected Call(tot, [1,2,3]), got {:?}", other),
+                }
+            }
+            _ => panic!("expected function"),
         }
     }
 }

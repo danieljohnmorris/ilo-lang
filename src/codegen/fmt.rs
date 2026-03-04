@@ -176,6 +176,12 @@ fn fmt_type(ty: &Type) -> String {
         Type::Nil => "_".to_string(),
         Type::List(inner) => format!("L {}", fmt_type(inner)),
         Type::Result(ok, err) => format!("R {} {}", fmt_type(ok), fmt_type(err)),
+        Type::Fn(params, ret) => {
+            let mut s = "F".to_string();
+            for p in params { s.push(' '); s.push_str(&fmt_type(p)); }
+            s.push(' '); s.push_str(&fmt_type(ret));
+            s
+        }
         Type::Named(name) => name.clone(),
     }
 }
