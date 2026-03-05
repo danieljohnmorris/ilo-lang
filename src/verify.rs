@@ -871,9 +871,9 @@ impl VerifyContext {
                 let _ = self.infer_expr(func, scope, condition, span);
 
                 // Warn if braceless guard body is a single identifier matching a function name.
-                if body.len() == 1 {
-                    if let Stmt::Expr(Expr::Ref(ref name)) = body[0].node {
-                        if self.functions.contains_key(name) || is_builtin(name) {
+                if body.len() == 1
+                    && let Stmt::Expr(Expr::Ref(ref name)) = body[0].node
+                        && (self.functions.contains_key(name) || is_builtin(name)) {
                             let body_span = body[0].span;
                             self.err(
                                 "ILO-T027",
@@ -883,8 +883,6 @@ impl VerifyContext {
                                 Some(body_span),
                             );
                         }
-                    }
-                }
 
                 scope.push(HashMap::new());
                 let body_ty = self.verify_body(func, scope, body);
