@@ -380,9 +380,13 @@ fn serv_cmd(args_slice: &[String]) {
                 http_path = Some(args_slice[i + 1].clone());
                 i += 2;
             }
+            "-j" | "--json" => {
+                // JSON protocol is always on in repl/serv; flag is a no-op (accepted for alias compat)
+                i += 1;
+            }
             _ => {
                 eprintln!("unknown flag: {}", args_slice[i]);
-                eprintln!("Usage: ilo serv [--mcp <path>] [--tools <path>]");
+                eprintln!("Usage: ilo repl [-j] [--mcp <path>] [--tools <path>]");
                 std::process::exit(1);
             }
         }
@@ -567,8 +571,17 @@ fn main() {
         std::process::exit(0);
     }
 
-    if raw_args.get(1).map(|s| s.as_str()) == Some("serv") {
-        serv_cmd(&raw_args[2..]);
+    if matches!(raw_args.get(1).map(|s| s.as_str()), Some("serv") | Some("repl")) {
+        let is_serv = raw_args.get(1).map(|s| s.as_str()) == Some("serv");
+        let rest: Vec<String> = if is_serv {
+            // `ilo serv [args]` is an alias for `ilo repl -j [args]`
+            let mut v = vec!["-j".to_string()];
+            v.extend_from_slice(&raw_args[2..]);
+            v
+        } else {
+            raw_args[2..].to_vec()
+        };
+        serv_cmd(&rest);
         std::process::exit(0);
     }
 
