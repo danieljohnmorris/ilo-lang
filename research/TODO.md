@@ -6,7 +6,7 @@ Everything through Phase E is complete. This file tracks remaining work.
 
 ### Agent / tool integration
 
-- [ ] Tool graph — which tools depend on which types, what produces what
+- [x] Tool graph — `ilo tools --graph`: type-level composition map showing which tools can feed each other
 - [ ] "Typed shell" mode — interactive tool composition with type-guided completion
 
 ### Tooling

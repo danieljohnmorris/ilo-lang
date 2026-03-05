@@ -32,6 +32,7 @@ fn tools_cmd(args: &[String]) {
     let mut http_path: Option<String> = None;
     let mut fmt = ToolsOutputFmt::Human;
     let mut full = false;
+    let mut graph = false;
 
     let mut i = 0;
     while i < args.len() {
@@ -68,11 +69,15 @@ fn tools_cmd(args: &[String]) {
                 full = true;
                 i += 1;
             }
+            "--graph" | "-g" => {
+                graph = true;
+                i += 1;
+            }
             _ => {
                 eprintln!("unknown flag: {}", args[i]);
                 eprintln!(
                     "Usage: ilo tools [-m <path>] [-t <path>] \
-                     [--human|--ilo|--json] [--full]"
+                     [--human|--ilo|--json] [--full] [--graph]"
                 );
                 std::process::exit(1);
             }
@@ -85,13 +90,13 @@ fn tools_cmd(args: &[String]) {
         );
         eprintln!(
             "Usage: ilo tools [--mcp <path>] [--tools <path>] \
-             [--human|--ilo|--json] [--full]"
+             [--human|--ilo|--json] [--full] [--graph]"
         );
         std::process::exit(1);
     }
 
-    // --ilo and --json always show full signatures.
-    if matches!(fmt, ToolsOutputFmt::Ilo | ToolsOutputFmt::Json) {
+    // --ilo, --json, and --graph always show full signatures.
+    if matches!(fmt, ToolsOutputFmt::Ilo | ToolsOutputFmt::Json) || graph {
         full = true;
     }
 
@@ -174,6 +179,103 @@ fn tools_cmd(args: &[String]) {
             }
             println!("{}", serde_json::to_string_pretty(&items).unwrap());
         }
+    }
+
+    // ── Graph (additive — shown after or instead of table) ───────────────────
+    if graph {
+        print_tool_graph(&mcp_decls);
+    }
+}
+
+/// Print a type-level composition graph: for each tool, which tools can consume its output.
+fn print_tool_graph(decls: &[ast::Decl]) {
+    // Collect (name, params, return_type) for all typed tools.
+    let tools: Vec<(&str, &[ast::Param], &ast::Type)> = decls
+        .iter()
+        .filter_map(|d| {
+            if let ast::Decl::Tool { name, params, return_type, .. } = d {
+                Some((name.as_str(), params.as_slice(), return_type))
+            } else {
+                None
+            }
+        })
+        .collect();
+
+    if tools.is_empty() {
+        println!("(no typed tools — graph requires MCP source)");
+        return;
+    }
+
+    // Name column width.
+    let name_w = tools.iter().map(|(n, _, _)| n.len()).max().unwrap_or(8).max(8);
+    // Sig column width — cap at 36 for readability.
+    let sig_w: usize = 36;
+
+    println!("Tool composition graph\n");
+    println!("{:<name_w$}  {:<sig_w$}  feeds →", "tool", "signature");
+    println!("{}", "─".repeat(name_w + 2 + sig_w + 2 + 40));
+
+    for &(src_name, src_params, src_ret) in &tools {
+        let sig = tool_sig_str(src_params, src_ret);
+        // The "output" is the ok branch of R, or the type itself.
+        let out_ty = tool_ok_type(src_ret);
+
+        // Find tools whose first param (or any param) accepts out_ty.
+        let mut consumers: Vec<&str> = tools
+            .iter()
+            .filter(|&&(dst_name, dst_params, _)| {
+                dst_name != src_name
+                    && dst_params.iter().any(|p| types_pipe_compatible(out_ty, &p.ty))
+            })
+            .map(|&(n, _, _)| n)
+            .collect();
+        consumers.sort();
+
+        let feeds = if consumers.is_empty() {
+            "—".to_string()
+        } else {
+            consumers.join(", ")
+        };
+
+        let sig_display = if sig.len() > sig_w {
+            format!("{}…", &sig[..sig_w.saturating_sub(1)])
+        } else {
+            sig
+        };
+        println!("{:<name_w$}  {:<sig_w$}  {}", src_name, sig_display, feeds);
+    }
+    println!();
+}
+
+/// Unwrap `R ok err` → `ok`; otherwise return the type itself.
+fn tool_ok_type(ty: &ast::Type) -> &ast::Type {
+    if let ast::Type::Result(ok, _) = ty { ok } else { ty }
+}
+
+/// True if a value of type `out` can be piped into a parameter of type `param`.
+/// Intentionally permissive: unknown/named types match anything.
+fn types_pipe_compatible(out: &ast::Type, param: &ast::Type) -> bool {
+    use ast::Type::*;
+    // Unwrap Optional on the param side — Optional(T) accepts T.
+    let param = if let Optional(inner) = param { inner } else { param };
+    match (out, param) {
+        // Named / unknown types — treat as wildcard.
+        (Named(_), _) | (_, Named(_)) => true,
+        // Exact matches.
+        (Number, Number) | (Text, Text) | (Bool, Bool) | (Nil, Nil) => true,
+        // List element type must match.
+        (List(a), List(b)) => types_pipe_compatible(a, b),
+        // Map — key and value types must match.
+        (Map(ak, av), Map(bk, bv)) => {
+            types_pipe_compatible(ak, bk) && types_pipe_compatible(av, bv)
+        }
+        // Result ok branch feeds a result-accepting param.
+        (Result(ao, ae), Result(bo, be)) => {
+            types_pipe_compatible(ao, bo) && types_pipe_compatible(ae, be)
+        }
+        // Sum types are text at runtime — compatible with text params.
+        (Sum(_), Text) | (Text, Sum(_)) | (Sum(_), Sum(_)) => true,
+        _ => false,
     }
 }
 
