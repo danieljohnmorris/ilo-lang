@@ -118,8 +118,8 @@ impl Env {
     fn set(&mut self, name: &str, value: Value) {
         // Update an existing binding in the nearest enclosing scope
         for scope in self.scopes.iter_mut().rev() {
-            if scope.contains_key(name) {
-                scope.insert(name.to_string(), value);
+            if let Some(slot) = scope.get_mut(name) {
+                *slot = value;
                 return;
             }
         }
@@ -607,7 +607,7 @@ fn call_function(env: &mut Env, name: &str, args: Vec<Value>) -> Result<Value> {
             // recursive calls from accidentally mutating outer frame variables.
             let saved_scopes = std::mem::replace(
                 &mut env.scopes,
-                vec![std::collections::HashMap::new()],
+                vec![HashMap::new()],
             );
             for (param, arg) in params.iter().zip(args) {
                 env.define(&param.name, arg);
