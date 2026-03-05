@@ -477,6 +477,38 @@ tool <name>"<description>" <params>><return-type> timeout:<n>,retry:<n>
 tool get-user"Retrieve user by ID" uid:t>R profile t timeout:5,retry:2
 ```
 
+Tool declarations are verified statically like functions — call sites are type-checked and arity-checked. At runtime, tool calls dispatch through a provider configured via `--tools <config.json>`:
+
+```json
+{
+  "tools": {
+    "get-user": {
+      "url": "https://api.example.com/get-user",
+      "method": "POST",
+      "timeout_secs": 5,
+      "retries": 2,
+      "headers": { "Authorization": "Bearer token" }
+    }
+  }
+}
+```
+
+ilo serialises call arguments as `{"args": [...]}` (JSON array), sends them to the endpoint, and deserialises the response body back to an ilo value. HTTP 2xx → `Ok(response)`, non-2xx → `Err("HTTP <status>: ...")`. Without `--tools`, tool calls return `Ok(_)` (stub behaviour).
+
+**Value ↔ JSON mapping:**
+
+| ilo type | JSON |
+|----------|------|
+| `n` | number |
+| `t` | string |
+| `b` | boolean |
+| `_` | null |
+| `L n` | array |
+| `R ok err` | `{"ok": ...}` or `{"err": ...}` |
+| record | object |
+
+Tool return type `>t` is the escape hatch — any JSON response is coerced to a text string without parsing.
+
 ---
 
 ## Error Handling

@@ -229,6 +229,31 @@ ilo 'code' --dense / -d       # reformat (dense wire format)
 ilo 'code' --expanded / -e    # reformat (expanded human format)
 ```
 
+**Tool execution:**
+
+Tool declarations (`tool get-user"..." uid:t>R profile t`) are external calls. Wire them to HTTP endpoints with a JSON config:
+
+```bash
+ilo program.ilo --tools tools.json args...
+```
+
+`tools.json` maps tool names to endpoints:
+
+```json
+{
+  "tools": {
+    "get-user": {
+      "url": "https://api.example.com/get-user",
+      "method": "POST",
+      "timeout_secs": 5,
+      "retries": 2
+    }
+  }
+}
+```
+
+ilo serialises call args as `{"args": [...]}`, deserialises the JSON response back to ilo values.
+
 **Other modes:**
 ```bash
 ilo 'code' --emit python     # transpile to Python

@@ -1,0 +1,19 @@
+-- Tool declarations: external HTTP calls, verified statically like functions.
+-- Run with: ilo examples/tools.ilo --tools examples/tools.json notify user123 "Hello"
+
+-- Tool: fetch a user profile by ID. Returns Ok(profile) or Err(message).
+tool get-user"Retrieve user by ID" uid:t>R profile t timeout:5,retry:2
+
+-- Tool: send an email. Returns Ok(_) or Err(message).
+tool send-email"Send notification email" to:t subject:t body:t>R _ t timeout:10,retry:1
+
+-- Record type matching the get-user response shape.
+type profile{id:t;name:t;email:t;verified:b}
+
+-- Notify: fetch user, check verified, send email.
+-- Returns Ok(_) on success, Err(message) on any failure.
+notify uid:t msg:t>R _ t
+  u=get-user! uid
+  !u.verified{^"user not verified"}
+  send-email! u.email "Notification" msg
+  ~_

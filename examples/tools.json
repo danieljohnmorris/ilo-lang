@@ -1,0 +1,16 @@
+{
+  "tools": {
+    "get-user": {
+      "url": "https://api.example.com/get-user",
+      "method": "POST",
+      "timeout_secs": 5,
+      "retries": 2
+    },
+    "send-email": {
+      "url": "https://api.example.com/send-email",
+      "method": "POST",
+      "timeout_secs": 10,
+      "retries": 1
+    }
+  }
+}
