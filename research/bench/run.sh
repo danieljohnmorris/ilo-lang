@@ -22,11 +22,16 @@ cat > "$TMP/numeric.ilo" <<< 'f n:n>n;s=0;i=1;wh <= i n{s=+s i;i=+i 1};s'
 printf 'type pt{x:n;y:n}\nf n:n>n;s=0;i=0;wh < i n{yv=* i 2;p=pt x:i y:yv;s=+ s + p.x p.y;i=+ i 1};s\n' > "$TMP/record.ilo"
 cat > "$TMP/string.ilo" <<< 'f n:n>t;s="";i=0;wh < i n{s=+ s "x";i=+i 1};s'
 printf 'type item{name:t;val:n}\nf n:n>t;items=[];i=0;wh < i n{nm=str i;vl=* i 3;it=item name:nm val:vl;items=+=items it;i=+ i 1};jdmp items\n' > "$TMP/mixed.ilo"
+# HOF pipeline: build list [-n..n], filter positives, square, sum
+printf 'sq x:n>n;*x x\npos x:n>b;>x 0{true}{false}\nadd a:n b:n>n;+a b\nf n:n>n;xs=[];i=-n;wh <= i n{xs=+=xs i;i=+i 1};fld add (xs >> flt pos >> map sq) 0\n' > "$TMP/hof.ilo"
+# Recursive fibonacci (doubles each level — exercises JIT call overhead)
+cat > "$TMP/recurse.ilo" <<< 'fib n:n>n;<=n 1 n;a=fib -n 1;b=fib -n 2;+a b'
 
 # --- Helper: run one benchmark, output ns/call ---
-run_ilo_jit()  { "$ILO" "$TMP/$1.ilo" --bench f "$2" 2>&1 | awk '/^Cranelift JIT/{b=1} b && /per call/{gsub(/[^0-9]/,"",$0); print; b=0}'; }
-run_ilo_vm()   { "$ILO" "$TMP/$1.ilo" --bench f "$2" 2>&1 | awk '/^Register VM \(reusable\)/{b=1} b && /per call/{gsub(/[^0-9]/,"",$0); print; b=0}'; }
-run_ilo_py()   { "$ILO" "$TMP/$1.ilo" --bench f "$2" 2>&1 | awk '/^Python transpiled/{b=1} b && /per call/{gsub(/[^0-9]/,"",$0); print; b=0}'; }
+# $1=bench name, $2=arg, $3=optional function name (default: f)
+run_ilo_jit()  { local fn="${3:-f}"; "$ILO" "$TMP/$1.ilo" --bench "$fn" "$2" 2>&1 | awk '/^Cranelift JIT/{b=1} b && /per call/{gsub(/[^0-9]/,"",$0); print; b=0}'; }
+run_ilo_vm()   { local fn="${3:-f}"; "$ILO" "$TMP/$1.ilo" --bench "$fn" "$2" 2>&1 | awk '/^Register VM \(reusable\)/{b=1} b && /per call/{gsub(/[^0-9]/,"",$0); print; b=0}'; }
+run_ilo_py()   { local fn="${3:-f}"; "$ILO" "$TMP/$1.ilo" --bench "$fn" "$2" 2>&1 | awk '/^Python transpiled/{b=1} b && /per call/{gsub(/[^0-9]/,"",$0); print; b=0}'; }
 
 # --- Go ---
 write_go() {
@@ -242,12 +247,109 @@ for _=1,iters do f(100) end
 print(math.floor((os.clock()-t)*1e9/iters))
 LUAEOF
 
+# --- HOF: filter positives, square, sum — arg: n (list range -n..n) ---
+cat > "$TMP/hof.go" << GOEOF
+package main
+import ("fmt";"time")
+func bench() interface{} {
+  n := 24; s := 0
+  for i := -n; i <= n; i++ { if i > 0 { s += i * i } }
+  return s
+}
+func main() {
+  bench(); iters := $ITERS; start := time.Now()
+  var r interface{}; for i := 0; i < iters; i++ { r = bench() }
+  e := time.Since(start); fmt.Printf("%d\n", e.Nanoseconds()/int64(iters)); _ = r
+}
+GOEOF
+
+cat > "$TMP/hof.rs" << RSEOF
+use std::time::Instant; use std::hint::black_box;
+fn f(n: i64) -> i64 {
+  (-n..=n).filter(|&x| x > 0).map(|x| x * x).sum()
+}
+fn main() {
+  black_box(f(black_box(24)));
+  let iters=${ITERS}_u128; let start=Instant::now();
+  for _ in 0..iters { black_box(f(black_box(24))); }
+  println!("{}", start.elapsed().as_nanos()/iters);
+}
+RSEOF
+
+cat > "$TMP/hof.js" << JSEOF
+function f(n){
+  const xs=[];for(let i=-n;i<=n;i++)xs.push(i);
+  return xs.filter(x=>x>0).map(x=>x*x).reduce((a,b)=>a+b,0)
+}
+f(24);const I=$ITERS,t=performance.now();let r;for(let i=0;i<I;i++)r=f(24);
+console.log(Math.round((performance.now()-t)*1e6/I));
+JSEOF
+
+cat > "$TMP/hof.rb" << RBEOF
+def f(n); (-n..n).select{|x|x>0}.map{|x|x*x}.sum; end
+f(24); iters=$ITERS; t=Process.clock_gettime(Process::CLOCK_MONOTONIC)
+iters.times{f(24)}; e=Process.clock_gettime(Process::CLOCK_MONOTONIC)-t
+puts (e*1e9/iters).to_i
+RBEOF
+
+cat > "$TMP/hof.lua" << LUAEOF
+local function f(n)
+  local s=0; for i=-n,n do if i>0 then s=s+i*i end end; return s
+end
+f(24); local iters=$ITERS; local t=os.clock()
+for _=1,iters do f(24) end
+print(math.floor((os.clock()-t)*1e9/iters))
+LUAEOF
+
+# --- Recurse: fibonacci(20) — exercises recursive call overhead ---
+cat > "$TMP/recurse.go" << GOEOF
+package main
+import ("fmt";"time")
+func fib(n int) int { if n<=1{return n}; return fib(n-1)+fib(n-2) }
+func main() {
+  fib(10); iters := $ITERS; start := time.Now()
+  var r int; for i := 0; i < iters; i++ { r = fib(10) }
+  e := time.Since(start); fmt.Printf("%d\n", e.Nanoseconds()/int64(iters)); _ = r
+}
+GOEOF
+
+cat > "$TMP/recurse.rs" << RSEOF
+use std::time::Instant; use std::hint::black_box;
+fn fib(n: u64) -> u64 { if n<=1{n} else{fib(n-1)+fib(n-2)} }
+fn main() {
+  black_box(fib(black_box(10)));
+  let iters=${ITERS}_u128; let start=Instant::now();
+  for _ in 0..iters { black_box(fib(black_box(10))); }
+  println!("{}", start.elapsed().as_nanos()/iters);
+}
+RSEOF
+
+cat > "$TMP/recurse.js" << JSEOF
+function fib(n){return n<=1?n:fib(n-1)+fib(n-2)}
+fib(10);const I=$ITERS,t=performance.now();let r;for(let i=0;i<I;i++)r=fib(10);
+console.log(Math.round((performance.now()-t)*1e6/I));
+JSEOF
+
+cat > "$TMP/recurse.rb" << RBEOF
+def fib(n); n<=1?n:fib(n-1)+fib(n-2); end
+fib(10); iters=$ITERS; t=Process.clock_gettime(Process::CLOCK_MONOTONIC)
+iters.times{fib(10)}; e=Process.clock_gettime(Process::CLOCK_MONOTONIC)-t
+puts (e*1e9/iters).to_i
+RBEOF
+
+cat > "$TMP/recurse.lua" << LUAEOF
+local function fib(n) if n<=1 then return n end; return fib(n-1)+fib(n-2) end
+fib(10); local iters=$ITERS; local t=os.clock()
+for _=1,iters do fib(10) end
+print(math.floor((os.clock()-t)*1e9/iters))
+LUAEOF
+
 # ---------- Compile ----------
 echo "Compiling..." >&2
-for bench in numeric string record mixed; do
+for bench in numeric string record mixed hof recurse; do
   go build -o "$TMP/${bench}_go" "$TMP/$bench.go" &
 done
-for bench in numeric string record mixed; do
+for bench in numeric string record mixed hof recurse; do
   rustup run stable rustc -O "$TMP/$bench.rs" -o "$TMP/${bench}_rs" 2>/dev/null &
 done
 wait
@@ -260,7 +362,7 @@ echo ""
 RESULTS="$TMP/results.txt"
 > "$RESULTS"
 
-for spec in numeric:1000 string:100 record:100 mixed:100; do
+for spec in numeric:1000 string:100 record:100 mixed:100 hof:24 recurse:10; do
   bench="${spec%%:*}"
   arg="${spec##*:}"
   echo "  $bench..." >&2
@@ -269,11 +371,17 @@ for spec in numeric:1000 string:100 record:100 mixed:100; do
   echo "$bench go $("$TMP/${bench}_go")" >> "$RESULTS"
   echo "$bench luajit $(luajit "$TMP/$bench.lua")" >> "$RESULTS"
   echo "$bench node $(node "$TMP/$bench.js")" >> "$RESULTS"
-  echo "$bench ilo_jit $(run_ilo_jit "$bench" "$arg")" >> "$RESULTS"
-  echo "$bench ilo_vm $(run_ilo_vm "$bench" "$arg")" >> "$RESULTS"
+  # hof and recurse use non-default function names
+  case $bench in
+    hof)    ilo_fn="f"   ;;
+    recurse) ilo_fn="fib" ;;
+    *)      ilo_fn="f"   ;;
+  esac
+  echo "$bench ilo_jit $(run_ilo_jit "$bench" "$arg" "$ilo_fn")" >> "$RESULTS"
+  echo "$bench ilo_vm $(run_ilo_vm "$bench" "$arg" "$ilo_fn")" >> "$RESULTS"
   echo "$bench lua $(lua "$TMP/$bench.lua")" >> "$RESULTS"
   echo "$bench ruby $(ruby "$TMP/$bench.rb")" >> "$RESULTS"
-  echo "$bench python $(run_ilo_py "$bench" "$arg")" >> "$RESULTS"
+  echo "$bench python $(run_ilo_py "$bench" "$arg" "$ilo_fn")" >> "$RESULTS"
 done
 
 # ---------- Format ----------
@@ -292,8 +400,8 @@ get_result() {
   awk -v b="$1" -v l="$2" '$1==b && $2==l {print $3}' "$RESULTS"
 }
 
-printf "%-14s  %-12s  %-12s  %-12s  %-12s\n" "Language" "numeric" "string" "record" "mixed"
-printf "%-14s  %-12s  %-12s  %-12s  %-12s\n" "--------------" "------------" "------------" "------------" "------------"
+printf "%-14s  %-12s  %-12s  %-12s  %-12s  %-12s  %-12s\n" "Language" "numeric" "string" "record" "mixed" "hof" "recurse"
+printf "%-14s  %-12s  %-12s  %-12s  %-12s  %-12s  %-12s\n" "--------------" "------------" "------------" "------------" "------------" "------------" "------------"
 
 for lang in rust go luajit node ilo_jit ilo_vm lua ruby python; do
   case $lang in
@@ -308,7 +416,7 @@ for lang in rust go luajit node ilo_jit ilo_vm lua ruby python; do
     python)  label="Python (ilo)" ;;
   esac
   printf "%-14s" "$label"
-  for bench in numeric string record mixed; do
+  for bench in numeric string record mixed hof recurse; do
     ns=$(get_result "$bench" "$lang")
     printf "  %-12s" "$(fmt_ns "$ns")"
   done
