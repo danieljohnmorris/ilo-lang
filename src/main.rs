@@ -17,6 +17,216 @@ fn compact_spec() -> &'static str {
     include_str!(concat!(env!("OUT_DIR"), "/spec_ai.txt"))
 }
 
+// ── `ilo tools` subcommand ─────────────────────────────────────────────────
+
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum ToolsOutputFmt {
+    Human, // human-readable table (default)
+    Ilo,   // valid Decl::Tool ilo syntax
+    Json,  // JSON array
+}
+
+/// Load and display tool signatures from MCP / HTTP sources.
+fn tools_cmd(args: &[String]) {
+    let mut mcp_path: Option<String> = None;
+    let mut http_path: Option<String> = None;
+    let mut fmt = ToolsOutputFmt::Human;
+    let mut full = false;
+
+    let mut i = 0;
+    while i < args.len() {
+        match args[i].as_str() {
+            "--mcp" => {
+                if i + 1 >= args.len() {
+                    eprintln!("error: --mcp requires a path");
+                    std::process::exit(1);
+                }
+                mcp_path = Some(args[i + 1].clone());
+                i += 2;
+            }
+            "--tools" => {
+                if i + 1 >= args.len() {
+                    eprintln!("error: --tools requires a path");
+                    std::process::exit(1);
+                }
+                http_path = Some(args[i + 1].clone());
+                i += 2;
+            }
+            "--human" => {
+                fmt = ToolsOutputFmt::Human;
+                i += 1;
+            }
+            "--ilo" => {
+                fmt = ToolsOutputFmt::Ilo;
+                i += 1;
+            }
+            "--json" => {
+                fmt = ToolsOutputFmt::Json;
+                i += 1;
+            }
+            "--full" | "-f" => {
+                full = true;
+                i += 1;
+            }
+            _ => {
+                eprintln!("unknown flag: {}", args[i]);
+                eprintln!(
+                    "Usage: ilo tools [--mcp <path>] [--tools <path>] \
+                     [--human|--ilo|--json] [--full]"
+                );
+                std::process::exit(1);
+            }
+        }
+    }
+
+    if mcp_path.is_none() && http_path.is_none() {
+        eprintln!(
+            "error: ilo tools requires at least one of --mcp <path> or --tools <path>"
+        );
+        eprintln!(
+            "Usage: ilo tools [--mcp <path>] [--tools <path>] \
+             [--human|--ilo|--json] [--full]"
+        );
+        std::process::exit(1);
+    }
+
+    // --ilo and --json always show full signatures.
+    if matches!(fmt, ToolsOutputFmt::Ilo | ToolsOutputFmt::Json) {
+        full = true;
+    }
+
+    // ── HTTP tools (sync, no feature gate) ───────────────────────────────────
+    let mut http_names: Vec<String> = Vec::new();
+    if let Some(ref path) = http_path {
+        let config = tools::http_provider::ToolsConfig::from_file(path)
+            .unwrap_or_else(|e| {
+                eprintln!("{}", e);
+                std::process::exit(1);
+            });
+        let mut names: Vec<String> = config.tools.keys().cloned().collect();
+        names.sort();
+        http_names = names;
+    }
+
+    // ── MCP tools (async, feature-gated) ─────────────────────────────────────
+    let mcp_decls = collect_mcp_tool_decls(mcp_path.as_deref());
+
+    // ── Render ────────────────────────────────────────────────────────────────
+    match fmt {
+        ToolsOutputFmt::Human => {
+            for name in &http_names {
+                if full {
+                    println!("{:<32} (http tool — no type info)", name);
+                } else {
+                    println!("{}", name);
+                }
+            }
+            for decl in &mcp_decls {
+                if let ast::Decl::Tool { name, description, params, return_type, .. } = decl {
+                    if full {
+                        let sig = tool_sig_str(params, return_type);
+                        println!("{:<32} {:<44} {}", name, description, sig);
+                    } else {
+                        println!("{}", name);
+                    }
+                }
+            }
+        }
+        ToolsOutputFmt::Ilo => {
+            for name in &http_names {
+                // No type info: emit with empty description and generic R t t.
+                println!("tool {}\"\" > R t t", name);
+            }
+            for decl in &mcp_decls {
+                println!("{}", codegen::fmt::format_decl(decl, codegen::fmt::FmtMode::Dense));
+            }
+        }
+        ToolsOutputFmt::Json => {
+            let mut items: Vec<serde_json::Value> = Vec::new();
+            for name in &http_names {
+                items.push(serde_json::json!({
+                    "name": name,
+                    "source": "http",
+                    "description": null,
+                    "params": [],
+                    "return": null
+                }));
+            }
+            for decl in &mcp_decls {
+                if let ast::Decl::Tool { name, description, params, return_type, .. } = decl {
+                    let params_json: Vec<serde_json::Value> = params
+                        .iter()
+                        .map(|p| {
+                            serde_json::json!({
+                                "name": p.name,
+                                "type": codegen::fmt::type_str(&p.ty)
+                            })
+                        })
+                        .collect();
+                    items.push(serde_json::json!({
+                        "name": name,
+                        "source": "mcp",
+                        "description": description,
+                        "params": params_json,
+                        "return": codegen::fmt::type_str(return_type)
+                    }));
+                }
+            }
+            println!("{}", serde_json::to_string_pretty(&items).unwrap());
+        }
+    }
+}
+
+/// Format params + return type as a human-readable signature string.
+fn tool_sig_str(params: &[ast::Param], ret: &ast::Type) -> String {
+    let ps: Vec<String> = params
+        .iter()
+        .map(|p| format!("{}:{}", p.name, codegen::fmt::type_str(&p.ty)))
+        .collect();
+    if ps.is_empty() {
+        format!("> {}", codegen::fmt::type_str(ret))
+    } else {
+        format!("{} > {}", ps.join(" "), codegen::fmt::type_str(ret))
+    }
+}
+
+/// Connect to MCP servers and return synthesized `Decl::Tool` nodes.
+/// Exits with error if `tools` feature is not enabled and a path is given.
+#[cfg(feature = "tools")]
+fn collect_mcp_tool_decls(path: Option<&str>) -> Vec<ast::Decl> {
+    let path = match path {
+        Some(p) => p,
+        None => return vec![],
+    };
+    let config = tools::mcp_provider::McpConfig::from_file(path).unwrap_or_else(|e| {
+        eprintln!("{}", e);
+        std::process::exit(1);
+    });
+    let rt = tokio::runtime::Builder::new_current_thread()
+        .enable_all()
+        .build()
+        .expect("tokio runtime");
+    let provider = rt
+        .block_on(tools::mcp_provider::McpProvider::connect(&config))
+        .unwrap_or_else(|e| {
+            eprintln!("MCP error: {}", e);
+            std::process::exit(1);
+        });
+    provider.tool_decls()
+}
+
+#[cfg(not(feature = "tools"))]
+fn collect_mcp_tool_decls(path: Option<&str>) -> Vec<ast::Decl> {
+    if path.is_some() {
+        eprintln!(
+            "error: --mcp requires the 'tools' feature \
+             (build with: cargo build --features tools)"
+        );
+        std::process::exit(1);
+    }
+    vec![]
+}
+
 #[derive(Clone, Copy, PartialEq, Eq)]
 enum OutputMode {
     Ansi,
@@ -109,6 +319,14 @@ fn report_diagnostic(d: &Diagnostic, mode: OutputMode) {
 
 fn main() {
     let raw_args: Vec<String> = std::env::args().collect();
+
+    // `ilo tools` is handled before output-mode detection so that --json/--ilo
+    // can be used as *tool format* flags without conflicting with error format flags.
+    if raw_args.get(1).map(|s| s.as_str()) == Some("tools") {
+        tools_cmd(&raw_args[2..]);
+        std::process::exit(0);
+    }
+
     let (mode, args) = detect_output_mode(raw_args);
 
     if args.len() < 2 {
@@ -177,6 +395,12 @@ fn main() {
             println!("Tool providers (requires --features tools build):");
             println!("  --tools <path>   HTTP tool provider config (JSON)");
             println!("  --mcp <path>     MCP server config (Claude Desktop format JSON)\n");
+            println!("Tool discovery:");
+            println!("  ilo tools --mcp <path>          List tools from MCP server");
+            println!("  ilo tools --tools <path>        List tools from HTTP config");
+            println!("  ilo tools ... --full            Show full signatures");
+            println!("  ilo tools ... --ilo             Output as valid ilo tool declarations");
+            println!("  ilo tools ... --json            Output as JSON array\n");
             println!("Backends:");
             println!("  (default)        Cranelift JIT → interpreter fallback");
             println!("  --run-interp     Tree-walking interpreter");

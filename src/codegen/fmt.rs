@@ -12,6 +12,18 @@ pub enum FmtMode {
 
 const INDENT: &str = "  ";
 
+/// Format a single declaration to a string.
+pub fn format_decl(decl: &Decl, mode: FmtMode) -> String {
+    let mut out = String::new();
+    fmt_decl(&mut out, decl, mode);
+    out
+}
+
+/// Format a type to its ilo type string (e.g. `"R t t"`, `"L n"`).
+pub fn type_str(ty: &Type) -> String {
+    fmt_type(ty)
+}
+
 pub fn format(program: &Program, mode: FmtMode) -> String {
     let decls: Vec<&Decl> =
         program.declarations.iter().filter(|d| !matches!(d, Decl::Error { .. })).collect();

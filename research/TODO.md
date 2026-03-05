@@ -166,9 +166,11 @@ Plumbing first — make tool calls actually do things. HTTP-native (tools are AP
 
 ### D3. Tool Discovery & Progressive Disclosure
 
-- [ ] `ilo tools` — list available tools from configured sources
-- [ ] `ilo tools --mcp server.json` — discover and display tool signatures
-- [ ] Progressive disclosure: tool names first (cheap), full signatures on demand
+- [x] `ilo tools` — list available tools from configured sources
+- [x] `ilo tools --mcp server.json` — discover and display tool signatures
+- [x] `ilo tools --tools path.json` — list HTTP tools from config
+- [x] Progressive disclosure: tool names first (cheap), full signatures with `--full`
+- [x] Three output formats: `--human` (default table), `--ilo` (valid ilo declarations), `--json` (structured array)
 - [ ] Tool graph: which tools depend on which types, what produces what
 
 ### D4. Agent Loop
