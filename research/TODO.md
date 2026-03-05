@@ -175,8 +175,10 @@ Plumbing first — make tool calls actually do things. HTTP-native (tools are AP
 
 ### D4. Agent Loop
 
-- [ ] `ilo serve` — stdio-based agent loop (read task → generate program → verify → execute → return result)
-- [ ] JSON protocol for agent integration (task in, result out, errors structured)
+- [x] `ilo serv` — stdio-based agent loop (program in → verify → execute → result out)
+- [x] JSON protocol: `{"program":"...","args":[...],"func":"..."}` in, `{"ok":v,"ms":n}` / `{"error":{"phase":"...","diagnostics":[...]}}` out
+- [x] Errors structured by phase: lex / parse / verify / runtime / program
+- [x] MCP and HTTP tool providers connected once at startup, reused across all requests
 - [ ] The "typed shell" mode: interactive tool composition with verification
 
 ### Not yet (deferred)

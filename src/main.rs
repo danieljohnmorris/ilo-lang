@@ -227,6 +227,242 @@ fn collect_mcp_tool_decls(path: Option<&str>) -> Vec<ast::Decl> {
     vec![]
 }
 
+// ── `ilo serv` subcommand ──────────────────────────────────────────────────
+
+/// Render a `Diagnostic` as a `serde_json::Value` for inclusion in serve responses.
+fn diag_to_json(d: &Diagnostic) -> serde_json::Value {
+    let s = diagnostic::json::render(d);
+    serde_json::from_str(&s).unwrap_or(serde_json::json!({"message": s}))
+}
+
+/// Process a single serve request line and return the JSON response.
+fn process_serv_request(
+    line: &str,
+    mcp_tool_decls: &[ast::Decl],
+    #[cfg(feature = "tools")] provider: Option<std::sync::Arc<dyn tools::ToolProvider>>,
+    http_config: Option<&tools::http_provider::ToolsConfig>,
+    #[cfg(feature = "tools")] rt: std::sync::Arc<tokio::runtime::Runtime>,
+) -> serde_json::Value {
+    #[derive(serde::Deserialize)]
+    struct Req {
+        program: String,
+        #[serde(default)]
+        args: Vec<String>,
+        func: Option<String>,
+    }
+
+    let req: Req = match serde_json::from_str(line) {
+        Ok(r) => r,
+        Err(e) => {
+            return serde_json::json!({
+                "error": {"phase": "request", "message": format!("invalid JSON: {e}")}
+            })
+        }
+    };
+
+    let start = std::time::Instant::now();
+    let source = req.program.clone();
+
+    // Lex
+    let tokens = match lexer::lex(&source) {
+        Ok(t) => t,
+        Err(e) => {
+            return serde_json::json!({
+                "error": {
+                    "phase": "lex",
+                    "diagnostics": [diag_to_json(&Diagnostic::from(&e))]
+                }
+            })
+        }
+    };
+
+    // Parse
+    let token_spans: Vec<_> = tokens
+        .into_iter()
+        .map(|(t, r)| (t, ast::Span { start: r.start, end: r.end }))
+        .collect();
+    let (mut program, parse_errors) = parser::parse(token_spans);
+    program.source = Some(source.clone());
+
+    if !parse_errors.is_empty() {
+        let diags: Vec<_> =
+            parse_errors.iter().map(|e| diag_to_json(&Diagnostic::from(e))).collect();
+        return serde_json::json!({"error": {"phase": "parse", "diagnostics": diags}});
+    }
+
+    // Inject static MCP tool decls so the verifier sees them
+    if !mcp_tool_decls.is_empty() {
+        let mut decls = mcp_tool_decls.to_vec();
+        decls.append(&mut program.declarations);
+        program.declarations = decls;
+    }
+
+    // Verify
+    let vr = verify::verify(&program);
+    if !vr.errors.is_empty() {
+        let diags: Vec<_> = vr
+            .errors
+            .iter()
+            .map(|e| diag_to_json(&Diagnostic::from(e).with_source(source.clone())))
+            .collect();
+        return serde_json::json!({"error": {"phase": "verify", "diagnostics": diags}});
+    }
+
+    // Run
+    let run_args: Vec<interpreter::Value> =
+        req.args.iter().map(|a| parse_cli_arg(a)).collect();
+    let func_name = req.func.as_deref();
+
+    #[cfg(feature = "tools")]
+    let result = if let Some(p) = provider {
+        interpreter::run_with_tools(&program, func_name, run_args, p, rt)
+    } else if let Some(cfg) = http_config {
+        let p = std::sync::Arc::new(tools::http_provider::HttpProvider::new(cfg.clone()));
+        interpreter::run_with_tools(&program, func_name, run_args, p, rt)
+    } else {
+        interpreter::run(&program, func_name, run_args)
+    };
+
+    #[cfg(not(feature = "tools"))]
+    let result = interpreter::run(&program, func_name, run_args);
+
+    let ms = start.elapsed().as_millis() as u64;
+
+    match result {
+        Ok(value) => match value {
+            interpreter::Value::Ok(inner) => {
+                let v = inner.to_json().unwrap_or(serde_json::Value::Null);
+                serde_json::json!({"ok": v, "ms": ms})
+            }
+            interpreter::Value::Err(inner) => {
+                let v = inner.to_json().unwrap_or_else(|_| {
+                    serde_json::Value::String(inner.to_string())
+                });
+                serde_json::json!({"error": {"phase": "program", "value": v}, "ms": ms})
+            }
+            other => {
+                let v = other.to_json().unwrap_or_else(|_| {
+                    serde_json::Value::String(other.to_string())
+                });
+                serde_json::json!({"ok": v, "ms": ms})
+            }
+        },
+        Err(e) => {
+            let d = Diagnostic::from(&e).with_source(source);
+            serde_json::json!({"error": {"phase": "runtime", "diagnostics": [diag_to_json(&d)]}})
+        }
+    }
+}
+
+/// Stdio-based agent serve loop.
+/// Reads one JSON request per line from stdin, writes one JSON response per line to stdout.
+fn serv_cmd(args_slice: &[String]) {
+    let mut mcp_path: Option<String> = None;
+    let mut http_path: Option<String> = None;
+
+    let mut i = 0;
+    while i < args_slice.len() {
+        match args_slice[i].as_str() {
+            "--mcp" | "-m" => {
+                if i + 1 >= args_slice.len() {
+                    eprintln!("error: --mcp requires a path");
+                    std::process::exit(1);
+                }
+                mcp_path = Some(args_slice[i + 1].clone());
+                i += 2;
+            }
+            "--tools" | "-t" => {
+                if i + 1 >= args_slice.len() {
+                    eprintln!("error: --tools requires a path");
+                    std::process::exit(1);
+                }
+                http_path = Some(args_slice[i + 1].clone());
+                i += 2;
+            }
+            _ => {
+                eprintln!("unknown flag: {}", args_slice[i]);
+                eprintln!("Usage: ilo serv [--mcp <path>] [--tools <path>]");
+                std::process::exit(1);
+            }
+        }
+    }
+
+    // Load HTTP config (sync)
+    let http_config: Option<tools::http_provider::ToolsConfig> =
+        http_path.as_ref().map(|p| {
+            tools::http_provider::ToolsConfig::from_file(p).unwrap_or_else(|e| {
+                eprintln!("{}", e);
+                std::process::exit(1);
+            })
+        });
+
+    // Create tokio runtime once (used for MCP connect + all tool calls)
+    #[cfg(feature = "tools")]
+    let rt = std::sync::Arc::new(
+        tokio::runtime::Builder::new_current_thread()
+            .enable_all()
+            .build()
+            .expect("tokio runtime"),
+    );
+
+    // Connect to MCP once, keep provider + static decls alive for all requests
+    #[cfg(feature = "tools")]
+    let (mcp_tool_decls, mcp_provider_arc): (
+        Vec<ast::Decl>,
+        Option<std::sync::Arc<dyn tools::ToolProvider>>,
+    ) = if let Some(ref path) = mcp_path {
+        let config = tools::mcp_provider::McpConfig::from_file(path).unwrap_or_else(|e| {
+            eprintln!("{}", e);
+            std::process::exit(1);
+        });
+        let provider =
+            rt.block_on(tools::mcp_provider::McpProvider::connect(&config))
+                .unwrap_or_else(|e| {
+                    eprintln!("MCP error: {}", e);
+                    std::process::exit(1);
+                });
+        let decls = provider.tool_decls();
+        (decls, Some(std::sync::Arc::new(provider)))
+    } else {
+        (vec![], None)
+    };
+
+    #[cfg(not(feature = "tools"))]
+    let mcp_tool_decls: Vec<ast::Decl> = {
+        if mcp_path.is_some() {
+            eprintln!(
+                "error: --mcp requires the 'tools' feature \
+                 (build with: cargo build --features tools)"
+            );
+            std::process::exit(1);
+        }
+        vec![]
+    };
+
+    // Signal ready
+    println!("{}", serde_json::json!({"ready": true}));
+
+    use std::io::BufRead;
+    let stdin = std::io::stdin();
+    for line in stdin.lock().lines() {
+        let line = line.expect("stdin read error");
+        if line.trim().is_empty() {
+            continue;
+        }
+
+        let resp = process_serv_request(
+            &line,
+            &mcp_tool_decls,
+            #[cfg(feature = "tools")]
+            mcp_provider_arc.as_ref().map(std::sync::Arc::clone),
+            http_config.as_ref(),
+            #[cfg(feature = "tools")]
+            std::sync::Arc::clone(&rt),
+        );
+        println!("{}", resp);
+    }
+}
+
 #[derive(Clone, Copy, PartialEq, Eq)]
 enum OutputMode {
     Ansi,
@@ -327,10 +563,16 @@ fn main() {
         std::process::exit(0);
     }
 
+    if raw_args.get(1).map(|s| s.as_str()) == Some("serv") {
+        serv_cmd(&raw_args[2..]);
+        std::process::exit(0);
+    }
+
     let (mode, args) = detect_output_mode(raw_args);
 
     if args.len() < 2 {
         eprintln!("Usage: ilo <file-or-code> [args... | --run func args... | --bench func args... | --emit python]");
+        eprintln!("       ilo serv [--mcp <path>] [--tools <path>]  Stdio agent loop");
         eprintln!("       ilo help | -h     Show usage and examples");
         eprintln!("       ilo help lang     Show language specification");
         eprintln!("       ilo help ai | -ai Compact spec for LLM consumption");
@@ -398,9 +640,13 @@ fn main() {
             println!("Tool discovery:");
             println!("  ilo tool -m <path>              List tools from MCP server");
             println!("  ilo tool -t <path>              List tools from HTTP config");
-            println!("  ilo tools ... --full            Show full signatures");
-            println!("  ilo tools ... --ilo             Output as valid ilo tool declarations");
-            println!("  ilo tools ... --json            Output as JSON array\n");
+            println!("  ilo tool ... --full             Show full signatures");
+            println!("  ilo tool ... --ilo              Output as valid ilo tool declarations");
+            println!("  ilo tool ... --json             Output as JSON array\n");
+            println!("Agent serve loop:");
+            println!("  ilo serv [-m <path>] [-t <path>]");
+            println!("  Request:  {{\"program\": \"<ilo>\", \"args\": [...], \"func\": \"name\"}}");
+            println!("  Response: {{\"ok\": <value>, \"ms\": n}} | {{\"error\": {{\"phase\": \"...\", ...}}}}\n");
             println!("Backends:");
             println!("  (default)        Cranelift JIT → interpreter fallback");
             println!("  --run-interp     Tree-walking interpreter");
