@@ -237,8 +237,10 @@ fn print_tool_graph(decls: &[ast::Decl]) {
             consumers.join(", ")
         };
 
-        let sig_display = if sig.len() > sig_w {
-            format!("{}…", &sig[..sig_w.saturating_sub(1)])
+        let sig_char_len = sig.chars().count();
+        let sig_display = if sig_char_len > sig_w {
+            let truncated: String = sig.chars().take(sig_w.saturating_sub(1)).collect();
+            format!("{}…", truncated)
         } else {
             sig
         };
