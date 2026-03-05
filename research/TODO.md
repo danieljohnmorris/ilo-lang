@@ -137,25 +137,25 @@ Plumbing first — make tool calls actually do things. HTTP-native (tools are AP
 - [x] `d=get! url;d.name` — 18 chars, verified, error-handled
 - [x] Without `!`, use explicit match: `get url;?{~d:d.name;^e:^e}`
 
-#### D1d. Tool provider infrastructure
-- [ ] Add `tokio` + `reqwest` as deps behind a `tools` feature flag
-- [ ] `ToolProvider` trait — async executor interface: `async fn call(&self, name: &str, args: Vec<Value>) -> Result<Value, ToolError>`
-- [ ] `HttpProvider` — tool name maps to an HTTP endpoint. JSON request/response. Respects `timeout` and `retry` from `tool` decl
-- [ ] `StubProvider` — current behaviour (`Ok(Nil)`), used in tests and when no provider configured
-- [ ] Wire into interpreter + VM — both backends receive an `Option<&dyn ToolProvider>`, tool calls dispatch through it
-- [ ] Tool config — `ilo program.ilo --tools tools.json` where `tools.json` maps tool names to URLs/endpoints
+#### D1d. Tool provider infrastructure ✅
+- [x] Add `tokio` + `reqwest` as deps behind a `tools` feature flag
+- [x] `ToolProvider` trait — async executor interface: `async fn call(&self, name: &str, args: Vec<Value>) -> Result<Value, ToolError>`
+- [x] `HttpProvider` — tool name maps to an HTTP endpoint. JSON request/response. Respects `timeout` and `retry` from `tool` decl
+- [x] `StubProvider` — current behaviour (`Ok(Nil)`), used in tests and when no provider configured
+- [x] Wire into interpreter + VM — both backends receive an `Option<&dyn ToolProvider>`, tool calls dispatch through it
+- [x] Tool config — `ilo program.ilo --tools tools.json` where `tools.json` maps tool names to URLs/endpoints
 
-#### D1e. Value ↔ JSON at tool boundary
-- [ ] `Value::to_json()` — serialise ilo values to JSON for tool call args
-- [ ] `Value::from_json(type_hint)` — deserialise JSON to ilo values, guided by the tool's declared return type
-- [ ] JSON objects → records (if matching type declared), JSON arrays → lists, primitives → n/t/b, null → nil
-- [ ] Unknown/complex shapes: tool declares `>t`, gets raw JSON string — passable to another tool without parsing
-- [ ] Format parsing is a tool concern, not a language concern (see OPEN.md)
+#### D1e. Value ↔ JSON at tool boundary ✅
+- [x] `Value::to_json()` — serialise ilo values to JSON for tool call args
+- [x] `Value::from_json(type_hint)` — deserialise JSON to ilo values, guided by the tool's declared return type
+- [x] JSON objects → records (if matching type declared), JSON arrays → lists, primitives → n/t/b, null → nil
+- [x] Unknown/complex shapes: tool declares `>t`, gets raw JSON string — passable to another tool without parsing
+- [x] Format parsing is a tool concern, not a language concern (see OPEN.md)
 
-#### D1f. Tests
-- [ ] Mock HTTP server for integration tests
-- [ ] `StubProvider` for unit tests
-- [ ] Test `get`/`$` with real HTTP (httpbin or similar)
+#### D1f. Tests ✅
+- [x] Mock HTTP server for integration tests
+- [x] `StubProvider` for unit tests
+- [x] Test `get`/`$` with real HTTP (httpbin or similar)
 
 ### D2. MCP Integration
 
