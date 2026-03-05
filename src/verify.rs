@@ -161,7 +161,7 @@ fn convert_type_with_aliases(ast_ty: &Type, aliases: &HashMap<String, Ty>) -> Ty
             if let Some(resolved) = aliases.get(name) {
                 resolved.clone()
             } else if name.len() == 1
-                && name.chars().next().map_or(false, |c| c.is_lowercase())
+                && name.chars().next().is_some_and(|c| c.is_lowercase())
                 && !matches!(name.as_str(), "n" | "t" | "b")
             {
                 // Single lowercase letter not in aliases = type variable → compatible with anything

@@ -268,12 +268,9 @@ fn call_function(env: &mut Env, name: &str, args: Vec<Value>) -> Result<Value> {
     if name == "mkeys" && args.len() == 1 {
         return match &args[0] {
             Value::Map(m) => {
-                let mut keys: Vec<Value> = m.keys().map(|k| Value::Text(k.clone())).collect();
-                keys.sort_by(|a, b| match (a, b) {
-                    (Value::Text(a), Value::Text(b)) => a.cmp(b),
-                    _ => std::cmp::Ordering::Equal,
-                });
-                Ok(Value::List(keys))
+                let mut keys: Vec<&String> = m.keys().collect();
+                keys.sort();
+                Ok(Value::List(keys.into_iter().map(|k| Value::Text(k.clone())).collect()))
             }
             _ => Err(RuntimeError::new("ILO-R009", "mkeys: expects a map".to_string())),
         };

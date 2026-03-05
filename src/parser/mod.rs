@@ -441,19 +441,14 @@ impl Parser {
                 self.advance();
                 // Collect variant names: lowercase idents not followed by colon.
                 let mut variants = Vec::new();
-                loop {
-                    match self.peek() {
-                        Some(Token::Ident(_)) => {
-                            // Ident followed by colon = param name, stop.
-                            if self.token_at(self.pos + 1) == Some(&Token::Colon) {
-                                break;
-                            }
-                            if let Some(Token::Ident(name)) = self.peek().cloned() {
-                                variants.push(name);
-                                self.advance();
-                            }
-                        }
-                        _ => break,
+                while let Some(Token::Ident(_)) = self.peek() {
+                    // Ident followed by colon = param name, stop.
+                    if self.token_at(self.pos + 1) == Some(&Token::Colon) {
+                        break;
+                    }
+                    if let Some(Token::Ident(name)) = self.peek().cloned() {
+                        variants.push(name);
+                        self.advance();
                     }
                 }
                 if variants.is_empty() {
