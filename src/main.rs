@@ -470,9 +470,10 @@ enum OutputMode {
     Json,
 }
 
-/// Scan args for --json/-j, --text/-t, --ansi/-a. Return (mode, remaining_args).
+/// Scan args for --json/-j, --text/-t, --ansi/-a. Return (mode, explicit_json, remaining_args).
 /// Multiple format flags → error + exit(1).
-fn detect_output_mode(args: Vec<String>) -> (OutputMode, Vec<String>) {
+/// `explicit_json` is true only when the user passed --json/-j; auto-detection never sets it.
+fn detect_output_mode(args: Vec<String>) -> (OutputMode, bool, Vec<String>) {
     let mut mode: Option<OutputMode> = None;
     let mut remaining = Vec::with_capacity(args.len());
     let mut conflict = false;
@@ -497,6 +498,8 @@ fn detect_output_mode(args: Vec<String>) -> (OutputMode, Vec<String>) {
         std::process::exit(1);
     }
 
+    let explicit_json = matches!(mode, Some(OutputMode::Json));
+
     let resolved = mode.unwrap_or_else(|| {
         // Auto-detect: isatty(stderr) && !NO_COLOR → Ansi; isatty && NO_COLOR → Text; !isatty → Json
         use std::io::IsTerminal;
@@ -511,7 +514,7 @@ fn detect_output_mode(args: Vec<String>) -> (OutputMode, Vec<String>) {
         }
     });
 
-    (resolved, remaining)
+    (resolved, explicit_json, remaining)
 }
 
 /// Scan source for common cross-language patterns and emit a single warning if found.
@@ -568,7 +571,7 @@ fn main() {
         std::process::exit(0);
     }
 
-    let (mode, args) = detect_output_mode(raw_args);
+    let (mode, explicit_json, args) = detect_output_mode(raw_args);
 
     if args.len() < 2 {
         eprintln!("Usage: ilo <file-or-code> [args... | --run func args... | --bench func args... | --emit python]");
@@ -952,6 +955,7 @@ fn main() {
             mcp_rt.as_ref(),
             &source,
             mode,
+            explicit_json,
         );
     } else if args.len() > m && (args[m] == "--run" || args[m] == "--run-interp") {
         // --run / --run-interp [func] [args...]
@@ -973,6 +977,7 @@ fn main() {
             mcp_rt,
             &source,
             mode,
+            explicit_json,
         );
     } else if args.len() > m {
         // Bare args: default = Cranelift JIT, fall back to interpreter
@@ -988,7 +993,7 @@ fn main() {
         };
 
         let run_args: Vec<interpreter::Value> = args[run_args_start..].iter().map(|a| parse_cli_arg(a)).collect();
-        run_default(&program, func_name, run_args, &source, mode);
+        run_default(&program, func_name, run_args, &source, mode, explicit_json);
     } else {
         // No args: AST JSON
         match serde_json::to_string_pretty(&program) {
@@ -1012,12 +1017,13 @@ fn run_vm_with_provider(
     #[cfg(feature = "tools")] mcp_rt: Option<&tokio::runtime::Runtime>,
     source: &str,
     mode: OutputMode,
+    explicit_json: bool,
 ) {
     #[cfg(feature = "tools")]
     if let Some(provider) = mcp_provider {
         let rt = mcp_rt.expect("runtime present with mcp_provider");
         match vm::run_with_tools(compiled, func_name, args, provider, rt) {
-            Ok(val) => { println!("{}", val); return; }
+            Ok(val) => { print_value(&val, explicit_json); return; }
             Err(e) => {
                 report_diagnostic(&Diagnostic::from(&e).with_source(source.to_string()), mode);
                 std::process::exit(1);
@@ -1039,7 +1045,7 @@ fn run_vm_with_provider(
             #[cfg(feature = "tools")]
             &runtime,
         ) {
-            Ok(val) => println!("{}", val),
+            Ok(val) => print_value(&val, explicit_json),
             Err(e) => {
                 report_diagnostic(&Diagnostic::from(&e).with_source(source.to_string()), mode);
                 std::process::exit(1);
@@ -1049,7 +1055,7 @@ fn run_vm_with_provider(
     }
 
     match vm::run(compiled, func_name, args) {
-        Ok(val) => println!("{}", val),
+        Ok(val) => print_value(&val, explicit_json),
         Err(e) => {
             report_diagnostic(&Diagnostic::from(&e).with_source(source.to_string()), mode);
             std::process::exit(1);
@@ -1068,12 +1074,13 @@ fn run_interp_with_provider(
     #[cfg(feature = "tools")] mcp_rt: Option<tokio::runtime::Runtime>,
     source: &str,
     mode: OutputMode,
+    explicit_json: bool,
 ) {
     #[cfg(feature = "tools")]
     if let Some(provider) = mcp_provider {
         let rt = std::sync::Arc::new(mcp_rt.expect("runtime present with mcp_provider"));
         match interpreter::run_with_tools(program, func_name, args, std::sync::Arc::new(provider), rt) {
-            Ok(val) => { println!("{}", val); return; }
+            Ok(val) => { print_value(&val, explicit_json); return; }
             Err(e) => {
                 report_diagnostic(&Diagnostic::from(&e).with_source(source.to_string()), mode);
                 std::process::exit(1);
@@ -1095,7 +1102,7 @@ fn run_interp_with_provider(
             #[cfg(feature = "tools")]
             runtime,
         ) {
-            Ok(val) => println!("{}", val),
+            Ok(val) => print_value(&val, explicit_json),
             Err(e) => {
                 report_diagnostic(&Diagnostic::from(&e).with_source(source.to_string()), mode);
                 std::process::exit(1);
@@ -1105,7 +1112,7 @@ fn run_interp_with_provider(
     }
 
     match interpreter::run(program, func_name, args) {
-        Ok(val) => println!("{}", val),
+        Ok(val) => print_value(&val, explicit_json),
         Err(e) => {
             report_diagnostic(&Diagnostic::from(&e).with_source(source.to_string()), mode);
             std::process::exit(1);
@@ -1113,7 +1120,7 @@ fn run_interp_with_provider(
     }
 }
 
-fn run_default(program: &ast::Program, func_name: Option<&str>, args: Vec<interpreter::Value>, source: &str, mode: OutputMode) {
+fn run_default(program: &ast::Program, func_name: Option<&str>, args: Vec<interpreter::Value>, source: &str, mode: OutputMode, explicit_json: bool) {
     // Try Cranelift JIT first — all functions are now eligible
     #[cfg(feature = "cranelift")]
     {
@@ -1125,7 +1132,7 @@ fn run_default(program: &ast::Program, func_name: Option<&str>, args: Vec<interp
                 let nan_args: Vec<u64> = args.iter().map(|v| vm::NanVal::from_value(v).0).collect();
                 if let Some(result_bits) = vm::jit_cranelift::compile_and_call(chunk, nan_consts, &nan_args, &compiled) {
                     let result = vm::NanVal(result_bits).to_value();
-                    println!("{}", result);
+                    print_value(&result, explicit_json);
                     return;
                 }
             }
@@ -1134,12 +1141,40 @@ fn run_default(program: &ast::Program, func_name: Option<&str>, args: Vec<interp
 
     // Fall back to interpreter
     match interpreter::run(program, func_name, args) {
-        Ok(val) => println!("{}", val),
+        Ok(val) => print_value(&val, explicit_json),
         Err(e) => {
             report_diagnostic(&Diagnostic::from(&e).with_source(source.to_string()), mode);
             std::process::exit(1);
         }
     }
+}
+
+/// Print a program result value. When `json` is true (explicit -j/--json), wraps it as
+/// `{"ok": ...}` or `{"error": ...}`. Auto-detected JSON mode does not affect result format.
+fn print_value(val: &interpreter::Value, json: bool) {
+    if !json {
+        println!("{}", val);
+        return;
+    }
+    let json = match val {
+        interpreter::Value::Ok(inner) => {
+            let v = inner.to_json().unwrap_or(serde_json::Value::Null);
+            serde_json::json!({"ok": v})
+        }
+        interpreter::Value::Err(inner) => {
+            let v = inner
+                .to_json()
+                .unwrap_or_else(|_| serde_json::Value::String(inner.to_string()));
+            serde_json::json!({"error": {"phase": "program", "value": v}})
+        }
+        other => {
+            let v = other
+                .to_json()
+                .unwrap_or_else(|_| serde_json::Value::String(other.to_string()));
+            serde_json::json!({"ok": v})
+        }
+    };
+    println!("{}", json);
 }
 
 fn run_bench(program: &ast::Program, func_name: Option<&str>, args: &[interpreter::Value]) {
