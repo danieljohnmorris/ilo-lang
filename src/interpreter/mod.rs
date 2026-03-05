@@ -84,7 +84,10 @@ impl RuntimeError {
 type Result<T> = std::result::Result<T, RuntimeError>;
 
 struct Env {
-    scopes: Vec<HashMap<String, Value>>,
+    /// Flat variable store — all scopes in one Vec. Each entry is (name, value).
+    vars: Vec<(String, Value)>,
+    /// Stack of indices into `vars` marking where each scope starts.
+    scope_marks: Vec<usize>,
     functions: HashMap<String, Decl>,
     call_stack: Vec<String>,
     tool_provider: Option<std::sync::Arc<dyn crate::tools::ToolProvider>>,
@@ -95,7 +98,8 @@ struct Env {
 impl Env {
     fn new() -> Self {
         Env {
-            scopes: vec![HashMap::new()],
+            vars: Vec::new(),
+            scope_marks: vec![0],
             functions: HashMap::new(),
             call_stack: Vec::new(),
             tool_provider: None,
@@ -109,7 +113,8 @@ impl Env {
         #[cfg(feature = "tools")] runtime: std::sync::Arc<tokio::runtime::Runtime>,
     ) -> Self {
         Env {
-            scopes: vec![HashMap::new()],
+            vars: Vec::new(),
+            scope_marks: vec![0],
             functions: HashMap::new(),
             call_stack: Vec::new(),
             tool_provider: Some(provider),
@@ -119,38 +124,35 @@ impl Env {
     }
 
     fn push_scope(&mut self) {
-        self.scopes.push(HashMap::new());
+        self.scope_marks.push(self.vars.len());
     }
 
     fn pop_scope(&mut self) {
-        self.scopes.pop();
+        let mark = self.scope_marks.pop().unwrap_or(0);
+        self.vars.truncate(mark);
     }
 
     fn set(&mut self, name: &str, value: Value) {
-        // Update an existing binding in the nearest enclosing scope
-        for scope in self.scopes.iter_mut().rev() {
-            if let Some(slot) = scope.get_mut(name) {
-                *slot = value;
+        // Update existing binding in any enclosing scope (innermost first)
+        for entry in self.vars.iter_mut().rev() {
+            if entry.0 == name {
+                entry.1 = value;
                 return;
             }
         }
         // No existing binding — create in innermost scope
-        if let Some(scope) = self.scopes.last_mut() {
-            scope.insert(name.to_string(), value);
-        }
+        self.vars.push((name.to_string(), value));
     }
 
     /// Always create a fresh binding in the innermost scope (used for function parameters).
     fn define(&mut self, name: &str, value: Value) {
-        if let Some(scope) = self.scopes.last_mut() {
-            scope.insert(name.to_string(), value);
-        }
+        self.vars.push((name.to_string(), value));
     }
 
     fn get(&self, name: &str) -> Result<Value> {
-        for scope in self.scopes.iter().rev() {
-            if let Some(val) = scope.get(name) {
-                return Ok(val.clone());
+        for (k, v) in self.vars.iter().rev() {
+            if k == name {
+                return Ok(v.clone());
             }
         }
         // Function names resolve to FnRef when used as values
@@ -673,19 +675,17 @@ fn call_function(env: &mut Env, name: &str, args: Vec<Value>) -> Result<Value> {
                     "{}: expected {} args, got {}", name, params.len(), args.len()
                 )));
             }
-            // Use a fresh scope stack for the function call to prevent
-            // recursive calls from accidentally mutating outer frame variables.
-            let saved_scopes = std::mem::replace(
-                &mut env.scopes,
-                vec![HashMap::new()],
-            );
+            // Isolate the callee's scope from the caller's variables.
+            let saved_vars = std::mem::take(&mut env.vars);
+            let saved_marks = std::mem::replace(&mut env.scope_marks, vec![0]);
             for (param, arg) in params.iter().zip(args) {
                 env.define(&param.name, arg);
             }
             env.call_stack.push(func_name.clone());
             let result = eval_body(env, &body);
             env.call_stack.pop();
-            env.scopes = saved_scopes;
+            env.vars = saved_vars;
+            env.scope_marks = saved_marks;
             match result? {
                 BodyResult::Value(v) | BodyResult::Return(v) | BodyResult::Break(v) => Ok(v),
                 BodyResult::Continue => Ok(Value::Nil),
@@ -1022,9 +1022,9 @@ fn eval_expr(env: &mut Env, expr: &Expr) -> Result<Value> {
             }
             // If `function` is a local variable holding a FnRef (or a Text that names a
             // function), resolve dynamically. This enables user-defined HOFs and CLI usage.
-            let callee_from_scope = env.scopes.iter().rev()
-                .find_map(|s| s.get(function.as_str()))
-                .cloned();
+            let callee_from_scope = env.vars.iter().rev()
+                .find(|(k, _)| k == function.as_str())
+                .map(|(_, v)| v.clone());
             let callee = match callee_from_scope {
                 Some(Value::FnRef(name)) => name,
                 Some(Value::Text(name)) if env.functions.contains_key(&name) => name,
