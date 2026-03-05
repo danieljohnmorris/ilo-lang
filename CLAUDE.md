@@ -1,0 +1,42 @@
+# ilo-lang — Claude context
+
+**ilo** is a token-minimal programming language for AI agents.
+
+- GitHub: https://github.com/danieljohnmorris/ilo-lang
+- Language spec: [SPEC.md](SPEC.md)
+- Current version: **0.5.0** (installed at `~/.cargo/bin/ilo` via `cargo install`)
+
+## What ilo is
+
+Prefix-notation, strongly-typed, AI-agent-first language. Programs are small, verified before execution, and designed to minimise total token cost across generation + retries + context loading.
+
+## Key files
+
+| File | Purpose |
+|------|---------|
+| `src/main.rs` | CLI entry point, import resolution, .env loading |
+| `src/lexer/mod.rs` | Tokeniser (logos) |
+| `src/parser/mod.rs` | Recursive-descent parser |
+| `src/ast/mod.rs` | AST types (`Decl`, `Stmt`, `Expr`, `Type`) |
+| `src/verify.rs` | Type verifier |
+| `src/interpreter/mod.rs` | Tree-walking interpreter |
+| `src/vm/mod.rs` | Register VM + bytecode compiler |
+| `src/codegen/` | Python, explain, fmt, dense-wire emitters |
+| `src/tools/` | MCP client, HTTP tool provider |
+| `examples/` | Runnable example programs (also `cargo test` regression suite) |
+| `SPEC.md` | Full language specification |
+| `research/TODO.md` | Planned work |
+
+## Running
+
+```bash
+ilo 'fn x:n>n;*x 2' 5          # inline code
+ilo program.ilo funcname args   # from file
+cargo test                       # full test suite
+```
+
+## Release process
+
+1. Bump `version` in `Cargo.toml`
+2. Commit + tag `vX.Y.Z`
+3. `git push origin main --tags` → triggers `.github/workflows/release.yml` → builds 5 targets and publishes a GitHub Release
