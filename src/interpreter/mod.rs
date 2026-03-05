@@ -128,7 +128,7 @@ impl Env {
     }
 
     fn pop_scope(&mut self) {
-        let mark = self.scope_marks.pop().unwrap_or(0);
+        let mark = self.scope_marks.pop().expect("unbalanced push_scope/pop_scope");
         self.vars.truncate(mark);
     }
 
