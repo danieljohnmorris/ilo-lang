@@ -795,13 +795,11 @@ fn report_diagnostic(d: &Diagnostic, mode: OutputMode) {
     eprint!("{}", s);
 }
 
-/// Load a `.env` file into the process environment.
-/// Looks for `.env` in the current working directory.
+/// Load a single env file into the process environment.
 /// Lines starting with `#` are comments. Blank lines are skipped.
 /// Format: `KEY=VALUE` — no quoting, no variable expansion.
 /// Does NOT overwrite variables already set in the environment.
-fn load_dotenv() {
-    let path = std::path::Path::new(".env");
+fn load_env_file(path: &str) {
     let Ok(contents) = std::fs::read_to_string(path) else { return };
     for line in contents.lines() {
         let line = line.trim();
@@ -815,6 +813,13 @@ fn load_dotenv() {
             }
         }
     }
+}
+
+/// Load `.env.local` then `.env` from the current working directory.
+/// `.env.local` takes priority (loaded first; later files don't overwrite).
+fn load_dotenv() {
+    load_env_file(".env.local");
+    load_env_file(".env");
 }
 
 fn main() {
