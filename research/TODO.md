@@ -4,6 +4,10 @@ Everything through Phase E is complete. This file tracks remaining work.
 
 ## Open items
 
+### Performance
+
+- [ ] Interpreter flat-scope rewrite — `feature/optimize-interpreter` was rejected (unsound unsafe, broke outer-scope mutation, removed FnRef/Map/tools). Needs clean rewrite: flat `Vec<(String, Value)>` with full-range `get`/`set` + scope marks, keeping all existing functionality.
+
 ### Agent / tool integration
 
 - [x] Tool graph — `ilo tools --graph`: type-level composition map showing which tools can feed each other
@@ -43,3 +47,5 @@ Everything through Phase E is complete. This file tracks remaining work.
 | Hardening | Reserved keywords: `if` `return` `let` `fn` `def` `var` `const` |
 | Control flow | Type pattern matching `?x{n v:...; t v:...}` |
 | Codegen | Python emit, formatter (`--explain`), dense wire format |
+| VM perf | Bump arena for records, JIT inlining (arithmetic, branching, field access, alloc), no-Vec OP_CALL |
+| Builtins | `env` — read environment variables |
