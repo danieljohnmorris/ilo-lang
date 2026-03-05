@@ -22,8 +22,8 @@
 
 ## Program structure
 
-- [ ] Multi-file programs / module system (programs are small by design — may never need this)
-- [ ] Imports — `use "other.ilo"` to compose programs from multiple files
+- [x] Imports — `use "other.ilo"` (all) and `use "other.ilo" [name1 name2]` (scoped) ✅
+- [ ] Namespacing — prevent name collisions when merging many declaration graphs (low priority)
 
 ---
 
