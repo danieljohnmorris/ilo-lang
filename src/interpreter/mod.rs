@@ -579,7 +579,7 @@ fn call_function(env: &mut Env, name: &str, args: Vec<Value>) -> Result<Value> {
             _ => Err(RuntimeError::new("ILO-R009", "jpth requires two text args".to_string())),
         };
     }
-    if name == "prt" && args.len() == 1 {
+    if name == "prnt" && args.len() == 1 {
         println!("{}", args[0]);
         return Ok(args.into_iter().next().unwrap());
     }

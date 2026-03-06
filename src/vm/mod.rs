@@ -1322,7 +1322,7 @@ impl RegCompiler {
                     self.emit_abc(OP_JDMP, ra, rb, 0);
                     return ra;
                 }
-                if function == "prt" && args.len() == 1 {
+                if function == "prnt" && args.len() == 1 {
                     let rb = self.compile_expr(&args[0]);
                     let ra = self.alloc_reg();
                     self.emit_abc(OP_PRT, ra, rb, 0);
