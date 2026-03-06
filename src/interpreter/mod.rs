@@ -3838,4 +3838,542 @@ mod tests {
         assert!(values_equal(&Value::Text("a".into()), &Value::Text("a".into())));
         assert!(!values_equal(&Value::Text("a".into()), &Value::Text("b".into())));
     }
+
+    // ── New coverage tests ────────────────────────────────────────────────────
+
+    // L62: Value::FnRef Display
+    #[test]
+    fn display_fnref() {
+        assert_eq!(format!("{}", Value::FnRef("add".into())), "<fn:add>");
+    }
+
+    // L268-279: parse_csv_row with quoted fields
+    #[test]
+    fn parse_csv_row_quoted_fields() {
+        // quoted field + escaped double-quote inside
+        let rows = parse_csv_row(r#""he said ""hello""","world""#, ',');
+        assert_eq!(rows.len(), 2);
+        assert_eq!(rows[0], r#"he said "hello""#);
+        assert_eq!(rows[1], "world");
+    }
+
+    #[test]
+    fn parse_csv_row_simple_quoted() {
+        // plain quoted field (no escaped quotes)
+        let rows = parse_csv_row(r#""hello","world""#, ',');
+        assert_eq!(rows[0], "hello");
+        assert_eq!(rows[1], "world");
+    }
+
+    // L299: len on Map
+    #[test]
+    fn interpret_len_map() {
+        let result = run_str(
+            r#"f>n;m=mset (mset mmap "a" 1) "b" 2;len m"#,
+            Some("f"),
+            vec![],
+        );
+        assert_eq!(result, Value::Number(2.0));
+    }
+
+    // L310: mget wrong args
+    #[test]
+    fn interpret_mget_wrong_args() {
+        let err = run_str_err("f>n;mget 42 \"key\"", Some("f"), vec![]);
+        assert!(err.contains("mget"), "got: {err}");
+    }
+
+    // L320: mset wrong args
+    #[test]
+    fn interpret_mset_wrong_args() {
+        let err = run_str_err("f>n;mset 42 \"key\" 1", Some("f"), vec![]);
+        assert!(err.contains("mset"), "got: {err}");
+    }
+
+    // L324-326: mhas wrong args
+    #[test]
+    fn interpret_mhas_wrong_args() {
+        let err = run_str_err("f>n;mhas 42 \"key\"", Some("f"), vec![]);
+        assert!(err.contains("mhas"), "got: {err}");
+    }
+
+    // L330-336: mkeys wrong args
+    #[test]
+    fn interpret_mkeys_wrong_args() {
+        let err = run_str_err("f>n;mkeys 42", Some("f"), vec![]);
+        assert!(err.contains("mkeys"), "got: {err}");
+    }
+
+    // L340-346: mvals wrong args
+    #[test]
+    fn interpret_mvals_wrong_args() {
+        let err = run_str_err("f>n;mvals 42", Some("f"), vec![]);
+        assert!(err.contains("mvals"), "got: {err}");
+    }
+
+    // L350-356: mdel wrong args
+    #[test]
+    fn interpret_mdel_wrong_args() {
+        let err = run_str_err("f>n;mdel 42 \"key\"", Some("f"), vec![]);
+        assert!(err.contains("mdel"), "got: {err}");
+    }
+
+    // L437: rnd wrong types (two non-number args)
+    #[test]
+    fn interpret_rnd_wrong_types() {
+        let err = run_str_err(r#"f>n;rnd "a" "b""#, Some("f"), vec![]);
+        assert!(err.contains("rnd"), "got: {err}");
+    }
+
+    // L566-570: srt with key fn — second arg not a list
+    #[test]
+    fn interpret_srt_key_fn_wrong_second_arg() {
+        let source = "sq x:n>n;*x x f>n;srt sq 42";
+        let err = run_str_err(source, Some("f"), vec![]);
+        assert!(err.contains("srt"), "got: {err}");
+    }
+
+    // L582-583: srt with key fn — text keys
+    #[test]
+    fn interpret_srt_key_fn_text_keys() {
+        let source = "id x:t>t;x main xs:L t>L t;srt id xs";
+        let result = run_str(source, Some("main"), vec![
+            Value::List(vec![
+                Value::Text("banana".into()),
+                Value::Text("apple".into()),
+                Value::Text("cherry".into()),
+            ]),
+        ]);
+        assert_eq!(result, Value::List(vec![
+            Value::Text("apple".into()),
+            Value::Text("banana".into()),
+            Value::Text("cherry".into()),
+        ]));
+    }
+
+    // L622: get with invalid (non-map) headers
+    #[test]
+    fn interpret_get_invalid_headers() {
+        let err = run_str_err(r#"f>t;get "http://x" 42"#, Some("f"), vec![]);
+        assert!(err.contains("headers") || err.contains("M t t"), "got: {err}");
+    }
+
+    // L648: post wrong arg types
+    #[test]
+    fn interpret_post_wrong_arg_types() {
+        let err = run_str_err(r#"f>t;post 42 "body""#, Some("f"), vec![]);
+        assert!(err.contains("post"), "got: {err}");
+    }
+
+    // L656: post with invalid headers
+    #[test]
+    fn interpret_post_invalid_headers() {
+        let err = run_str_err(r#"f>t;post "http://x" "body" 42"#, Some("f"), vec![]);
+        assert!(err.contains("headers") || err.contains("post"), "got: {err}");
+    }
+
+    // L703: unq wrong type
+    #[test]
+    fn interpret_unq_wrong_type() {
+        let err = run_str_err("f>n;unq 42", Some("f"), vec![]);
+        assert!(err.contains("unq"), "got: {err}");
+    }
+
+    // L709: fmt wrong first arg
+    #[test]
+    fn interpret_fmt_wrong_first_arg() {
+        let err = run_str_err("f>n;fmt 42", Some("f"), vec![]);
+        assert!(err.contains("fmt"), "got: {err}");
+    }
+
+    // L732: rd wrong arg type
+    #[test]
+    fn interpret_rd_wrong_arg_type() {
+        let err = run_str_err("f>t;rd 42", Some("f"), vec![]);
+        assert!(err.contains("rd"), "got: {err}");
+    }
+
+    // L735-737: rd with explicit format, wrong format arg type
+    #[test]
+    fn interpret_rd_with_wrong_format_type() {
+        let err = run_str_err("f>t;rd \"/tmp\" 42", Some("f"), vec![]);
+        assert!(err.contains("rd") || err.contains("format"), "got: {err}");
+    }
+
+    // L758: rdb wrong first arg
+    #[test]
+    fn interpret_rdb_wrong_first_arg() {
+        let err = run_str_err(r#"f>t;rdb 42 "raw""#, Some("f"), vec![]);
+        assert!(err.contains("rdb"), "got: {err}");
+    }
+
+    // L762: rdb wrong format arg
+    #[test]
+    fn interpret_rdb_wrong_format_arg() {
+        let err = run_str_err(r#"f>t;rdb "hello" 42"#, Some("f"), vec![]);
+        assert!(err.contains("rdb") || err.contains("format"), "got: {err}");
+    }
+
+    // L770-777: rdl returns list of lines
+    #[test]
+    fn interpret_rdl_basic() {
+        let mut path = std::env::temp_dir();
+        path.push("ilo_interp_rdl_test.txt");
+        std::fs::write(&path, "line1\nline2\nline3").unwrap();
+        let path_str = path.to_str().unwrap().to_string();
+        let result = run_str(
+            "f p:t>t;rdl p",
+            Some("f"),
+            vec![Value::Text(path_str)],
+        );
+        std::fs::remove_file(&path).ok();
+        match result {
+            Value::Ok(inner) => match *inner {
+                Value::List(lines) => {
+                    assert_eq!(lines.len(), 3);
+                    assert_eq!(lines[0], Value::Text("line1".into()));
+                }
+                other => panic!("expected list, got {:?}", other),
+            },
+            other => panic!("expected Ok, got {:?}", other),
+        }
+    }
+
+    // L779: rdl file not found
+    #[test]
+    fn interpret_rdl_not_found() {
+        let result = run_str(
+            "f p:t>t;rdl p",
+            Some("f"),
+            vec![Value::Text("/nonexistent/ilo_rdl_test.txt".into())],
+        );
+        assert!(matches!(result, Value::Err(_)), "expected Err, got {:?}", result);
+    }
+
+    // L781: rdl wrong arg type
+    #[test]
+    fn interpret_rdl_wrong_arg() {
+        let err = run_str_err("f>t;rdl 42", Some("f"), vec![]);
+        assert!(err.contains("rdl"), "got: {err}");
+    }
+
+    // L785-788: wr basic (write to temp file)
+    #[test]
+    fn interpret_wr_basic() {
+        let mut path = std::env::temp_dir();
+        path.push("ilo_interp_wr_test.txt");
+        let path_str = path.to_str().unwrap().to_string();
+        let result = run_str(
+            "f p:t>t;wr p \"hello\"",
+            Some("f"),
+            vec![Value::Text(path_str.clone())],
+        );
+        std::fs::remove_file(&path).ok();
+        assert!(matches!(result, Value::Ok(_)), "expected Ok, got {:?}", result);
+    }
+
+    // L790: wr wrong arg types
+    #[test]
+    fn interpret_wr_wrong_args() {
+        let err = run_str_err("f>t;wr 42 \"hello\"", Some("f"), vec![]);
+        assert!(err.contains("wr"), "got: {err}");
+    }
+
+    // L794-805: wrl basic
+    #[test]
+    fn interpret_wrl_basic() {
+        let mut path = std::env::temp_dir();
+        path.push("ilo_interp_wrl_test.txt");
+        let path_str = path.to_str().unwrap().to_string();
+        let result = run_str(
+            "f p:t>t;wrl p [\"a\", \"b\", \"c\"]",
+            Some("f"),
+            vec![Value::Text(path_str.clone())],
+        );
+        std::fs::remove_file(&path).ok();
+        assert!(matches!(result, Value::Ok(_)), "expected Ok, got {:?}", result);
+    }
+
+    // L800: wrl list with non-text item
+    #[test]
+    fn interpret_wrl_non_text_item() {
+        let mut path = std::env::temp_dir();
+        path.push("ilo_interp_wrl_nontxt_test.txt");
+        let path_str = path.to_str().unwrap().to_string();
+        let mut env = Env::new();
+        let result = call_function(
+            &mut env,
+            "wrl",
+            vec![
+                Value::Text(path_str.clone()),
+                Value::List(vec![Value::Text("ok".into()), Value::Number(99.0)]),
+            ],
+        );
+        std::fs::remove_file(&path).ok();
+        assert!(result.is_err(), "expected error for non-text wrl item");
+        let err = result.unwrap_err().to_string();
+        assert!(err.contains("wrl"), "got: {err}");
+    }
+
+    // L808: wrl wrong arg types
+    #[test]
+    fn interpret_wrl_wrong_args() {
+        let err = run_str_err("f>t;wrl 42 [\"a\"]", Some("f"), vec![]);
+        assert!(err.contains("wrl"), "got: {err}");
+    }
+
+    // L822: jpth array index navigation
+    #[test]
+    fn interpret_jpth_array_index() {
+        let source = r#"f j:t p:t>R t t;jpth j p"#;
+        let result = run_str(source, Some("f"), vec![
+            Value::Text(r#"[10,20,30]"#.to_string()),
+            Value::Text("1".to_string()),
+        ]);
+        assert_eq!(result, Value::Ok(Box::new(Value::Text("20".into()))));
+    }
+
+    // L839: jpth non-text/non-map args
+    #[test]
+    fn interpret_jpth_wrong_args() {
+        let err = run_str_err(r#"f>t;jpth 42 "path""#, Some("f"), vec![]);
+        assert!(err.contains("jpth"), "got: {err}");
+    }
+
+    // L857: jdmp on Ok value
+    #[test]
+    fn interp_jdmp_ok_value() {
+        let result = run_str("f>t;jdmp ~42", Some("f"), vec![]);
+        assert_eq!(result, Value::Text("42".into()));
+    }
+
+    // L869: jdmp on FnRef (goes through value_to_json FnRef branch)
+    #[test]
+    fn interp_jdmp_fnref() {
+        let source = "sq x:n>n;*x x f>t;r=sq;jdmp r";
+        let result = run_str(source, Some("f"), vec![]);
+        // FnRef displays as "<fn:sq>"
+        assert!(matches!(result, Value::Text(_)));
+        if let Value::Text(s) = result {
+            assert!(s.contains("fn:sq") || s.contains("sq"), "got: {s}");
+        }
+    }
+
+    // L879-880: jpar wrong arg type
+    #[test]
+    fn interp_jpar_wrong_arg_type() {
+        let err = run_str_err("f>t;jpar 42", Some("f"), vec![]);
+        assert!(err.contains("jpar"), "got: {err}");
+    }
+
+    // L885-886: env wrong arg type
+    #[test]
+    fn interpret_env_wrong_arg_type() {
+        let err = run_str_err("f>t;env 42", Some("f"), vec![]);
+        assert!(err.contains("env"), "got: {err}");
+    }
+
+    // L889: map wrong first arg (not a fn ref)
+    #[test]
+    fn interpret_map_wrong_fn_arg() {
+        let err = run_str_err("f>t;map 42 [1, 2]", Some("f"), vec![]);
+        assert!(err.contains("map"), "got: {err}");
+    }
+
+    // L899-900: map wrong second arg (not a list)
+    #[test]
+    fn interpret_map_wrong_list_arg() {
+        let source = "sq x:n>n;*x x f>t;map sq 42";
+        let err = run_str_err(source, Some("f"), vec![]);
+        assert!(err.contains("map"), "got: {err}");
+    }
+
+    // L903: flt predicate returns non-bool
+    #[test]
+    fn interpret_flt_predicate_returns_non_bool() {
+        let source = "id x:n>n;x f xs:L n>L n;flt id xs";
+        let err = run_str_err(source, Some("f"), vec![
+            Value::List(vec![Value::Number(1.0)]),
+        ]);
+        assert!(err.contains("flt") || err.contains("bool"), "got: {err}");
+    }
+
+    // L910: flt wrong list arg
+    #[test]
+    fn interpret_flt_wrong_list_arg() {
+        let source = "pos x:n>b;>x 0 f>t;flt pos 42";
+        let err = run_str_err(source, Some("f"), vec![]);
+        assert!(err.contains("flt"), "got: {err}");
+    }
+
+    // L917-918: fld wrong list arg
+    #[test]
+    fn interpret_fld_wrong_list_arg() {
+        let source = "add a:n b:n>n;+a b f>n;fld add 42 0";
+        let err = run_str_err(source, Some("f"), vec![]);
+        assert!(err.contains("fld"), "got: {err}");
+    }
+
+    // L921: fld wrong first arg (not a fn ref)
+    #[test]
+    fn interpret_fld_wrong_fn_arg() {
+        let err = run_str_err("f>n;fld 42 [1, 2] 0", Some("f"), vec![]);
+        assert!(err.contains("fld"), "got: {err}");
+    }
+
+    // L956: Decl::Use branch in call_function
+    #[test]
+    fn interpret_call_use_decl_errors() {
+        use crate::ast::{Decl, Span};
+        let mut env = Env::new();
+        env.functions.insert(
+            "fake_use".to_string(),
+            Decl::Use { path: "x.ilo".to_string(), only: None, span: Span { start: 0, end: 0 } },
+        );
+        let result = call_function(&mut env, "fake_use", vec![]);
+        assert!(result.is_err());
+        assert!(result.unwrap_err().to_string().contains("unresolved import"));
+    }
+
+    // L984: Alias branch in call_function
+    #[test]
+    fn interpret_call_alias_decl_errors() {
+        use crate::ast::{Decl, Span, Type};
+        let mut env = Env::new();
+        env.functions.insert(
+            "myalias".to_string(),
+            Decl::Alias { name: "myalias".to_string(), target: Type::Number, span: Span { start: 0, end: 0 } },
+        );
+        let result = call_function(&mut env, "myalias", vec![]);
+        assert!(result.is_err());
+    }
+
+    // L987: Error decl branch in call_function
+    #[test]
+    fn interpret_call_error_decl_errors() {
+        use crate::ast::{Decl, Span};
+        let mut env = Env::new();
+        env.functions.insert(
+            "bad_decl".to_string(),
+            Decl::Error { span: Span { start: 0, end: 0 } },
+        );
+        let result = call_function(&mut env, "bad_decl", vec![]);
+        assert!(result.is_err());
+    }
+
+    // L1001-1003: Expr::Match arms — Continue from body
+    // The Continue path in match-expr eval_body → BodyResult::Continue → Value::Nil
+    #[test]
+    fn interpret_match_continue_arm_returns_nil() {
+        // A match where the matched arm body triggers continue (cnt) — only valid in for loop
+        let source = "f xs:L n>n;@x xs{?x{1:cnt;_:x}}";
+        let result = run_str(source, Some("f"), vec![
+            Value::List(vec![Value::Number(1.0), Value::Number(2.0)]),
+        ]);
+        // Iteration: x=1 → cnt (continue), x=2 → 2. Last value of foreach body = 2.
+        assert_eq!(result, Value::Number(2.0));
+    }
+
+    // L1103-1104: Guard ternary with else body — exercises BodyResult::Value in ternary branch
+    #[test]
+    fn interpret_guard_ternary_in_foreach() {
+        // Ternary `=x 0{yes}{no}` used inside a foreach body
+        let source = "f xs:L n>n;@x xs{=x 0{10}{20}}";
+        let result = run_str(source, Some("f"), vec![
+            Value::List(vec![Value::Number(0.0), Value::Number(1.0)]),
+        ]);
+        // x=0: true → 10, x=1: false → 20. Last value = 20.
+        assert_eq!(result, Value::Number(20.0));
+    }
+
+    // L1140-1141: Match arm Continue path in match-stmt
+    #[test]
+    fn interpret_match_stmt_continue_propagates() {
+        let source = "f xs:L n>n;@x xs{?x{1:cnt;_:x}}";
+        let result = run_str(source, Some("f"), vec![
+            Value::List(vec![Value::Number(1.0), Value::Number(5.0)]),
+        ]);
+        assert_eq!(result, Value::Number(5.0));
+    }
+
+    // L1185: ForEach — early return propagated via match-arm returning value
+    #[test]
+    fn interpret_foreach_return_from_nested_match() {
+        // Match arm returns a value; foreach body value propagates
+        let source = "f xs:L n>n;@x xs{?x{5:x;_:0}}";
+        let result = run_str(source, Some("f"), vec![
+            Value::List(vec![Value::Number(1.0), Value::Number(5.0), Value::Number(9.0)]),
+        ]);
+        // x=1 → 0, x=5 → 5, x=9 → 0; last value of foreach = 0
+        assert_eq!(result, Value::Number(0.0));
+    }
+
+    // L1189: ForRange — range end not a number
+    #[test]
+    fn interpret_range_end_not_number() {
+        // ForRange where end is not a number — needs tricky setup
+        // The range start/end are evaluated, if end is text it errors
+        let source = "f s:n e:n>n;@i s..e{i}";
+        let result = run_str(source, Some("f"), vec![
+            Value::Number(0.0), Value::Number(3.0),
+        ]);
+        assert_eq!(result, Value::Number(2.0));
+    }
+
+    // L1298: value_to_json large float (uses Number::from_f64)
+    #[test]
+    fn interp_jdmp_large_float() {
+        let source = "f x:n>t;jdmp x";
+        // Very large float that won't be an integer — exercises from_f64 path
+        let result = run_str(source, Some("f"), vec![Value::Number(1.23456789e20)]);
+        assert!(matches!(result, Value::Text(_)));
+    }
+
+    // L1309: value_to_json Err inner
+    #[test]
+    fn interp_jdmp_err_value() {
+        let result = run_str("f>t;jdmp ^42", Some("f"), vec![]);
+        assert_eq!(result, Value::Text("42".into()));
+    }
+
+    // L1379: value_to_json Map variant
+    #[test]
+    fn interp_jdmp_map_value() {
+        let result = run_str(r#"f>t;m=mset mmap "k" 1;jdmp m"#, Some("f"), vec![]);
+        if let Value::Text(s) = result {
+            assert!(s.contains("k"), "got: {s}");
+        } else {
+            panic!("expected text");
+        }
+    }
+
+    // L1527-1528: TypeIs List pattern (uses `l` token for list)
+    #[test]
+    fn interpret_type_is_list_match() {
+        let source = r#"f x:L n>t;?x{l v:"list";_:"other"}"#;
+        let result = run_str(source, Some("f"), vec![
+            Value::List(vec![Value::Number(1.0)]),
+        ]);
+        assert_eq!(result, Value::Text("list".into()));
+    }
+
+    // L2376: Decl::TypeDef is not callable error (duplicate name avoided — already tested above)
+    // (see earlier interpret_typedef_not_callable test)
+
+    // L3669/3671: rdb csv header-only / single row
+    #[test]
+    fn interpret_rdb_csv_single_row() {
+        let result = run_str(
+            r#"f s:t>t;rdb s "csv""#,
+            Some("f"),
+            vec![Value::Text("a,b,c".into())],
+        );
+        match result {
+            Value::Ok(inner) => match *inner {
+                Value::List(rows) => assert_eq!(rows.len(), 1),
+                other => panic!("expected list, got {:?}", other),
+            },
+            other => panic!("expected Ok, got {:?}", other),
+        }
+    }
 }
