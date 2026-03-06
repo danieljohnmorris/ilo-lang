@@ -7494,4 +7494,277 @@ mod tests {
     }
     // Note: rdb, rd path fmt, and fmt (variadic) fall through to OP_CALL → interpreter.
     // Those code paths are tested in interpreter::tests and tests/eval_inline.rs.
+
+    // ── Map operations (OP_MAPNEW / OP_MGET / OP_MSET / OP_MHAS / OP_MKEYS / OP_MVALS / OP_MDEL) ──
+    // Empty map literal is `mmap` (not `{}`).
+
+    #[test]
+    fn vm_mapnew_empty() {
+        let result = vm_run("f>M t n;mmap", Some("f"), vec![]);
+        assert!(matches!(result, Value::Map(_)), "expected Map, got {result:?}");
+        if let Value::Map(m) = result { assert!(m.is_empty()); }
+    }
+
+    #[test]
+    fn vm_mset_and_mget_roundtrip() {
+        // O n at runtime is Value::Number (optional = raw value | nil, not Ok-wrapped)
+        let result = vm_run(
+            r#"f>O n;m=mset mmap "x" 7;mget m "x""#,
+            Some("f"), vec![],
+        );
+        assert_eq!(result, Value::Number(7.0));
+    }
+
+    #[test]
+    fn vm_mset_multiple_keys() {
+        let result = vm_run(
+            r#"f>O n;m=mset mmap "a" 1;m=mset m "b" 2;mget m "b""#,
+            Some("f"), vec![],
+        );
+        assert_eq!(result, Value::Number(2.0));
+    }
+
+    #[test]
+    fn vm_mget_missing_key_returns_nil() {
+        let result = vm_run(
+            r#"f>O n;m=mset mmap "x" 1;mget m "y""#,
+            Some("f"), vec![],
+        );
+        assert_eq!(result, Value::Nil);
+    }
+
+    #[test]
+    fn vm_mhas_present() {
+        let result = vm_run(
+            r#"f>b;m=mset mmap "k" 99;mhas m "k""#,
+            Some("f"), vec![],
+        );
+        assert_eq!(result, Value::Bool(true));
+    }
+
+    #[test]
+    fn vm_mhas_absent() {
+        let result = vm_run(
+            r#"f>b;m=mset mmap "k" 99;mhas m "z""#,
+            Some("f"), vec![],
+        );
+        assert_eq!(result, Value::Bool(false));
+    }
+
+    #[test]
+    fn vm_mkeys_sorted() {
+        let result = vm_run(
+            r#"f>L t;m=mset mmap "b" 2;m=mset m "a" 1;m=mset m "c" 3;mkeys m"#,
+            Some("f"), vec![],
+        );
+        assert_eq!(result, Value::List(vec![
+            Value::Text("a".into()),
+            Value::Text("b".into()),
+            Value::Text("c".into()),
+        ]));
+    }
+
+    #[test]
+    fn vm_mvals_sorted_by_key() {
+        // values sorted by their key, not insertion order
+        let result = vm_run(
+            r#"f>L n;m=mset mmap "b" 2;m=mset m "a" 1;m=mset m "c" 3;mvals m"#,
+            Some("f"), vec![],
+        );
+        assert_eq!(result, Value::List(vec![
+            Value::Number(1.0),
+            Value::Number(2.0),
+            Value::Number(3.0),
+        ]));
+    }
+
+    #[test]
+    fn vm_mdel_removes_key() {
+        let result = vm_run(
+            r#"f>b;m=mset mmap "k" 1;m=mdel m "k";mhas m "k""#,
+            Some("f"), vec![],
+        );
+        assert_eq!(result, Value::Bool(false));
+    }
+
+    #[test]
+    fn vm_mdel_nonexistent_key_noop() {
+        let result = vm_run(
+            r#"f>O n;m=mset mmap "k" 42;m=mdel m "z";mget m "k""#,
+            Some("f"), vec![],
+        );
+        assert_eq!(result, Value::Number(42.0));
+    }
+
+    #[test]
+    fn vm_mset_immutable_original() {
+        // mset returns a NEW map; original unchanged
+        let result = vm_run(
+            r#"f>b;orig=mset mmap "k" 1;upd=mset orig "k" 99;mhas orig "k""#,
+            Some("f"), vec![],
+        );
+        assert_eq!(result, Value::Bool(true));
+    }
+
+    #[test]
+    fn vm_mkeys_empty_map() {
+        let result = vm_run("f>L t;mkeys mmap", Some("f"), vec![]);
+        assert_eq!(result, Value::List(vec![]));
+    }
+
+    #[test]
+    fn vm_mvals_empty_map() {
+        let result = vm_run("f>L n;mvals mmap", Some("f"), vec![]);
+        assert_eq!(result, Value::List(vec![]));
+    }
+
+    #[test]
+    fn vm_map_compiles_to_opcode() {
+        let prog = parse_program(r#"f>O n;m=mset mmap "k" 1;mget m "k""#);
+        let compiled = compile(&prog).unwrap();
+        let chunk = &compiled.chunks[0];
+        let has_mapnew = chunk.code.iter().any(|inst| (inst >> 24) as u8 == OP_MAPNEW);
+        let has_mset   = chunk.code.iter().any(|inst| (inst >> 24) as u8 == OP_MSET);
+        let has_mget   = chunk.code.iter().any(|inst| (inst >> 24) as u8 == OP_MGET);
+        assert!(has_mapnew, "expected OP_MAPNEW");
+        assert!(has_mset,   "expected OP_MSET");
+        assert!(has_mget,   "expected OP_MGET");
+    }
+
+    // ── String/list edge cases ──
+
+    #[test]
+    fn vm_hd_empty_list_is_error() {
+        let err = vm_run_err("f xs:L n>n;hd xs", Some("f"), vec![Value::List(vec![])]);
+        assert!(err.contains("hd"), "expected hd error, got: {err}");
+    }
+
+    #[test]
+    fn vm_hd_empty_text_is_error() {
+        let err = vm_run_err(
+            "f s:t>t;hd s", Some("f"), vec![Value::Text(String::new())],
+        );
+        assert!(err.contains("hd"), "expected hd error, got: {err}");
+    }
+
+    #[test]
+    fn vm_tl_empty_list_is_error() {
+        let err = vm_run_err("f xs:L n>n;tl xs", Some("f"), vec![Value::List(vec![])]);
+        assert!(err.contains("tl"), "expected tl error, got: {err}");
+    }
+
+    #[test]
+    fn vm_tl_empty_text_is_error() {
+        let err = vm_run_err(
+            "f s:t>t;tl s", Some("f"), vec![Value::Text(String::new())],
+        );
+        assert!(err.contains("tl"), "expected tl error, got: {err}");
+    }
+
+    #[test]
+    fn vm_srt_mixed_types_is_error() {
+        let err = vm_run_err(
+            "f xs:L n>t;srt xs", Some("f"),
+            vec![Value::List(vec![Value::Number(1.0), Value::Text("a".into())])],
+        );
+        assert!(err.contains("srt"), "expected srt error, got: {err}");
+    }
+
+    #[test]
+    fn vm_cat_empty_separator() {
+        let result = vm_run(
+            "f items:L t>t;cat items \"\"", Some("f"),
+            vec![Value::List(vec![
+                Value::Text("a".into()), Value::Text("b".into()), Value::Text("c".into()),
+            ])],
+        );
+        assert_eq!(result, Value::Text("abc".into()));
+    }
+
+    #[test]
+    fn vm_has_number_in_list() {
+        let result = vm_run(
+            "f xs:L n x:n>b;has xs x", Some("f"),
+            vec![Value::List(vec![Value::Number(1.0), Value::Number(2.0), Value::Number(3.0)]),
+                 Value::Number(2.0)],
+        );
+        assert_eq!(result, Value::Bool(true));
+    }
+
+    #[test]
+    fn vm_has_number_not_in_list() {
+        let result = vm_run(
+            "f xs:L n x:n>b;has xs x", Some("f"),
+            vec![Value::List(vec![Value::Number(1.0), Value::Number(2.0), Value::Number(3.0)]),
+                 Value::Number(9.0)],
+        );
+        assert_eq!(result, Value::Bool(false));
+    }
+
+    #[test]
+    fn vm_slc_out_of_bounds_clamped() {
+        // end clamped to list length
+        let result = vm_run(
+            "f xs:L n>L n;slc xs 0 100", Some("f"),
+            vec![Value::List(vec![Value::Number(1.0), Value::Number(2.0), Value::Number(3.0)])],
+        );
+        assert_eq!(result, Value::List(vec![
+            Value::Number(1.0), Value::Number(2.0), Value::Number(3.0),
+        ]));
+    }
+
+    #[test]
+    fn vm_rev_empty_list() {
+        let result = vm_run(
+            "f xs:L n>L n;rev xs", Some("f"),
+            vec![Value::List(vec![])],
+        );
+        assert_eq!(result, Value::List(vec![]));
+    }
+
+    #[test]
+    fn vm_srt_empty_list() {
+        let result = vm_run(
+            "f xs:L n>L n;srt xs", Some("f"),
+            vec![Value::List(vec![])],
+        );
+        assert_eq!(result, Value::List(vec![]));
+    }
+
+    #[test]
+    fn vm_srt_text_chars() {
+        let result = vm_run(r#"f>t;srt "bac""#, Some("f"), vec![]);
+        assert_eq!(result, Value::Text("abc".into()));
+    }
+
+    // ── RDL / WR ──
+
+    #[test]
+    fn vm_rdl_file_not_found() {
+        let result = vm_run(
+            "f p:t>t;rdl p", Some("f"),
+            vec![Value::Text("/nonexistent/ilo_rdl_test.txt".into())],
+        );
+        assert!(matches!(result, Value::Err(_)), "expected Err, got {result:?}");
+    }
+
+    #[test]
+    fn vm_wr_and_rdl_roundtrip() {
+        let path = "/tmp/ilo_vm_rdl_test.txt";
+        std::fs::write(path, "line1\nline2\n").unwrap();
+        let result = vm_run(
+            "f p:t>t;rdl p", Some("f"),
+            vec![Value::Text(path.into())],
+        );
+        assert!(matches!(result, Value::Ok(_)), "expected Ok, got {result:?}");
+        if let Value::Ok(inner) = result {
+            if let Value::List(lines) = *inner {
+                assert_eq!(lines.len(), 2);
+                assert_eq!(lines[0], Value::Text("line1".into()));
+            } else {
+                panic!("expected List inside Ok");
+            }
+        }
+        let _ = std::fs::remove_file(path);
+    }
 }

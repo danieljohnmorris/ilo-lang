@@ -1282,8 +1282,8 @@ impl Parser {
                 return self.parse_record(name);
             }
 
-            // Zero-arg builtins: `rnd`/`now` with no args → Call with empty args
-            if (name == "rnd" || name == "now") && !self.can_start_operand() {
+            // Zero-arg builtins: `rnd`/`now`/`mmap` with no args → Call with empty args
+            if (name == "rnd" || name == "now" || name == "mmap") && !self.can_start_operand() {
                 return Ok(Expr::Call {
                     function: name,
                     args: vec![],
@@ -1462,6 +1462,10 @@ impl Parser {
             }
             Some(Token::Ident(name)) => {
                 self.advance();
+                // Zero-arg builtins used as operands (arguments to other calls)
+                if name == "mmap" {
+                    return Ok(Expr::Call { function: name, args: vec![], unwrap: false });
+                }
                 // Check for field access chain: ident.field.field...
                 let mut expr = Expr::Ref(name);
                 while matches!(self.peek(), Some(Token::Dot) | Some(Token::DotQuestion)) {

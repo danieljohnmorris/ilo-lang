@@ -42,3 +42,46 @@ impl ToolProvider for StubProvider {
         Box::pin(async { Ok(Value::Ok(Box::new(Value::Nil))) })
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn tool_error_display_not_configured() {
+        let e = ToolError::NotConfigured("fetch".into());
+        assert_eq!(e.to_string(), "tool not configured: fetch");
+    }
+
+    #[test]
+    fn tool_error_display_http() {
+        let e = ToolError::Http("fetch".into(), "connection refused".into());
+        assert_eq!(e.to_string(), "HTTP error calling 'fetch': connection refused");
+    }
+
+    #[test]
+    fn tool_error_display_json() {
+        let e = ToolError::Json("fetch".into(), "invalid json".into());
+        assert_eq!(e.to_string(), "JSON error for tool 'fetch': invalid json");
+    }
+
+    #[test]
+    fn tool_error_display_timeout() {
+        let e = ToolError::Timeout("fetch".into());
+        assert_eq!(e.to_string(), "timeout calling tool 'fetch'");
+    }
+
+    #[test]
+    fn stub_provider_returns_ok_nil() {
+        let provider = StubProvider;
+        let fut = provider.call("any", vec![]);
+        let result = tokio::runtime::Builder::new_current_thread()
+            .build()
+            .unwrap()
+            .block_on(fut);
+        assert!(matches!(result, Ok(Value::Ok(_))));
+        if let Ok(Value::Ok(inner)) = result {
+            assert_eq!(*inner, Value::Nil);
+        }
+    }
+}
