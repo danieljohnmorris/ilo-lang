@@ -548,6 +548,57 @@ fn call_function(env: &mut Env, name: &str, args: Vec<Value>) -> Result<Value> {
             other => Err(RuntimeError::new("ILO-R009", format!("get requires text, got {:?}", other))),
         };
     }
+    if name == "rd" && args.len() == 1 {
+        return match &args[0] {
+            Value::Text(path) => match std::fs::read_to_string(path) {
+                Ok(content) => Ok(Value::Ok(Box::new(Value::Text(content)))),
+                Err(e) => Ok(Value::Err(Box::new(Value::Text(e.to_string())))),
+            },
+            other => Err(RuntimeError::new("ILO-R009", format!("rd requires text path, got {:?}", other))),
+        };
+    }
+    if name == "rdl" && args.len() == 1 {
+        return match &args[0] {
+            Value::Text(path) => match std::fs::read_to_string(path) {
+                Ok(content) => {
+                    let lines: Vec<Value> = content
+                        .lines()
+                        .map(|l| Value::Text(l.to_string()))
+                        .collect();
+                    Ok(Value::Ok(Box::new(Value::List(lines))))
+                }
+                Err(e) => Ok(Value::Err(Box::new(Value::Text(e.to_string())))),
+            },
+            other => Err(RuntimeError::new("ILO-R009", format!("rdl requires text path, got {:?}", other))),
+        };
+    }
+    if name == "wr" && args.len() == 2 {
+        return match (&args[0], &args[1]) {
+            (Value::Text(path), Value::Text(content)) => match std::fs::write(path, content) {
+                Ok(()) => Ok(Value::Ok(Box::new(Value::Text(path.clone())))),
+                Err(e) => Ok(Value::Err(Box::new(Value::Text(e.to_string())))),
+            },
+            other => Err(RuntimeError::new("ILO-R009", format!("wr requires text path and text content, got {:?}", other))),
+        };
+    }
+    if name == "wrl" && args.len() == 2 {
+        return match (&args[0], &args[1]) {
+            (Value::Text(path), Value::List(lines)) => {
+                let mut content = String::new();
+                for line in lines {
+                    match line {
+                        Value::Text(s) => { content.push_str(s); content.push('\n'); }
+                        other => return Err(RuntimeError::new("ILO-R009", format!("wrl list must contain text, got {:?}", other))),
+                    }
+                }
+                match std::fs::write(path, &content) {
+                    Ok(()) => Ok(Value::Ok(Box::new(Value::Text(path.clone())))),
+                    Err(e) => Ok(Value::Err(Box::new(Value::Text(e.to_string())))),
+                }
+            }
+            other => Err(RuntimeError::new("ILO-R009", format!("wrl requires text path and list of text, got {:?}", other))),
+        };
+    }
     if name == "jpth" && args.len() == 2 {
         return match (&args[0], &args[1]) {
             (Value::Text(json_str), Value::Text(path)) => {

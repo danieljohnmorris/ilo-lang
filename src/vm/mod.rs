@@ -138,7 +138,11 @@ pub(crate) const OP_MHAS: u8 = 72;      // R[A] = R[B] has key R[C]
 pub(crate) const OP_MKEYS: u8 = 73;     // R[A] = keys(R[B])  → L t
 pub(crate) const OP_MVALS: u8 = 74;     // R[A] = vals(R[B])  → L v
 pub(crate) const OP_MDEL: u8 = 75;      // R[A] = del(R[B], R[C])
-pub(crate) const OP_PRT: u8 = 76;       // print(R[B]) → stdout; R[A] = nil
+pub(crate) const OP_PRT: u8 = 76;       // print(R[B]) → stdout; R[A] = passthrough
+pub(crate) const OP_RD: u8 = 77;        // R[A] = rd(R[B])   — read file → R t t
+pub(crate) const OP_RDL: u8 = 78;       // R[A] = rdl(R[B])  — read file as lines → R (L t) t
+pub(crate) const OP_WR: u8 = 79;        // R[A] = wr(R[B], R[C])  — write string to file → R t t
+pub(crate) const OP_WRL: u8 = 80;       // R[A] = wrl(R[B], R[C]) — write lines to file → R t t
 
 // ABx mode — register + 16-bit operand
 pub(crate) const OP_LOADK: u8 = 20;
@@ -1326,6 +1330,39 @@ impl RegCompiler {
                     let rb = self.compile_expr(&args[0]);
                     let ra = self.alloc_reg();
                     self.emit_abc(OP_PRT, ra, rb, 0);
+                    return ra;
+                }
+                if (function == "rd" || function == "rdl") && args.len() == 1 {
+                    let rb = self.compile_expr(&args[0]);
+                    let ra = self.alloc_reg();
+                    let op = if function == "rd" { OP_RD } else { OP_RDL };
+                    self.emit_abc(op, ra, rb, 0);
+                    if *unwrap {
+                        let check_reg = self.alloc_reg();
+                        self.emit_abc(OP_ISOK, check_reg, ra, 0);
+                        let skip_ret = self.emit_jmpt(check_reg);
+                        self.emit_abx(OP_RET, ra, 0);
+                        self.current.patch_jump(skip_ret);
+                        self.emit_abc(OP_UNWRAP, ra, ra, 0);
+                        self.next_reg = ra + 1;
+                    }
+                    return ra;
+                }
+                if (function == "wr" || function == "wrl") && args.len() == 2 {
+                    let rb = self.compile_expr(&args[0]);
+                    let rc = self.compile_expr(&args[1]);
+                    let ra = self.alloc_reg();
+                    let op = if function == "wr" { OP_WR } else { OP_WRL };
+                    self.emit_abc(op, ra, rb, rc);
+                    if *unwrap {
+                        let check_reg = self.alloc_reg();
+                        self.emit_abc(OP_ISOK, check_reg, ra, 0);
+                        let skip_ret = self.emit_jmpt(check_reg);
+                        self.emit_abx(OP_RET, ra, 0);
+                        self.current.patch_jump(skip_ret);
+                        self.emit_abc(OP_UNWRAP, ra, ra, 0);
+                        self.next_reg = ra + 1;
+                    }
                     return ra;
                 }
                 if function == "jpar" && args.len() == 1 {
@@ -2811,6 +2848,91 @@ impl<'a> VM<'a> {
                     let v = reg!(b);
                     println!("{}", v.to_value());
                     reg_set!(a, v); // passthrough — same value returned
+                }
+                OP_RD => {
+                    let a = ((inst >> 16) & 0xFF) as usize + base;
+                    let b = ((inst >> 8) & 0xFF) as usize + base;
+                    let v = reg!(b);
+                    if !v.is_string() {
+                        return Err(VmError::Type("rd requires a string path"));
+                    }
+                    // SAFETY: is_string() confirmed heap-tagged string with live RC.
+                    let path = unsafe { match v.as_heap_ref() { HeapObj::Str(s) => s.as_str().to_owned(), _ => unreachable!() } };
+                    let result = match std::fs::read_to_string(&path) {
+                        Ok(content) => NanVal::heap_ok(NanVal::heap_string(content)),
+                        Err(e) => NanVal::heap_err(NanVal::heap_string(e.to_string())),
+                    };
+                    reg_set!(a, result);
+                }
+                OP_RDL => {
+                    let a = ((inst >> 16) & 0xFF) as usize + base;
+                    let b = ((inst >> 8) & 0xFF) as usize + base;
+                    let v = reg!(b);
+                    if !v.is_string() {
+                        return Err(VmError::Type("rdl requires a string path"));
+                    }
+                    // SAFETY: is_string() confirmed heap-tagged string with live RC.
+                    let path = unsafe { match v.as_heap_ref() { HeapObj::Str(s) => s.as_str().to_owned(), _ => unreachable!() } };
+                    let result = match std::fs::read_to_string(&path) {
+                        Ok(content) => {
+                            let lines: Vec<NanVal> = content
+                                .lines()
+                                .map(|l| NanVal::heap_string(l.to_string()))
+                                .collect();
+                            NanVal::heap_ok(NanVal::heap_list(lines))
+                        }
+                        Err(e) => NanVal::heap_err(NanVal::heap_string(e.to_string())),
+                    };
+                    reg_set!(a, result);
+                }
+                OP_WR => {
+                    let a = ((inst >> 16) & 0xFF) as usize + base;
+                    let b = ((inst >> 8) & 0xFF) as usize + base;
+                    let c = (inst & 0xFF) as usize + base;
+                    let vb = reg!(b);
+                    let vc = reg!(c);
+                    if !vb.is_string() { return Err(VmError::Type("wr arg 1 must be a string path")); }
+                    if !vc.is_string() { return Err(VmError::Type("wr arg 2 must be a string")); }
+                    // SAFETY: is_string() confirmed.
+                    let (path, content) = unsafe {
+                        let p = match vb.as_heap_ref() { HeapObj::Str(s) => s.as_str().to_owned(), _ => unreachable!() };
+                        let c = match vc.as_heap_ref() { HeapObj::Str(s) => s.as_str().to_owned(), _ => unreachable!() };
+                        (p, c)
+                    };
+                    let result = match std::fs::write(&path, &content) {
+                        Ok(()) => NanVal::heap_ok(NanVal::heap_string(path)),
+                        Err(e) => NanVal::heap_err(NanVal::heap_string(e.to_string())),
+                    };
+                    reg_set!(a, result);
+                }
+                OP_WRL => {
+                    let a = ((inst >> 16) & 0xFF) as usize + base;
+                    let b = ((inst >> 8) & 0xFF) as usize + base;
+                    let c = (inst & 0xFF) as usize + base;
+                    let vb = reg!(b);
+                    let vc = reg!(c);
+                    if !vb.is_string() { return Err(VmError::Type("wrl arg 1 must be a string path")); }
+                    // SAFETY: is_string() confirmed.
+                    let path = unsafe { match vb.as_heap_ref() { HeapObj::Str(s) => s.as_str().to_owned(), _ => unreachable!() } };
+                    let result = if (vc.0 & TAG_MASK) == TAG_LIST {
+                        // SAFETY: TAG_LIST confirmed heap-tagged list with live RC.
+                        let lines = unsafe { match vc.as_heap_ref() { HeapObj::List(l) => l.clone(), _ => unreachable!() } };
+                        let mut buf = String::new();
+                        for line in &lines {
+                            if !line.is_string() { return Err(VmError::Type("wrl list elements must be strings")); }
+                            // SAFETY: is_string() confirmed.
+                            let s = unsafe { match line.as_heap_ref() { HeapObj::Str(s) => s.as_str().to_owned(), _ => unreachable!() } };
+                            buf.push_str(&s);
+                            buf.push('\n');
+                        }
+                        match std::fs::write(&path, &buf) {
+                            Ok(()) => NanVal::heap_ok(NanVal::heap_string(path)),
+                            Err(e) => NanVal::heap_err(NanVal::heap_string(e.to_string())),
+                        }
+                    } else {
+                        return Err(VmError::Type("wrl arg 2 must be a list"));
+                    };
+                    reg_set!(a, result);
                 }
                 OP_UNWRAP => {
                     let a = ((inst >> 16) & 0xFF) as usize + base;

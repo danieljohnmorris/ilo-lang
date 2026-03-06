@@ -243,6 +243,10 @@ const BUILTINS: &[(&str, &[&str], &str)] = &[
     ("min", &["n", "n"], "n"),
     ("max", &["n", "n"], "n"),
     ("get", &["t"], "R t t"),
+    ("rd", &["t"], "R t t"),
+    ("rdl", &["t"], "R (L t) t"),
+    ("wr", &["t", "t"], "R t t"),
+    ("wrl", &["t", "L t"], "R t t"),
     ("spl", &["t", "t"], "L t"),
     ("cat", &["L t", "t"], "t"),
     ("has", &["list_or_text", "any"], "b"),
@@ -543,18 +547,52 @@ fn builtin_check_args(name: &str, arg_types: &[Ty], func_ctx: &str, span: Option
             };
             (ret, errors)
         }
-        "get" => {
+        "get" | "rd" | "rdl" => {
             if let Some(arg) = arg_types.first()
                 && !compatible(arg, &Ty::Text)
             {
                 errors.push(VerifyError {
                     code: "ILO-T013",
                     function: func_ctx.to_string(),
-                    message: format!("'get' expects t, got {arg}"),
+                    message: format!("'{name}' expects t (path/url), got {arg}"),
                     hint: None,
                     span,
-                        is_warning: false,
+                    is_warning: false,
                 });
+            }
+            let inner = if name == "rdl" {
+                Ty::List(Box::new(Ty::Text))
+            } else {
+                Ty::Text
+            };
+            (Ty::Result(Box::new(inner), Box::new(Ty::Text)), errors)
+        }
+        "wr" | "wrl" => {
+            if let Some(arg) = arg_types.first()
+                && !compatible(arg, &Ty::Text)
+            {
+                errors.push(VerifyError {
+                    code: "ILO-T013",
+                    function: func_ctx.to_string(),
+                    message: format!("'{name}' arg 1 expects t (path), got {arg}"),
+                    hint: None,
+                    span,
+                    is_warning: false,
+                });
+            }
+            if name == "wr" {
+                if let Some(arg) = arg_types.get(1)
+                    && !compatible(arg, &Ty::Text)
+                {
+                    errors.push(VerifyError {
+                        code: "ILO-T013",
+                        function: func_ctx.to_string(),
+                        message: format!("'wr' arg 2 expects t (content), got {arg}"),
+                        hint: None,
+                        span,
+                        is_warning: false,
+                    });
+                }
             }
             (Ty::Result(Box::new(Ty::Text), Box::new(Ty::Text)), errors)
         }

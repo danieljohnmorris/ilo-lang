@@ -216,6 +216,26 @@ f v:n>n;- 0 v  -- OK: binary subtract: 0 - v = -v
 
 ---
 
+## String Literals
+
+Text values are written in double quotes. Escape sequences:
+
+| Sequence | Meaning |
+|----------|---------|
+| `\n` | newline |
+| `\t` | tab |
+| `\r` | carriage return |
+| `\"` | literal double quote |
+| `\\` | literal backslash |
+
+```
+"hello\nworld"      -- two-line string
+"col1\tcol2"        -- tab-separated
+spl "\n" text       -- split file content into lines
+```
+
+---
+
 ## Builtins
 
 Called like functions, compiled to dedicated opcodes.
@@ -235,6 +255,10 @@ Called like functions, compiled to dedicated opcodes.
 | `now` | current Unix timestamp (seconds) | `n` |
 | `get url` | HTTP GET | `R t t` |
 | `env key` | read environment variable | `R t t` |
+| `rd path` | read file as text | `R t t` |
+| `rdl path` | read file as list of lines | `R (L t) t` |
+| `wr path s` | write text to file (overwrite) | `R t t` |
+| `wrl path xs` | write list of lines to file (joins with `\n`) | `R t t` |
 | `spl t sep` | split text by separator | `L t` |
 | `cat xs sep` | join list of text with separator | `t` |
 | `has xs v` | membership test (list: element, text: substring) | `b` |

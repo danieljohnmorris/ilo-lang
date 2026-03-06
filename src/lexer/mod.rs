@@ -134,9 +134,27 @@ pub enum Token {
     #[regex(r"-?[0-9]+(\.[0-9]+)?", |lex| lex.slice().parse::<f64>().ok())]
     Number(f64),
 
-    #[regex(r#""[^"]*""#, |lex| {
+    #[regex(r#""[^"\\]*(?:\\.[^"\\]*)*""#, |lex| {
         let s = lex.slice();
-        Some(s[1..s.len()-1].to_string())
+        let inner = &s[1..s.len()-1];
+        let mut out = String::with_capacity(inner.len());
+        let mut chars = inner.chars();
+        while let Some(c) = chars.next() {
+            if c == '\\' {
+                match chars.next() {
+                    Some('n') => out.push('\n'),
+                    Some('t') => out.push('\t'),
+                    Some('r') => out.push('\r'),
+                    Some('"') => out.push('"'),
+                    Some('\\') => out.push('\\'),
+                    Some(other) => { out.push('\\'); out.push(other); }
+                    None => {}
+                }
+            } else {
+                out.push(c);
+            }
+        }
+        Some(out)
     })]
     Text(String),
 
