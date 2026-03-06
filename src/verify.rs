@@ -3782,4 +3782,171 @@ mod tests {
         assert!(parse_and_verify("f x:t xs:n>R t t;wrl x xs").is_ok());
     }
 
+    // ── Coverage: Ty::Display for composite types ─────────────────────────────
+
+    #[test]
+    fn ty_display_optional_type() {
+        let ty = Ty::Optional(Box::new(Ty::Number));
+        assert_eq!(format!("{ty}"), "O n");
+    }
+
+    #[test]
+    fn ty_display_map_type() {
+        let ty = Ty::Map(Box::new(Ty::Text), Box::new(Ty::Number));
+        assert_eq!(format!("{ty}"), "M t n");
+    }
+
+    #[test]
+    fn ty_display_sum_type() {
+        let ty = Ty::Sum(vec!["a".into(), "b".into()]);
+        assert_eq!(format!("{ty}"), "S a b");
+    }
+
+    #[test]
+    fn ty_display_fn_type() {
+        let ty = Ty::Fn(vec![Ty::Number], Box::new(Ty::Text));
+        assert_eq!(format!("{ty}"), "F n t");
+    }
+
+    // ── Coverage: collect_named_refs_inner for Optional/Map/Fn ────────────────
+
+    #[test]
+    fn verify_named_type_in_optional_param() {
+        // `f x:O mytype>n;0` — collect_named_refs_inner sees Optional(Named("mytype"))
+        let errs = parse_and_verify("f x:O mytype>n;0");
+        // may error (unresolved type) but should not panic
+        let _ = errs;
+    }
+
+    #[test]
+    fn verify_named_type_in_map_param() {
+        // `f x:M mytype n>n;0` — collect_named_refs_inner sees Map(Named, Number)
+        let errs = parse_and_verify("f x:M mytype n>n;0");
+        let _ = errs;
+    }
+
+    #[test]
+    fn verify_named_type_in_fn_param() {
+        // `f cb:F n mytype>n;0` — collect_named_refs_inner sees Fn([Number], Named)
+        let errs = parse_and_verify("f cb:F n mytype>n;0");
+        let _ = errs;
+    }
+
+    // ── Coverage: convert_type_with_aliases for Sum and Fn ────────────────────
+
+    #[test]
+    fn verify_sum_type_param() {
+        // `f x:S foo bar>t;"ok"` — convert_type sees Sum type
+        assert!(parse_and_verify(r#"f x:S foo bar>t;"ok""#).is_ok());
+    }
+
+    #[test]
+    fn verify_fn_type_param() {
+        // `f cb:F n t x:n>t;cb x` — convert_type sees Fn type
+        assert!(parse_and_verify("f cb:F n t x:n>t;cb x").is_ok());
+    }
+
+    #[test]
+    fn verify_type_variable_in_param() {
+        // Single lowercase non-n/t/b letter = type variable → Ty::Unknown
+        // `f x:z>n;0` — 'z' is a type variable
+        let errs = parse_and_verify("f x:z>n;0");
+        // verify may warn but should not panic
+        let _ = errs;
+    }
+
+    // ── Coverage: builtin type errors — cat arg2, hd/tl text, rev wrong type ──
+
+    #[test]
+    fn verify_cat_arg2_wrong_type() {
+        // cat expects t for arg 2; passing n should produce ILO-T013
+        let errs = parse_and_verify("f a:t>t;cat a 42").unwrap_err();
+        assert!(errs.iter().any(|e| e.code == "ILO-T013" && e.message.contains("cat")));
+    }
+
+    #[test]
+    fn verify_hd_on_text_returns_text() {
+        // hd on a text arg → returns Text
+        assert!(parse_and_verify("f s:t>t;hd s").is_ok());
+    }
+
+    #[test]
+    fn verify_hd_wrong_type() {
+        // hd expects list or text; passing n should error
+        let errs = parse_and_verify("f x:n>t;hd x").unwrap_err();
+        assert!(errs.iter().any(|e| e.code == "ILO-T013" && e.message.contains("hd")));
+    }
+
+    #[test]
+    fn verify_tl_on_text_returns_text() {
+        // tl on text → text
+        assert!(parse_and_verify("f s:t>t;tl s").is_ok());
+    }
+
+    #[test]
+    fn verify_tl_wrong_type() {
+        // tl expects list or text; n is wrong
+        let errs = parse_and_verify("f x:n>t;tl x").unwrap_err();
+        assert!(errs.iter().any(|e| e.code == "ILO-T013" && e.message.contains("tl")));
+    }
+
+    #[test]
+    fn verify_rev_wrong_type() {
+        // rev expects list or text; n is wrong
+        let errs = parse_and_verify("f x:n>L t;rev x").unwrap_err();
+        assert!(errs.iter().any(|e| e.code == "ILO-T013" && e.message.contains("rev")));
+    }
+
+    #[test]
+    fn verify_unq_wrong_type() {
+        // unq expects list or text; n is wrong
+        let errs = parse_and_verify("f x:n>L t;unq x").unwrap_err();
+        assert!(errs.iter().any(|e| e.code == "ILO-T013" && e.message.contains("unq")));
+    }
+
+    #[test]
+    fn verify_unq_on_text_returns_text() {
+        // unq on text → text return type
+        assert!(parse_and_verify("f s:t>t;unq s").is_ok());
+    }
+
+    #[test]
+    fn verify_srt_with_key_fn() {
+        // srt key-fn xs — 2-arg form with function key
+        assert!(parse_and_verify("key x:n>n;*x 2  f xs:L n>L n;srt key xs").is_ok());
+    }
+
+    #[test]
+    fn verify_srt_wrong_key_fn() {
+        // srt with non-function key arg should produce ILO-T013
+        let errs = parse_and_verify("f xs:L n>L n;srt 42 xs").unwrap_err();
+        assert!(errs.iter().any(|e| e.code == "ILO-T013" && e.message.contains("srt")));
+    }
+
+    #[test]
+    fn verify_srt_on_text() {
+        // srt on text → text return type
+        assert!(parse_and_verify("f s:t>t;srt s").is_ok());
+    }
+
+    #[test]
+    fn verify_srt_wrong_single_arg() {
+        // srt with wrong type (n) → ILO-T013
+        let errs = parse_and_verify("f x:n>t;srt x").unwrap_err();
+        assert!(errs.iter().any(|e| e.code == "ILO-T013" && e.message.contains("srt")));
+    }
+
+    #[test]
+    fn verify_slc_wrong_type() {
+        // slc expects list or text for first arg; n is wrong
+        let errs = parse_and_verify("f x:n>L n;slc x 0 1").unwrap_err();
+        assert!(errs.iter().any(|e| e.code == "ILO-T013" && e.message.contains("slc")));
+    }
+
+    #[test]
+    fn verify_slc_on_text() {
+        // slc on text → text return type
+        assert!(parse_and_verify("f s:t>t;slc s 0 2").is_ok());
+    }
+
 }
