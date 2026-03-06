@@ -275,6 +275,7 @@ const BUILTINS: &[(&str, &[&str], &str)] = &[
     ("map", &["fn", "list"], "list"),
     ("flt", &["fn", "list"], "list"),
     ("fld", &["fn", "list", "any"], "any"),
+    ("grp", &["fn", "list"], "map"),
     // Map builtins (M k v type)
     ("mmap", &[], "map"),
     ("mget", &["map", "t"], "optional"),
@@ -866,6 +867,29 @@ fn builtin_check_args(name: &str, arg_types: &[Ty], func_ctx: &str, span: Option
                 },
             };
             (ret, errors)
+        }
+        "grp" => {
+            // grp fn:F a k xs:L a → M k (L a)
+            if let Some(fn_ty) = arg_types.first()
+                && !matches!(fn_ty, Ty::Fn(_, _) | Ty::Unknown) {
+                    errors.push(VerifyError {
+                        code: "ILO-T013",
+                        function: func_ctx.to_string(),
+                        message: format!("'grp' first arg must be a function (F ...), got {fn_ty}"),
+                        hint: Some("pass a function name: grp key-fn xs".to_string()),
+                        span,
+                        is_warning: false,
+                    });
+                }
+            let key_ty = match arg_types.first() {
+                Some(Ty::Fn(_, ret)) => *ret.clone(),
+                _ => Ty::Unknown,
+            };
+            let elem_ty = match arg_types.get(1) {
+                Some(Ty::List(inner)) => *inner.clone(),
+                _ => Ty::Unknown,
+            };
+            (Ty::Map(Box::new(key_ty), Box::new(Ty::List(Box::new(elem_ty)))), errors)
         }
         "mmap" => (Ty::Map(Box::new(Ty::Unknown), Box::new(Ty::Unknown)), errors),
         "mget" => {
@@ -3727,6 +3751,12 @@ mod tests {
         // fld first arg must be a function; passing a literal 123 should error
         let errs = parse_and_verify("f xs:L n>n;fld 123 xs 0").unwrap_err();
         assert!(errs.iter().any(|e| e.code == "ILO-T013" && e.message.contains("fld")));
+    }
+
+    #[test]
+    fn grp_non_function_first_arg() {
+        let errs = parse_and_verify("f xs:L n>M t L n;grp 123 xs").unwrap_err();
+        assert!(errs.iter().any(|e| e.code == "ILO-T013" && e.message.contains("grp")));
     }
 
     #[test]

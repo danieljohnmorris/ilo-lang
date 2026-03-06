@@ -927,6 +927,35 @@ fn call_function(env: &mut Env, name: &str, args: Vec<Value>) -> Result<Value> {
         return Ok(acc);
     }
 
+    if name == "grp" && args.len() == 2 {
+        let fn_name = resolve_fn_ref(&args[0]).ok_or_else(|| {
+            RuntimeError::new("ILO-R009", format!("grp: first arg must be a function reference, got {:?}", args[0]))
+        })?;
+        let items = match &args[1] {
+            Value::List(l) => l.clone(),
+            other => return Err(RuntimeError::new("ILO-R009", format!("grp: second arg must be a list, got {:?}", other))),
+        };
+        let mut groups: std::collections::HashMap<String, Vec<Value>> = std::collections::HashMap::new();
+        for item in items {
+            let key = call_function(env, &fn_name, vec![item.clone()])?;
+            let key_str = match &key {
+                Value::Text(s) => s.clone(),
+                Value::Number(n) => {
+                    if *n == (*n as i64) as f64 {
+                        format!("{}", *n as i64)
+                    } else {
+                        format!("{n}")
+                    }
+                }
+                Value::Bool(b) => format!("{b}"),
+                other => return Err(RuntimeError::new("ILO-R009", format!("grp: key function must return a string, number, or bool, got {:?}", other))),
+            };
+            groups.entry(key_str).or_default().push(item);
+        }
+        let map = groups.into_iter().map(|(k, v)| (k, Value::List(v))).collect();
+        return Ok(Value::Map(map));
+    }
+
     // Dynamic dispatch: callee resolved to a FnRef at runtime
     // (e.g. calling a function passed as a parameter: `fn x` where fn:F n n)
     // This is handled by looking up `name` in scope within eval_expr, not here.
@@ -3485,6 +3514,58 @@ mod tests {
             Value::List(vec![1.0, 2.0, 3.0, 4.0, 5.0].into_iter().map(Value::Number).collect())
         ]);
         assert_eq!(result, Value::Number(15.0));
+    }
+
+    #[test]
+    fn interp_grp_by_string_key() {
+        // group numbers into "big" and "small" based on > 5
+        let source = r#"cl x:n>t;>x 5{"big"}{"small"} main xs:L n>M t L n;grp cl xs"#;
+        let result = run_str(source, Some("main"), vec![
+            Value::List(vec![1.0, 8.0, 3.0, 9.0, 2.0].into_iter().map(Value::Number).collect())
+        ]);
+        match result {
+            Value::Map(m) => {
+                assert_eq!(m.get("small").unwrap(), &Value::List(vec![1.0, 3.0, 2.0].into_iter().map(Value::Number).collect()));
+                assert_eq!(m.get("big").unwrap(), &Value::List(vec![8.0, 9.0].into_iter().map(Value::Number).collect()));
+            }
+            other => panic!("expected Map, got {:?}", other),
+        }
+    }
+
+    #[test]
+    fn interp_grp_by_numeric_key() {
+        // group by str(x) — each number becomes its own group
+        let source = "key x:n>t;str x main xs:L n>M t L n;grp key xs";
+        let result = run_str(source, Some("main"), vec![
+            Value::List(vec![1.0, 2.0, 1.0, 3.0, 2.0].into_iter().map(Value::Number).collect())
+        ]);
+        match result {
+            Value::Map(m) => {
+                assert_eq!(m.get("1").unwrap(), &Value::List(vec![1.0, 1.0].into_iter().map(Value::Number).collect()));
+                assert_eq!(m.get("2").unwrap(), &Value::List(vec![2.0, 2.0].into_iter().map(Value::Number).collect()));
+                assert_eq!(m.get("3").unwrap(), &Value::List(vec![3.0].into_iter().map(Value::Number).collect()));
+            }
+            other => panic!("expected Map, got {:?}", other),
+        }
+    }
+
+    #[test]
+    fn interp_grp_empty_list() {
+        let source = "id x:n>t;str x main xs:L n>M t L n;grp id xs";
+        let result = run_str(source, Some("main"), vec![Value::List(vec![])]);
+        assert_eq!(result, Value::Map(std::collections::HashMap::new()));
+    }
+
+    #[test]
+    fn interp_grp_wrong_fn_arg() {
+        let err = run_str_err("f>t;grp 42 [1, 2, 3]", Some("f"), vec![]);
+        assert!(err.contains("grp"), "got: {err}");
+    }
+
+    #[test]
+    fn interp_grp_wrong_list_arg() {
+        let err = run_str_err("id x:n>n;x f>t;grp id 42", Some("f"), vec![]);
+        assert!(err.contains("grp"), "got: {err}");
     }
 
     #[test]
