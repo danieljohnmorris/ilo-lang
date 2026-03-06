@@ -23,6 +23,16 @@ See [DATA-MANIPULATION.md](DATA-MANIPULATION.md) for full gap analysis.
 - [x] `unq xs` — deduplicate list or text chars, preserve order
 - [x] `fmt "template {}" args…` — `{}` positional interpolation
 
+## Data scripting (P2) — aggregation & reshape
+
+Close the gap for real data pipelines: fetch → read → transform → **aggregate** → write.
+
+- [ ] `grp fn xs` — group by key function, returns map of key → list
+- [ ] `flat xs` — flatten nested lists one level
+- [ ] `sum xs` / `avg xs` — basic numeric aggregation
+- [ ] `rgx pat s` — regex match/extract
+- [ ] Structured CSV output via `wr` (currently writes raw strings only)
+
 ---
 
 ## Completed
