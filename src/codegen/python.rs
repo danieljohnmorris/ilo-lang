@@ -398,6 +398,11 @@ fn emit_expr(out: &mut String, level: usize, expr: &Expr) -> String {
             if function == "cel" && args.len() == 1 {
                 return format!("float(__import__('math').ceil({}))", emit_expr(out, level, &args[0]));
             }
+            if function == "srt" && args.len() == 2 {
+                let key_fn = emit_expr(out, level, &args[0]);
+                let xs = emit_expr(out, level, &args[1]);
+                return format!("sorted({}, key={})", xs, key_fn);
+            }
             let args_str: Vec<String> = args.iter().map(|a| emit_expr(out, level, a)).collect();
             let call = format!("{}({})", py_name(function), args_str.join(", "));
             if *unwrap { format!("_ilo_unwrap({})", call) } else { call }

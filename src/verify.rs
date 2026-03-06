@@ -254,6 +254,7 @@ const BUILTINS: &[(&str, &[&str], &str)] = &[
     ("tl", &["list_or_text"], "list_or_text"),
     ("rev", &["list_or_text"], "list_or_text"),
     ("srt", &["list_or_text"], "list_or_text"),
+    ("srt", &["fn", "list"], "list"),
     ("slc", &["list_or_text", "n", "n"], "list_or_text"),
     ("rnd", &[], "n"),
     ("now", &[], "n"),
@@ -495,6 +496,26 @@ fn builtin_check_args(name: &str, arg_types: &[Ty], func_ctx: &str, span: Option
             (ret, errors)
         }
         "srt" => {
+            if arg_types.len() == 2 {
+                // srt key-fn xs — sort by key function
+                if let Some(fn_ty) = arg_types.first()
+                    && !matches!(fn_ty, Ty::Fn(_, _) | Ty::Unknown)
+                {
+                    errors.push(VerifyError {
+                        code: "ILO-T013",
+                        function: func_ctx.to_string(),
+                        message: format!("'srt' key arg must be a function (F ...), got {fn_ty}"),
+                        hint: Some("pass a function name: srt key-fn xs".to_string()),
+                        span,
+                        is_warning: false,
+                    });
+                }
+                let ret = match arg_types.get(1) {
+                    Some(ty @ Ty::List(_)) => ty.clone(),
+                    _ => Ty::Unknown,
+                };
+                return (ret, errors);
+            }
             if let Some(arg) = arg_types.first() {
                 match arg {
                     Ty::List(inner) => return (Ty::List(inner.clone()), errors),
@@ -1310,12 +1331,16 @@ impl VerifyContext {
                     let expected_arity = builtin_arity(callee).unwrap();
                     let arity_ok = if callee == "rnd" {
                         args.is_empty() || args.len() == 2
+                    } else if callee == "srt" {
+                        args.len() == 1 || args.len() == 2
                     } else {
                         args.len() == expected_arity
                     };
                     if !arity_ok {
                         let arity_desc = if callee == "rnd" {
                             "0 or 2".to_string()
+                        } else if callee == "srt" {
+                            "1 or 2".to_string()
                         } else {
                             expected_arity.to_string()
                         };

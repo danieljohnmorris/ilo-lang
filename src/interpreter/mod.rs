@@ -502,6 +502,29 @@ fn call_function(env: &mut Env, name: &str, args: Vec<Value>) -> Result<Value> {
             other => Err(RuntimeError::new("ILO-R009", format!("srt requires a list or text, got {:?}", other))),
         };
     }
+    if name == "srt" && args.len() == 2 {
+        let fn_name = resolve_fn_ref(&args[0]).ok_or_else(|| {
+            RuntimeError::new("ILO-R009", format!("srt: key arg must be a function reference, got {:?}", args[0]))
+        })?;
+        let items = match &args[1] {
+            Value::List(l) => l.clone(),
+            other => return Err(RuntimeError::new("ILO-R009", format!("srt: second arg must be a list, got {:?}", other))),
+        };
+        // Compute keys for each item, then sort by key
+        let mut keyed: Vec<(Value, Value)> = items
+            .into_iter()
+            .map(|item| {
+                let key = call_function(env, &fn_name, vec![item.clone()])?;
+                Ok((key, item))
+            })
+            .collect::<Result<_>>()?;
+        keyed.sort_by(|(ka, _), (kb, _)| match (ka, kb) {
+            (Value::Number(a), Value::Number(b)) => a.partial_cmp(b).unwrap_or(std::cmp::Ordering::Equal),
+            (Value::Text(a), Value::Text(b)) => a.cmp(b),
+            _ => std::cmp::Ordering::Equal,
+        });
+        return Ok(Value::List(keyed.into_iter().map(|(_, v)| v).collect()));
+    }
     if name == "slc" && args.len() == 3 {
         let start = match &args[1] {
             Value::Number(n) => *n as usize,
