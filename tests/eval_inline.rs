@@ -1452,33 +1452,13 @@ fn dollar_bang_parses_inline() {
 // --- Braceless guards ---
 
 #[test]
-fn braceless_guard_classify() {
-    let out = ilo()
-        .args([r#"cls sp:n>t;>=sp 1000 "gold";>=sp 500 "silver";"bronze""#, "1500"])
-        .output()
-        .expect("failed to run ilo");
-    assert!(out.status.success(), "stderr: {}", String::from_utf8_lossy(&out.stderr));
-    assert_eq!(String::from_utf8_lossy(&out.stdout).trim(), "gold");
-}
-
-#[test]
-fn braceless_guard_classify_silver() {
-    let out = ilo()
-        .args([r#"cls sp:n>t;>=sp 1000 "gold";>=sp 500 "silver";"bronze""#, "750"])
-        .output()
-        .expect("failed to run ilo");
-    assert!(out.status.success(), "stderr: {}", String::from_utf8_lossy(&out.stderr));
-    assert_eq!(String::from_utf8_lossy(&out.stdout).trim(), "silver");
-}
-
-#[test]
-fn braceless_guard_classify_bronze() {
-    let out = ilo()
-        .args([r#"cls sp:n>t;>=sp 1000 "gold";>=sp 500 "silver";"bronze""#, "100"])
-        .output()
-        .expect("failed to run ilo");
-    assert!(out.status.success(), "stderr: {}", String::from_utf8_lossy(&out.stderr));
-    assert_eq!(String::from_utf8_lossy(&out.stdout).trim(), "bronze");
+fn braceless_guard_classify_cases() {
+    let program = r#"cls sp:n>t;>=sp 1000 "gold";>=sp 500 "silver";"bronze""#;
+    for (input, expected) in [("1500", "gold"), ("750", "silver"), ("100", "bronze")] {
+        let out = ilo().args([program, input]).output().expect("failed to run ilo");
+        assert!(out.status.success(), "stderr: {}", String::from_utf8_lossy(&out.stderr));
+        assert_eq!(String::from_utf8_lossy(&out.stdout).trim(), expected);
+    }
 }
 
 #[test]
