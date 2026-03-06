@@ -601,19 +601,18 @@ fn builtin_check_args(name: &str, arg_types: &[Ty], func_ctx: &str, span: Option
                     is_warning: false,
                 });
             }
-            if arg_types.len() == 2 {
-                if let Some(fmt) = arg_types.get(1)
-                    && !compatible(fmt, &Ty::Text)
-                {
-                    errors.push(VerifyError {
-                        code: "ILO-T013",
-                        function: func_ctx.to_string(),
-                        message: format!("'{name}' format arg expects t (\"csv\", \"json\", \"raw\"…), got {fmt}"),
-                        hint: None,
-                        span,
-                        is_warning: false,
-                    });
-                }
+            if arg_types.len() == 2
+                && let Some(fmt) = arg_types.get(1)
+                && !compatible(fmt, &Ty::Text)
+            {
+                errors.push(VerifyError {
+                    code: "ILO-T013",
+                    function: func_ctx.to_string(),
+                    message: format!("'{name}' format arg expects t (\"csv\", \"json\", \"raw\"…), got {fmt}"),
+                    hint: None,
+                    span,
+                    is_warning: false,
+                });
             }
             (Ty::Result(Box::new(Ty::Unknown), Box::new(Ty::Text)), errors)
         }

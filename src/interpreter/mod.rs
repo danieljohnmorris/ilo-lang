@@ -229,10 +229,10 @@ fn run_with_env(program: &Program, func_name: Option<&str>, args: Vec<Value>, mu
 }
 
 /// Parse a string into a structured Value given a format name.
-/// Grid formats ("csv", "tsv") → List of rows (each row a List of text fields).
-/// Graph formats ("json")      → parsed JSON value.
-/// Raw/unknown                 → plain Text.
-fn parse_format(fmt: &str, content: &str) -> Value {
+/// Grid formats ("csv", "tsv") → Ok(List of rows).
+/// Graph formats ("json")      → Ok(parsed JSON) or Err(parse error message).
+/// Raw/unknown                 → Ok(plain Text).
+fn parse_format(fmt: &str, content: &str) -> std::result::Result<Value, String> {
     match fmt {
         "csv" | "tsv" => {
             let sep = if fmt == "tsv" { '\t' } else { ',' };
@@ -246,14 +246,14 @@ fn parse_format(fmt: &str, content: &str) -> Value {
                     Value::List(fields)
                 })
                 .collect();
-            Value::List(rows)
+            Ok(Value::List(rows))
         }
         "json" => {
-            let json: serde_json::Value = serde_json::from_str(content)
-                .unwrap_or(serde_json::Value::Null);
-            serde_json_to_value(json)
+            serde_json::from_str::<serde_json::Value>(content)
+                .map(serde_json_to_value)
+                .map_err(|e| e.to_string())
         }
-        _ => Value::Text(content.to_string()),
+        _ => Ok(Value::Text(content.to_string())),
     }
 }
 
@@ -650,7 +650,10 @@ fn call_function(env: &mut Env, name: &str, args: Vec<Value>) -> Result<Value> {
         };
         return match std::fs::read_to_string(&path) {
             Err(e) => Ok(Value::Err(Box::new(Value::Text(e.to_string())))),
-            Ok(content) => Ok(Value::Ok(Box::new(parse_format(&fmt, &content)))),
+            Ok(content) => match parse_format(&fmt, &content) {
+                Ok(v) => Ok(Value::Ok(Box::new(v))),
+                Err(e) => Ok(Value::Err(Box::new(Value::Text(e)))),
+            },
         };
     }
     if name == "rdb" && args.len() == 2 {
@@ -662,7 +665,10 @@ fn call_function(env: &mut Env, name: &str, args: Vec<Value>) -> Result<Value> {
             Value::Text(f) => f.clone(),
             other => return Err(RuntimeError::new("ILO-R009", format!("rdb format must be text, got {:?}", other))),
         };
-        return Ok(Value::Ok(Box::new(parse_format(&fmt, &s))));
+        return match parse_format(&fmt, &s) {
+            Ok(v) => Ok(Value::Ok(Box::new(v))),
+            Err(e) => Ok(Value::Err(Box::new(Value::Text(e)))),
+        };
     }
     if name == "rdl" && args.len() == 1 {
         return match &args[0] {

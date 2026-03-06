@@ -2865,7 +2865,10 @@ impl<'a> VM<'a> {
                         .unwrap_or("raw")
                         .to_lowercase();
                     let result = match std::fs::read_to_string(&path) {
-                        Ok(content) => NanVal::heap_ok(vm_parse_format(&fmt, &content)),
+                        Ok(content) => match vm_parse_format(&fmt, &content) {
+                            Ok(v) => NanVal::heap_ok(v),
+                            Err(e) => NanVal::heap_err(e),
+                        },
                         Err(e) => NanVal::heap_err(NanVal::heap_string(e.to_string())),
                     };
                     reg_set!(a, result);
@@ -4041,10 +4044,10 @@ fn serde_json_to_nanval(v: serde_json::Value) -> NanVal {
 }
 
 /// Parse string content into a NanVal according to format name.
-/// Grid ("csv", "tsv") → list of rows (each a list of strings).
-/// Graph ("json")      → parsed JSON.
-/// Raw/unknown         → plain string.
-fn vm_parse_format(fmt: &str, content: &str) -> NanVal {
+/// Grid ("csv", "tsv") → Ok(list of rows).
+/// Graph ("json")      → Ok(parsed JSON) or Err(error string NanVal).
+/// Raw/unknown         → Ok(plain string).
+fn vm_parse_format(fmt: &str, content: &str) -> Result<NanVal, NanVal> {
     match fmt {
         "csv" | "tsv" => {
             let sep = if fmt == "tsv" { '\t' } else { ',' };
@@ -4053,20 +4056,19 @@ fn vm_parse_format(fmt: &str, content: &str) -> NanVal {
                 .map(|line| {
                     let fields: Vec<NanVal> = vm_parse_csv_row(line, sep)
                         .into_iter()
-                        .map(|f| NanVal::heap_string(f))
+                        .map(NanVal::heap_string)
                         .collect();
                     NanVal::heap_list(fields)
                 })
                 .collect();
-            NanVal::heap_list(rows)
+            Ok(NanVal::heap_list(rows))
         }
         "json" => {
-            match serde_json::from_str::<serde_json::Value>(content) {
-                Ok(v) => serde_json_to_nanval(v),
-                Err(_) => NanVal::heap_string(content.to_string()),
-            }
+            serde_json::from_str::<serde_json::Value>(content)
+                .map(serde_json_to_nanval)
+                .map_err(|e| NanVal::heap_string(e.to_string()))
         }
-        _ => NanVal::heap_string(content.to_string()),
+        _ => Ok(NanVal::heap_string(content.to_string())),
     }
 }
 
