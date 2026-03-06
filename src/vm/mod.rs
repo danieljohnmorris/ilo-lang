@@ -9267,6 +9267,665 @@ mod tests {
             let r = jit_le(TAG_NIL, num(1.0));
             assert!(!as_bool(r));
         }
+
+        // ── String comparison ops ──────────────────────────────────────────
+
+        fn str_val(s: &str) -> u64 { NanVal::heap_string(s.to_string()).0 }
+
+        #[test]
+        fn jit_gt_strings_true() {
+            let r = jit_gt(str_val("b"), str_val("a"));
+            assert!(as_bool(r));
+        }
+
+        #[test]
+        fn jit_gt_strings_false() {
+            let r = jit_gt(str_val("a"), str_val("b"));
+            assert!(!as_bool(r));
+        }
+
+        #[test]
+        fn jit_lt_strings_true() {
+            let r = jit_lt(str_val("a"), str_val("b"));
+            assert!(as_bool(r));
+        }
+
+        #[test]
+        fn jit_ge_strings_equal() {
+            let r = jit_ge(str_val("a"), str_val("a"));
+            assert!(as_bool(r));
+        }
+
+        #[test]
+        fn jit_le_strings_less() {
+            let r = jit_le(str_val("a"), str_val("b"));
+            assert!(as_bool(r));
+        }
+
+        // ── jit_add with strings ──────────────────────────────────────────
+
+        #[test]
+        fn jit_add_strings_concat() {
+            let r = jit_add(str_val("hello "), str_val("world"));
+            let rv = NanVal(r);
+            assert!(rv.is_string());
+            let s = unsafe { match rv.as_heap_ref() { HeapObj::Str(s) => s.clone(), _ => panic!("not str") } };
+            assert_eq!(s, "hello world");
+        }
+
+        #[test]
+        fn jit_add_non_numeric_non_string_returns_nil() {
+            let r = jit_add(TAG_NIL, num(1.0));
+            assert!(is_nil(r));
+        }
+
+        // ── jit_len ────────────────────────────────────────────────────────
+
+        #[test]
+        fn jit_len_string() {
+            let r = jit_len(str_val("hello"));
+            assert!(is_num(r));
+            assert_eq!(as_num(r), 5.0);
+        }
+
+        #[test]
+        fn jit_len_list() {
+            let items = vec![NanVal::number(1.0), NanVal::number(2.0), NanVal::number(3.0)];
+            let list = NanVal::heap_list(items);
+            let r = jit_len(list.0);
+            assert!(is_num(r));
+            assert_eq!(as_num(r), 3.0);
+        }
+
+        #[test]
+        fn jit_len_non_string_non_list_returns_nil() {
+            let r = jit_len(TAG_NIL);
+            assert!(is_nil(r));
+        }
+
+        // ── jit_str ────────────────────────────────────────────────────────
+
+        #[test]
+        fn jit_str_number_to_string() {
+            let r = jit_str(num(42.0));
+            let rv = NanVal(r);
+            assert!(rv.is_string());
+            let s = unsafe { match rv.as_heap_ref() { HeapObj::Str(s) => s.clone(), _ => panic!() } };
+            assert_eq!(s, "42");
+        }
+
+        #[test]
+        fn jit_str_float_to_string() {
+            let r = jit_str(num(3.14));
+            let rv = NanVal(r);
+            assert!(rv.is_string());
+        }
+
+        #[test]
+        fn jit_str_non_number_returns_nil() {
+            let r = jit_str(TAG_NIL);
+            assert!(is_nil(r));
+        }
+
+        // ── jit_hd ────────────────────────────────────────────────────────
+
+        #[test]
+        fn jit_hd_string_returns_first_char() {
+            let r = jit_hd(str_val("hello"));
+            let rv = NanVal(r);
+            assert!(rv.is_string());
+            let s = unsafe { match rv.as_heap_ref() { HeapObj::Str(s) => s.clone(), _ => panic!() } };
+            assert_eq!(s, "h");
+        }
+
+        #[test]
+        fn jit_hd_empty_string_returns_nil() {
+            let r = jit_hd(str_val(""));
+            assert!(is_nil(r));
+        }
+
+        #[test]
+        fn jit_hd_list_returns_first() {
+            let items = vec![NanVal::number(10.0), NanVal::number(20.0)];
+            let list = NanVal::heap_list(items);
+            let r = jit_hd(list.0);
+            assert!(is_num(r));
+            assert_eq!(as_num(r), 10.0);
+        }
+
+        #[test]
+        fn jit_hd_empty_list_returns_nil() {
+            let list = NanVal::heap_list(vec![]);
+            let r = jit_hd(list.0);
+            assert!(is_nil(r));
+        }
+
+        #[test]
+        fn jit_hd_non_string_non_list_returns_nil() {
+            let r = jit_hd(TAG_NIL);
+            assert!(is_nil(r));
+        }
+
+        // ── jit_tl ────────────────────────────────────────────────────────
+
+        #[test]
+        fn jit_tl_string_returns_tail() {
+            let r = jit_tl(str_val("hello"));
+            let rv = NanVal(r);
+            assert!(rv.is_string());
+            let s = unsafe { match rv.as_heap_ref() { HeapObj::Str(s) => s.clone(), _ => panic!() } };
+            assert_eq!(s, "ello");
+        }
+
+        #[test]
+        fn jit_tl_empty_string_returns_nil() {
+            let r = jit_tl(str_val(""));
+            assert!(is_nil(r));
+        }
+
+        #[test]
+        fn jit_tl_list_returns_tail() {
+            let items = vec![NanVal::number(1.0), NanVal::number(2.0), NanVal::number(3.0)];
+            let list = NanVal::heap_list(items);
+            let r = jit_tl(list.0);
+            let rv = NanVal(r);
+            assert!(rv.is_heap());
+        }
+
+        #[test]
+        fn jit_tl_empty_list_returns_nil() {
+            let list = NanVal::heap_list(vec![]);
+            let r = jit_tl(list.0);
+            assert!(is_nil(r));
+        }
+
+        // ── jit_rev ────────────────────────────────────────────────────────
+
+        #[test]
+        fn jit_rev_string() {
+            let r = jit_rev(str_val("hello"));
+            let rv = NanVal(r);
+            assert!(rv.is_string());
+            let s = unsafe { match rv.as_heap_ref() { HeapObj::Str(s) => s.clone(), _ => panic!() } };
+            assert_eq!(s, "olleh");
+        }
+
+        #[test]
+        fn jit_rev_list() {
+            let items = vec![NanVal::number(1.0), NanVal::number(2.0), NanVal::number(3.0)];
+            let list = NanVal::heap_list(items);
+            let r = jit_rev(list.0);
+            let rv = NanVal(r);
+            assert!(rv.is_heap());
+        }
+
+        #[test]
+        fn jit_rev_non_string_non_list_returns_nil() {
+            let r = jit_rev(TAG_NIL);
+            assert!(is_nil(r));
+        }
+
+        // ── jit_srt ────────────────────────────────────────────────────────
+
+        #[test]
+        fn jit_srt_string_sorts_chars() {
+            let r = jit_srt(str_val("cab"));
+            let rv = NanVal(r);
+            assert!(rv.is_string());
+            let s = unsafe { match rv.as_heap_ref() { HeapObj::Str(s) => s.clone(), _ => panic!() } };
+            assert_eq!(s, "abc");
+        }
+
+        #[test]
+        fn jit_srt_number_list() {
+            let items = vec![NanVal::number(3.0), NanVal::number(1.0), NanVal::number(2.0)];
+            let list = NanVal::heap_list(items);
+            let r = jit_srt(list.0);
+            let rv = NanVal(r);
+            assert!(rv.is_heap());
+        }
+
+        #[test]
+        fn jit_srt_string_list() {
+            let items = vec![
+                NanVal::heap_string("c".into()),
+                NanVal::heap_string("a".into()),
+                NanVal::heap_string("b".into()),
+            ];
+            let list = NanVal::heap_list(items);
+            let r = jit_srt(list.0);
+            let rv = NanVal(r);
+            assert!(rv.is_heap());
+        }
+
+        #[test]
+        fn jit_srt_empty_list_returns_list() {
+            let list = NanVal::heap_list(vec![]);
+            let r = jit_srt(list.0);
+            let rv = NanVal(r);
+            assert!(rv.is_heap());
+        }
+
+        #[test]
+        fn jit_srt_non_string_non_list_returns_nil() {
+            let r = jit_srt(TAG_NIL);
+            assert!(is_nil(r));
+        }
+
+        // ── jit_slc ────────────────────────────────────────────────────────
+
+        #[test]
+        fn jit_slc_string_slice() {
+            let r = jit_slc(str_val("hello"), num(1.0), num(3.0));
+            let rv = NanVal(r);
+            assert!(rv.is_string());
+            let s = unsafe { match rv.as_heap_ref() { HeapObj::Str(s) => s.clone(), _ => panic!() } };
+            assert_eq!(s, "el");
+        }
+
+        #[test]
+        fn jit_slc_list_slice() {
+            let items = vec![NanVal::number(0.0), NanVal::number(1.0), NanVal::number(2.0), NanVal::number(3.0)];
+            let list = NanVal::heap_list(items);
+            let r = jit_slc(list.0, num(1.0), num(3.0));
+            let rv = NanVal(r);
+            assert!(rv.is_heap());
+        }
+
+        #[test]
+        fn jit_slc_non_number_indices_returns_nil() {
+            let r = jit_slc(str_val("hello"), TAG_NIL, num(3.0));
+            assert!(is_nil(r));
+        }
+
+        #[test]
+        fn jit_slc_non_string_non_list_returns_nil() {
+            let r = jit_slc(TAG_NIL, num(0.0), num(2.0));
+            assert!(is_nil(r));
+        }
+
+        // ── jit_has ────────────────────────────────────────────────────────
+
+        #[test]
+        fn jit_has_text_found() {
+            let r = jit_has(str_val("hello world"), str_val("world"));
+            assert!(as_bool(r));
+        }
+
+        #[test]
+        fn jit_has_text_not_found() {
+            let r = jit_has(str_val("hello"), str_val("xyz"));
+            assert!(!as_bool(r));
+        }
+
+        #[test]
+        fn jit_has_list_found() {
+            let items = vec![NanVal::number(1.0), NanVal::number(2.0), NanVal::number(3.0)];
+            let list = NanVal::heap_list(items);
+            let r = jit_has(list.0, num(2.0));
+            assert!(as_bool(r));
+        }
+
+        #[test]
+        fn jit_has_list_not_found() {
+            let items = vec![NanVal::number(1.0), NanVal::number(2.0)];
+            let list = NanVal::heap_list(items);
+            let r = jit_has(list.0, num(5.0));
+            assert!(!as_bool(r));
+        }
+
+        #[test]
+        fn jit_has_text_non_string_needle_returns_false() {
+            // collection is string but needle is not string
+            let r = jit_has(str_val("hello"), TAG_NIL);
+            assert!(!as_bool(r));
+        }
+
+        #[test]
+        fn jit_has_non_string_non_list_returns_false() {
+            let r = jit_has(TAG_NIL, num(1.0));
+            assert!(!as_bool(r));
+        }
+
+        // ── jit_spl ────────────────────────────────────────────────────────
+
+        #[test]
+        fn jit_spl_string_splits() {
+            let r = jit_spl(str_val("a,b,c"), str_val(","));
+            let rv = NanVal(r);
+            assert!(rv.is_heap());
+            match unsafe { rv.as_heap_ref() } {
+                HeapObj::List(items) => assert_eq!(items.len(), 3),
+                _ => panic!("expected list"),
+            }
+        }
+
+        #[test]
+        fn jit_spl_non_string_returns_nil() {
+            let r = jit_spl(TAG_NIL, str_val(","));
+            assert!(is_nil(r));
+        }
+
+        // ── jit_cat ────────────────────────────────────────────────────────
+
+        #[test]
+        fn jit_cat_list_with_sep() {
+            let items = vec![
+                NanVal::heap_string("a".into()),
+                NanVal::heap_string("b".into()),
+                NanVal::heap_string("c".into()),
+            ];
+            let list = NanVal::heap_list(items);
+            let r = jit_cat(list.0, str_val(","));
+            let rv = NanVal(r);
+            assert!(rv.is_string());
+            let s = unsafe { match rv.as_heap_ref() { HeapObj::Str(s) => s.clone(), _ => panic!() } };
+            assert_eq!(s, "a,b,c");
+        }
+
+        #[test]
+        fn jit_cat_non_list_returns_nil() {
+            let r = jit_cat(TAG_NIL, str_val(","));
+            assert!(is_nil(r));
+        }
+
+        // ── jit_listappend ─────────────────────────────────────────────────
+
+        #[test]
+        fn jit_listappend_appends_item() {
+            let items = vec![NanVal::number(1.0), NanVal::number(2.0)];
+            let list = NanVal::heap_list(items);
+            let r = jit_listappend(list.0, num(3.0));
+            let rv = NanVal(r);
+            assert!(rv.is_heap());
+            match unsafe { rv.as_heap_ref() } {
+                HeapObj::List(items) => assert_eq!(items.len(), 3),
+                _ => panic!("expected list"),
+            }
+        }
+
+        #[test]
+        fn jit_listappend_non_list_returns_nil() {
+            let r = jit_listappend(TAG_NIL, num(1.0));
+            assert!(is_nil(r));
+        }
+
+        // ── jit_index ──────────────────────────────────────────────────────
+
+        #[test]
+        fn jit_index_list_in_bounds() {
+            let items = vec![NanVal::number(10.0), NanVal::number(20.0), NanVal::number(30.0)];
+            let list = NanVal::heap_list(items);
+            // jit_index takes a raw usize cast as u64, not a NaN-boxed number
+            let r = jit_index(list.0, 1u64);
+            assert!(is_num(r));
+            assert_eq!(as_num(r), 20.0);
+        }
+
+        #[test]
+        fn jit_index_out_of_bounds_returns_nil() {
+            let items = vec![NanVal::number(1.0)];
+            let list = NanVal::heap_list(items);
+            let r = jit_index(list.0, 5u64);
+            assert!(is_nil(r));
+        }
+
+        #[test]
+        fn jit_index_non_list_returns_nil() {
+            let r = jit_index(TAG_NIL, num(0.0));
+            assert!(is_nil(r));
+        }
+
+        // ── jit_jdmp / jit_jpar ────────────────────────────────────────────
+
+        #[test]
+        fn jit_jdmp_number() {
+            let r = jit_jdmp(num(42.0));
+            let rv = NanVal(r);
+            assert!(rv.is_string());
+        }
+
+        #[test]
+        fn jit_jpar_valid_json() {
+            let r = jit_jpar(str_val(r#"{"x":1}"#));
+            let rv = NanVal(r);
+            assert!(rv.is_heap());
+        }
+
+        #[test]
+        fn jit_jpar_invalid_json() {
+            let r = jit_jpar(str_val("not json"));
+            let rv = NanVal(r);
+            assert!(rv.is_heap());
+            match unsafe { rv.as_heap_ref() } {
+                HeapObj::ErrVal(_) => {},
+                _ => panic!("expected ErrVal"),
+            }
+        }
+
+        #[test]
+        fn jit_jpar_non_string_returns_nil() {
+            let r = jit_jpar(TAG_NIL);
+            assert!(is_nil(r));
+        }
+
+        // ── jit_jpth ───────────────────────────────────────────────────────
+
+        #[test]
+        fn jit_jpth_object_key() {
+            let r = jit_jpth(str_val(r#"{"x":"hello"}"#), str_val("x"));
+            let rv = NanVal(r);
+            assert!(rv.is_heap());
+            match unsafe { rv.as_heap_ref() } {
+                HeapObj::OkVal(inner) => {
+                    assert!(inner.is_string());
+                }
+                _ => panic!("expected OkVal"),
+            }
+        }
+
+        #[test]
+        fn jit_jpth_missing_key() {
+            let r = jit_jpth(str_val(r#"{"a":1}"#), str_val("b"));
+            let rv = NanVal(r);
+            match unsafe { rv.as_heap_ref() } {
+                HeapObj::ErrVal(_) => {},
+                _ => panic!("expected ErrVal"),
+            }
+        }
+
+        #[test]
+        fn jit_jpth_invalid_json() {
+            let r = jit_jpth(str_val("not json"), str_val("x"));
+            let rv = NanVal(r);
+            match unsafe { rv.as_heap_ref() } {
+                HeapObj::ErrVal(_) => {},
+                _ => panic!("expected ErrVal"),
+            }
+        }
+
+        #[test]
+        fn jit_jpth_non_string_args_returns_nil() {
+            let r = jit_jpth(TAG_NIL, str_val("x"));
+            assert!(is_nil(r));
+        }
+
+        // ── jit_clone_rc / jit_drop_rc ────────────────────────────────────
+
+        #[test]
+        fn jit_clone_rc_and_drop_rc_no_panic() {
+            let s = NanVal::heap_string("test".into());
+            jit_clone_rc(s.0);
+            jit_drop_rc(s.0); // drop the cloned ref
+        }
+
+        // ── jit_listget ────────────────────────────────────────────────────
+
+        #[test]
+        fn jit_listget_in_bounds() {
+            let items = vec![NanVal::number(10.0), NanVal::number(20.0)];
+            let list = NanVal::heap_list(items);
+            let r = jit_listget(list.0, num(0.0));
+            let rv = NanVal(r);
+            match unsafe { rv.as_heap_ref() } {
+                HeapObj::OkVal(inner) => assert_eq!(inner.as_number(), 10.0),
+                _ => panic!("expected OkVal"),
+            }
+        }
+
+        #[test]
+        fn jit_listget_out_of_bounds_returns_nil() {
+            let items = vec![NanVal::number(1.0)];
+            let list = NanVal::heap_list(items);
+            let r = jit_listget(list.0, num(10.0));
+            assert!(is_nil(r));
+        }
+
+        #[test]
+        fn jit_listget_non_list_returns_nil() {
+            let r = jit_listget(str_val("hello"), num(0.0));
+            assert!(is_nil(r));
+        }
+
+        #[test]
+        fn jit_listget_non_number_idx_returns_nil() {
+            let items = vec![NanVal::number(1.0)];
+            let list = NanVal::heap_list(items);
+            let r = jit_listget(list.0, TAG_NIL);
+            assert!(is_nil(r));
+        }
+    }
+
+    // ── VM execution path tests ───────────────────────────────────────────────
+
+    // L567-575: Dynamic destructure via name lookup (field not in registry)
+    #[test]
+    fn vm_dynamic_destructure_field_name_lookup() {
+        // Two types with ambiguous field positions use RECFLD_NAME opcode
+        let result = vm_run(
+            "type a{x:n;y:n} type b{y:n;x:n} f>n;v=a x:5 y:3;{y}=v;y",
+            Some("f"), vec![],
+        );
+        assert_eq!(result, Value::Number(3.0));
+    }
+
+    // L706, L776, L853, L869: break/continue in while loop
+    #[test]
+    fn vm_while_continue_skips_body() {
+        // while loop with cnt — Stmt::Continue in While exercises L869 path
+        let result = vm_run(
+            "f>n;i=0;s=0;wh <i 5{i=+i 1;=i 3{cnt};s=+s i};s",
+            Some("f"), vec![],
+        );
+        // i=1 +1, i=2 +2, i=3 skip, i=4 +4, i=5 +5 → sum=12
+        assert_eq!(result, Value::Number(12.0));
+    }
+
+    #[test]
+    fn vm_while_break_with_value() {
+        // While loop with break carrying a value
+        let result = vm_run(
+            "f>n;i=0;wh <i 10{i=+i 1;=i 5{brk i}};i",
+            Some("f"), vec![],
+        );
+        assert_eq!(result, Value::Number(5.0));
+    }
+
+    // L970: TypeIs pattern with type not in n/t/b/l uses fallback OP_ISNUM
+    // This is unreachable in valid programs, so we test the l (list) pattern instead
+    #[test]
+    fn vm_typeis_list_pattern_in_match() {
+        let result = vm_run(
+            r#"f xs:L n>t;?xs{l v:"got list";_:"other"}"#,
+            Some("f"),
+            vec![Value::List(vec![Value::Number(1.0)])],
+        );
+        assert_eq!(result, Value::Text("got list".into()));
+    }
+
+    // L1566: DIVK_N constant on right side
+    #[test]
+    fn vm_divk_n_constant_divisor() {
+        // `/x 2` where x is a num param → DIVK_N
+        let result = vm_run("f x:n>n;/x 2", Some("f"), vec![Value::Number(10.0)]);
+        assert_eq!(result, Value::Number(5.0));
+    }
+
+    // L1584-1590: Constant on left side for Add/Multiply
+    #[test]
+    fn vm_addk_n_constant_on_left() {
+        // `+2 x` where 2 is on left — commutative, uses OP_ADDK_N
+        let result = vm_run("f x:n>n;+2 x", Some("f"), vec![Value::Number(8.0)]);
+        assert_eq!(result, Value::Number(10.0));
+    }
+
+    #[test]
+    fn vm_mulk_n_constant_on_left() {
+        // `*3 x` where 3 is on left — commutative, uses OP_MULK_N
+        let result = vm_run("f x:n>n;*3 x", Some("f"), vec![Value::Number(7.0)]);
+        assert_eq!(result, Value::Number(21.0));
+    }
+
+    // L2264-2283: to_value_with_registry for arena records
+    #[test]
+    fn vm_to_value_with_registry_via_record() {
+        // Records stored in arena; to_value_with_registry path exercised
+        // when record is retrieved from VM
+        let result = vm_run(
+            "type pt{x:n;y:n} f>n;p=pt x:3 y:4;p.x",
+            Some("f"), vec![],
+        );
+        assert_eq!(result, Value::Number(3.0));
+    }
+
+    // L2299-L2310: run() with no functions defined
+    #[test]
+    fn vm_run_no_function_name_with_empty_program_errors() {
+        use crate::vm::{compile, run};
+        // An empty-ish program with a type only (no functions) — no func_names
+        let prog = parse_program("type x{a:n}");
+        match compile(&prog) {
+            Ok(compiled) => {
+                // func_names should be empty; run with None should fail
+                let result = run(&compiled, None, vec![]);
+                assert!(result.is_err());
+            }
+            Err(_) => {
+                // Compile error is also acceptable
+            }
+        }
+    }
+
+    // L2329-L2341: run_with_tools with undefined function
+    #[test]
+    fn vm_run_with_tools_undefined_function() {
+        use crate::vm::{compile, run_with_tools};
+        use crate::interpreter::Value;
+        use crate::tools::{ToolProvider, ToolError};
+        use std::future::Future;
+        use std::pin::Pin;
+
+        struct DummyProvider;
+        impl ToolProvider for DummyProvider {
+            fn call(&self, _name: &str, _args: Vec<Value>) -> Pin<Box<dyn Future<Output = Result<Value, ToolError>> + Send + '_>> {
+                Box::pin(async { Ok(Value::Nil) })
+            }
+        }
+
+        let prog = parse_program("f>n;42");
+        let compiled = compile(&prog).expect("compile ok");
+        let provider = DummyProvider;
+        #[cfg(feature = "tools")]
+        let runtime = tokio::runtime::Builder::new_current_thread().enable_all().build().unwrap();
+        let result = run_with_tools(
+            &compiled,
+            Some("nonexistent_function"),
+            vec![],
+            &provider,
+            #[cfg(feature = "tools")]
+            &runtime,
+        );
+        assert!(result.is_err());
     }
 
     // ── VM opcodes: record/destructure with ambiguous field index ─────────────
