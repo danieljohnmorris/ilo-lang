@@ -254,6 +254,9 @@ Called like functions, compiled to dedicated opcodes.
 | `rnd a b` | random integer in [a, b] (inclusive) | `n` |
 | `now` | current Unix timestamp (seconds) | `n` |
 | `get url` | HTTP GET | `R t t` |
+| `get url headers` | HTTP GET with custom headers (`M t t` map) | `R t t` |
+| `post url body` | HTTP POST with text body | `R t t` |
+| `post url body headers` | HTTP POST with body and custom headers (`M t t` map) | `R t t` |
 | `env key` | read environment variable | `R t t` |
 | `rd path` | read file; format auto-detected from extension (`.csv`/`.tsv`→grid, `.json`→graph, else text) | `R ? t` |
 | `rd path fmt` | read file with explicit format override (`"csv"`, `"tsv"`, `"json"`, `"raw"`) | `R ? t` |
@@ -285,16 +288,25 @@ Called like functions, compiled to dedicated opcodes.
 | `mvals m` | values sorted by key | `L v` |
 | `mdel m k` | new map with key k removed | `M k v` |
 
-`get` returns `Ok(body)` on success, `Err(message)` on failure (connection error, timeout, DNS failure, etc). `$` is a terse alias:
+`get` and `post` return `Ok(body)` on success, `Err(message)` on failure (connection error, timeout, DNS failure, etc). `$` is a terse alias for `get`:
 
 ```
 get url          -- R t t: Ok=response body, Err=error message
 $url             -- same as get url
 get! url         -- auto-unwrap: Ok→body, Err→propagate to caller
 $!url            -- same as get! url
+
+post url body           -- R t t: HTTP POST with text body
+post url body headers   -- R t t: HTTP POST with body and custom headers
+
+-- Custom headers: build an M t t map with mmap/mset
+h=mmap
+h=mset h "x-api-key" "secret"
+r=get url h      -- GET with x-api-key header
+r=post url body h -- POST with x-api-key header
 ```
 
-Behind the `http` feature flag (on by default). Without the feature, `get` returns `Err("http feature not enabled")`.
+Behind the `http` feature flag (on by default). Without the feature, `get`/`post` return `Err("http feature not enabled")`.
 
 `env` reads an environment variable by name, returning `Ok(value)` or `Err("env var 'KEY' not set")`:
 
