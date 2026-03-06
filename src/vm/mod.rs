@@ -8324,4 +8324,228 @@ mod tests {
         );
         assert!(err.contains("rnd") || err.contains("bound") || err.contains("lower"), "got: {err}");
     }
+
+    // --- Match with number literal patterns (Pattern::Literal / Number) ---
+
+    #[test]
+    fn vm_match_literal_number_hit() {
+        // ?x{42:"found";_:"other"} — literal number arm matches
+        let src = r#"f x:n>t;?x{42:"found";_:"other"}"#;
+        assert_eq!(
+            vm_run(src, Some("f"), vec![Value::Number(42.0)]),
+            Value::Text("found".into())
+        );
+    }
+
+    #[test]
+    fn vm_match_literal_number_miss() {
+        // Literal number arm does NOT match → wildcard fires
+        let src = r#"f x:n>t;?x{42:"found";_:"other"}"#;
+        assert_eq!(
+            vm_run(src, Some("f"), vec![Value::Number(7.0)]),
+            Value::Text("other".into())
+        );
+    }
+
+    #[test]
+    fn vm_match_multiple_literal_numbers() {
+        // Multiple literal number arms
+        let src = r#"f x:n>t;?x{1:"one";2:"two";3:"three";_:"many"}"#;
+        assert_eq!(
+            vm_run(src, Some("f"), vec![Value::Number(2.0)]),
+            Value::Text("two".into())
+        );
+        assert_eq!(
+            vm_run(src, Some("f"), vec![Value::Number(99.0)]),
+            Value::Text("many".into())
+        );
+    }
+
+    // --- Match with bool literal patterns ---
+
+    #[test]
+    fn vm_match_literal_bool_true() {
+        let src = r#"f x:b>t;?x{true:"yes";false:"no"}"#;
+        assert_eq!(
+            vm_run(src, Some("f"), vec![Value::Bool(true)]),
+            Value::Text("yes".into())
+        );
+    }
+
+    #[test]
+    fn vm_match_literal_bool_false() {
+        let src = r#"f x:b>t;?x{true:"yes";false:"no"}"#;
+        assert_eq!(
+            vm_run(src, Some("f"), vec![Value::Bool(false)]),
+            Value::Text("no".into())
+        );
+    }
+
+    // --- Safe field access on non-nil record (additional coverage) ---
+
+    #[test]
+    fn vm_safe_field_on_record_non_nil_returns_value() {
+        // type decl after function (known VM chunk ordering)
+        let src = "f>t;p=rec name:\"alice\";p.?name\ntype rec{name:t}";
+        assert_eq!(
+            vm_run(src, Some("f"), vec![]),
+            Value::Text("alice".into())
+        );
+    }
+
+    #[test]
+    fn vm_safe_field_chain_nil_propagates() {
+        // When first field is nil the chain short-circuits and returns nil → ?? fires
+        let src = "mk x:n>n;>=x 1{x}\nf>t;v=mk 0;v.?a.?b??\"default\"";
+        assert_eq!(
+            vm_run(src, Some("f"), vec![]),
+            Value::Text("default".into())
+        );
+    }
+
+    // --- Safe index access on non-nil list at index > 0 ---
+
+    #[test]
+    fn vm_safe_index_on_list_index_1() {
+        // .?1 returns the second element of a non-nil list
+        let src = "f>n;xs=[10,20,30];xs.?1";
+        assert_eq!(vm_run(src, Some("f"), vec![]), Value::Number(20.0));
+    }
+
+    // --- Nil coalesce with text values ---
+
+    #[test]
+    fn vm_nil_coalesce_text_nil_uses_default() {
+        let src = "mk x:n>n;>=x 1{x}\nf>t;v=mk 0;v??\"fallback\"";
+        assert_eq!(
+            vm_run(src, Some("f"), vec![]),
+            Value::Text("fallback".into())
+        );
+    }
+
+    #[test]
+    fn vm_nil_coalesce_text_non_nil_passes_through() {
+        let src = "f>t;v=\"hello\";v??\"fallback\"";
+        assert_eq!(
+            vm_run(src, Some("f"), vec![]),
+            Value::Text("hello".into())
+        );
+    }
+
+    // --- Break without expr in foreach ---
+
+    #[test]
+    fn vm_foreach_brk_no_value_exits_loop() {
+        // brk (no value) exits the foreach; the loop result is nil/last-before-break
+        let src = "f>n;tot=0;@x [1,2,3,4,5]{>=x 3{brk};tot=+tot x};tot";
+        assert_eq!(vm_run(src, Some("f"), vec![]), Value::Number(3.0));
+    }
+
+    // --- Continue in foreach that accumulates ---
+
+    #[test]
+    fn vm_foreach_cnt_accumulate_sum() {
+        // Skip x > 3 with cnt, sum remaining — 1+2+3 = 6
+        let src = "f>n;s=0;@x [1,2,3,4,5]{>x 3{cnt};s=+s x};s";
+        assert_eq!(vm_run(src, Some("f"), vec![]), Value::Number(6.0));
+    }
+
+    // --- OP_POST runtime: HTTP POST to bad host returns Err ---
+
+    #[test]
+    fn vm_post_bad_host_returns_err() {
+        // post to an unreachable host should return Err, not panic
+        let src = r#"f url:t body:t>R t t;post url body"#;
+        let result = vm_run(
+            src,
+            Some("f"),
+            vec![
+                Value::Text("http://ilo-lang-test-nonexistent.invalid/endpoint".into()),
+                Value::Text("{}".into()),
+            ],
+        );
+        assert!(
+            matches!(result, Value::Err(_)),
+            "expected Err from bad host, got {:?}", result
+        );
+    }
+
+    // --- Match result (Ok/Err) patterns ---
+
+    #[test]
+    fn vm_match_result_ok_arm() {
+        // ?r{~v:v;^_:0} — Ok arm extracts value
+        let src = r#"f r:R n t>n;?r{~v:v;^_:0}"#;
+        assert_eq!(
+            vm_run(src, Some("f"), vec![Value::Ok(Box::new(Value::Number(42.0)))]),
+            Value::Number(42.0)
+        );
+    }
+
+    #[test]
+    fn vm_match_result_err_arm() {
+        // ?r{~_:1;^_:0} — Err arm fires
+        let src = r#"f r:R n t>n;?r{~_:1;^_:0}"#;
+        assert_eq!(
+            vm_run(src, Some("f"), vec![Value::Err(Box::new(Value::Text("oops".into())))]),
+            Value::Number(0.0)
+        );
+    }
+
+    // --- ForEach with continue (cnt) and range iteration ---
+
+    #[test]
+    fn vm_range_cnt_skip_middle() {
+        // @i 0..6{=i 3{cnt};s=+s i} skips 3, sums 0+1+2+4+5 = 12
+        let src = "f>n;s=0;@i 0..6{=i 3{cnt};s=+s i};s";
+        assert_eq!(vm_run(src, Some("f"), vec![]), Value::Number(12.0));
+    }
+
+    // --- While loop: brk carries value that is discarded (loop result is body value) ---
+
+    #[test]
+    fn vm_while_brk_expr_value_discarded() {
+        // brk expr is compiled (value moved to result_reg) but loop result is not used as return
+        // verify outer variable is still correct after brk
+        let src = "f>n;i=0;wh true{i=+i 1;>=i 5{brk 999}};i";
+        // After break, i should be 5 (not 999, since brk 999 doesn't affect i)
+        assert_eq!(vm_run(src, Some("f"), vec![]), Value::Number(5.0));
+    }
+
+    // --- Nil coalesce on map-get result (direct OP_MGET path) ---
+
+    #[test]
+    fn vm_mget_nil_coalesce_default() {
+        let src = r#"f>n;m=mset mmap "a" 1;v=mget m "missing";v??42"#;
+        assert_eq!(vm_run(src, Some("f"), vec![]), Value::Number(42.0));
+    }
+
+    // --- Safe index on nil list (already covered) + safe index on non-nil with ?? ---
+
+    #[test]
+    fn vm_safe_index_non_nil_with_coalesce() {
+        // .?2 returns third element; ?? should not fire
+        let src = "f>n;xs=[5,10,15];xs.?2??99";
+        assert_eq!(vm_run(src, Some("f"), vec![]), Value::Number(15.0));
+    }
+
+    // --- ForEach break in while loop inside foreach ---
+
+    #[test]
+    fn vm_foreach_with_inner_while_brk() {
+        // Foreach iterates [1,2,3]; for each x run a while that breaks immediately
+        // Verifies loop nesting with brk doesn't corrupt outer loop
+        let src = "f>n;s=0;@x [1,2,3]{i=0;wh true{i=+i x;>=i x{brk}};s=+s i};s";
+        // Each x: wh adds i+=x once then breaks; so i=x each time; s=1+2+3=6
+        assert_eq!(vm_run(src, Some("f"), vec![]), Value::Number(6.0));
+    }
+
+    // --- Nil coalesce with bool value ---
+
+    #[test]
+    fn vm_nil_coalesce_bool_default() {
+        // If value is nil, default bool is returned
+        let src = "mk x:n>n;>=x 1{x}\nf>b;v=mk 0;v??true";
+        assert_eq!(vm_run(src, Some("f"), vec![]), Value::Bool(true));
+    }
 }

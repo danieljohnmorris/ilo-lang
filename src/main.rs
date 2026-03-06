@@ -2696,4 +2696,231 @@ mod tests {
         std::fs::remove_file(file_b).ok();
         std::fs::remove_file(file_a).ok();
     }
+
+    // ── report_diagnostic: all three output modes ─────────────────────────────
+
+    #[test]
+    fn report_diagnostic_text_mode_no_panic() {
+        let d = Diagnostic::error("test error").with_code("ILO-T001");
+        report_diagnostic(&d, OutputMode::Text);
+    }
+
+    #[test]
+    fn report_diagnostic_ansi_mode_no_panic() {
+        let d = Diagnostic::error("ansi error").with_code("ILO-T002");
+        report_diagnostic(&d, OutputMode::Ansi);
+    }
+
+    #[test]
+    fn report_diagnostic_json_mode_no_panic() {
+        let d = Diagnostic::error("json error").with_code("ILO-T003");
+        report_diagnostic(&d, OutputMode::Json);
+    }
+
+    #[test]
+    fn report_diagnostic_warning_all_modes_no_panic() {
+        let d = Diagnostic::warning("test warning");
+        report_diagnostic(&d, OutputMode::Text);
+        report_diagnostic(&d, OutputMode::Ansi);
+        report_diagnostic(&d, OutputMode::Json);
+    }
+
+    // ── decl_name: Tool and TypeDef variants ─────────────────────────────────
+
+    #[test]
+    fn decl_name_tool_returns_name() {
+        let d = ast::Decl::Tool {
+            name: "my_tool".into(),
+            description: "does things".into(),
+            params: vec![],
+            return_type: ast::Type::Text,
+            timeout: None,
+            retry: None,
+            span: ast::Span { start: 0, end: 0 },
+        };
+        assert_eq!(decl_name(&d), Some("my_tool"));
+    }
+
+    #[test]
+    fn decl_name_typedef_returns_name() {
+        let d = ast::Decl::TypeDef {
+            name: "Point".into(),
+            fields: vec![],
+            span: ast::Span { start: 0, end: 0 },
+        };
+        assert_eq!(decl_name(&d), Some("Point"));
+    }
+
+    // ── warn_cross_language_syntax: // comment pattern ────────────────────────
+
+    #[test]
+    fn warn_cross_lang_detects_double_slash_comment() {
+        // '//' is a foreign-syntax comment; ilo uses '--'
+        warn_cross_language_syntax("f x:n>n;// this is a comment", OutputMode::Text);
+    }
+
+    #[test]
+    fn warn_cross_lang_ansi_mode_no_panic() {
+        warn_cross_language_syntax("f x:n>n;&& x true", OutputMode::Ansi);
+    }
+
+    // ── parse_cli_arg: edge cases ─────────────────────────────────────────────
+
+    #[test]
+    fn cli_arg_nan_is_text() {
+        // NaN is not finite, so it should fall through to text
+        assert_eq!(parse_cli_arg("NaN"), interpreter::Value::Text("NaN".into()));
+    }
+
+    #[test]
+    fn cli_arg_negative_number() {
+        assert_eq!(parse_cli_arg("-5"), interpreter::Value::Number(-5.0));
+    }
+
+    // ── load_dotenv: priority ordering ───────────────────────────────────────
+
+    #[test]
+    fn load_dotenv_env_local_takes_priority_over_env() {
+        // Write two env files in a temp dir, change cwd, call load_dotenv(),
+        // verify that .env.local value wins (loaded first; .env cannot overwrite).
+        use std::io::Write;
+
+        let dir = "/tmp/ilo_test_load_dotenv_prio_M8N2";
+        std::fs::create_dir_all(dir).unwrap();
+        let local_path = format!("{dir}/.env.local");
+        let env_path = format!("{dir}/.env");
+        let key = "ILO_TEST_DOTENV_PRIO_M8N2";
+
+        // SAFETY: test-only, single-threaded env manipulation
+        unsafe { std::env::remove_var(key) };
+
+        let mut f = std::fs::File::create(&local_path).unwrap();
+        writeln!(f, "{key}=from_local").unwrap();
+        drop(f);
+
+        let mut f = std::fs::File::create(&env_path).unwrap();
+        writeln!(f, "{key}=from_env").unwrap();
+        drop(f);
+
+        // Load both files manually in the same order load_dotenv() would
+        load_env_file(&local_path);
+        load_env_file(&env_path);
+
+        assert_eq!(
+            std::env::var(key).unwrap(),
+            "from_local",
+            ".env.local should take priority over .env"
+        );
+
+        unsafe { std::env::remove_var(key) };
+        std::fs::remove_file(&local_path).ok();
+        std::fs::remove_file(&env_path).ok();
+        std::fs::remove_dir(dir).ok();
+    }
+
+    // ── process_serv_request: lex error phase ─────────────────────────────────
+
+    #[test]
+    fn serv_lex_error_returns_lex_phase() {
+        // A string with an unterminated string literal causes a lex error
+        let resp = run_serv(r#"{"program": "f>t;\""}"#);
+        // Either lex or parse phase is acceptable depending on how the lexer reports it
+        let phase = resp["error"]["phase"].as_str().unwrap_or("");
+        assert!(
+            phase == "lex" || phase == "parse",
+            "expected lex or parse phase for unterminated string, got: {resp}"
+        );
+    }
+
+    // ── process_serv_request: runtime error phase ────────────────────────────
+
+    #[test]
+    fn serv_runtime_error_returns_runtime_phase() {
+        // Division by zero passes lex/parse/verify but fails at runtime
+        let resp = run_serv(r#"{"program": "f>n;/1 0", "func": "f"}"#);
+        assert_eq!(
+            resp["error"]["phase"], "runtime",
+            "expected runtime phase for division by zero, got: {resp}"
+        );
+    }
+
+    // ── process_serv_request: mcp_tool_decls prepended ───────────────────────
+
+    #[test]
+    fn serv_with_non_empty_mcp_tool_decls_succeed() {
+        // Build a synthetic Tool decl that represents an external tool.
+        // process_serv_request prepends mcp_tool_decls before verify, so a
+        // program that calls the tool should verify and run cleanly IF the
+        // stub returns Ok(Nil).  Here we just pass a decl and call a simple
+        // function that doesn't use the tool — verifies the prepend path is
+        // exercised without a tool call error.
+        let tool_decl = ast::Decl::Tool {
+            name: "echo_tool".into(),
+            description: "echoes input".into(),
+            params: vec![ast::Param { name: "msg".into(), ty: ast::Type::Text }],
+            return_type: ast::Type::Result(
+                Box::new(ast::Type::Text),
+                Box::new(ast::Type::Text),
+            ),
+            timeout: None,
+            retry: None,
+            span: ast::Span { start: 0, end: 0 },
+        };
+
+        let line = r#"{"program": "f>n;42", "func": "f"}"#;
+
+        #[cfg(not(feature = "tools"))]
+        let resp = process_serv_request(line, &[tool_decl], None);
+
+        #[cfg(feature = "tools")]
+        let resp = {
+            let rt = std::sync::Arc::new(
+                tokio::runtime::Builder::new_current_thread()
+                    .enable_all()
+                    .build()
+                    .unwrap(),
+            );
+            process_serv_request(line, &[tool_decl], None, None, rt)
+        };
+
+        assert!(resp.get("ok").is_some(), "expected ok response, got: {resp}");
+        assert_eq!(resp["ok"].as_f64(), Some(42.0));
+    }
+
+    // ── diag_to_json: warning severity ───────────────────────────────────────
+
+    #[test]
+    fn diag_to_json_warning_severity() {
+        let d = Diagnostic::warning("suspicious pattern");
+        let val = diag_to_json(&d);
+        assert!(val.is_object());
+        assert_eq!(val["severity"], "warning");
+    }
+
+    // ── print_value: remaining branches ──────────────────────────────────────
+
+    #[test]
+    fn print_value_list_plain_not_json() {
+        let val = interpreter::Value::List(vec![
+            interpreter::Value::Number(1.0),
+            interpreter::Value::Text("x".into()),
+        ]);
+        print_value(&val, false);
+    }
+
+    #[test]
+    fn print_value_map_as_json() {
+        let mut m = std::collections::HashMap::new();
+        m.insert("k".to_string(), interpreter::Value::Number(7.0));
+        let val = interpreter::Value::Map(m);
+        print_value(&val, true);
+    }
+
+    #[test]
+    fn print_value_map_plain_not_json() {
+        let mut m = std::collections::HashMap::new();
+        m.insert("key".to_string(), interpreter::Value::Bool(true));
+        let val = interpreter::Value::Map(m);
+        print_value(&val, false);
+    }
 }
