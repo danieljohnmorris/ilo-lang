@@ -24,6 +24,16 @@
 - [x] Imports — `use "other.ilo"` (all) and `use "other.ilo" [name1 name2]` (scoped) ✅
 - [ ] Namespacing — prevent name collisions when merging many declaration graphs (low priority)
 
+## Data scripting (P1)
+
+See [DATA-MANIPULATION.md](DATA-MANIPULATION.md) for full gap analysis.
+
+- [ ] `srtby fn xs` — sort list by key function (essential for data work)
+- [ ] `trm s` — trim whitespace from string ends (needed when parsing file/CSV data)
+- [ ] `uniq xs` — deduplicate list, preserve order
+- [ ] `csv s` — parse CSV string → `L (L t)` (handles quoted fields)
+- [ ] `fmt "template {}" args…` — string interpolation (reduce str+cat boilerplate)
+
 ---
 
 ## Completed
@@ -55,6 +65,9 @@
 ### Builtins
 - [x] `env` — read environment variables (`env "PATH"` → `R t t`)
 - [x] `get`/`$` — HTTP GET returning `R t t`
+- [x] `rd`, `rdl`, `wr`, `wrl` — file I/O (read/write, string and lines variants)
+- [x] String escape sequences — `\n`, `\t`, `\r`, `\"`, `\\` in string literals
+- [x] `prnt` — print + passthrough (like Rust `dbg!`)
 - [x] `len`, `str`, `num`, `abs`, `min`, `max`, `flr`, `cel`, `rnd`, `now`
 - [x] `cat`, `has`, `hd`, `tl`, `rev`, `srt`, `slc`, `spl`
 - [x] `map`, `flt`, `fld` — higher-order functions
