@@ -174,3 +174,147 @@ fn fmt_type(ty: &Type) -> String {
 fn extract(source: &str, start: usize, end: usize) -> &str {
     source.get(start..end).unwrap_or("?").trim()
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn parse_prog(src: &str) -> Program {
+        let tokens = crate::lexer::lex(src).unwrap();
+        let token_spans: Vec<(crate::lexer::Token, crate::ast::Span)> =
+            tokens.into_iter().map(|(t, r)| (t, crate::ast::Span { start: r.start, end: r.end })).collect();
+        let (mut prog, _) = crate::parser::parse(token_spans);
+        prog.source = Some(src.to_string());
+        prog
+    }
+
+    #[test]
+    fn explain_fn_start_annotation() {
+        let prog = parse_prog("f x:n>n;+x 1");
+        let out = explain(&prog, None);
+        assert!(out.contains("fn start"), "missing 'fn start': {out}");
+    }
+
+    #[test]
+    fn explain_param_annotation() {
+        let prog = parse_prog("f x:n>n;+x 1");
+        let out = explain(&prog, None);
+        assert!(out.contains("param →"), "missing 'param →': {out}");
+    }
+
+    #[test]
+    fn explain_returns_annotation() {
+        let prog = parse_prog("f x:n>n;+x 1");
+        let out = explain(&prog, None);
+        assert!(out.contains("returns"), "missing 'returns': {out}");
+    }
+
+    #[test]
+    fn explain_last_stmt_is_return() {
+        let prog = parse_prog("f x:n>n;+x 1");
+        let out = explain(&prog, None);
+        assert!(out.contains("-- return"), "last stmt should be 'return': {out}");
+    }
+
+    #[test]
+    fn explain_let_bind_annotation() {
+        let prog = parse_prog("f x:n>n;y=+x 1;y");
+        let out = explain(&prog, None);
+        assert!(out.contains("bind → y"), "missing 'bind → y': {out}");
+    }
+
+    #[test]
+    fn explain_guard_annotation() {
+        let prog = parse_prog("f x:n>n;<=x 0{x};+x 1");
+        let out = explain(&prog, None);
+        assert!(out.contains("guard"), "missing 'guard': {out}");
+    }
+
+    #[test]
+    fn explain_with_filename_prefix() {
+        let prog = parse_prog("f x:n>n;x");
+        let out = explain(&prog, Some("my.ilo"));
+        assert!(out.starts_with("file: my.ilo\n"), "missing filename prefix: {out}");
+    }
+
+    #[test]
+    fn explain_no_filename_no_prefix() {
+        let prog = parse_prog("f x:n>n;x");
+        let out = explain(&prog, None);
+        assert!(!out.starts_with("file:"), "unexpected filename prefix: {out}");
+    }
+
+    #[test]
+    fn explain_typedef_annotation() {
+        let prog = parse_prog("type point{x:n;y:n}");
+        let out = explain(&prog, None);
+        assert!(out.contains("type def"), "missing 'type def': {out}");
+    }
+
+    #[test]
+    fn explain_alias_annotation() {
+        let prog = parse_prog("alias id n");
+        let out = explain(&prog, None);
+        assert!(out.contains("alias"), "missing 'alias': {out}");
+    }
+
+    #[test]
+    fn explain_multiple_functions_separated() {
+        let prog = parse_prog("f x:n>n;+x 1 g x:n>n;*x 2");
+        let out = explain(&prog, None);
+        // Two fn start lines
+        assert_eq!(out.matches("fn start").count(), 2, "expected 2 'fn start' annotations: {out}");
+    }
+
+    #[test]
+    fn explain_no_params_function() {
+        let prog = parse_prog("f>n;42");
+        let out = explain(&prog, None);
+        assert!(out.contains("fn start"), "missing 'fn start': {out}");
+        assert!(!out.contains("param →"), "unexpected param for 0-param fn: {out}");
+    }
+
+    #[test]
+    fn explain_foreach_annotation() {
+        let prog = parse_prog("f xs:L n>n;s=0;@x xs{s=+s x};s");
+        let out = explain(&prog, None);
+        assert!(out.contains("foreach →"), "missing 'foreach →': {out}");
+    }
+
+    #[test]
+    fn explain_for_range_annotation() {
+        let prog = parse_prog("f>n;s=0;@i 0..3{s=+s i};s");
+        let out = explain(&prog, None);
+        assert!(out.contains("for range →"), "missing 'for range →': {out}");
+    }
+
+    #[test]
+    fn explain_while_annotation() {
+        let prog = parse_prog("f x:n>n;wh >x 0{x=-x 1};x");
+        let out = explain(&prog, None);
+        assert!(out.contains("while"), "missing 'while': {out}");
+    }
+
+    #[test]
+    fn explain_match_annotation() {
+        let prog = parse_prog("f x:n>t;?x{1:\"one\";_:\"other\"}");
+        let out = explain(&prog, None);
+        assert!(out.contains("match"), "missing 'match': {out}");
+    }
+
+    #[test]
+    fn explain_ret_annotation() {
+        let prog = parse_prog("f x:n>n;ret x");
+        let out = explain(&prog, None);
+        assert!(out.contains("-- ret"), "missing '-- ret': {out}");
+    }
+
+    #[test]
+    fn explain_non_last_expr_is_expr() {
+        // Two expr stmts — first is "expr", last is "return"
+        let prog = parse_prog("f x:n>n;prnt x;+x 1");
+        let out = explain(&prog, None);
+        assert!(out.contains("-- expr"), "expected '-- expr' for non-last stmt: {out}");
+        assert!(out.contains("-- return"), "expected '-- return' for last stmt: {out}");
+    }
+}

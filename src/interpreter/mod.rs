@@ -3459,4 +3459,212 @@ mod tests {
         let result = run_str(source, Some("main"), vec![]);
         assert_eq!(result, Value::Number(20.0));
     }
+
+    // --- trm ---
+
+    #[test]
+    fn interpret_trm_basic() {
+        let result = run_str("f s:t>t;trm s", Some("f"), vec![Value::Text("  hello  ".into())]);
+        assert_eq!(result, Value::Text("hello".into()));
+    }
+
+    #[test]
+    fn interpret_trm_no_whitespace() {
+        let result = run_str("f s:t>t;trm s", Some("f"), vec![Value::Text("hi".into())]);
+        assert_eq!(result, Value::Text("hi".into()));
+    }
+
+    #[test]
+    fn interpret_trm_only_whitespace() {
+        let result = run_str("f s:t>t;trm s", Some("f"), vec![Value::Text("   ".into())]);
+        assert_eq!(result, Value::Text("".into()));
+    }
+
+    #[test]
+    fn err_trm_wrong_type() {
+        let err = run_str_err("f x:n>t;trm x", Some("f"), vec![Value::Number(1.0)]);
+        assert!(err.contains("trm requires text"), "expected trm type error, got: {err}");
+    }
+
+    // --- unq ---
+
+    #[test]
+    fn interpret_unq_list_numbers() {
+        let result = run_str("f xs:L n>L n;unq xs", Some("f"), vec![
+            Value::List(vec![Value::Number(1.0), Value::Number(2.0), Value::Number(1.0), Value::Number(3.0), Value::Number(2.0)]),
+        ]);
+        assert_eq!(result, Value::List(vec![Value::Number(1.0), Value::Number(2.0), Value::Number(3.0)]));
+    }
+
+    #[test]
+    fn interpret_unq_list_strings() {
+        let result = run_str("f xs:L t>L t;unq xs", Some("f"), vec![
+            Value::List(vec![Value::Text("a".into()), Value::Text("b".into()), Value::Text("a".into())]),
+        ]);
+        assert_eq!(result, Value::List(vec![Value::Text("a".into()), Value::Text("b".into())]));
+    }
+
+    #[test]
+    fn interpret_unq_text_chars() {
+        let result = run_str("f s:t>t;unq s", Some("f"), vec![Value::Text("aabbc".into())]);
+        assert_eq!(result, Value::Text("abc".into()));
+    }
+
+    #[test]
+    fn interpret_unq_empty_list() {
+        let result = run_str("f xs:L n>L n;unq xs", Some("f"), vec![Value::List(vec![])]);
+        assert_eq!(result, Value::List(vec![]));
+    }
+
+    #[test]
+    fn interpret_unq_preserves_order() {
+        let result = run_str("f xs:L n>L n;unq xs", Some("f"), vec![
+            Value::List(vec![Value::Number(3.0), Value::Number(1.0), Value::Number(2.0), Value::Number(1.0), Value::Number(3.0)]),
+        ]);
+        assert_eq!(result, Value::List(vec![Value::Number(3.0), Value::Number(1.0), Value::Number(2.0)]));
+    }
+
+    // --- fmt ---
+
+    #[test]
+    fn interpret_fmt_basic() {
+        let result = run_str(
+            r#"f a:t b:t>t;fmt "{} + {}" a b"#,
+            Some("f"),
+            vec![Value::Text("1".into()), Value::Text("2".into())],
+        );
+        assert_eq!(result, Value::Text("1 + 2".into()));
+    }
+
+    #[test]
+    fn interpret_fmt_template_only() {
+        let result = run_str(r#"f>t;fmt "hello""#, Some("f"), vec![]);
+        assert_eq!(result, Value::Text("hello".into()));
+    }
+
+    #[test]
+    fn interpret_fmt_fewer_args_than_slots() {
+        let result = run_str(
+            r#"f a:t>t;fmt "{} and {}" a"#,
+            Some("f"),
+            vec![Value::Text("x".into())],
+        );
+        assert_eq!(result, Value::Text("x and {}".into()));
+    }
+
+    #[test]
+    fn interpret_fmt_number_arg() {
+        let result = run_str(
+            r#"f n:n>t;fmt "value: {}" n"#,
+            Some("f"),
+            vec![Value::Number(42.0)],
+        );
+        assert_eq!(result, Value::Text("value: 42".into()));
+    }
+
+    // --- srt fn xs ---
+
+    #[test]
+    fn interpret_srt_fn_by_length() {
+        let source = "ln s:t>n;len s main xs:L t>L t;srt ln xs";
+        let result = run_str(source, Some("main"), vec![
+            Value::List(vec![
+                Value::Text("banana".into()),
+                Value::Text("a".into()),
+                Value::Text("cc".into()),
+            ]),
+        ]);
+        assert_eq!(result, Value::List(vec![
+            Value::Text("a".into()),
+            Value::Text("cc".into()),
+            Value::Text("banana".into()),
+        ]));
+    }
+
+    #[test]
+    fn interpret_srt_fn_numeric_key() {
+        let source = "neg x:n>n;-x main xs:L n>L n;srt neg xs";
+        let result = run_str(source, Some("main"), vec![
+            Value::List(vec![Value::Number(1.0), Value::Number(3.0), Value::Number(2.0)]),
+        ]);
+        // sort by negative: highest first
+        assert_eq!(result, Value::List(vec![Value::Number(3.0), Value::Number(2.0), Value::Number(1.0)]));
+    }
+
+    // --- prnt ---
+
+    #[test]
+    fn interpret_prnt_returns_value() {
+        let result = run_str("f x:n>n;prnt x", Some("f"), vec![Value::Number(7.0)]);
+        assert_eq!(result, Value::Number(7.0));
+    }
+
+    #[test]
+    fn interpret_prnt_text_passthrough() {
+        let result = run_str("f s:t>t;prnt s", Some("f"), vec![Value::Text("hi".into())]);
+        assert_eq!(result, Value::Text("hi".into()));
+    }
+
+    // --- rdb ---
+
+    #[test]
+    fn interpret_rdb_csv() {
+        let result = run_str(
+            r#"f s:t>t;rdb s "csv""#,
+            Some("f"),
+            vec![Value::Text("a,b\n1,2".into())],
+        );
+        match result {
+            Value::Ok(inner) => match *inner {
+                Value::List(rows) => {
+                    assert_eq!(rows.len(), 2);
+                    assert!(matches!(&rows[0], Value::List(_)));
+                }
+                other => panic!("expected list, got {:?}", other),
+            },
+            other => panic!("expected Ok, got {:?}", other),
+        }
+    }
+
+    #[test]
+    fn interpret_rdb_json() {
+        let result = run_str(
+            r#"f s:t>t;rdb s "json""#,
+            Some("f"),
+            vec![Value::Text(r#"{"x":1}"#.into())],
+        );
+        assert!(matches!(result, Value::Ok(_)), "expected Ok, got {:?}", result);
+    }
+
+    #[test]
+    fn interpret_rdb_invalid_json_is_err() {
+        let result = run_str(
+            r#"f s:t>t;rdb s "json""#,
+            Some("f"),
+            vec![Value::Text("not json".into())],
+        );
+        assert!(matches!(result, Value::Err(_)), "expected Err, got {:?}", result);
+    }
+
+    #[test]
+    fn interpret_rdb_raw_passthrough() {
+        let result = run_str(
+            r#"f s:t>t;rdb s "raw""#,
+            Some("f"),
+            vec![Value::Text("hello".into())],
+        );
+        assert_eq!(result, Value::Ok(Box::new(Value::Text("hello".into()))));
+    }
+
+    // --- rd (error paths not needing a real file) ---
+
+    #[test]
+    fn interpret_rd_file_not_found() {
+        let result = run_str(
+            "f p:t>t;rd p",
+            Some("f"),
+            vec![Value::Text("/nonexistent/ilo_test_file.txt".into())],
+        );
+        assert!(matches!(result, Value::Err(_)), "expected Err, got {:?}", result);
+    }
 }

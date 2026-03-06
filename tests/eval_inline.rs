@@ -684,6 +684,95 @@ fn explain_no_code_arg() {
     assert!(stderr.contains("Usage"), "expected 'Usage' in stderr: {stderr}");
 }
 
+// --- source annotation: ilo code --explain / -x ---
+
+#[test]
+fn source_explain_fn_start() {
+    let out = ilo()
+        .args(["f x:n>n;+x 1", "--explain"])
+        .output()
+        .expect("failed to run ilo");
+    assert!(out.status.success(), "stderr: {}", String::from_utf8_lossy(&out.stderr));
+    let stdout = String::from_utf8_lossy(&out.stdout);
+    assert!(stdout.contains("fn start"), "expected 'fn start' annotation: {stdout}");
+}
+
+#[test]
+fn source_explain_short_flag() {
+    let out = ilo()
+        .args(["f x:n>n;+x 1", "-x"])
+        .output()
+        .expect("failed to run ilo");
+    assert!(out.status.success(), "stderr: {}", String::from_utf8_lossy(&out.stderr));
+    let stdout = String::from_utf8_lossy(&out.stdout);
+    assert!(stdout.contains("fn start"), "expected 'fn start' annotation: {stdout}");
+}
+
+#[test]
+fn source_explain_bind_annotation() {
+    let out = ilo()
+        .args(["f x:n>n;y=+x 1;y", "--explain"])
+        .output()
+        .expect("failed to run ilo");
+    assert!(out.status.success(), "stderr: {}", String::from_utf8_lossy(&out.stderr));
+    let stdout = String::from_utf8_lossy(&out.stdout);
+    assert!(stdout.contains("bind → y"), "expected 'bind → y': {stdout}");
+}
+
+#[test]
+fn source_explain_guard_annotation() {
+    let out = ilo()
+        .args(["f x:n>n;<=x 0{x};+x 1", "--explain"])
+        .output()
+        .expect("failed to run ilo");
+    assert!(out.status.success(), "stderr: {}", String::from_utf8_lossy(&out.stderr));
+    let stdout = String::from_utf8_lossy(&out.stdout);
+    assert!(stdout.contains("guard"), "expected 'guard' annotation: {stdout}");
+}
+
+#[test]
+fn source_explain_return_annotation() {
+    let out = ilo()
+        .args(["f x:n>n;+x 1", "--explain"])
+        .output()
+        .expect("failed to run ilo");
+    assert!(out.status.success(), "stderr: {}", String::from_utf8_lossy(&out.stderr));
+    let stdout = String::from_utf8_lossy(&out.stdout);
+    assert!(stdout.contains("return"), "expected 'return' annotation: {stdout}");
+}
+
+// --- trm / unq / fmt via inline ---
+
+#[test]
+fn inline_trm_basic() {
+    let out = ilo()
+        .args(["f s:t>t;trm s", "  hello  "])
+        .output()
+        .expect("failed to run ilo");
+    assert!(out.status.success(), "stderr: {}", String::from_utf8_lossy(&out.stderr));
+    assert_eq!(String::from_utf8_lossy(&out.stdout).trim(), "hello");
+}
+
+#[test]
+fn inline_unq_text() {
+    let out = ilo()
+        .args(["f s:t>t;unq s", "aabbc"])
+        .output()
+        .expect("failed to run ilo");
+    assert!(out.status.success(), "stderr: {}", String::from_utf8_lossy(&out.stderr));
+    assert_eq!(String::from_utf8_lossy(&out.stdout).trim(), "abc");
+}
+
+#[test]
+fn inline_fmt_basic() {
+    let out = ilo()
+        .args([r#"f a:t b:t>t;fmt "{} and {}" a b"#, "foo", "bar"])
+        .output()
+        .expect("failed to run ilo");
+    assert!(out.status.success(), "stderr: {}", String::from_utf8_lossy(&out.stderr));
+    assert_eq!(String::from_utf8_lossy(&out.stdout).trim(), "foo and bar");
+}
+
 // --- --run-jit ---
 
 #[cfg(all(target_arch = "aarch64", target_os = "macos"))]

@@ -2979,9 +2979,12 @@ impl<'a> VM<'a> {
                         let items = unsafe { match v.as_heap_ref() { HeapObj::List(l) => l.clone(), _ => unreachable!() } };
                         // Use nanval_equal for dedup — raw bits can't distinguish heap strings
                         // with equal content but different allocations (O(n²), fine for data sizes).
+                        // clone_rc each kept item: HeapObj::Drop will drop_rc the original list's
+                        // inner NanVals, so we need RC≥2 for items we carry into the new list.
                         let mut out: Vec<NanVal> = Vec::new();
                         for item in items {
                             if !out.iter().any(|existing| nanval_equal(*existing, item)) {
+                                item.clone_rc(); // keep RC alive past original list's drop
                                 out.push(item);
                             }
                         }
@@ -7382,4 +7385,113 @@ mod tests {
         let result = vm_run(source, Some("f"), vec![Value::Text(r#"{"x":42}"#.to_string())]);
         assert_eq!(result, Value::Number(42.0));
     }
+
+    // --- trm ---
+
+    #[test]
+    fn vm_trm_basic() {
+        let result = vm_run("f s:t>t;trm s", Some("f"), vec![Value::Text("  hello  ".into())]);
+        assert_eq!(result, Value::Text("hello".into()));
+    }
+
+    #[test]
+    fn vm_trm_no_whitespace() {
+        let result = vm_run("f s:t>t;trm s", Some("f"), vec![Value::Text("hi".into())]);
+        assert_eq!(result, Value::Text("hi".into()));
+    }
+
+    #[test]
+    fn vm_trm_only_whitespace() {
+        let result = vm_run("f s:t>t;trm s", Some("f"), vec![Value::Text("   ".into())]);
+        assert_eq!(result, Value::Text("".into()));
+    }
+
+    #[test]
+    fn vm_trm_compiles_to_opcode() {
+        let prog = parse_program("f s:t>t;trm s");
+        let compiled = compile(&prog).unwrap();
+        let chunk = &compiled.chunks[0];
+        assert!(chunk.code.iter().any(|inst| (inst >> 24) as u8 == OP_TRM), "expected OP_TRM in bytecode");
+    }
+
+    // --- unq ---
+
+    #[test]
+    fn vm_unq_text() {
+        let result = vm_run("f s:t>t;unq s", Some("f"), vec![Value::Text("aabbc".into())]);
+        assert_eq!(result, Value::Text("abc".into()));
+    }
+
+    #[test]
+    fn vm_unq_list_numbers() {
+        let result = vm_run("f xs:L n>L n;unq xs", Some("f"), vec![
+            Value::List(vec![Value::Number(1.0), Value::Number(2.0), Value::Number(1.0), Value::Number(3.0)]),
+        ]);
+        assert_eq!(result, Value::List(vec![Value::Number(1.0), Value::Number(2.0), Value::Number(3.0)]));
+    }
+
+    #[test]
+    fn vm_unq_list_strings_dedup() {
+        // Regression: raw pointer bits are not a valid equality key for heap strings.
+        // After the fix (nanval_equal), equal-content strings deduplicate correctly.
+        let result = vm_run("f xs:L t>L t;unq xs", Some("f"), vec![
+            Value::List(vec![
+                Value::Text("a".into()),
+                Value::Text("b".into()),
+                Value::Text("a".into()),
+                Value::Text("c".into()),
+                Value::Text("b".into()),
+            ]),
+        ]);
+        assert_eq!(result, Value::List(vec![
+            Value::Text("a".into()),
+            Value::Text("b".into()),
+            Value::Text("c".into()),
+        ]));
+    }
+
+    #[test]
+    fn vm_unq_preserves_order() {
+        let result = vm_run("f xs:L n>L n;unq xs", Some("f"), vec![
+            Value::List(vec![Value::Number(3.0), Value::Number(1.0), Value::Number(2.0), Value::Number(1.0)]),
+        ]);
+        assert_eq!(result, Value::List(vec![Value::Number(3.0), Value::Number(1.0), Value::Number(2.0)]));
+    }
+
+    #[test]
+    fn vm_unq_empty_list() {
+        let result = vm_run("f xs:L n>L n;unq xs", Some("f"), vec![Value::List(vec![])]);
+        assert_eq!(result, Value::List(vec![]));
+    }
+
+    #[test]
+    fn vm_unq_compiles_to_opcode() {
+        let prog = parse_program("f xs:L n>L n;unq xs");
+        let compiled = compile(&prog).unwrap();
+        let chunk = &compiled.chunks[0];
+        assert!(chunk.code.iter().any(|inst| (inst >> 24) as u8 == OP_UNQ), "expected OP_UNQ in bytecode");
+    }
+
+    // --- prnt ---
+
+    #[test]
+    fn vm_prnt_returns_value() {
+        let result = vm_run("f x:n>n;prnt x", Some("f"), vec![Value::Number(7.0)]);
+        assert_eq!(result, Value::Number(7.0));
+    }
+
+    // --- rd (OP_RD path — 1-arg auto-detect) ---
+
+    #[test]
+    fn vm_rd_file_not_found() {
+        // rd path auto-detects format from extension; for missing file returns Ok(Err(...))
+        let result = vm_run(
+            "f p:t>t;rd p",
+            Some("f"),
+            vec![Value::Text("/nonexistent/ilo_test.txt".into())],
+        );
+        assert!(matches!(result, Value::Err(_)), "expected Err, got {:?}", result);
+    }
+    // Note: rdb, rd path fmt, and fmt (variadic) fall through to OP_CALL → interpreter.
+    // Those code paths are tested in interpreter::tests and tests/eval_inline.rs.
 }
