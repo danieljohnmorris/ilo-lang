@@ -2977,12 +2977,14 @@ impl<'a> VM<'a> {
                     } else if (v.0 & TAG_MASK) == TAG_LIST {
                         // SAFETY: TAG_LIST confirmed.
                         let items = unsafe { match v.as_heap_ref() { HeapObj::List(l) => l.clone(), _ => unreachable!() } };
-                        let mut seen = std::collections::HashSet::new();
-                        let out: Vec<NanVal> = items.into_iter().filter(|item| {
-                            // Use debug representation as equality key (Value doesn't impl Hash)
-                            let key = format!("{:?}", item.0);
-                            seen.insert(key)
-                        }).collect();
+                        // Use nanval_equal for dedup — raw bits can't distinguish heap strings
+                        // with equal content but different allocations (O(n²), fine for data sizes).
+                        let mut out: Vec<NanVal> = Vec::new();
+                        for item in items {
+                            if !out.iter().any(|existing| nanval_equal(*existing, item)) {
+                                out.push(item);
+                            }
+                        }
                         reg_set!(a, NanVal::heap_list(out));
                     } else {
                         return Err(VmError::Type("unq requires a list or string"));
