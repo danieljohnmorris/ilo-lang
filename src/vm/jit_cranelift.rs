@@ -1520,4 +1520,238 @@ mod tests {
         let result = jit_run("double x:n>n;* x 2\nf x:n>n;double x", "f", &[Value::Number(5.0)]);
         assert_eq!(result, Some(Value::Number(10.0)));
     }
+
+    // ── num / flr / cel / min / max / rnd ─────────────────────────────────────
+
+    #[test]
+    fn cranelift_num_builtin() {
+        // num returns R n t; match to extract the inner number
+        let result = jit_run(r#"f s:t>n;r=num s;?r{~v:v;^_:0}"#, "f", &[Value::Text("3.14".into())]);
+        assert_eq!(result, Some(Value::Number(3.14)));
+    }
+
+    #[test]
+    fn cranelift_flr_builtin() {
+        let result = jit_run("f x:n>n;flr x", "f", &[Value::Number(4.7)]);
+        assert_eq!(result, Some(Value::Number(4.0)));
+    }
+
+    #[test]
+    fn cranelift_cel_builtin() {
+        let result = jit_run("f x:n>n;cel x", "f", &[Value::Number(4.1)]);
+        assert_eq!(result, Some(Value::Number(5.0)));
+    }
+
+    #[test]
+    fn cranelift_min_builtin() {
+        let result = jit_run("f a:n b:n>n;min a b", "f", &[Value::Number(3.0), Value::Number(7.0)]);
+        assert_eq!(result, Some(Value::Number(3.0)));
+    }
+
+    #[test]
+    fn cranelift_max_builtin() {
+        let result = jit_run("f a:n b:n>n;max a b", "f", &[Value::Number(3.0), Value::Number(7.0)]);
+        assert_eq!(result, Some(Value::Number(7.0)));
+    }
+
+    #[test]
+    fn cranelift_rnd0_returns_number() {
+        let result = jit_run("f>n;rnd", "f", &[]);
+        assert!(matches!(result, Some(Value::Number(_))));
+    }
+
+    #[test]
+    fn cranelift_rnd2_range_returns_number() {
+        // rnd with two args: random integer in [1, 10]
+        let result = jit_run("f>n;rnd 1 10", "f", &[]);
+        assert!(matches!(result, Some(Value::Number(_))));
+    }
+
+    // ── env ───────────────────────────────────────────────────────────────────
+
+    #[test]
+    fn cranelift_env_builtin() {
+        unsafe { std::env::set_var("ILO_JIT_TEST_VAR", "hello"); }
+        let result = jit_run(r#"f k:t>R t t;env k"#, "f", &[Value::Text("ILO_JIT_TEST_VAR".into())]);
+        assert_eq!(result, Some(Value::Ok(Box::new(Value::Text("hello".into())))));
+    }
+
+    // ── spl / cat ─────────────────────────────────────────────────────────────
+
+    #[test]
+    fn cranelift_spl_builtin() {
+        let result = jit_run(r#"f s:t sep:t>L t;spl s sep"#, "f", &[
+            Value::Text("a,b,c".into()),
+            Value::Text(",".into()),
+        ]);
+        assert_eq!(result, Some(Value::List(vec![
+            Value::Text("a".into()),
+            Value::Text("b".into()),
+            Value::Text("c".into()),
+        ])));
+    }
+
+    #[test]
+    fn cranelift_cat_builtin() {
+        let result = jit_run(r#"f xs:L t sep:t>t;cat xs sep"#, "f", &[
+            Value::List(vec![Value::Text("x".into()), Value::Text("y".into())]),
+            Value::Text("-".into()),
+        ]);
+        assert_eq!(result, Some(Value::Text("x-y".into())));
+    }
+
+    // ── has / hd / tl / rev / srt / slc ──────────────────────────────────────
+
+    #[test]
+    fn cranelift_has_list() {
+        let result = jit_run("f xs:L n v:n>b;has xs v", "f", &[
+            Value::List(vec![Value::Number(1.0), Value::Number(2.0), Value::Number(3.0)]),
+            Value::Number(2.0),
+        ]);
+        assert_eq!(result, Some(Value::Bool(true)));
+    }
+
+    #[test]
+    fn cranelift_hd_builtin() {
+        let result = jit_run("f xs:L n>n;hd xs", "f", &[
+            Value::List(vec![Value::Number(10.0), Value::Number(20.0)]),
+        ]);
+        assert_eq!(result, Some(Value::Number(10.0)));
+    }
+
+    #[test]
+    fn cranelift_tl_builtin() {
+        let result = jit_run("f xs:L n>L n;tl xs", "f", &[
+            Value::List(vec![Value::Number(1.0), Value::Number(2.0), Value::Number(3.0)]),
+        ]);
+        assert_eq!(result, Some(Value::List(vec![Value::Number(2.0), Value::Number(3.0)])));
+    }
+
+    #[test]
+    fn cranelift_rev_builtin() {
+        let result = jit_run("f xs:L n>L n;rev xs", "f", &[
+            Value::List(vec![Value::Number(1.0), Value::Number(2.0), Value::Number(3.0)]),
+        ]);
+        assert_eq!(result, Some(Value::List(vec![Value::Number(3.0), Value::Number(2.0), Value::Number(1.0)])));
+    }
+
+    #[test]
+    fn cranelift_srt_builtin() {
+        let result = jit_run("f xs:L n>L n;srt xs", "f", &[
+            Value::List(vec![Value::Number(3.0), Value::Number(1.0), Value::Number(2.0)]),
+        ]);
+        assert_eq!(result, Some(Value::List(vec![Value::Number(1.0), Value::Number(2.0), Value::Number(3.0)])));
+    }
+
+    #[test]
+    fn cranelift_slc_builtin() {
+        let result = jit_run("f xs:L n a:n b:n>L n;slc xs a b", "f", &[
+            Value::List(vec![Value::Number(10.0), Value::Number(20.0), Value::Number(30.0), Value::Number(40.0)]),
+            Value::Number(1.0),
+            Value::Number(3.0),
+        ]);
+        assert_eq!(result, Some(Value::List(vec![Value::Number(20.0), Value::Number(30.0)])));
+    }
+
+    // ── list append / listnew / index ─────────────────────────────────────────
+
+    #[test]
+    fn cranelift_listappend() {
+        // ++ xs ys — concat two lists (BinOp::Append → OP_LISTAPPEND)
+        let result = jit_run("f xs:L n ys:L n>L n;+xs ys", "f", &[
+            Value::List(vec![Value::Number(1.0), Value::Number(2.0)]),
+            Value::List(vec![Value::Number(3.0)]),
+        ]);
+        assert_eq!(result, Some(Value::List(vec![Value::Number(1.0), Value::Number(2.0), Value::Number(3.0)])));
+    }
+
+    #[test]
+    fn cranelift_listnew() {
+        // [a, b] literal — OP_LISTNEW
+        let result = jit_run("f a:n b:n>L n;[a, b]", "f", &[Value::Number(5.0), Value::Number(6.0)]);
+        assert_eq!(result, Some(Value::List(vec![Value::Number(5.0), Value::Number(6.0)])));
+    }
+
+    #[test]
+    fn cranelift_index_literal() {
+        // xs.0 — literal index 0 → OP_INDEX
+        let result = jit_run("f xs:L n>n;xs.0", "f", &[
+            Value::List(vec![Value::Number(10.0), Value::Number(20.0), Value::Number(30.0)]),
+        ]);
+        assert_eq!(result, Some(Value::Number(10.0)));
+    }
+
+    // ── records ───────────────────────────────────────────────────────────────
+
+    #[test]
+    fn cranelift_recnew_and_field() {
+        // record creation: `type pt{x:n;y:n} f a:n b:n>n;p=pt x:a y:b;p.x`
+        let src = "type pt{x:n;y:n} f a:n b:n>n;p=pt x:a y:b;p.x";
+        let result = jit_run(src, "f", &[Value::Number(3.0), Value::Number(4.0)]);
+        assert_eq!(result, Some(Value::Number(3.0)));
+    }
+
+    #[test]
+    fn cranelift_recwith() {
+        // record update: `p with x:99`
+        let src = "type pt{x:n;y:n} f a:n b:n>n;p=pt x:a y:b;q=p with x:99;q.x";
+        let result = jit_run(src, "f", &[Value::Number(3.0), Value::Number(4.0)]);
+        assert_eq!(result, Some(Value::Number(99.0)));
+    }
+
+    // ── json ─────────────────────────────────────────────────────────────────
+
+    #[test]
+    fn cranelift_jdmp_number() {
+        // jdmp serialises numbers without trailing .0 (matches interpreter behaviour)
+        let result = jit_run("f x:n>t;jdmp x", "f", &[Value::Number(42.0)]);
+        assert_eq!(result, Some(Value::Text("42".into())));
+    }
+
+    #[test]
+    fn cranelift_jpar_ok() {
+        let result = jit_run(r#"f s:t>R t t;jpar s"#, "f", &[Value::Text(r#"{"k":"v"}"#.into())]);
+        assert!(matches!(result, Some(Value::Ok(_))));
+    }
+
+    #[test]
+    fn cranelift_jpth_ok() {
+        let result = jit_run(r#"f j:t p:t>R t t;jpth j p"#, "f", &[
+            Value::Text(r#"{"name":"alice"}"#.into()),
+            Value::Text("name".into()),
+        ]);
+        assert_eq!(result, Some(Value::Ok(Box::new(Value::Text("alice".into())))));
+    }
+
+    // ── isok / iserr / unwrap — via match patterns ────────────────────────────
+
+    #[test]
+    fn cranelift_isok_via_match() {
+        // match pattern Ok → OP_ISOK emitted in JIT
+        let result = jit_run("f x:R n t>n;?x{~v:v;^_:0}", "f", &[Value::Ok(Box::new(Value::Number(7.0)))]);
+        assert_eq!(result, Some(Value::Number(7.0)));
+    }
+
+    #[test]
+    fn cranelift_iserr_via_match() {
+        // match pattern Err → OP_ISERR emitted in JIT
+        let result = jit_run(r#"f x:R n t>n;?x{~_:1;^_:99}"#, "f", &[Value::Err(Box::new(Value::Text("bad".into())))]);
+        assert_eq!(result, Some(Value::Number(99.0)));
+    }
+
+    #[test]
+    fn cranelift_unwrap_via_match() {
+        // OP_UNWRAP emitted in Ok match arm — extracts the inner value
+        let src = "f x:R n t>n;?x{~v:v;^_:0}";
+        let result = jit_run(src, "f", &[Value::Ok(Box::new(Value::Number(42.0)))]);
+        assert_eq!(result, Some(Value::Number(42.0)));
+    }
+
+    // ── now ───────────────────────────────────────────────────────────────────
+
+    #[test]
+    fn cranelift_now_returns_number() {
+        let result = jit_run("f>n;now", "f", &[]);
+        assert!(matches!(result, Some(Value::Number(_))));
+    }
 }
