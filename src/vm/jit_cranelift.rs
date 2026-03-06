@@ -1657,10 +1657,10 @@ mod tests {
 
     #[test]
     fn cranelift_listappend() {
-        // ++ xs ys — concat two lists (BinOp::Append → OP_LISTAPPEND)
-        let result = jit_run("f xs:L n ys:L n>L n;+xs ys", "f", &[
+        // +=xs v — append single element (BinOp::Append → OP_LISTAPPEND)
+        let result = jit_run("f xs:L n v:n>L n;r=+=xs v;r", "f", &[
             Value::List(vec![Value::Number(1.0), Value::Number(2.0)]),
-            Value::List(vec![Value::Number(3.0)]),
+            Value::Number(3.0),
         ]);
         assert_eq!(result, Some(Value::List(vec![Value::Number(1.0), Value::Number(2.0), Value::Number(3.0)])));
     }
@@ -1753,5 +1753,72 @@ mod tests {
     fn cranelift_now_returns_number() {
         let result = jit_run("f>n;now", "f", &[]);
         assert!(matches!(result, Some(Value::Number(_))));
+    }
+
+    // ── OP_JMPNN — nil coalesce (lines 652-662) ───────────────────────────────
+
+    #[test]
+    fn cranelift_nil_coalesce_with_value() {
+        // x??42 — x is not nil, so returns x  (OP_JMPNN: jump if NOT nil)
+        let result = jit_run("f x:O n>n;x??42", "f", &[Value::Number(7.0)]);
+        assert_eq!(result, Some(Value::Number(7.0)));
+    }
+
+    #[test]
+    fn cranelift_nil_coalesce_with_nil() {
+        // x??42 — x is nil, so returns 42
+        let result = jit_run("f x:O n>n;x??42", "f", &[Value::Nil]);
+        assert_eq!(result, Some(Value::Number(42.0)));
+    }
+
+    // ── OP_LISTNEW n==0 — empty list literal (lines 1054-1061) ───────────────
+
+    #[test]
+    fn cranelift_empty_list_literal() {
+        // [] compiles to OP_LISTNEW with n=0 — exercises the empty-list JIT path
+        let result = jit_run("f>L n;[]", "f", &[]);
+        assert_eq!(result, Some(Value::List(vec![])));
+    }
+
+    // ── jit_run_numeric _ => None (line 1300) ────────────────────────────────
+
+    #[test]
+    fn jit_run_numeric_non_number_returns_none() {
+        // jit_run returns Some(Bool) but jit_run_numeric returns None for non-Number
+        let result = jit_run_numeric("f>b;true", "f", &[]);
+        assert_eq!(result, None);
+    }
+
+    // ── OP_RECFLD_NAME — JIT bails out returning None (line 913) ─────────────
+
+    #[test]
+    fn cranelift_recfld_name_bails_out() {
+        // Inject OP_RECFLD_NAME directly into a chunk to trigger the JIT bail-out path.
+        // OP_RECFLD_NAME causes compile() to return None immediately.
+        use crate::vm::{compile as vm_compile, OP_RECFLD_NAME};
+        let tokens: Vec<crate::lexer::Token> = crate::lexer::lex(
+            "f x:n>n;x"
+        ).unwrap().into_iter().map(|(t, _)| t).collect();
+        let prog = crate::parser::parse_tokens(tokens).unwrap();
+        let mut compiled = vm_compile(&prog).unwrap();
+        let idx = compiled.func_names.iter().position(|n| n == "f").unwrap();
+        // Inject OP_RECFLD_NAME at position 0 (before any terminators)
+        compiled.chunks[idx].code.insert(0, (OP_RECFLD_NAME as u32) << 24);
+        let chunk = &compiled.chunks[idx];
+        let nan_consts = &compiled.nan_constants[idx];
+        let result = compile(chunk, nan_consts, &compiled);
+        assert!(result.is_none(), "JIT should bail on OP_RECFLD_NAME");
+    }
+
+    // ── !block_terminated at function end (lines 1184-1185) ──────────────────
+
+    #[test]
+    fn cranelift_function_ends_without_explicit_terminator() {
+        // A function whose last block doesn't have an explicit return
+        // — the JIT inserts return TAG_NIL (lines 1184-1185)
+        // A function with only a while loop that may break early fits this pattern
+        let result = jit_run("f x:n>n;wh > x 0{x=-x};x", "f", &[Value::Number(5.0)]);
+        // -5 < 0 so loop ends, returns -5
+        assert_eq!(result, Some(Value::Number(-5.0)));
     }
 }
