@@ -231,6 +231,30 @@ ilo 'f k:t>R t t;env! k' "HOME"
 # auto-unwrap: Ok→value, Err→propagate
 ```
 
+**File I/O** — `rd`, `rdl`, `wr`, `wrl` read and write files; format is auto-detected from extension:
+```bash
+# rd: read file — auto-detects format from extension
+ilo 'f p:t>R ? t;rd p' data.csv      # → Ok([[row1col1 row1col2 …] …])
+ilo 'f p:t>R ? t;rd p' data.json     # → Ok(parsed JSON)
+ilo 'f p:t>R ? t;rd p' notes.txt     # → Ok("raw text")
+
+# rd with explicit format override
+ilo 'f p:t>R ? t;rd p "json"' data.csv   # force JSON parse regardless of extension
+
+# rdb: parse a string/buffer with explicit format (for HTTP responses, env vars, etc.)
+ilo 'f s:t>R ? t;rdb s "csv"' "a,b\n1,2"   # → Ok([["a" "b"] ["1" "2"]])
+
+# rdl: read as lines → L t
+# wr / wrl: write string / write lines to file → R t t
+```
+
+**Data scripting** — string/list utilities:
+```bash
+ilo 'f s:t>t;trm s' "  hello  "        # → "hello"
+ilo 'f xs:L t>L t;unq xs' a,b,a,c,b   # → ["a" "b" "c"]
+ilo 'f>t;fmt "{} + {} = {}" 1 2 3'     # → "1 + 2 = 3"
+```
+
 **Imports** — split programs across files:
 ```bash
 # math.ilo: dbl n:n>n;*n 2
