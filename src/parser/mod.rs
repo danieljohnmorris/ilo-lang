@@ -3678,4 +3678,456 @@ mod tests {
             _ => panic!("expected function"),
         }
     }
+
+    // ---- Reserved words as identifiers (expect_ident error paths, lines 80-114) ----
+
+    #[test]
+    fn reserved_word_if_as_identifier_errors_with_hint() {
+        // `if` appearing where an identifier is expected (e.g. as a function name
+        // via the Token::KwIf path in expect_ident) — exercise ILO-P011 with hint.
+        // We use raw tokens so the keyword token actually reaches expect_ident inside
+        // parse_type_decl (which calls expect_ident for the type name).
+        let tokens = vec![
+            (Token::Type, Span::UNKNOWN),
+            (Token::KwIf, Span::UNKNOWN),
+            (Token::LBrace, Span::UNKNOWN),
+            (Token::RBrace, Span::UNKNOWN),
+        ];
+        let (_, errors) = parse(tokens);
+        assert!(!errors.is_empty(), "expected parse error");
+        let e = errors.iter().find(|e| e.code == "ILO-P011").expect("expected ILO-P011");
+        assert!(e.message.contains("`if` is a reserved word"), "message: {}", e.message);
+        let hint = e.hint.as_ref().expect("expected hint");
+        assert!(hint.contains("cond"), "hint should mention cond syntax, got: {}", hint);
+    }
+
+    #[test]
+    fn reserved_word_return_as_identifier_errors_with_hint() {
+        let tokens = vec![
+            (Token::Type, Span::UNKNOWN),
+            (Token::KwReturn, Span::UNKNOWN),
+            (Token::LBrace, Span::UNKNOWN),
+            (Token::RBrace, Span::UNKNOWN),
+        ];
+        let (_, errors) = parse(tokens);
+        assert!(!errors.is_empty(), "expected parse error");
+        let e = errors.iter().find(|e| e.code == "ILO-P011").expect("expected ILO-P011");
+        assert!(e.message.contains("`return` is a reserved word"), "message: {}", e.message);
+        let hint = e.hint.as_ref().expect("expected hint");
+        assert!(hint.contains("ret"), "hint should mention `ret`, got: {}", hint);
+    }
+
+    #[test]
+    fn reserved_word_let_as_identifier_errors_with_hint() {
+        let tokens = vec![
+            (Token::Type, Span::UNKNOWN),
+            (Token::KwLet, Span::UNKNOWN),
+            (Token::LBrace, Span::UNKNOWN),
+            (Token::RBrace, Span::UNKNOWN),
+        ];
+        let (_, errors) = parse(tokens);
+        assert!(!errors.is_empty(), "expected parse error");
+        let e = errors.iter().find(|e| e.code == "ILO-P011").expect("expected ILO-P011");
+        assert!(e.message.contains("`let` is a reserved word"), "message: {}", e.message);
+        let hint = e.hint.as_ref().expect("expected hint");
+        assert!(hint.contains("name=expr") || hint.contains("bindings"), "hint: {}", hint);
+    }
+
+    #[test]
+    fn reserved_word_fn_as_identifier_errors_with_hint() {
+        let tokens = vec![
+            (Token::Type, Span::UNKNOWN),
+            (Token::KwFn, Span::UNKNOWN),
+            (Token::LBrace, Span::UNKNOWN),
+            (Token::RBrace, Span::UNKNOWN),
+        ];
+        let (_, errors) = parse(tokens);
+        assert!(!errors.is_empty(), "expected parse error");
+        let e = errors.iter().find(|e| e.code == "ILO-P011").expect("expected ILO-P011");
+        assert!(e.message.contains("`fn` is a reserved word"), "message: {}", e.message);
+        let hint = e.hint.as_ref().expect("expected hint");
+        assert!(hint.contains("name params>return"), "hint: {}", hint);
+    }
+
+    #[test]
+    fn reserved_word_def_as_identifier_errors_with_hint() {
+        let tokens = vec![
+            (Token::Type, Span::UNKNOWN),
+            (Token::KwDef, Span::UNKNOWN),
+            (Token::LBrace, Span::UNKNOWN),
+            (Token::RBrace, Span::UNKNOWN),
+        ];
+        let (_, errors) = parse(tokens);
+        assert!(!errors.is_empty(), "expected parse error");
+        let e = errors.iter().find(|e| e.code == "ILO-P011").expect("expected ILO-P011");
+        assert!(e.message.contains("`def` is a reserved word"), "message: {}", e.message);
+    }
+
+    #[test]
+    fn reserved_word_var_as_identifier_errors_with_hint() {
+        let tokens = vec![
+            (Token::Type, Span::UNKNOWN),
+            (Token::KwVar, Span::UNKNOWN),
+            (Token::LBrace, Span::UNKNOWN),
+            (Token::RBrace, Span::UNKNOWN),
+        ];
+        let (_, errors) = parse(tokens);
+        assert!(!errors.is_empty(), "expected parse error");
+        let e = errors.iter().find(|e| e.code == "ILO-P011").expect("expected ILO-P011");
+        assert!(e.message.contains("`var` is a reserved word"), "message: {}", e.message);
+        let hint = e.hint.as_ref().expect("expected hint");
+        assert!(hint.contains("name=expr") || hint.contains("bindings"), "hint: {}", hint);
+    }
+
+    #[test]
+    fn reserved_word_const_as_identifier_errors_with_hint() {
+        let tokens = vec![
+            (Token::Type, Span::UNKNOWN),
+            (Token::KwConst, Span::UNKNOWN),
+            (Token::LBrace, Span::UNKNOWN),
+            (Token::RBrace, Span::UNKNOWN),
+        ];
+        let (_, errors) = parse(tokens);
+        assert!(!errors.is_empty(), "expected parse error");
+        let e = errors.iter().find(|e| e.code == "ILO-P011").expect("expected ILO-P011");
+        assert!(e.message.contains("`const` is a reserved word"), "message: {}", e.message);
+        let hint = e.hint.as_ref().expect("expected hint");
+        assert!(hint.contains("name=expr") || hint.contains("bindings"), "hint: {}", hint);
+    }
+
+    // ---- Foreign syntax hints in parse_decl (lines 246-269) ----
+
+    #[test]
+    fn foreign_syntax_fn_keyword_at_decl_level_gets_hint() {
+        // `fn` token at declaration level triggers the Token::KwFn arm in parse_decl
+        let tokens = vec![
+            (Token::KwFn, Span::UNKNOWN),
+            (Token::Ident("foo".into()), Span::UNKNOWN),
+        ];
+        let (_, errors) = parse(tokens);
+        assert!(!errors.is_empty(), "expected parse error");
+        let e = errors.iter().find(|e| e.code == "ILO-P001").expect("expected ILO-P001");
+        let hint = e.hint.as_ref().expect("expected hint on fn at decl level");
+        assert!(hint.contains("ilo function syntax"), "hint: {}", hint);
+    }
+
+    #[test]
+    fn foreign_syntax_def_keyword_at_decl_level_gets_hint() {
+        let tokens = vec![
+            (Token::KwDef, Span::UNKNOWN),
+            (Token::Ident("foo".into()), Span::UNKNOWN),
+        ];
+        let (_, errors) = parse(tokens);
+        assert!(!errors.is_empty(), "expected parse error");
+        let e = errors.iter().find(|e| e.code == "ILO-P001").expect("expected ILO-P001");
+        let hint = e.hint.as_ref().expect("expected hint");
+        assert!(hint.contains("ilo function syntax"), "hint: {}", hint);
+    }
+
+    #[test]
+    fn foreign_syntax_let_keyword_at_decl_level_gets_hint() {
+        let tokens = vec![
+            (Token::KwLet, Span::UNKNOWN),
+            (Token::Ident("x".into()), Span::UNKNOWN),
+        ];
+        let (_, errors) = parse(tokens);
+        assert!(!errors.is_empty(), "expected parse error");
+        let e = errors.iter().find(|e| e.code == "ILO-P001").expect("expected ILO-P001");
+        let hint = e.hint.as_ref().expect("expected hint");
+        assert!(hint.contains("assignment syntax"), "hint: {}", hint);
+    }
+
+    #[test]
+    fn foreign_syntax_var_keyword_at_decl_level_gets_hint() {
+        let tokens = vec![
+            (Token::KwVar, Span::UNKNOWN),
+            (Token::Ident("x".into()), Span::UNKNOWN),
+        ];
+        let (_, errors) = parse(tokens);
+        assert!(!errors.is_empty(), "expected parse error");
+        let e = errors.iter().find(|e| e.code == "ILO-P001").expect("expected ILO-P001");
+        let hint = e.hint.as_ref().expect("expected hint");
+        assert!(hint.contains("assignment syntax"), "hint: {}", hint);
+    }
+
+    #[test]
+    fn foreign_syntax_const_keyword_at_decl_level_gets_hint() {
+        let tokens = vec![
+            (Token::KwConst, Span::UNKNOWN),
+            (Token::Ident("x".into()), Span::UNKNOWN),
+        ];
+        let (_, errors) = parse(tokens);
+        assert!(!errors.is_empty(), "expected parse error");
+        let e = errors.iter().find(|e| e.code == "ILO-P001").expect("expected ILO-P001");
+        let hint = e.hint.as_ref().expect("expected hint");
+        assert!(hint.contains("assignment syntax"), "hint: {}", hint);
+    }
+
+    #[test]
+    fn foreign_syntax_return_keyword_at_decl_level_gets_hint() {
+        let tokens = vec![
+            (Token::KwReturn, Span::UNKNOWN),
+            (Token::Ident("x".into()), Span::UNKNOWN),
+        ];
+        let (_, errors) = parse(tokens);
+        assert!(!errors.is_empty(), "expected parse error");
+        let e = errors.iter().find(|e| e.code == "ILO-P001").expect("expected ILO-P001");
+        let hint = e.hint.as_ref().expect("expected hint");
+        assert!(hint.contains("return value"), "hint: {}", hint);
+    }
+
+    #[test]
+    fn foreign_syntax_if_keyword_at_decl_level_gets_hint() {
+        let tokens = vec![
+            (Token::KwIf, Span::UNKNOWN),
+            (Token::Ident("x".into()), Span::UNKNOWN),
+        ];
+        let (_, errors) = parse(tokens);
+        assert!(!errors.is_empty(), "expected parse error");
+        let e = errors.iter().find(|e| e.code == "ILO-P001").expect("expected ILO-P001");
+        let hint = e.hint.as_ref().expect("expected hint");
+        assert!(hint.contains("match") || hint.contains("conditionals"), "hint: {}", hint);
+    }
+
+    // ---- Foreign syntax hints from Ident("let" etc.) in parse_decl (lines 242-257) ----
+
+    #[test]
+    fn foreign_ident_let_at_decl_level_gets_hint() {
+        // "let" as an Ident token (not a keyword) triggers the hint branch in parse_decl
+        let (_, errors) = parse_str_errors("let x = 5");
+        assert!(!errors.is_empty(), "expected parse error");
+        let e = errors.iter().find(|e| e.code == "ILO-P001").expect("expected ILO-P001");
+        let hint = e.hint.as_ref().expect("expected hint");
+        assert!(hint.contains("assignment syntax"), "hint: {}", hint);
+    }
+
+    #[test]
+    fn foreign_ident_return_at_decl_level_gets_hint() {
+        let (_, errors) = parse_str_errors("return x");
+        assert!(!errors.is_empty(), "expected parse error");
+        let e = errors.iter().find(|e| e.code == "ILO-P001").expect("expected ILO-P001");
+        let hint = e.hint.as_ref().expect("expected hint");
+        assert!(hint.contains("return value"), "hint: {}", hint);
+    }
+
+    #[test]
+    fn foreign_ident_if_at_decl_level_gets_hint() {
+        let (_, errors) = parse_str_errors("if x > 0 {}");
+        assert!(!errors.is_empty(), "expected parse error");
+        let e = errors.iter().find(|e| e.code == "ILO-P001").expect("expected ILO-P001");
+        let hint = e.hint.as_ref().expect("expected hint");
+        assert!(hint.contains("match"), "hint: {}", hint);
+    }
+
+    #[test]
+    fn foreign_ident_fn_at_decl_level_gets_hint() {
+        let (_, errors) = parse_str_errors("fn foo() {}");
+        assert!(!errors.is_empty(), "expected parse error");
+        let e = errors.iter().find(|e| e.code == "ILO-P001").expect("expected ILO-P001");
+        let hint = e.hint.as_ref().expect("expected hint");
+        assert!(hint.contains("ilo function syntax"), "hint: {}", hint);
+    }
+
+    // ---- Type parsing edge cases (lines 484-515) ----
+
+    #[test]
+    fn sum_type_requires_at_least_one_variant() {
+        // `S` with no variants before `>` should produce ILO-P010
+        // f x:S>n;x — `S` type has no variants (next token is `>` which stops variant collection)
+        let (_, errors) = parse_str_errors("f x:S>n;x");
+        assert!(!errors.is_empty(), "expected parse error for empty S type");
+        assert!(
+            errors.iter().any(|e| e.code == "ILO-P010" || e.message.contains("S type requires")),
+            "expected ILO-P010, got: {:?}", errors
+        );
+    }
+
+    #[test]
+    fn fn_type_requires_at_least_return_type() {
+        // `F` with no types at all should produce ILO-P009
+        // f x:F>n;x — `F` type immediately followed by `>` (not a valid type start)
+        let (_, errors) = parse_str_errors("f x:F>n;x");
+        assert!(!errors.is_empty(), "expected parse error for empty F type");
+        assert!(
+            errors.iter().any(|e| e.code == "ILO-P009" || e.message.contains("F type requires")),
+            "expected ILO-P009, got: {:?}", errors
+        );
+    }
+
+    // ---- can_start_type() coverage — type prefixes in param lists (lines 534-541) ----
+
+    #[test]
+    fn nil_type_underscore_in_param() {
+        // `_` starts a Nil type
+        let prog = parse_str("f x:_>_;x");
+        match &prog.declarations[0] {
+            Decl::Function { params, return_type, .. } => {
+                assert_eq!(params[0].ty, Type::Nil);
+                assert_eq!(*return_type, Type::Nil);
+            }
+            _ => panic!("expected function"),
+        }
+    }
+
+    #[test]
+    fn optional_type_in_param() {
+        // `O t` — OptType token `O` starts an optional type
+        let prog = parse_str("f x:O t>O t;x");
+        match &prog.declarations[0] {
+            Decl::Function { params, return_type, .. } => {
+                assert!(matches!(params[0].ty, Type::Optional(_)));
+                assert!(matches!(*return_type, Type::Optional(_)));
+            }
+            _ => panic!("expected function"),
+        }
+    }
+
+    #[test]
+    fn list_type_in_param() {
+        // `L n` — ListType starts a list type
+        let prog = parse_str("f x:L n>L n;x");
+        match &prog.declarations[0] {
+            Decl::Function { params, return_type, .. } => {
+                assert!(matches!(&params[0].ty, Type::List(inner) if **inner == Type::Number));
+                assert!(matches!(&*return_type, Type::List(inner) if **inner == Type::Number));
+            }
+            _ => panic!("expected function"),
+        }
+    }
+
+    #[test]
+    fn map_type_in_param() {
+        // `M t n` — MapType starts a map type
+        let prog = parse_str("f x:M t n>M t n;x");
+        match &prog.declarations[0] {
+            Decl::Function { params, return_type, .. } => {
+                assert!(matches!(&params[0].ty, Type::Map(_, _)));
+                assert!(matches!(&*return_type, Type::Map(_, _)));
+            }
+            _ => panic!("expected function"),
+        }
+    }
+
+    #[test]
+    fn result_type_in_param() {
+        // `R t t` — ResultType starts a result type
+        let prog = parse_str("f x:R t t>R t t;x");
+        match &prog.declarations[0] {
+            Decl::Function { params, return_type, .. } => {
+                assert!(matches!(&params[0].ty, Type::Result(_, _)));
+                assert!(matches!(&*return_type, Type::Result(_, _)));
+            }
+            _ => panic!("expected function"),
+        }
+    }
+
+    #[test]
+    fn sum_type_in_param() {
+        // `S ok err` — SumType starts a sum type with variants
+        let prog = parse_str("f x:S ok err>S ok err;x");
+        match &prog.declarations[0] {
+            Decl::Function { params, return_type, .. } => {
+                assert!(matches!(&params[0].ty, Type::Sum(variants) if variants.len() == 2));
+                assert!(matches!(&*return_type, Type::Sum(variants) if variants.len() == 2));
+            }
+            _ => panic!("expected function"),
+        }
+    }
+
+    #[test]
+    fn fn_type_in_param() {
+        // `F n n` — FnType starts a function type (param: n, return: n)
+        let prog = parse_str("f x:F n n>F n n;x");
+        match &prog.declarations[0] {
+            Decl::Function { params, return_type, .. } => {
+                // F n n → Fn([Number], Number)
+                assert!(matches!(&params[0].ty, Type::Fn(param_types, _) if param_types.len() == 1));
+                assert!(matches!(&*return_type, Type::Fn(param_types, _) if param_types.len() == 1));
+            }
+            _ => panic!("expected function"),
+        }
+    }
+
+    // ---- Match arm with type-annotated (TypeIs) patterns ----
+
+    #[test]
+    fn match_arm_multiple_type_is_patterns() {
+        // ?x{n v:v;t v:v;b v:v} — three TypeIs arms each binding a different type
+        let prog = parse_str(r#"f x:t>t;?x{n v:"num";t v:v;b v:"bool"}"#);
+        match &prog.declarations[0] {
+            Decl::Function { body, .. } => {
+                match &body[0].node {
+                    Stmt::Match { arms, .. } => {
+                        assert_eq!(arms.len(), 3, "expected 3 arms");
+                        assert!(matches!(&arms[0].pattern, Pattern::TypeIs { ty: Type::Number, binding } if binding == "v"));
+                        assert!(matches!(&arms[1].pattern, Pattern::TypeIs { ty: Type::Text, binding } if binding == "v"));
+                        assert!(matches!(&arms[2].pattern, Pattern::TypeIs { ty: Type::Bool, binding } if binding == "v"));
+                    }
+                    other => panic!("expected match, got {:?}", other),
+                }
+            }
+            _ => panic!("expected function"),
+        }
+    }
+
+    #[test]
+    fn match_arm_type_is_with_wildcard_binding() {
+        // n _: pattern with wildcard binding
+        let prog = parse_str(r#"f x:t>t;?x{n _:"num";_:"other"}"#);
+        match &prog.declarations[0] {
+            Decl::Function { body, .. } => {
+                match &body[0].node {
+                    Stmt::Match { arms, .. } => {
+                        assert_eq!(arms.len(), 2);
+                        assert!(matches!(&arms[0].pattern, Pattern::TypeIs { ty: Type::Number, binding } if binding == "_"));
+                        assert!(matches!(&arms[1].pattern, Pattern::Wildcard));
+                    }
+                    other => panic!("expected match, got {:?}", other),
+                }
+            }
+            _ => panic!("expected function"),
+        }
+    }
+
+    // ---- use statement error paths ----
+
+    #[test]
+    fn use_missing_path_eof_error() {
+        // `use` followed by EOF — expects a string path
+        let (_, errors) = parse_str_errors("use");
+        assert!(!errors.is_empty(), "expected parse error");
+        assert!(
+            errors.iter().any(|e| e.code == "ILO-P016" || e.message.contains("expected a string path")),
+            "expected ILO-P016, got: {:?}", errors
+        );
+    }
+
+    #[test]
+    fn use_unclosed_bracket_list_error() {
+        // `use "file.ilo" [foo` — unclosed `[` without closing `]`
+        let (_, errors) = parse_str_errors(r#"use "file.ilo" [foo"#);
+        assert!(!errors.is_empty(), "expected parse error for unclosed [");
+        assert!(
+            errors.iter().any(|e| e.code == "ILO-P016" || e.message.contains("unclosed")),
+            "expected ILO-P016 for unclosed bracket, got: {:?}", errors
+        );
+    }
+
+    #[test]
+    fn use_bracket_list_with_reserved_word_errors() {
+        // `use "file.ilo" [if]` — `if` inside `[...]` triggers expect_ident → ILO-P011
+        let tokens = vec![
+            (Token::Use, Span::UNKNOWN),
+            (Token::Text("file.ilo".into()), Span::UNKNOWN),
+            (Token::LBracket, Span::UNKNOWN),
+            (Token::KwIf, Span::UNKNOWN),
+            (Token::RBracket, Span::UNKNOWN),
+        ];
+        let (_, errors) = parse(tokens);
+        assert!(!errors.is_empty(), "expected parse error");
+        assert!(
+            errors.iter().any(|e| e.code == "ILO-P011"),
+            "expected ILO-P011 for reserved word in use list, got: {:?}", errors
+        );
+    }
 }

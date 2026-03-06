@@ -8718,4 +8718,140 @@ mod tests {
         let src = "mk x:n>n;>=x 1{x}\nf>b;v=mk 0;v??true";
         assert_eq!(vm_run(src, Some("f"), vec![]), Value::Bool(true));
     }
+
+    // --- jdmp additional coverage ---
+
+    #[test]
+    fn vm_jdmp_number_arg() {
+        // jdmp on a number parameter (not inline literal — exercises arg path)
+        let source = "f x:n>t;jdmp x";
+        let result = vm_run(source, Some("f"), vec![Value::Number(42.0)]);
+        assert_eq!(result, Value::Text("42".to_string()));
+    }
+
+    #[test]
+    fn vm_jdmp_list_arg() {
+        // jdmp on a list value passed as argument
+        let source = "f xs:L n>t;jdmp xs";
+        let result = vm_run(source, Some("f"), vec![
+            Value::List(vec![Value::Number(1.0), Value::Number(2.0)]),
+        ]);
+        assert_eq!(result, Value::Text("[1,2]".to_string()));
+    }
+
+    #[test]
+    fn vm_jdmp_nil() {
+        // jdmp of nil → "null"
+        // nil is obtained via mget on a missing key (mget returns nil for missing keys)
+        let source = "f>t;m=mmap;v=mget m \"missing\";jdmp v";
+        let result = vm_run(source, Some("f"), vec![]);
+        assert_eq!(result, Value::Text("null".to_string()));
+    }
+
+    // --- OP_HAS with map heap object returns error ---
+
+    #[test]
+    fn vm_has_map_heap_returns_error() {
+        // OP_HAS dispatches on a Map heap object → "has requires a list or text"
+        // The verifier blocks M t t typed `has`, so we pass a number arg typed as n
+        // but inject a map-typed value at runtime via n param (bypasses verifier check).
+        // Use a list arg typed function but pass the map as `n` which won't pass verifier
+        // — instead, use the already-covered non-collection path with a number arg since
+        // map-via-number-param would need type confusion. The Map-heap branch is reached
+        // when a heap value is not a List; pass a text-typed argument but give it a
+        // runtime list of text — actually the cleanest approach: use vm_run_err with a
+        // number typed collection (hits the non-heap else branch) which is already tested.
+        // For the heap-map branch specifically, we run a program where the verifier does
+        // not see the Map type: use `has` with an `n` arg but pass a Map at runtime.
+        // This triggers VmError::Type("has requires a list or text") via the heap match.
+        // We achieve this by declaring collection as `n` (verifier OK: n is not heap so
+        // no special check), but passing Value::Map at runtime — however Value::Map would
+        // be encoded as a heap map NanVal so `collection.is_heap()` is true and it falls
+        // into the HeapObj match arm, hitting the `_ =>` error branch for Map.
+        let err = vm_run_err(
+            "f coll:n needle:t>b;has coll needle",
+            Some("f"),
+            vec![
+                Value::Map({
+                    let mut m = std::collections::HashMap::new();
+                    m.insert("x".to_string(), Value::Text("1".to_string()));
+                    m
+                }),
+                Value::Text("x".to_string()),
+            ],
+        );
+        assert!(err.contains("has") || err.contains("list") || err.contains("text"), "got: {err}");
+    }
+
+    // --- OP_CAT with number list elements errors at runtime ---
+
+    #[test]
+    fn vm_cat_number_list_element_error() {
+        // cat " " [1 2] — list elements are numbers, not text; cat should error
+        let err = vm_run_err(
+            "f xs:L n sep:t>t;cat xs sep",
+            Some("f"),
+            vec![
+                Value::List(vec![Value::Number(1.0), Value::Number(2.0)]),
+                Value::Text(" ".to_string()),
+            ],
+        );
+        // cat requires all elements to be text strings
+        assert!(
+            err.contains("cat") || err.contains("text") || err.contains("string"),
+            "got: {err}"
+        );
+    }
+
+    // --- OP_GETH with empty map headers (bad host) ---
+
+    #[test]
+    fn vm_geth_empty_map_headers_bad_host() {
+        // get url headers where headers is an empty map — exercises the vc.is_heap() +
+        // HeapObj::Map branch in OP_GETH. Bad URL → Err.
+        let src = r#"f url:t hdrs:M t t>R t t;get url hdrs"#;
+        let result = vm_run(src, Some("f"), vec![
+            Value::Text("http://127.0.0.1:1".to_string()),
+            Value::Map(std::collections::HashMap::new()),
+        ]);
+        assert!(matches!(result, Value::Err(_)), "expected Err, got {result:?}");
+    }
+
+    // --- OP_POSTH with empty map headers (bad host) ---
+
+    #[test]
+    fn vm_posth_empty_map_headers_bad_host() {
+        // post url body headers where headers is an empty map — exercises the vd.is_heap() +
+        // HeapObj::Map branch in OP_POSTH. Bad URL → Err.
+        let src = r#"f url:t body:t hdrs:M t t>R t t;post url body hdrs"#;
+        let result = vm_run(src, Some("f"), vec![
+            Value::Text("http://127.0.0.1:1".to_string()),
+            Value::Text("{}".to_string()),
+            Value::Map(std::collections::HashMap::new()),
+        ]);
+        assert!(matches!(result, Value::Err(_)), "expected Err, got {result:?}");
+    }
+
+    // --- OP_FLR / OP_CEL on integer-valued float ---
+
+    #[test]
+    fn vm_flr_integer_valued_float() {
+        // flr of 5.0 → 5.0 (no-op for whole numbers)
+        let result = vm_run("f x:n>n;flr x", Some("f"), vec![Value::Number(5.0)]);
+        assert_eq!(result, Value::Number(5.0));
+    }
+
+    #[test]
+    fn vm_cel_integer_valued_float() {
+        // cel of 5.0 → 5.0 (no-op for whole numbers)
+        let result = vm_run("f x:n>n;cel x", Some("f"), vec![Value::Number(5.0)]);
+        assert_eq!(result, Value::Number(5.0));
+    }
+
+    #[test]
+    fn vm_flr_negative_fraction() {
+        // flr of -2.3 → -3.0 (floors toward negative infinity)
+        let result = vm_run("f x:n>n;flr x", Some("f"), vec![Value::Number(-2.3)]);
+        assert_eq!(result, Value::Number(-3.0));
+    }
 }

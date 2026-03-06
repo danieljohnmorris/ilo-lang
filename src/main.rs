@@ -2923,4 +2923,257 @@ mod tests {
         let val = interpreter::Value::Map(m);
         print_value(&val, false);
     }
+
+    // ── subprocess helpers ────────────────────────────────────────────────────
+
+    /// Locate the `ilo` binary that corresponds to the current test profile.
+    ///
+    /// Unit tests run as `target/<profile>/deps/ilo-<hash>`.  The actual
+    /// binary is one directory up, at `target/<profile>/ilo`.
+    fn ilo_bin() -> std::path::PathBuf {
+        // current_exe() → e.g. /…/target/debug/deps/ilo-abc123
+        let exe = std::env::current_exe().expect("current_exe");
+        // Go up from deps/ to the profile dir (debug or release)
+        let profile_dir = exe
+            .parent()          // deps/
+            .and_then(|p| p.parent()) // debug/ or release/
+            .expect("could not locate profile dir");
+        let bin = profile_dir.join("ilo");
+        assert!(
+            bin.exists(),
+            "ilo binary not found at {}; run `cargo build` first",
+            bin.display()
+        );
+        bin
+    }
+
+    // ── subprocess: --version ─────────────────────────────────────────────────
+
+    #[test]
+    fn cli_version_flag_prints_version() {
+        let out = std::process::Command::new(ilo_bin())
+            .arg("--version")
+            .output()
+            .expect("failed to run ilo --version");
+        assert!(out.status.success(), "exit status: {}", out.status);
+        let stdout = String::from_utf8_lossy(&out.stdout);
+        // Should contain a semver-ish version like "0.7.0"
+        assert!(
+            stdout.contains('.'),
+            "expected version number in stdout, got: {stdout}"
+        );
+        // Should contain the binary name or version token
+        assert!(
+            stdout.to_lowercase().contains("ilo") || stdout.trim().chars().next().map(|c| c.is_ascii_digit()).unwrap_or(false),
+            "expected ilo version string, got: {stdout}"
+        );
+    }
+
+    // ── subprocess: --explain ─────────────────────────────────────────────────
+
+    #[test]
+    fn cli_explain_valid_code_exits_zero_with_text() {
+        let out = std::process::Command::new(ilo_bin())
+            .args(["--explain", "ILO-T001"])
+            .output()
+            .expect("failed to run ilo --explain ILO-T001");
+        assert!(
+            out.status.success(),
+            "expected exit 0, got: {}; stderr: {}",
+            out.status,
+            String::from_utf8_lossy(&out.stderr)
+        );
+        let stdout = String::from_utf8_lossy(&out.stdout);
+        assert!(
+            !stdout.trim().is_empty(),
+            "expected explanation text on stdout, got empty"
+        );
+    }
+
+    #[test]
+    fn cli_explain_unknown_code_exits_nonzero() {
+        let out = std::process::Command::new(ilo_bin())
+            .args(["--explain", "INVALID-CODE"])
+            .output()
+            .expect("failed to run ilo --explain INVALID-CODE");
+        assert!(
+            !out.status.success(),
+            "expected non-zero exit for unknown code"
+        );
+        let stderr = String::from_utf8_lossy(&out.stderr);
+        assert!(
+            stderr.contains("unknown") || stderr.contains("not found"),
+            "expected 'unknown' or 'not found' in stderr, got: {stderr}"
+        );
+    }
+
+    // ── subprocess: help ─────────────────────────────────────────────────────
+
+    #[test]
+    fn cli_help_default_exits_zero_with_usage() {
+        let out = std::process::Command::new(ilo_bin())
+            .arg("help")
+            .output()
+            .expect("failed to run ilo help");
+        assert!(
+            out.status.success(),
+            "expected exit 0, got: {}; stderr: {}",
+            out.status,
+            String::from_utf8_lossy(&out.stderr)
+        );
+        let stdout = String::from_utf8_lossy(&out.stdout);
+        assert!(
+            stdout.contains("Usage") || stdout.contains("usage") || stdout.contains("ilo"),
+            "expected usage info in stdout, got: {stdout}"
+        );
+    }
+
+    #[test]
+    fn cli_help_lang_exits_zero_with_spec_content() {
+        let out = std::process::Command::new(ilo_bin())
+            .args(["help", "lang"])
+            .output()
+            .expect("failed to run ilo help lang");
+        assert!(
+            out.status.success(),
+            "expected exit 0, got: {}; stderr: {}",
+            out.status,
+            String::from_utf8_lossy(&out.stderr)
+        );
+        let stdout = String::from_utf8_lossy(&out.stdout);
+        // SPEC.md has ilo language content
+        assert!(
+            !stdout.trim().is_empty(),
+            "expected spec content on stdout, got empty"
+        );
+    }
+
+    #[test]
+    fn cli_help_ai_exits_zero_with_compact_spec() {
+        let out = std::process::Command::new(ilo_bin())
+            .args(["help", "ai"])
+            .output()
+            .expect("failed to run ilo help ai");
+        assert!(
+            out.status.success(),
+            "expected exit 0, got: {}; stderr: {}",
+            out.status,
+            String::from_utf8_lossy(&out.stderr)
+        );
+        let stdout = String::from_utf8_lossy(&out.stdout);
+        assert!(
+            !stdout.trim().is_empty(),
+            "expected compact spec on stdout, got empty"
+        );
+    }
+
+    // ── subprocess: empty code ────────────────────────────────────────────────
+
+    #[test]
+    fn cli_empty_code_string_exits_nonzero() {
+        let out = std::process::Command::new(ilo_bin())
+            .arg("")
+            .output()
+            .expect("failed to run ilo with empty arg");
+        // An empty string is not a valid file path and not valid ilo code;
+        // the process must exit non-zero.
+        assert!(
+            !out.status.success(),
+            "expected non-zero exit for empty code string"
+        );
+        // Error should appear on stderr
+        let stderr = String::from_utf8_lossy(&out.stderr);
+        assert!(
+            !stderr.trim().is_empty(),
+            "expected some error on stderr, got empty"
+        );
+    }
+
+    // ── subprocess: --emit unknown target ─────────────────────────────────────
+
+    #[test]
+    fn cli_emit_unknown_target_exits_nonzero() {
+        let out = std::process::Command::new(ilo_bin())
+            .args(["f>n;1", "--emit", "rust"])
+            .output()
+            .expect("failed to run ilo --emit rust");
+        assert!(
+            !out.status.success(),
+            "expected non-zero exit for unknown emit target"
+        );
+        let stderr = String::from_utf8_lossy(&out.stderr);
+        assert!(
+            stderr.contains("Unknown emit") || stderr.contains("Supported") || stderr.contains("python"),
+            "expected unknown-emit error in stderr, got: {stderr}"
+        );
+    }
+
+    // ── subprocess: --tools and --mcp mutually exclusive ─────────────────────
+
+    #[test]
+    fn cli_tools_and_mcp_mutually_exclusive() {
+        let out = std::process::Command::new(ilo_bin())
+            .args(["f>n;1", "--tools", "/tmp/x.json", "--mcp", "/tmp/y.json"])
+            .output()
+            .expect("failed to run ilo with --tools and --mcp");
+        assert!(
+            !out.status.success(),
+            "expected non-zero exit when both --tools and --mcp are provided"
+        );
+        let stderr = String::from_utf8_lossy(&out.stderr);
+        assert!(
+            stderr.contains("mutually exclusive") || stderr.contains("exclusive"),
+            "expected 'mutually exclusive' in stderr, got: {stderr}"
+        );
+    }
+
+    // ── subprocess: tools subcommand ─────────────────────────────────────────
+
+    #[test]
+    fn cli_tools_cmd_no_flags_exits_nonzero() {
+        let out = std::process::Command::new(ilo_bin())
+            .arg("tools")
+            .output()
+            .expect("failed to run ilo tools");
+        assert!(
+            !out.status.success(),
+            "expected non-zero exit for `ilo tools` with no flags"
+        );
+        let stderr = String::from_utf8_lossy(&out.stderr);
+        assert!(
+            stderr.contains("--mcp") || stderr.contains("--tools") || stderr.contains("requires"),
+            "expected usage hint in stderr, got: {stderr}"
+        );
+    }
+
+    #[test]
+    fn cli_tools_cmd_mcp_no_path_exits_nonzero() {
+        let out = std::process::Command::new(ilo_bin())
+            .args(["tools", "--mcp"])
+            .output()
+            .expect("failed to run ilo tools --mcp");
+        assert!(
+            !out.status.success(),
+            "expected non-zero exit for `ilo tools --mcp` with no path"
+        );
+    }
+
+    // ── subprocess: serv subcommand unknown flag ──────────────────────────────
+
+    #[test]
+    fn cli_serv_unknown_flag_exits_nonzero() {
+        let out = std::process::Command::new(ilo_bin())
+            .args(["serv", "--invalid-flag"])
+            .output()
+            .expect("failed to run ilo serv --invalid-flag");
+        assert!(
+            !out.status.success(),
+            "expected non-zero exit for unknown flag to `ilo serv`"
+        );
+        let stderr = String::from_utf8_lossy(&out.stderr);
+        assert!(
+            !stderr.trim().is_empty(),
+            "expected error on stderr, got empty"
+        );
+    }
 }

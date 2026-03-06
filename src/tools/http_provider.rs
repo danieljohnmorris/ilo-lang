@@ -132,3 +132,39 @@ impl ToolProvider for HttpProvider {
         })
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn from_file_missing_file() {
+        let result = ToolsConfig::from_file("/nonexistent/path/config.json");
+        assert!(result.is_err());
+        let msg = result.unwrap_err();
+        assert!(msg.contains("failed to read tools config"), "got: {msg}");
+    }
+
+    #[test]
+    fn from_file_invalid_json() {
+        let mut path = std::env::temp_dir();
+        path.push("ilo_test_http_provider_invalid.json");
+        std::fs::write(&path, "not valid json").unwrap();
+
+        let result = ToolsConfig::from_file(path.to_str().unwrap());
+        std::fs::remove_file(&path).ok();
+
+        assert!(result.is_err());
+        let msg = result.unwrap_err();
+        assert!(msg.contains("failed to parse tools config"), "got: {msg}");
+    }
+
+    #[test]
+    fn http_provider_new_constructs() {
+        let config = ToolsConfig {
+            tools: HashMap::new(),
+        };
+        let _provider = HttpProvider::new(config);
+        // Just verify construction doesn't panic
+    }
+}
