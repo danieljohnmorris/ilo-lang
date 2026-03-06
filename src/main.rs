@@ -1828,6 +1828,29 @@ fn parse_cli_arg(s: &str) -> interpreter::Value {
 mod tests {
     use super::*;
 
+    // ── test helpers ──────────────────────────────────────────────────────────
+
+    fn make_compiled(src: &str) -> vm::CompiledProgram {
+        let tokens = lexer::lex(src).unwrap();
+        let token_spans: Vec<_> = tokens
+            .into_iter()
+            .map(|(t, r)| (t, ast::Span { start: r.start, end: r.end }))
+            .collect();
+        let (program, _) = parser::parse(token_spans);
+        vm::compile(&program).unwrap()
+    }
+
+    fn make_program(src: &str) -> ast::Program {
+        let tokens = lexer::lex(src).unwrap();
+        let token_spans: Vec<_> = tokens
+            .into_iter()
+            .map(|(t, r)| (t, ast::Span { start: r.start, end: r.end }))
+            .collect();
+        let (mut program, _) = parser::parse(token_spans);
+        program.source = Some(src.to_string());
+        program
+    }
+
     // Helper: call process_serv_request portably across feature configs.
     fn run_serv(line: &str) -> serde_json::Value {
         #[cfg(not(feature = "tools"))]
@@ -2325,5 +2348,242 @@ mod tests {
         );
 
         std::fs::remove_file(lib_path).ok();
+    }
+
+    // ── diag_to_json ──────────────────────────────────────────────────────────
+
+    #[test]
+    fn diag_to_json_simple_error() {
+        let d = Diagnostic::error("something went wrong").with_code("ILO-T001");
+        let val = diag_to_json(&d);
+        assert!(val.is_object());
+        let obj = val.as_object().unwrap();
+        assert_eq!(obj["code"], "ILO-T001");
+        assert!(obj["message"].as_str().unwrap().contains("something went wrong"));
+    }
+
+    #[test]
+    fn diag_to_json_with_span_and_source() {
+        let d = Diagnostic::error("bad token")
+            .with_code("ILO-L001")
+            .with_span(ast::Span { start: 0, end: 3 }, "here")
+            .with_source("abc".to_string());
+        let val = diag_to_json(&d);
+        assert!(val.is_object());
+        assert_eq!(val["severity"], "error");
+    }
+
+    // ── types_pipe_compatible: Result and Map branches ────────────────────────
+
+    #[test]
+    fn pipe_compat_result_matching() {
+        use ast::Type::*;
+        let r1 = Result(Box::new(Number), Box::new(Text));
+        let r2 = Result(Box::new(Number), Box::new(Text));
+        assert!(types_pipe_compatible(&r1, &r2));
+    }
+
+    #[test]
+    fn pipe_compat_result_mismatched_ok() {
+        use ast::Type::*;
+        assert!(!types_pipe_compatible(
+            &Result(Box::new(Number), Box::new(Text)),
+            &Result(Box::new(Text), Box::new(Text)),
+        ));
+    }
+
+    #[test]
+    fn pipe_compat_result_mismatched_err() {
+        use ast::Type::*;
+        assert!(!types_pipe_compatible(
+            &Result(Box::new(Number), Box::new(Text)),
+            &Result(Box::new(Number), Box::new(Number)),
+        ));
+    }
+
+    #[test]
+    fn pipe_compat_map_matching() {
+        use ast::Type::*;
+        let m = Map(Box::new(Text), Box::new(Number));
+        assert!(types_pipe_compatible(&m, &m.clone()));
+    }
+
+    #[test]
+    fn pipe_compat_map_key_mismatch() {
+        use ast::Type::*;
+        assert!(!types_pipe_compatible(
+            &Map(Box::new(Text), Box::new(Number)),
+            &Map(Box::new(Number), Box::new(Number)),
+        ));
+    }
+
+    #[test]
+    fn pipe_compat_map_value_mismatch() {
+        use ast::Type::*;
+        assert!(!types_pipe_compatible(
+            &Map(Box::new(Text), Box::new(Number)),
+            &Map(Box::new(Text), Box::new(Text)),
+        ));
+    }
+
+    #[test]
+    fn pipe_compat_result_named_wildcard() {
+        use ast::Type::*;
+        // Named types inside Result act as wildcards
+        assert!(types_pipe_compatible(
+            &Result(Box::new(Named("T".into())), Box::new(Text)),
+            &Result(Box::new(Number), Box::new(Text)),
+        ));
+    }
+
+    #[test]
+    fn pipe_compat_map_named_wildcard() {
+        use ast::Type::*;
+        assert!(types_pipe_compatible(
+            &Map(Box::new(Text), Box::new(Named("V".into()))),
+            &Map(Box::new(Text), Box::new(Number)),
+        ));
+    }
+
+    // ── run_vm_with_provider: success path ────────────────────────────────────
+
+    #[test]
+    fn run_vm_with_provider_success_no_tools() {
+        let compiled = make_compiled("f x:n>n;*x 2");
+        run_vm_with_provider(
+            &compiled,
+            Some("f"),
+            vec![interpreter::Value::Number(5.0)],
+            None,
+            #[cfg(feature = "tools")] None,
+            #[cfg(feature = "tools")] None,
+            "f x:n>n;*x 2",
+            OutputMode::Text,
+            false,
+        );
+    }
+
+    #[test]
+    fn run_vm_with_provider_explicit_json_wraps_ok() {
+        let compiled = make_compiled("f x:n>n;*x 3");
+        run_vm_with_provider(
+            &compiled,
+            Some("f"),
+            vec![interpreter::Value::Number(4.0)],
+            None,
+            #[cfg(feature = "tools")] None,
+            #[cfg(feature = "tools")] None,
+            "f x:n>n;*x 3",
+            OutputMode::Json,
+            true,
+        );
+    }
+
+    // ── run_interp_with_provider: success path ────────────────────────────────
+
+    #[test]
+    fn run_interp_with_provider_success_no_tools() {
+        let program = make_program("f x:n>n;*x 2");
+        run_interp_with_provider(
+            &program,
+            Some("f"),
+            vec![interpreter::Value::Number(7.0)],
+            None,
+            #[cfg(feature = "tools")] None,
+            #[cfg(feature = "tools")] None,
+            "f x:n>n;*x 2",
+            OutputMode::Text,
+            false,
+        );
+    }
+
+    #[test]
+    fn run_interp_with_provider_explicit_json() {
+        let program = make_program("f x:n>n;+x 1");
+        run_interp_with_provider(
+            &program,
+            Some("f"),
+            vec![interpreter::Value::Number(10.0)],
+            None,
+            #[cfg(feature = "tools")] None,
+            #[cfg(feature = "tools")] None,
+            "f x:n>n;+x 1",
+            OutputMode::Json,
+            true,
+        );
+    }
+
+    // ── run_default: cranelift-then-interpreter dispatch ──────────────────────
+
+    #[test]
+    fn run_default_simple_numeric() {
+        let program = make_program("f x:n>n;*x 2");
+        run_default(&program, Some("f"), vec![interpreter::Value::Number(3.0)],
+            "f x:n>n;*x 2", OutputMode::Text, false);
+    }
+
+    #[test]
+    fn run_default_text_result() {
+        let program = make_program("greet name:t>t;cat \"hi \" name");
+        run_default(&program, Some("greet"),
+            vec![interpreter::Value::Text("world".into())],
+            "greet name:t>t;cat \"hi \" name", OutputMode::Text, false);
+    }
+
+    #[test]
+    fn run_default_none_func_name_uses_first() {
+        let program = make_program("double x:n>n;*x 2");
+        run_default(&program, None, vec![interpreter::Value::Number(4.0)],
+            "double x:n>n;*x 2", OutputMode::Text, false);
+    }
+
+    // ── resolve_imports: additional paths ─────────────────────────────────────
+
+    #[test]
+    fn resolve_imports_inline_code_emits_p017() {
+        let use_decl = ast::Decl::Use {
+            path: "something.ilo".into(),
+            only: None,
+            span: ast::Span { start: 0, end: 20 },
+        };
+        let mut visited = std::collections::HashSet::new();
+        let mut diags = Vec::new();
+        let result = resolve_imports(vec![use_decl], None, &mut visited, &mut diags);
+        assert!(result.is_empty());
+        assert!(diags.iter().any(|d| d.code.as_deref() == Some("ILO-P017")));
+        assert!(diags[0].message.contains("inline code"));
+    }
+
+    #[test]
+    fn resolve_imports_file_not_found_emits_p017() {
+        let use_decl = ast::Decl::Use {
+            path: "nonexistent_xyz_99999.ilo".into(),
+            only: None,
+            span: ast::Span { start: 0, end: 30 },
+        };
+        let mut visited = std::collections::HashSet::new();
+        let mut diags = Vec::new();
+        let result = resolve_imports(
+            vec![use_decl], Some(std::path::Path::new("/tmp")), &mut visited, &mut diags,
+        );
+        assert!(result.is_empty());
+        assert!(diags.iter().any(|d| d.code.as_deref() == Some("ILO-P017")
+            && d.message.contains("file not found")));
+    }
+
+    #[test]
+    fn resolve_imports_non_use_decl_passes_through() {
+        let func_decl = ast::Decl::Function {
+            name: "f".into(),
+            params: vec![],
+            return_type: ast::Type::Number,
+            body: vec![],
+            span: ast::Span { start: 0, end: 0 },
+        };
+        let mut visited = std::collections::HashSet::new();
+        let mut diags = Vec::new();
+        let result = resolve_imports(vec![func_decl], None, &mut visited, &mut diags);
+        assert_eq!(result.len(), 1);
+        assert!(diags.is_empty());
     }
 }
