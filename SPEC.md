@@ -886,10 +886,21 @@ The verifier provides context-aware hints:
 --ansi / -a     ANSI colour (default for TTY)
 --text / -t     Plain text (no colour)
 --json / -j     JSON (default for piped output)
+--no-hints / -nh  Suppress idiomatic hints
 NO_COLOR=1      Disable colour (same as --text)
 ```
 
 JSON error output follows a structured schema with `severity`, `code`, `message`, `labels` (with spans), `notes`, and `suggestion` fields.
+
+### Idiomatic hints
+
+After successful execution, ilo scans the source for non-canonical forms and emits hints to stderr:
+
+```
+hint: `==` → `=` saves 1 char (both mean equality in ilo)
+```
+
+In JSON mode, hints appear as `{"hints":["..."]}` on stderr. Suppress with `--no-hints` / `-nh`.
 
 ---
 
