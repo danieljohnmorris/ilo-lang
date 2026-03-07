@@ -168,9 +168,58 @@ pub enum Token {
     Newline,
 }
 
+/// Convert indented newlines to semicolons so multi-line file format works.
+///
+/// Rules:
+/// - `\n` followed by whitespace (indented continuation) → `;`
+/// - `\n` at column 0 (new declaration) → kept as `\n`
+/// - `;` immediately after `{` or before `}` → removed
+pub fn normalize_newlines(source: &str) -> String {
+    if !source.contains('\n') {
+        return source.to_string();
+    }
+
+    let mut out = String::with_capacity(source.len());
+    let mut chars = source.chars().peekable();
+
+    while let Some(c) = chars.next() {
+        if c == '\n' {
+            // Check if next line is indented (starts with space or tab)
+            if matches!(chars.peek(), Some(' ') | Some('\t')) {
+                // Indented continuation → emit `;` and skip the whitespace
+                // But first check if the last non-whitespace char was `{` — if so, skip the `;`
+                let last_significant = out.trim_end().chars().last();
+                if last_significant == Some('{') {
+                    // Don't emit `;` after `{`, just skip whitespace
+                } else {
+                    out.push(';');
+                }
+                // Skip leading whitespace on the continuation line
+                while matches!(chars.peek(), Some(' ') | Some('\t')) {
+                    chars.next();
+                }
+                // If the continuation line starts with `}`, don't add `;` before it
+                if chars.peek() == Some(&'}') && last_significant != Some('{') {
+                    out.pop(); // remove the `;` we just pushed
+                }
+            } else if chars.peek() == Some(&'}') {
+                // Non-indented `}` closes a block — don't emit newline
+            } else {
+                // Not indented → keep newline (declaration boundary)
+                out.push('\n');
+            }
+        } else {
+            out.push(c);
+        }
+    }
+
+    out
+}
+
 /// Lex source code into a stream of tokens with positions.
 pub fn lex(source: &str) -> Result<Vec<(Token, std::ops::Range<usize>)>, LexError> {
-    let mut lexer = Token::lexer(source);
+    let normalized = normalize_newlines(source);
+    let mut lexer = Token::lexer(&normalized);
     let mut tokens = Vec::new();
 
     while let Some(result) = lexer.next() {
@@ -178,7 +227,7 @@ pub fn lex(source: &str) -> Result<Vec<(Token, std::ops::Range<usize>)>, LexErro
             Ok(token) => tokens.push((token, lexer.span())),
             Err(()) => {
                 let span = lexer.span();
-                let bad = &source[span.clone()];
+                let bad = &normalized[span.clone()];
                 let (code, suggestion) = lex_error_kind(bad);
                 return Err(LexError {
                     code,
@@ -397,5 +446,51 @@ mod tests {
         let (code, suggestion) = super::lex_error_kind("#");
         assert_eq!(code, "ILO-L001");
         assert!(suggestion.contains("Unexpected character"), "got: {}", suggestion);
+    }
+
+    // normalize_newlines tests
+
+    #[test]
+    fn normalize_inline_unchanged() {
+        assert_eq!(normalize_newlines("dbl x:n>n;*x 2"), "dbl x:n>n;*x 2");
+    }
+
+    #[test]
+    fn normalize_indented_body() {
+        assert_eq!(
+            normalize_newlines("greet name:t>t\n  +\"hello \" name"),
+            "greet name:t>t;+\"hello \" name"
+        );
+    }
+
+    #[test]
+    fn normalize_multi_statement() {
+        assert_eq!(
+            normalize_newlines("calc a:n b:n>n\n  s=+a b\n  p=*a b\n  +s p"),
+            "calc a:n b:n>n;s=+a b;p=*a b;+s p"
+        );
+    }
+
+    #[test]
+    fn normalize_separate_functions_preserved() {
+        let src = "dbl x:n>n;*x 2\ninc x:n>n;+x 1";
+        let result = normalize_newlines(src);
+        assert!(result.contains('\n'), "newline between functions should be preserved: {result}");
+    }
+
+    #[test]
+    fn normalize_type_def_braces() {
+        assert_eq!(
+            normalize_newlines("type point{\n  x:n\n  y:n\n}"),
+            "type point{x:n;y:n}"
+        );
+    }
+
+    #[test]
+    fn normalize_nested_braces() {
+        assert_eq!(
+            normalize_newlines("cls sp:n>t\n  >=sp 1000{\n    \"gold\"\n  }\n  \"bronze\""),
+            "cls sp:n>t;>=sp 1000{\"gold\"};\"bronze\""
+        );
     }
 }
