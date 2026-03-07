@@ -112,6 +112,7 @@ npx ilo-lang 'dbl x:n>n;*x 2' 5
 # or install globally:
 npm i -g ilo-lang
 ```
+> **Note:** The npm package runs ilo via WebAssembly (interpreter mode). HTTP builtins (`get`, `$`, `post`) are not available — use the native binary for programs that need network access.
 
 **One-liner (macOS / Linux):**
 ```bash
