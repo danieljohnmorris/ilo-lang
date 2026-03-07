@@ -20,7 +20,7 @@
 Discovered during a Claude Code session using ilo as a bash/python replacement. See conversation for full context.
 
 ### Bugs
-- [ ] **Bool-variable guard elision** — binding a comparison to a variable (`e= =c n`) then using it as a guard (`e{"Fizz"}`) silently produces wrong results. Adding `prnt e` before the guard fixes it. Likely JIT/VM optimization bug that eliminates the guard when the variable isn't otherwise observed.
+- [x] **Bool-variable guard elision** — And/Or short-circuit was clobbering left operand register. Fixed by allocating a fresh result register. (#92)
 
 ### Syntax (accept familiar forms, hint toward canonical)
 - [ ] **`==` as sugar for `=`** — accept `==` as an alias for equality `=` in operator position. Desugars to `=` in the AST. Fixes the `e==c n` footgun (now lexes as assignment `e =` then equality `== c n`). Every LLM reflexively generates `==`; accepting it avoids retries. `=` stays canonical, formatter still emits `=`. Hints suggest `=`. Zero breaking changes.

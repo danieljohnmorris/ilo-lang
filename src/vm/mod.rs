@@ -1597,18 +1597,19 @@ impl RegCompiler {
                 //                |a b → eval a, JMPT skip, eval b, skip:
                 if matches!(op, BinOp::And | BinOp::Or) {
                     let ra = self.compile_expr(left);
+                    let result = self.alloc_reg();
+                    self.emit_abc(OP_MOVE, result, ra, 0);
                     let jump = if *op == BinOp::And {
                         self.emit_jmpf(ra)
                     } else {
                         self.emit_jmpt(ra)
                     };
                     let rb = self.compile_expr(right);
-                    // Move result of right into ra so the result register is consistent
-                    if rb != ra {
-                        self.emit_abc(OP_MOVE, ra, rb, 0);
+                    if rb != result {
+                        self.emit_abc(OP_MOVE, result, rb, 0);
                     }
                     self.current.patch_jump(jump);
-                    return ra;
+                    return result;
                 }
 
                 let rb = self.compile_expr(left);
@@ -5632,6 +5633,41 @@ mod tests {
     fn vm_logical_or_short_circuit() {
         let source = r#"f>b;|true false"#;
         assert_eq!(vm_run(source, Some("f"), vec![]), Value::Bool(true));
+    }
+
+    #[test]
+    fn vm_and_does_not_clobber_left_operand() {
+        // Regression: &e f was overwriting e's register with f's value,
+        // so a subsequent guard `e{"Fizz"}` would see f's value instead of e's.
+        // This is the FizzBuzz bug: for n=3, e=true, f=false, &e f=false (correct),
+        // but e's register was clobbered to false, so e{"Fizz"} didn't fire.
+        let source = r#"f n:n>t;a=flr /n 3;b=flr /n 5;c=*a 3;d=*b 5;e= =c n;f= =d n;&e f{"FizzBuzz"};e{"Fizz"};f{"Buzz"};str n"#;
+        assert_eq!(
+            vm_run(source, Some("f"), vec![Value::Number(3.0)]),
+            Value::Text("Fizz".to_string())
+        );
+        assert_eq!(
+            vm_run(source, Some("f"), vec![Value::Number(5.0)]),
+            Value::Text("Buzz".to_string())
+        );
+        assert_eq!(
+            vm_run(source, Some("f"), vec![Value::Number(15.0)]),
+            Value::Text("FizzBuzz".to_string())
+        );
+        assert_eq!(
+            vm_run(source, Some("f"), vec![Value::Number(7.0)]),
+            Value::Text("7".to_string())
+        );
+    }
+
+    #[test]
+    fn vm_or_does_not_clobber_left_operand() {
+        // Same pattern for OR: left operand must not be clobbered
+        let source = r#"f>t;a=true;b=false;r= |a b;a{"a is still true"};"nope""#;
+        assert_eq!(
+            vm_run(source, Some("f"), vec![]),
+            Value::Text("a is still true".to_string())
+        );
     }
 
     #[test]
