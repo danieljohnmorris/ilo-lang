@@ -15,6 +15,31 @@
 
 - [ ] Namespacing — prevent name collisions when merging many declaration graphs (low priority)
 
+## Language hardening (from hands-on exploration)
+
+Discovered during a Claude Code session using ilo as a bash/python replacement. See conversation for full context.
+
+### Bugs
+- [ ] **Bool-variable guard elision** — binding a comparison to a variable (`e= =c n`) then using it as a guard (`e{"Fizz"}`) silently produces wrong results. Adding `prnt e` before the guard fixes it. Likely JIT/VM optimization bug that eliminates the guard when the variable isn't otherwise observed.
+
+### Syntax (accept familiar forms, hint toward canonical)
+- [ ] **`==` as sugar for `=`** — accept `==` as an alias for equality `=` in operator position. Desugars to `=` in the AST. Fixes the `e==c n` footgun (now lexes as assignment `e =` then equality `== c n`). Every LLM reflexively generates `==`; accepting it avoids retries. `=` stays canonical, formatter still emits `=`. Hints suggest `=`. Zero breaking changes.
+- [ ] **Full infix support** — support `a + b` alongside `+a b` everywhere. Desugars to prefix AST. Prefix stays canonical, formatter emits prefix in `--dense`. Hints suggest prefix form with token savings. Lets LLMs write familiar infix on first try, learn prefix over time via hints. Parsing: use Pratt parsing / precedence climbing. Function application (space) binds tighter than operators (`f a + b` = `(f a) + b`). Parens override precedence as usual. Design challenge: disambiguating prefix vs infix when operator follows an atom — solve during implementation.
+
+### Diagnostics
+- [ ] **`//` warning inside string literals** — `"https://example.com"` triggers the cross-language `//` comment warning. Lexer should suppress the warning when `//` appears inside a string literal.
+- [ ] **Multi-function boundary diagnostic** — non-last functions ending with bare refs or function calls silently produce wrong results due to greedy parsing. Emit an error (ILO-P020) pointing at the ambiguous ending with a suggestion to wrap in parens or end with a binary op.
+- [ ] **Guard-in-loop lint** — guards inside `@`/`wh` loops cause early function return, not loop-iteration skip. Emit a warning (ILO-W001) suggesting ternary `{then}{else}` when a guard appears inside a loop body.
+
+### DX
+- [ ] **Idiomatic hints on successful runs** — walk the AST after execution and suggest canonical forms. E.g. `(a + b)` → `hint: +a b saves 2 tokens`, `==a b` → `hint: =a b saves 1 token`. Teaches idiomatic ilo as you go. Output channels: **TTY** → stderr (human sees it), **JSON/serv mode** → `"hints"` field in response (LLM sees it), **plain pipe** → nothing. Disable with `-nh` / `--no-hints`.
+
+### Nice-to-have
+- [ ] **Modulo builtin** — `mod a b` or `%a b`. Currently requires `flr /a b` then `*` then compare. Common enough (FizzBuzz, even/odd checks) to justify a builtin.
+
+### Testing
+- [ ] **Parser coverage 85% → 90%+** — lowest coverage module. The multi-function boundary and `==` lexing issues suggest more edge case tests are needed.
+
 ---
 
 ## Completed
