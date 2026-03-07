@@ -2,6 +2,7 @@
 
 ## Tooling
 
+- [x] npm WASM package — `npx ilo-lang` runs ilo via WASI on Node 20+. No native binary needed. (#103)
 - [ ] LSP / language server — completions, diagnostics, hover for editor integration
 - [ ] REPL — interactive evaluation for exploration and debugging
 - [ ] Playground — web-based editor with live evaluation (WASM target)
