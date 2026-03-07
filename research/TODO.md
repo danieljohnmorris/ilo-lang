@@ -27,11 +27,11 @@ See [DATA-MANIPULATION.md](DATA-MANIPULATION.md) for full gap analysis.
 
 Close the gap for real data pipelines: fetch → read → transform → **aggregate** → write.
 
-- [ ] `grp fn xs` — group by key function, returns map of key → list
-- [ ] `flat xs` — flatten nested lists one level
-- [ ] `sum xs` / `avg xs` — basic numeric aggregation
-- [ ] `rgx pat s` — regex match/extract
-- [ ] Structured CSV output via `wr` (currently writes raw strings only)
+- [x] `grp fn xs` — group by key function, returns map of key → list
+- [x] `flat xs` — flatten nested lists one level
+- [x] `sum xs` / `avg xs` — basic numeric aggregation
+- [x] `rgx pat s` — regex match/extract
+- [x] Structured CSV/TSV/JSON output via `wr path data "csv"`
 
 ---
 
