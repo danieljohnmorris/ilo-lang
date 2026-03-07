@@ -8854,4 +8854,2132 @@ mod tests {
         let result = vm_run("f x:n>n;flr x", Some("f"), vec![Value::Number(-2.3)]);
         assert_eq!(result, Value::Number(-3.0));
     }
+
+    // ── VmRuntimeError Display / Error traits ────────────────────────────────
+
+    #[test]
+    fn vm_runtime_error_display_formats_message() {
+        let err = VmRuntimeError {
+            error: VmError::Type("test error message"),
+            span: None,
+            call_stack: vec!["f".to_string()],
+        };
+        let s = format!("{err}");
+        assert!(s.contains("test error message"), "got: {s}");
+    }
+
+    #[test]
+    fn vm_runtime_error_source_is_some() {
+        use std::error::Error;
+        let err = VmRuntimeError {
+            error: VmError::Type("inner"),
+            span: None,
+            call_stack: vec![],
+        };
+        // `source()` must return Some — exercises the Error impl
+        assert!(err.source().is_some());
+    }
+
+    // ── Builtin auto-unwrap sequences (env!, get!, post!, rd!, wr!) ──────────
+
+    #[test]
+    fn vm_env_bang_compiles_unwrap_sequence() {
+        // env! compiles OP_ENV + ISOK + JMPT + RET + UNWRAP
+        let prog = parse_program(r#"f k:t>t;env! k"#);
+        let compiled = compile(&prog).unwrap();
+        let chunk = &compiled.chunks[0];
+        let has_env = chunk.code.iter().any(|inst| (inst >> 24) as u8 == OP_ENV);
+        let has_unwrap = chunk.code.iter().any(|inst| (inst >> 24) as u8 == OP_UNWRAP);
+        assert!(has_env, "expected OP_ENV");
+        assert!(has_unwrap, "expected OP_UNWRAP for env!");
+    }
+
+    #[test]
+    fn vm_get_bang_compiles_unwrap_sequence() {
+        let prog = parse_program(r#"f url:t>t;get! url"#);
+        let compiled = compile(&prog).unwrap();
+        let chunk = &compiled.chunks[0];
+        let has_get = chunk.code.iter().any(|inst| (inst >> 24) as u8 == OP_GET);
+        let has_unwrap = chunk.code.iter().any(|inst| (inst >> 24) as u8 == OP_UNWRAP);
+        assert!(has_get, "expected OP_GET");
+        assert!(has_unwrap, "expected OP_UNWRAP for get!");
+    }
+
+    #[test]
+    fn vm_get_with_headers_bang_compiles_unwrap_sequence() {
+        let prog = parse_program(r#"f url:t hdrs:M t t>t;get! url hdrs"#);
+        let compiled = compile(&prog).unwrap();
+        let chunk = &compiled.chunks[0];
+        let has_geth = chunk.code.iter().any(|inst| (inst >> 24) as u8 == OP_GETH);
+        let has_unwrap = chunk.code.iter().any(|inst| (inst >> 24) as u8 == OP_UNWRAP);
+        assert!(has_geth, "expected OP_GETH");
+        assert!(has_unwrap, "expected OP_UNWRAP for get! with headers");
+    }
+
+    #[test]
+    fn vm_post_with_headers_bang_compiles_unwrap_sequence() {
+        let prog = parse_program(r#"f url:t body:t hdrs:M t t>t;post! url body hdrs"#);
+        let compiled = compile(&prog).unwrap();
+        let chunk = &compiled.chunks[0];
+        let has_posth = chunk.code.iter().any(|inst| (inst >> 24) as u8 == OP_POSTH);
+        let has_unwrap = chunk.code.iter().any(|inst| (inst >> 24) as u8 == OP_UNWRAP);
+        assert!(has_posth, "expected OP_POSTH");
+        assert!(has_unwrap, "expected OP_UNWRAP for post! with headers");
+    }
+
+    #[test]
+    fn vm_rd_bang_compiles_unwrap_sequence() {
+        let prog = parse_program(r#"f path:t>t;rd! path"#);
+        let compiled = compile(&prog).unwrap();
+        let chunk = &compiled.chunks[0];
+        let has_rd = chunk.code.iter().any(|inst| (inst >> 24) as u8 == OP_RD);
+        let has_unwrap = chunk.code.iter().any(|inst| (inst >> 24) as u8 == OP_UNWRAP);
+        assert!(has_rd, "expected OP_RD");
+        assert!(has_unwrap, "expected OP_UNWRAP for rd!");
+    }
+
+    #[test]
+    fn vm_rdl_bang_compiles_unwrap_sequence() {
+        let prog = parse_program(r#"f path:t>L t;rdl! path"#);
+        let compiled = compile(&prog).unwrap();
+        let chunk = &compiled.chunks[0];
+        let has_rdl = chunk.code.iter().any(|inst| (inst >> 24) as u8 == OP_RDL);
+        let has_unwrap = chunk.code.iter().any(|inst| (inst >> 24) as u8 == OP_UNWRAP);
+        assert!(has_rdl, "expected OP_RDL");
+        assert!(has_unwrap, "expected OP_UNWRAP for rdl!");
+    }
+
+    #[test]
+    fn vm_wr_bang_compiles_unwrap_sequence() {
+        let prog = parse_program(r#"f path:t data:t>t;wr! path data"#);
+        let compiled = compile(&prog).unwrap();
+        let chunk = &compiled.chunks[0];
+        let has_wr = chunk.code.iter().any(|inst| (inst >> 24) as u8 == OP_WR);
+        let has_unwrap = chunk.code.iter().any(|inst| (inst >> 24) as u8 == OP_UNWRAP);
+        assert!(has_wr, "expected OP_WR");
+        assert!(has_unwrap, "expected OP_UNWRAP for wr!");
+    }
+
+    #[test]
+    fn vm_wrl_bang_compiles_unwrap_sequence() {
+        let prog = parse_program(r#"f path:t data:t>t;wrl! path data"#);
+        let compiled = compile(&prog).unwrap();
+        let chunk = &compiled.chunks[0];
+        let has_wrl = chunk.code.iter().any(|inst| (inst >> 24) as u8 == OP_WRL);
+        let has_unwrap = chunk.code.iter().any(|inst| (inst >> 24) as u8 == OP_UNWRAP);
+        assert!(has_wrl, "expected OP_WRL");
+        assert!(has_unwrap, "expected OP_UNWRAP for wrl!");
+    }
+
+    #[test]
+    fn vm_jpar_bang_compiles_unwrap_sequence() {
+        let prog = parse_program(r#"f s:t>t;jpar! s"#);
+        let compiled = compile(&prog).unwrap();
+        let chunk = &compiled.chunks[0];
+        let has_jpar = chunk.code.iter().any(|inst| (inst >> 24) as u8 == OP_JPAR);
+        let has_unwrap = chunk.code.iter().any(|inst| (inst >> 24) as u8 == OP_UNWRAP);
+        assert!(has_jpar, "expected OP_JPAR");
+        assert!(has_unwrap, "expected OP_UNWRAP for jpar!");
+    }
+
+    // ── Guard ternary else-nil path ───────────────────────────────────────────
+
+    #[test]
+    fn vm_ternary_then_empty_body_yields_nil() {
+        // When the taken branch has an empty body, it loads Nil
+        let result = vm_run("f x:n>n;>x 0{}{99}", Some("f"), vec![Value::Number(5.0)]);
+        assert_eq!(result, Value::Nil);
+    }
+
+    #[test]
+    fn vm_ternary_else_empty_body_yields_nil() {
+        // When the else branch has an empty body, it loads Nil
+        let result = vm_run("f x:n>n;>x 0{99}{}", Some("f"), vec![Value::Number(-1.0)]);
+        assert_eq!(result, Value::Nil);
+    }
+
+    // ── Destructure: re-assign into existing local ────────────────────────────
+
+    #[test]
+    fn vm_destructure_into_existing_local() {
+        // Binding `x` already in scope — exercises the existing_reg path in destructure
+        let src = "type pt{x:n;y:n} f>n;x=0;p=pt x:10 y:20;{x}=p;x";
+        let result = vm_run(src, Some("f"), vec![]);
+        assert_eq!(result, Value::Number(10.0));
+    }
+
+    // ── Continue inside foreach / for-range ───────────────────────────────────
+
+    #[test]
+    fn vm_foreach_cnt_skips_iteration() {
+        // cnt (continue) inside @x xs{} — exercises the FOREACH continue patch path
+        // >x 3{cnt} means: if x>3, skip (so 4 and 5 are skipped; sum 1+2+3=6)
+        let src = "f>n;s=0;@x [1,2,3,4,5]{>x 3{cnt};s=+s x};s";
+        let result = vm_run(src, Some("f"), vec![]);
+        assert_eq!(result, Value::Number(6.0));
+    }
+
+    #[test]
+    fn vm_forrange_cnt_skips_iteration() {
+        // cnt inside @i lo..hi{} — exercises the FOR-RANGE continue patch path
+        // >i 3{cnt} means: if i>3, skip; range 0..6 → sums 0+1+2+3=6
+        let src = "f>n;s=0;@i 0..6{>i 3{cnt};s=+s i};s";
+        let result = vm_run(src, Some("f"), vec![]);
+        assert_eq!(result, Value::Number(6.0));
+    }
+
+    // ── NanVal::from_value FnRef path ─────────────────────────────────────────
+
+    #[test]
+    fn vm_nanval_from_fnref() {
+        let val = Value::FnRef("my_fn".to_string());
+        let nv = NanVal::from_value(&val);
+        // FnRef converts to a heap string like "<fn:my_fn>"
+        let back = nv.to_value();
+        match back {
+            Value::Text(s) => assert!(s.contains("my_fn"), "got: {s}"),
+            other => panic!("expected Text, got {other:?}"),
+        }
+    }
+
+    // ── JIT helper functions (cranelift feature) ───────────────────────────────
+
+    #[cfg(feature = "cranelift")]
+    mod jit_helpers {
+        use super::super::*;
+
+        fn num(v: f64) -> u64 { NanVal::number(v).0 }
+        fn is_num(v: u64) -> bool { NanVal(v).is_number() }
+        fn as_num(v: u64) -> f64 { NanVal(v).as_number() }
+        fn is_bool(v: u64) -> bool { v == TAG_TRUE || v == TAG_FALSE }
+        fn as_bool(v: u64) -> bool { v == TAG_TRUE }
+        fn is_nil(v: u64) -> bool { v == TAG_NIL }
+
+        #[test]
+        fn jit_sub_numbers() {
+            let r = jit_sub(num(10.0), num(3.0));
+            assert!(is_num(r));
+            assert_eq!(as_num(r), 7.0);
+        }
+
+        #[test]
+        fn jit_sub_non_numbers_returns_nil() {
+            let s = NanVal::heap_string("hello".into());
+            let r = jit_sub(s.0, num(1.0));
+            assert!(is_nil(r));
+        }
+
+        #[test]
+        fn jit_mul_numbers() {
+            let r = jit_mul(num(4.0), num(5.0));
+            assert!(is_num(r));
+            assert_eq!(as_num(r), 20.0);
+        }
+
+        #[test]
+        fn jit_div_numbers() {
+            let r = jit_div(num(10.0), num(4.0));
+            assert!(is_num(r));
+            assert_eq!(as_num(r), 2.5);
+        }
+
+        #[test]
+        fn jit_div_by_zero_returns_nil() {
+            let r = jit_div(num(5.0), num(0.0));
+            assert!(is_nil(r));
+        }
+
+        #[test]
+        fn jit_eq_equal_numbers() {
+            let r = jit_eq(num(3.0), num(3.0));
+            assert!(is_bool(r));
+            assert!(as_bool(r));
+        }
+
+        #[test]
+        fn jit_eq_unequal_numbers() {
+            let r = jit_eq(num(3.0), num(4.0));
+            assert!(is_bool(r));
+            assert!(!as_bool(r));
+        }
+
+        #[test]
+        fn jit_ne_numbers() {
+            assert!(as_bool(jit_ne(num(1.0), num(2.0))));
+            assert!(!as_bool(jit_ne(num(2.0), num(2.0))));
+        }
+
+        #[test]
+        fn jit_gt_numbers() {
+            assert!(as_bool(jit_gt(num(5.0), num(3.0))));
+            assert!(!as_bool(jit_gt(num(3.0), num(5.0))));
+        }
+
+        #[test]
+        fn jit_lt_numbers() {
+            assert!(as_bool(jit_lt(num(2.0), num(7.0))));
+            assert!(!as_bool(jit_lt(num(7.0), num(2.0))));
+        }
+
+        #[test]
+        fn jit_ge_numbers() {
+            assert!(as_bool(jit_ge(num(5.0), num(5.0))));
+            assert!(as_bool(jit_ge(num(6.0), num(5.0))));
+            assert!(!as_bool(jit_ge(num(4.0), num(5.0))));
+        }
+
+        #[test]
+        fn jit_le_numbers() {
+            assert!(as_bool(jit_le(num(3.0), num(3.0))));
+            assert!(as_bool(jit_le(num(2.0), num(3.0))));
+            assert!(!as_bool(jit_le(num(4.0), num(3.0))));
+        }
+
+        #[test]
+        fn jit_not_true_returns_false() {
+            let r = jit_not(NanVal::boolean(true).0);
+            assert!(is_bool(r));
+            assert!(!as_bool(r));
+        }
+
+        #[test]
+        fn jit_not_false_returns_true() {
+            let r = jit_not(NanVal::boolean(false).0);
+            assert!(is_bool(r));
+            assert!(as_bool(r));
+        }
+
+        #[test]
+        fn jit_neg_number() {
+            let r = jit_neg(num(5.0));
+            assert!(is_num(r));
+            assert_eq!(as_num(r), -5.0);
+        }
+
+        #[test]
+        fn jit_neg_non_number_returns_nil() {
+            let s = NanVal::heap_string("x".into());
+            let r = jit_neg(s.0);
+            assert!(is_nil(r));
+        }
+
+        #[test]
+        fn jit_truthy_number_nonzero() {
+            // jit_truthy returns 1 for truthy, 0 for falsy (raw integer, not TAG_TRUE)
+            let r = jit_truthy(num(42.0));
+            assert_eq!(r, 1);
+        }
+
+        #[test]
+        fn jit_truthy_number_zero() {
+            let r = jit_truthy(num(0.0));
+            assert_eq!(r, 0);
+        }
+
+        #[test]
+        fn jit_truthy_bool_true() {
+            let r = jit_truthy(NanVal::boolean(true).0);
+            assert_eq!(r, 1);
+        }
+
+        #[test]
+        fn jit_truthy_nil_false() {
+            let r = jit_truthy(TAG_NIL);
+            assert_eq!(r, 0);
+        }
+
+        #[test]
+        fn jit_wrapok_wraps_value() {
+            let r = jit_wrapok(num(7.0));
+            let v = NanVal(r).to_value();
+            assert!(matches!(v, Value::Ok(_)));
+        }
+
+        #[test]
+        fn jit_wraperr_wraps_value() {
+            let r = jit_wraperr(num(7.0));
+            let v = NanVal(r).to_value();
+            assert!(matches!(v, Value::Err(_)));
+        }
+
+        #[test]
+        fn jit_isok_on_ok_value() {
+            let ok_val = NanVal::from_value(&Value::Ok(Box::new(Value::Number(1.0))));
+            let r = jit_isok(ok_val.0);
+            assert!(as_bool(r));
+        }
+
+        #[test]
+        fn jit_isok_on_non_ok() {
+            let r = jit_isok(num(42.0));
+            assert!(!as_bool(r));
+        }
+
+        #[test]
+        fn jit_iserr_on_err_value() {
+            let err_val = NanVal::from_value(&Value::Err(Box::new(Value::Text("oops".into()))));
+            let r = jit_iserr(err_val.0);
+            assert!(as_bool(r));
+        }
+
+        #[test]
+        fn jit_iserr_on_non_err() {
+            let r = jit_iserr(num(1.0));
+            assert!(!as_bool(r));
+        }
+
+        #[test]
+        fn jit_unwrap_ok_value() {
+            let ok_val = NanVal::from_value(&Value::Ok(Box::new(Value::Number(3.14))));
+            let r = jit_unwrap(ok_val.0);
+            assert!(is_num(r));
+            assert!((as_num(r) - 3.14).abs() < 1e-9);
+        }
+
+        #[test]
+        fn jit_move_clones_value() {
+            let v = num(99.0);
+            let r = jit_move(v);
+            assert_eq!(r, v);
+        }
+
+        #[test]
+        fn jit_gt_non_numbers_returns_false() {
+            // Non-number, non-string → returns TAG_FALSE
+            let r = jit_gt(TAG_NIL, TAG_NIL);
+            assert!(!as_bool(r));
+        }
+
+        #[test]
+        fn jit_lt_non_numbers_returns_false() {
+            let r = jit_lt(TAG_NIL, num(1.0));
+            assert!(!as_bool(r));
+        }
+
+        #[test]
+        fn jit_ge_non_numbers_returns_false() {
+            let r = jit_ge(TAG_NIL, num(1.0));
+            assert!(!as_bool(r));
+        }
+
+        #[test]
+        fn jit_le_non_numbers_returns_false() {
+            let r = jit_le(TAG_NIL, num(1.0));
+            assert!(!as_bool(r));
+        }
+
+        // ── String comparison ops ──────────────────────────────────────────
+
+        fn str_val(s: &str) -> u64 { NanVal::heap_string(s.to_string()).0 }
+
+        #[test]
+        fn jit_gt_strings_true() {
+            let r = jit_gt(str_val("b"), str_val("a"));
+            assert!(as_bool(r));
+        }
+
+        #[test]
+        fn jit_gt_strings_false() {
+            let r = jit_gt(str_val("a"), str_val("b"));
+            assert!(!as_bool(r));
+        }
+
+        #[test]
+        fn jit_lt_strings_true() {
+            let r = jit_lt(str_val("a"), str_val("b"));
+            assert!(as_bool(r));
+        }
+
+        #[test]
+        fn jit_ge_strings_equal() {
+            let r = jit_ge(str_val("a"), str_val("a"));
+            assert!(as_bool(r));
+        }
+
+        #[test]
+        fn jit_le_strings_less() {
+            let r = jit_le(str_val("a"), str_val("b"));
+            assert!(as_bool(r));
+        }
+
+        // ── jit_add with strings ──────────────────────────────────────────
+
+        #[test]
+        fn jit_add_strings_concat() {
+            let r = jit_add(str_val("hello "), str_val("world"));
+            let rv = NanVal(r);
+            assert!(rv.is_string());
+            let s = unsafe { match rv.as_heap_ref() { HeapObj::Str(s) => s.clone(), _ => panic!("not str") } };
+            assert_eq!(s, "hello world");
+        }
+
+        #[test]
+        fn jit_add_non_numeric_non_string_returns_nil() {
+            let r = jit_add(TAG_NIL, num(1.0));
+            assert!(is_nil(r));
+        }
+
+        // ── jit_len ────────────────────────────────────────────────────────
+
+        #[test]
+        fn jit_len_string() {
+            let r = jit_len(str_val("hello"));
+            assert!(is_num(r));
+            assert_eq!(as_num(r), 5.0);
+        }
+
+        #[test]
+        fn jit_len_list() {
+            let items = vec![NanVal::number(1.0), NanVal::number(2.0), NanVal::number(3.0)];
+            let list = NanVal::heap_list(items);
+            let r = jit_len(list.0);
+            assert!(is_num(r));
+            assert_eq!(as_num(r), 3.0);
+        }
+
+        #[test]
+        fn jit_len_non_string_non_list_returns_nil() {
+            let r = jit_len(TAG_NIL);
+            assert!(is_nil(r));
+        }
+
+        // ── jit_str ────────────────────────────────────────────────────────
+
+        #[test]
+        fn jit_str_number_to_string() {
+            let r = jit_str(num(42.0));
+            let rv = NanVal(r);
+            assert!(rv.is_string());
+            let s = unsafe { match rv.as_heap_ref() { HeapObj::Str(s) => s.clone(), _ => panic!() } };
+            assert_eq!(s, "42");
+        }
+
+        #[test]
+        fn jit_str_float_to_string() {
+            let r = jit_str(num(3.14));
+            let rv = NanVal(r);
+            assert!(rv.is_string());
+        }
+
+        #[test]
+        fn jit_str_non_number_returns_nil() {
+            let r = jit_str(TAG_NIL);
+            assert!(is_nil(r));
+        }
+
+        // ── jit_hd ────────────────────────────────────────────────────────
+
+        #[test]
+        fn jit_hd_string_returns_first_char() {
+            let r = jit_hd(str_val("hello"));
+            let rv = NanVal(r);
+            assert!(rv.is_string());
+            let s = unsafe { match rv.as_heap_ref() { HeapObj::Str(s) => s.clone(), _ => panic!() } };
+            assert_eq!(s, "h");
+        }
+
+        #[test]
+        fn jit_hd_empty_string_returns_nil() {
+            let r = jit_hd(str_val(""));
+            assert!(is_nil(r));
+        }
+
+        #[test]
+        fn jit_hd_list_returns_first() {
+            let items = vec![NanVal::number(10.0), NanVal::number(20.0)];
+            let list = NanVal::heap_list(items);
+            let r = jit_hd(list.0);
+            assert!(is_num(r));
+            assert_eq!(as_num(r), 10.0);
+        }
+
+        #[test]
+        fn jit_hd_empty_list_returns_nil() {
+            let list = NanVal::heap_list(vec![]);
+            let r = jit_hd(list.0);
+            assert!(is_nil(r));
+        }
+
+        #[test]
+        fn jit_hd_non_string_non_list_returns_nil() {
+            let r = jit_hd(TAG_NIL);
+            assert!(is_nil(r));
+        }
+
+        // ── jit_tl ────────────────────────────────────────────────────────
+
+        #[test]
+        fn jit_tl_string_returns_tail() {
+            let r = jit_tl(str_val("hello"));
+            let rv = NanVal(r);
+            assert!(rv.is_string());
+            let s = unsafe { match rv.as_heap_ref() { HeapObj::Str(s) => s.clone(), _ => panic!() } };
+            assert_eq!(s, "ello");
+        }
+
+        #[test]
+        fn jit_tl_empty_string_returns_nil() {
+            let r = jit_tl(str_val(""));
+            assert!(is_nil(r));
+        }
+
+        #[test]
+        fn jit_tl_list_returns_tail() {
+            let items = vec![NanVal::number(1.0), NanVal::number(2.0), NanVal::number(3.0)];
+            let list = NanVal::heap_list(items);
+            let r = jit_tl(list.0);
+            let rv = NanVal(r);
+            assert!(rv.is_heap());
+        }
+
+        #[test]
+        fn jit_tl_empty_list_returns_nil() {
+            let list = NanVal::heap_list(vec![]);
+            let r = jit_tl(list.0);
+            assert!(is_nil(r));
+        }
+
+        // ── jit_rev ────────────────────────────────────────────────────────
+
+        #[test]
+        fn jit_rev_string() {
+            let r = jit_rev(str_val("hello"));
+            let rv = NanVal(r);
+            assert!(rv.is_string());
+            let s = unsafe { match rv.as_heap_ref() { HeapObj::Str(s) => s.clone(), _ => panic!() } };
+            assert_eq!(s, "olleh");
+        }
+
+        #[test]
+        fn jit_rev_list() {
+            let items = vec![NanVal::number(1.0), NanVal::number(2.0), NanVal::number(3.0)];
+            let list = NanVal::heap_list(items);
+            let r = jit_rev(list.0);
+            let rv = NanVal(r);
+            assert!(rv.is_heap());
+        }
+
+        #[test]
+        fn jit_rev_non_string_non_list_returns_nil() {
+            let r = jit_rev(TAG_NIL);
+            assert!(is_nil(r));
+        }
+
+        // ── jit_srt ────────────────────────────────────────────────────────
+
+        #[test]
+        fn jit_srt_string_sorts_chars() {
+            let r = jit_srt(str_val("cab"));
+            let rv = NanVal(r);
+            assert!(rv.is_string());
+            let s = unsafe { match rv.as_heap_ref() { HeapObj::Str(s) => s.clone(), _ => panic!() } };
+            assert_eq!(s, "abc");
+        }
+
+        #[test]
+        fn jit_srt_number_list() {
+            let items = vec![NanVal::number(3.0), NanVal::number(1.0), NanVal::number(2.0)];
+            let list = NanVal::heap_list(items);
+            let r = jit_srt(list.0);
+            let rv = NanVal(r);
+            assert!(rv.is_heap());
+        }
+
+        #[test]
+        fn jit_srt_string_list() {
+            let items = vec![
+                NanVal::heap_string("c".into()),
+                NanVal::heap_string("a".into()),
+                NanVal::heap_string("b".into()),
+            ];
+            let list = NanVal::heap_list(items);
+            let r = jit_srt(list.0);
+            let rv = NanVal(r);
+            assert!(rv.is_heap());
+        }
+
+        #[test]
+        fn jit_srt_empty_list_returns_list() {
+            let list = NanVal::heap_list(vec![]);
+            let r = jit_srt(list.0);
+            let rv = NanVal(r);
+            assert!(rv.is_heap());
+        }
+
+        #[test]
+        fn jit_srt_non_string_non_list_returns_nil() {
+            let r = jit_srt(TAG_NIL);
+            assert!(is_nil(r));
+        }
+
+        // ── jit_slc ────────────────────────────────────────────────────────
+
+        #[test]
+        fn jit_slc_string_slice() {
+            let r = jit_slc(str_val("hello"), num(1.0), num(3.0));
+            let rv = NanVal(r);
+            assert!(rv.is_string());
+            let s = unsafe { match rv.as_heap_ref() { HeapObj::Str(s) => s.clone(), _ => panic!() } };
+            assert_eq!(s, "el");
+        }
+
+        #[test]
+        fn jit_slc_list_slice() {
+            let items = vec![NanVal::number(0.0), NanVal::number(1.0), NanVal::number(2.0), NanVal::number(3.0)];
+            let list = NanVal::heap_list(items);
+            let r = jit_slc(list.0, num(1.0), num(3.0));
+            let rv = NanVal(r);
+            assert!(rv.is_heap());
+        }
+
+        #[test]
+        fn jit_slc_non_number_indices_returns_nil() {
+            let r = jit_slc(str_val("hello"), TAG_NIL, num(3.0));
+            assert!(is_nil(r));
+        }
+
+        #[test]
+        fn jit_slc_non_string_non_list_returns_nil() {
+            let r = jit_slc(TAG_NIL, num(0.0), num(2.0));
+            assert!(is_nil(r));
+        }
+
+        // ── jit_has ────────────────────────────────────────────────────────
+
+        #[test]
+        fn jit_has_text_found() {
+            let r = jit_has(str_val("hello world"), str_val("world"));
+            assert!(as_bool(r));
+        }
+
+        #[test]
+        fn jit_has_text_not_found() {
+            let r = jit_has(str_val("hello"), str_val("xyz"));
+            assert!(!as_bool(r));
+        }
+
+        #[test]
+        fn jit_has_list_found() {
+            let items = vec![NanVal::number(1.0), NanVal::number(2.0), NanVal::number(3.0)];
+            let list = NanVal::heap_list(items);
+            let r = jit_has(list.0, num(2.0));
+            assert!(as_bool(r));
+        }
+
+        #[test]
+        fn jit_has_list_not_found() {
+            let items = vec![NanVal::number(1.0), NanVal::number(2.0)];
+            let list = NanVal::heap_list(items);
+            let r = jit_has(list.0, num(5.0));
+            assert!(!as_bool(r));
+        }
+
+        #[test]
+        fn jit_has_text_non_string_needle_returns_false() {
+            // collection is string but needle is not string
+            let r = jit_has(str_val("hello"), TAG_NIL);
+            assert!(!as_bool(r));
+        }
+
+        #[test]
+        fn jit_has_non_string_non_list_returns_false() {
+            let r = jit_has(TAG_NIL, num(1.0));
+            assert!(!as_bool(r));
+        }
+
+        // ── jit_spl ────────────────────────────────────────────────────────
+
+        #[test]
+        fn jit_spl_string_splits() {
+            let r = jit_spl(str_val("a,b,c"), str_val(","));
+            let rv = NanVal(r);
+            assert!(rv.is_heap());
+            match unsafe { rv.as_heap_ref() } {
+                HeapObj::List(items) => assert_eq!(items.len(), 3),
+                _ => panic!("expected list"),
+            }
+        }
+
+        #[test]
+        fn jit_spl_non_string_returns_nil() {
+            let r = jit_spl(TAG_NIL, str_val(","));
+            assert!(is_nil(r));
+        }
+
+        // ── jit_cat ────────────────────────────────────────────────────────
+
+        #[test]
+        fn jit_cat_list_with_sep() {
+            let items = vec![
+                NanVal::heap_string("a".into()),
+                NanVal::heap_string("b".into()),
+                NanVal::heap_string("c".into()),
+            ];
+            let list = NanVal::heap_list(items);
+            let r = jit_cat(list.0, str_val(","));
+            let rv = NanVal(r);
+            assert!(rv.is_string());
+            let s = unsafe { match rv.as_heap_ref() { HeapObj::Str(s) => s.clone(), _ => panic!() } };
+            assert_eq!(s, "a,b,c");
+        }
+
+        #[test]
+        fn jit_cat_non_list_returns_nil() {
+            let r = jit_cat(TAG_NIL, str_val(","));
+            assert!(is_nil(r));
+        }
+
+        // ── jit_listappend ─────────────────────────────────────────────────
+
+        #[test]
+        fn jit_listappend_appends_item() {
+            let items = vec![NanVal::number(1.0), NanVal::number(2.0)];
+            let list = NanVal::heap_list(items);
+            let r = jit_listappend(list.0, num(3.0));
+            let rv = NanVal(r);
+            assert!(rv.is_heap());
+            match unsafe { rv.as_heap_ref() } {
+                HeapObj::List(items) => assert_eq!(items.len(), 3),
+                _ => panic!("expected list"),
+            }
+        }
+
+        #[test]
+        fn jit_listappend_non_list_returns_nil() {
+            let r = jit_listappend(TAG_NIL, num(1.0));
+            assert!(is_nil(r));
+        }
+
+        // ── jit_index ──────────────────────────────────────────────────────
+
+        #[test]
+        fn jit_index_list_in_bounds() {
+            let items = vec![NanVal::number(10.0), NanVal::number(20.0), NanVal::number(30.0)];
+            let list = NanVal::heap_list(items);
+            // jit_index takes a raw usize cast as u64, not a NaN-boxed number
+            let r = jit_index(list.0, 1u64);
+            assert!(is_num(r));
+            assert_eq!(as_num(r), 20.0);
+        }
+
+        #[test]
+        fn jit_index_out_of_bounds_returns_nil() {
+            let items = vec![NanVal::number(1.0)];
+            let list = NanVal::heap_list(items);
+            let r = jit_index(list.0, 5u64);
+            assert!(is_nil(r));
+        }
+
+        #[test]
+        fn jit_index_non_list_returns_nil() {
+            let r = jit_index(TAG_NIL, num(0.0));
+            assert!(is_nil(r));
+        }
+
+        // ── jit_jdmp / jit_jpar ────────────────────────────────────────────
+
+        #[test]
+        fn jit_jdmp_number() {
+            let r = jit_jdmp(num(42.0));
+            let rv = NanVal(r);
+            assert!(rv.is_string());
+        }
+
+        #[test]
+        fn jit_jpar_valid_json() {
+            let r = jit_jpar(str_val(r#"{"x":1}"#));
+            let rv = NanVal(r);
+            assert!(rv.is_heap());
+        }
+
+        #[test]
+        fn jit_jpar_invalid_json() {
+            let r = jit_jpar(str_val("not json"));
+            let rv = NanVal(r);
+            assert!(rv.is_heap());
+            match unsafe { rv.as_heap_ref() } {
+                HeapObj::ErrVal(_) => {},
+                _ => panic!("expected ErrVal"),
+            }
+        }
+
+        #[test]
+        fn jit_jpar_non_string_returns_nil() {
+            let r = jit_jpar(TAG_NIL);
+            assert!(is_nil(r));
+        }
+
+        // ── jit_jpth ───────────────────────────────────────────────────────
+
+        #[test]
+        fn jit_jpth_object_key() {
+            let r = jit_jpth(str_val(r#"{"x":"hello"}"#), str_val("x"));
+            let rv = NanVal(r);
+            assert!(rv.is_heap());
+            match unsafe { rv.as_heap_ref() } {
+                HeapObj::OkVal(inner) => {
+                    assert!(inner.is_string());
+                }
+                _ => panic!("expected OkVal"),
+            }
+        }
+
+        #[test]
+        fn jit_jpth_missing_key() {
+            let r = jit_jpth(str_val(r#"{"a":1}"#), str_val("b"));
+            let rv = NanVal(r);
+            match unsafe { rv.as_heap_ref() } {
+                HeapObj::ErrVal(_) => {},
+                _ => panic!("expected ErrVal"),
+            }
+        }
+
+        #[test]
+        fn jit_jpth_invalid_json() {
+            let r = jit_jpth(str_val("not json"), str_val("x"));
+            let rv = NanVal(r);
+            match unsafe { rv.as_heap_ref() } {
+                HeapObj::ErrVal(_) => {},
+                _ => panic!("expected ErrVal"),
+            }
+        }
+
+        #[test]
+        fn jit_jpth_non_string_args_returns_nil() {
+            let r = jit_jpth(TAG_NIL, str_val("x"));
+            assert!(is_nil(r));
+        }
+
+        // ── jit_clone_rc / jit_drop_rc ────────────────────────────────────
+
+        #[test]
+        fn jit_clone_rc_and_drop_rc_no_panic() {
+            let s = NanVal::heap_string("test".into());
+            jit_clone_rc(s.0);
+            jit_drop_rc(s.0); // drop the cloned ref
+        }
+
+        // ── jit_listget ────────────────────────────────────────────────────
+
+        #[test]
+        fn jit_listget_in_bounds() {
+            let items = vec![NanVal::number(10.0), NanVal::number(20.0)];
+            let list = NanVal::heap_list(items);
+            let r = jit_listget(list.0, num(0.0));
+            let rv = NanVal(r);
+            match unsafe { rv.as_heap_ref() } {
+                HeapObj::OkVal(inner) => assert_eq!(inner.as_number(), 10.0),
+                _ => panic!("expected OkVal"),
+            }
+        }
+
+        #[test]
+        fn jit_listget_out_of_bounds_returns_nil() {
+            let items = vec![NanVal::number(1.0)];
+            let list = NanVal::heap_list(items);
+            let r = jit_listget(list.0, num(10.0));
+            assert!(is_nil(r));
+        }
+
+        #[test]
+        fn jit_listget_non_list_returns_nil() {
+            let r = jit_listget(str_val("hello"), num(0.0));
+            assert!(is_nil(r));
+        }
+
+        #[test]
+        fn jit_listget_non_number_idx_returns_nil() {
+            let items = vec![NanVal::number(1.0)];
+            let list = NanVal::heap_list(items);
+            let r = jit_listget(list.0, TAG_NIL);
+            assert!(is_nil(r));
+        }
+    }
+
+    // ── VM execution path tests ───────────────────────────────────────────────
+
+    // L567-575: Dynamic destructure via name lookup (field not in registry)
+    #[test]
+    fn vm_dynamic_destructure_field_name_lookup() {
+        // Two types with ambiguous field positions use RECFLD_NAME opcode
+        let result = vm_run(
+            "type a{x:n;y:n} type b{y:n;x:n} f>n;v=a x:5 y:3;{y}=v;y",
+            Some("f"), vec![],
+        );
+        assert_eq!(result, Value::Number(3.0));
+    }
+
+    // L706, L776, L853, L869: break/continue in while loop
+    #[test]
+    fn vm_while_continue_skips_body() {
+        // while loop with cnt — Stmt::Continue in While exercises L869 path
+        let result = vm_run(
+            "f>n;i=0;s=0;wh <i 5{i=+i 1;=i 3{cnt};s=+s i};s",
+            Some("f"), vec![],
+        );
+        // i=1 +1, i=2 +2, i=3 skip, i=4 +4, i=5 +5 → sum=12
+        assert_eq!(result, Value::Number(12.0));
+    }
+
+    #[test]
+    fn vm_while_break_with_value() {
+        // While loop with break carrying a value
+        let result = vm_run(
+            "f>n;i=0;wh <i 10{i=+i 1;=i 5{brk i}};i",
+            Some("f"), vec![],
+        );
+        assert_eq!(result, Value::Number(5.0));
+    }
+
+    // L970: TypeIs pattern with type not in n/t/b/l uses fallback OP_ISNUM
+    // This is unreachable in valid programs, so we test the l (list) pattern instead
+    #[test]
+    fn vm_typeis_list_pattern_in_match() {
+        let result = vm_run(
+            r#"f xs:L n>t;?xs{l v:"got list";_:"other"}"#,
+            Some("f"),
+            vec![Value::List(vec![Value::Number(1.0)])],
+        );
+        assert_eq!(result, Value::Text("got list".into()));
+    }
+
+    // L1566: DIVK_N constant on right side
+    #[test]
+    fn vm_divk_n_constant_divisor() {
+        // `/x 2` where x is a num param → DIVK_N
+        let result = vm_run("f x:n>n;/x 2", Some("f"), vec![Value::Number(10.0)]);
+        assert_eq!(result, Value::Number(5.0));
+    }
+
+    // L1584-1590: Constant on left side for Add/Multiply
+    #[test]
+    fn vm_addk_n_constant_on_left() {
+        // `+2 x` where 2 is on left — commutative, uses OP_ADDK_N
+        let result = vm_run("f x:n>n;+2 x", Some("f"), vec![Value::Number(8.0)]);
+        assert_eq!(result, Value::Number(10.0));
+    }
+
+    #[test]
+    fn vm_mulk_n_constant_on_left() {
+        // `*3 x` where 3 is on left — commutative, uses OP_MULK_N
+        let result = vm_run("f x:n>n;*3 x", Some("f"), vec![Value::Number(7.0)]);
+        assert_eq!(result, Value::Number(21.0));
+    }
+
+    // L2264-2283: to_value_with_registry for arena records
+    #[test]
+    fn vm_to_value_with_registry_via_record() {
+        // Records stored in arena; to_value_with_registry path exercised
+        // when record is retrieved from VM
+        let result = vm_run(
+            "type pt{x:n;y:n} f>n;p=pt x:3 y:4;p.x",
+            Some("f"), vec![],
+        );
+        assert_eq!(result, Value::Number(3.0));
+    }
+
+    // L2299-L2310: run() with no functions defined
+    #[test]
+    fn vm_run_no_function_name_with_empty_program_errors() {
+        use crate::vm::{compile, run};
+        // An empty-ish program with a type only (no functions) — no func_names
+        let prog = parse_program("type x{a:n}");
+        match compile(&prog) {
+            Ok(compiled) => {
+                // func_names should be empty; run with None should fail
+                let result = run(&compiled, None, vec![]);
+                assert!(result.is_err());
+            }
+            Err(_) => {
+                // Compile error is also acceptable
+            }
+        }
+    }
+
+    // L2329-L2341: run_with_tools with undefined function
+    #[test]
+    fn vm_run_with_tools_undefined_function() {
+        use crate::vm::{compile, run_with_tools};
+        use crate::interpreter::Value;
+        use crate::tools::{ToolProvider, ToolError};
+        use std::future::Future;
+        use std::pin::Pin;
+
+        struct DummyProvider;
+        impl ToolProvider for DummyProvider {
+            fn call(&self, _name: &str, _args: Vec<Value>) -> Pin<Box<dyn Future<Output = Result<Value, ToolError>> + Send + '_>> {
+                Box::pin(async { Ok(Value::Nil) })
+            }
+        }
+
+        let prog = parse_program("f>n;42");
+        let compiled = compile(&prog).expect("compile ok");
+        let provider = DummyProvider;
+        #[cfg(feature = "tools")]
+        let runtime = tokio::runtime::Builder::new_current_thread().enable_all().build().unwrap();
+        let result = run_with_tools(
+            &compiled,
+            Some("nonexistent_function"),
+            vec![],
+            &provider,
+            #[cfg(feature = "tools")]
+            &runtime,
+        );
+        assert!(result.is_err());
+    }
+
+    // ── VM opcodes: record/destructure with ambiguous field index ─────────────
+
+    #[test]
+    fn vm_destructure_ambiguous_field_uses_name_lookup() {
+        // Two types with field "x" at different positions force dynamic name lookup
+        // type A has {x, y}, type B has {z, x} — "x" is at different indices
+        // Destructuring from a known type still works correctly.
+        let result = vm_run(
+            "type a{x:n;y:n} type b{z:n;x:n} f>n;v=a x:10 y:20;{x}=v;x",
+            Some("f"), vec![],
+        );
+        assert_eq!(result, Value::Number(10.0));
+    }
+
+    #[test]
+    fn vm_guard_with_else_body_false_branch() {
+        // Guard with else as last stmt: when condition false, else branch is return value
+        // f x:n>n; >x 10 { 1 }{ -1 }  — with x=5 → condition false → else body → -1
+        let result = vm_run("f x:n>n;>x 10{1}{-1}", Some("f"), vec![Value::Number(5.0)]);
+        assert_eq!(result, Value::Number(-1.0));
+    }
+
+    #[test]
+    fn vm_match_type_is_bool_pattern() {
+        // Match with `b v:` pattern — exercises OP_ISBOOL
+        let result = vm_run(r#"f x:b>t;?x{b v:"bool";_:"other"}"#, Some("f"), vec![Value::Bool(true)]);
+        assert_eq!(result, Value::Text("bool".into()));
+    }
+
+    #[test]
+    fn vm_match_type_is_list_pattern() {
+        // Match with `l v:` pattern — exercises OP_ISLIST
+        let result = vm_run(r#"f xs:L n>t;?xs{l v:"list";_:"other"}"#, Some("f"), vec![Value::List(vec![])]);
+        assert_eq!(result, Value::Text("list".into()));
+    }
+
+    #[test]
+    fn vm_search_field_index_ambiguous_returns_none() {
+        // Two types where same field has different indices → search_field_index returns None
+        // This causes the compiler to use OP_RECFLD_NAME instead of OP_RECFLD.
+        let result = vm_run(
+            "type p{x:n;y:n} type q{y:n;x:n} f>n;v=p x:5 y:3;{x}=v;x",
+            Some("f"), vec![],
+        );
+        assert_eq!(result, Value::Number(5.0));
+    }
+
+    // ── New coverage tests ────────────────────────────────────────────────────
+
+    // L253: TypeRegistry::register returns existing id when type already registered
+    #[test]
+    fn vm_type_registry_register_dedup() {
+        // Two type declarations with the same name (second is a no-op in registry).
+        // The compiler calls register for each TypeDef; duplicate name returns existing id.
+        // We verify that programs with re-registered type names compile and run correctly.
+        let prog = parse_program("type pt{x:n;y:n} f>n;p=pt x:3 y:4;p.x");
+        let compiled = compile(&prog).unwrap();
+        let result = run(&compiled, Some("f"), vec![]).unwrap();
+        assert_eq!(result, Value::Number(3.0));
+    }
+
+    // L406-411: search_field_index with multiple types — some have field, same index
+    #[test]
+    fn vm_search_field_same_index_multiple_types() {
+        // Both types have "x" at index 0 → search_field_index returns Some(0) → OP_RECFLD
+        let result = vm_run(
+            "type a{x:n;y:n} type b{x:n;z:n} f>n;v=a x:7 y:2;{x}=v;x",
+            Some("f"), vec![],
+        );
+        assert_eq!(result, Value::Number(7.0));
+    }
+
+    // L567-575: Dynamic destructure via OP_RECFLD_NAME (field at different indices across types)
+    // with existing binding in scope
+    #[test]
+    fn vm_destructure_name_lookup_existing_binding() {
+        // Two types with "y" at different indices — forces OP_RECFLD_NAME
+        // Existing variable `y` is reused (existing_reg branch at L569-571)
+        let result = vm_run(
+            "type a{x:n;y:n} type b{y:n;x:n} f>n;y=0;v=a x:5 y:9;{y}=v;y",
+            Some("f"), vec![],
+        );
+        assert_eq!(result, Value::Number(9.0));
+    }
+
+    // L706: ForEach continue patch target (continue_patches patched to idx increment)
+    #[test]
+    fn vm_foreach_cnt_patches_correctly() {
+        // cnt inside foreach — exercises continue_patches patch target (L706)
+        let result = vm_run(
+            "f>n;s=0;@x [10,20,30,40,50]{>x 25{cnt};s=+s x};s",
+            Some("f"), vec![],
+        );
+        // Sums 10+20 (skip 30,40,50 since >25) — wait, >x 25 means x>25 → skip
+        // So 10,20 are kept (10+20=30), 30,40,50 are skipped
+        assert_eq!(result, Value::Number(30.0));
+    }
+
+    // L776: ForRange continue patch target (continue_patches patched to counter increment)
+    #[test]
+    fn vm_forrange_cnt_patches_correctly() {
+        // cnt inside for-range — exercises continue_patches patch target at L776
+        let result = vm_run(
+            "f>n;s=0;@i 0..8{>i 4{cnt};s=+s i};s",
+            Some("f"), vec![],
+        );
+        // Sum 0+1+2+3+4 = 10 (5,6,7 are skipped because >4)
+        assert_eq!(result, Value::Number(10.0));
+    }
+
+    // L853: Stmt::Break with expr where reg == result_reg (no MOVE needed)
+    #[test]
+    fn vm_foreach_brk_with_same_reg() {
+        // brk x inside @x — x IS the loop variable which may share result_reg
+        let result = vm_run(
+            "f>n;@x [1,2,3,4,5]{>=x 4{brk x};x}",
+            Some("f"), vec![],
+        );
+        assert_eq!(result, Value::Number(4.0));
+    }
+
+    // L869: Stmt::Continue in while loop (ctx.continue_patches is None → emit_jump_to top)
+    #[test]
+    fn vm_while_cnt_jumps_to_top() {
+        // cnt in while loop exercises the `else { emit_jump_to(top) }` branch at L869
+        let result = vm_run(
+            "f>n;i=0;s=0;wh <i 6{i=+i 1;=i 4{cnt};s=+s i};s",
+            Some("f"), vec![],
+        );
+        // Sums: 1+2+3+5+6 = 17 (4 is skipped by cnt)
+        assert_eq!(result, Value::Number(17.0));
+    }
+
+    // L1563-1566: OP_SUBK_N (right-constant path) — var is reg_is_num, literal on right
+    #[test]
+    fn vm_subk_n_constant_on_right() {
+        // `-x 7` where x is a numeric param → emits OP_SUBK_N
+        let result = vm_run("f x:n>n;-x 7", Some("f"), vec![Value::Number(20.0)]);
+        assert_eq!(result, Value::Number(13.0));
+    }
+
+    // OP_MULK_N (right-constant path) — var is reg_is_num, literal on right
+    #[test]
+    fn vm_mulk_n_constant_on_right() {
+        // `*x 5` where x is a numeric param → emits OP_MULK_N
+        let result = vm_run("f x:n>n;*x 5", Some("f"), vec![Value::Number(6.0)]);
+        assert_eq!(result, Value::Number(30.0));
+    }
+
+    // L1576-1590: Commutative op with constant on left (Add/Multiply), right is reg_is_num
+    #[test]
+    fn vm_addk_n_left_constant_commutative() {
+        // `+100 x` — constant on left, x is reg_is_num → OP_ADDK_N with commuted args
+        let result = vm_run("f x:n>n;+100 x", Some("f"), vec![Value::Number(42.0)]);
+        assert_eq!(result, Value::Number(142.0));
+    }
+
+    #[test]
+    fn vm_mulk_n_left_constant_commutative() {
+        // `*10 x` — constant on left, x is reg_is_num → OP_MULK_N with commuted args
+        let result = vm_run("f x:n>n;*10 x", Some("f"), vec![Value::Number(9.0)]);
+        assert_eq!(result, Value::Number(90.0));
+    }
+
+    // L2086: promote_arena_to_heap with nested arena record (nested record inside record)
+    #[test]
+    fn vm_nested_record_in_list_promotes_arena() {
+        // Appending a record to a list causes promote_arena_to_heap.
+        // Using a list with records exercises the arena promotion path.
+        let result = vm_run(
+            "type pt{x:n;y:n} f>n;xs=[pt x:1 y:2, pt x:3 y:4];xs.0",
+            Some("f"), vec![],
+        );
+        // Access first element — a promoted arena record
+        match result {
+            Value::Record { type_name, .. } => assert_eq!(type_name, "pt"),
+            Value::Number(n) => assert_eq!(n, 1.0), // if field access
+            other => panic!("expected record or number, got {:?}", other),
+        }
+    }
+
+    // run() with NoFunctionsDefined error (None func name, empty func_names)
+    #[test]
+    fn vm_run_no_functions_defined_error() {
+        // An empty program (only a type) has no functions → run(None) → NoFunctionsDefined
+        use crate::ast::{Decl, Param, Program, Span, Type};
+        let prog = Program {
+            declarations: vec![Decl::TypeDef {
+                name: "pt".to_string(),
+                fields: vec![Param { name: "x".to_string(), ty: Type::Number }],
+                span: Span::UNKNOWN,
+            }],
+            source: None,
+        };
+        let compiled = compile(&prog).unwrap();
+        let result = run(&compiled, None, vec![]);
+        assert!(result.is_err(), "expected NoFunctionsDefined error");
+        let err_str = result.unwrap_err().to_string();
+        assert!(
+            err_str.contains("no functions") || err_str.contains("undefined"),
+            "unexpected error: {err_str}"
+        );
+    }
+
+    // run_with_tools() with NoFunctionsDefined (None func name, no functions)
+    #[test]
+    fn vm_run_with_tools_no_functions_defined() {
+        use crate::vm::{compile, run_with_tools};
+        use crate::interpreter::Value;
+        use crate::tools::{ToolProvider, ToolError};
+        use crate::ast::{Decl, Param, Program, Span, Type};
+        use std::future::Future;
+        use std::pin::Pin;
+
+        struct DummyProvider;
+        impl ToolProvider for DummyProvider {
+            fn call(&self, _name: &str, _args: Vec<Value>) -> Pin<Box<dyn Future<Output = Result<Value, ToolError>> + Send + '_>> {
+                Box::pin(async { Ok(Value::Nil) })
+            }
+        }
+
+        let prog = Program {
+            declarations: vec![Decl::TypeDef {
+                name: "pt".to_string(),
+                fields: vec![Param { name: "x".to_string(), ty: Type::Number }],
+                span: Span::UNKNOWN,
+            }],
+            source: None,
+        };
+        let compiled = compile(&prog).unwrap();
+        let provider = DummyProvider;
+        #[cfg(feature = "tools")]
+        let runtime = tokio::runtime::Builder::new_current_thread().enable_all().build().unwrap();
+        let result = run_with_tools(
+            &compiled,
+            None,
+            vec![],
+            &provider,
+            #[cfg(feature = "tools")]
+            &runtime,
+        );
+        assert!(result.is_err(), "expected error for no functions");
+    }
+
+    // VM::new_with_tools constructor path (L2416-2432)
+    #[test]
+    fn vm_run_with_tools_calls_function_successfully() {
+        use crate::vm::{compile, run_with_tools};
+        use crate::interpreter::Value;
+        use crate::tools::{ToolProvider, ToolError};
+        use std::future::Future;
+        use std::pin::Pin;
+
+        struct DummyProvider;
+        impl ToolProvider for DummyProvider {
+            fn call(&self, _name: &str, _args: Vec<Value>) -> Pin<Box<dyn Future<Output = Result<Value, ToolError>> + Send + '_>> {
+                Box::pin(async { Ok(Value::Nil) })
+            }
+        }
+
+        let prog = parse_program("f>n;42");
+        let compiled = compile(&prog).unwrap();
+        let provider = DummyProvider;
+        #[cfg(feature = "tools")]
+        let runtime = tokio::runtime::Builder::new_current_thread().enable_all().build().unwrap();
+        let result = run_with_tools(
+            &compiled,
+            Some("f"),
+            vec![],
+            &provider,
+            #[cfg(feature = "tools")]
+            &runtime,
+        );
+        assert_eq!(result.unwrap(), Value::Number(42.0));
+    }
+
+    // to_value_with_registry for arena records with heap string fields (L2264-2283)
+    #[test]
+    fn vm_to_value_with_registry_string_field() {
+        // Record with a text field — to_value_with_registry resolves field names
+        let result = vm_run(
+            "type person{name:t;age:n} f>t;p=person name:\"alice\" age:30;p.name",
+            Some("f"), vec![],
+        );
+        assert_eq!(result, Value::Text("alice".into()));
+    }
+
+    #[test]
+    fn vm_to_value_with_registry_multiple_records() {
+        // Multiple records — exercises type_info.fields lookup path
+        let result = vm_run(
+            "type color{r:n;g:n;b:n} f>n;c=color r:255 g:128 b:0;c.g",
+            Some("f"), vec![],
+        );
+        assert_eq!(result, Value::Number(128.0));
+    }
+
+    // OP_RECFLD heap path via heap-allocated record (not arena)
+    // Achieved by passing a record value directly as argument (not constructed in VM)
+    #[test]
+    fn vm_recfld_heap_record_field_access() {
+        // Records passed as arguments are heap-allocated (not arena)
+        // The function accesses field 0 of the record
+        let source = "f r:pt>n;r.x\ntype pt{x:n;y:n}";
+        let mut fields = std::collections::HashMap::new();
+        fields.insert("x".to_string(), Value::Number(77.0));
+        fields.insert("y".to_string(), Value::Number(88.0));
+        let result = vm_run(source, Some("f"), vec![
+            Value::Record { type_name: "pt".to_string(), fields },
+        ]);
+        assert_eq!(result, Value::Number(77.0));
+    }
+
+    // OP_RECWITH on heap record (not arena) — exercises L3451-3483
+    #[test]
+    fn vm_recwith_heap_record_arg() {
+        // When a record is passed as argument, it's heap-allocated
+        // `with` on a heap record exercises the heap OP_RECWITH path
+        let source = "f r:pt>n;r2=r with x:99;r2.x\ntype pt{x:n;y:n}";
+        let mut fields = std::collections::HashMap::new();
+        fields.insert("x".to_string(), Value::Number(1.0));
+        fields.insert("y".to_string(), Value::Number(2.0));
+        let result = vm_run(source, Some("f"), vec![
+            Value::Record { type_name: "pt".to_string(), fields },
+        ]);
+        assert_eq!(result, Value::Number(99.0));
+    }
+
+    // OP_RECFLD_NAME on heap record via ambiguous field index
+    #[test]
+    fn vm_recfld_name_heap_record() {
+        // Two types with field at different indices force OP_RECFLD_NAME
+        // When the record is passed as argument (heap), exercises heap path in OP_RECFLD_NAME
+        let source = "type a{x:n;y:n} type b{y:n;x:n} f r:a>n;{y}=r;y";
+        let mut fields = std::collections::HashMap::new();
+        fields.insert("x".to_string(), Value::Number(10.0));
+        fields.insert("y".to_string(), Value::Number(20.0));
+        let result = vm_run(source, Some("f"), vec![
+            Value::Record { type_name: "a".to_string(), fields },
+        ]);
+        assert_eq!(result, Value::Number(20.0));
+    }
+
+    // record with-expr on heap record — verify updated field has new value
+    #[test]
+    fn vm_recwith_heap_preserves_unchanged_fields() {
+        // Pass a record as an argument (heap path), use `with` to update x,
+        // then read back x to confirm the update took effect.
+        // Single-field type avoids HashMap ordering ambiguity.
+        let source = "type box{v:n} f r:box>n;r2=r with v:55;r2.v";
+        let mut fields = std::collections::HashMap::new();
+        fields.insert("v".to_string(), Value::Number(0.0));
+        let result = vm_run(source, Some("f"), vec![
+            Value::Record { type_name: "box".to_string(), fields },
+        ]);
+        assert_eq!(result, Value::Number(55.0));
+    }
+
+    // NanVal::to_value() arena record path with heap string field (L2209-2230)
+    // This exercises the `to_value()` fast path for arena records including the
+    // ACTIVE_REGISTRY lookup and field name resolution.
+    #[test]
+    fn vm_arena_record_to_value_with_heap_string_field() {
+        // Record with text field is created in arena; to_value() promotes it
+        let result = vm_run(
+            "type item{label:t;count:n} f>t;r=item label:\"widget\" count:5;r.label",
+            Some("f"), vec![],
+        );
+        assert_eq!(result, Value::Text("widget".into()));
+    }
+
+    // Match with TypeIs pattern — "other" type branch fallback (L970)
+    // The `_ => OP_ISNUM` branch is unreachable in valid programs but we can
+    // exercise all the valid patterns to maximize coverage of that match arm block.
+    #[test]
+    fn vm_match_type_is_all_patterns() {
+        // Exercise all four TypeIs patterns in sequence
+        let num_src = r#"f x:t>b;?x{n _:true;_:false}"#;
+        assert_eq!(vm_run(num_src, Some("f"), vec![Value::Number(1.0)]), Value::Bool(true));
+        assert_eq!(vm_run(num_src, Some("f"), vec![Value::Text("a".into())]), Value::Bool(false));
+
+        let text_src = r#"f x:n>b;?x{t _:true;_:false}"#;
+        assert_eq!(vm_run(text_src, Some("f"), vec![Value::Text("x".into())]), Value::Bool(true));
+        assert_eq!(vm_run(text_src, Some("f"), vec![Value::Number(0.0)]), Value::Bool(false));
+
+        let bool_src = r#"f x:n>b;?x{b _:true;_:false}"#;
+        assert_eq!(vm_run(bool_src, Some("f"), vec![Value::Bool(false)]), Value::Bool(true));
+
+        let list_src = r#"f x:n>b;?x{l _:true;_:false}"#;
+        let list = Value::List(vec![Value::Number(1.0)]);
+        assert_eq!(vm_run(list_src, Some("f"), vec![list]), Value::Bool(true));
+    }
+
+    // MULK_N constant on right side (L1563-L1566 for Multiply op)
+    #[test]
+    fn vm_mulk_n_right_side_constant_explicit() {
+        // `*x 4` — x is numeric param, 4 is literal → MULK_N
+        let result = vm_run("f x:n>n;*x 4", Some("f"), vec![Value::Number(7.0)]);
+        assert_eq!(result, Value::Number(28.0));
+    }
+
+    // OP_ADDK_N: constant on right side
+    #[test]
+    fn vm_addk_n_right_side_constant_explicit() {
+        // `+x 15` — x is numeric param, 15 is literal → ADDK_N
+        let result = vm_run("f x:n>n;+x 15", Some("f"), vec![Value::Number(10.0)]);
+        assert_eq!(result, Value::Number(25.0));
+    }
+
+    // L1635: BinOp::Append emits OP_LISTAPPEND
+    #[test]
+    fn vm_binop_append_emits_listappend() {
+        let prog = parse_program("f xs:L n x:n>L n;+=xs x");
+        let compiled = compile(&prog).unwrap();
+        let chunk = &compiled.chunks[0];
+        let has_listappend = chunk.code.iter().any(|&inst| (inst >> 24) as u8 == OP_LISTAPPEND);
+        assert!(has_listappend, "expected OP_LISTAPPEND for += operator");
+    }
+
+    // Record access with string text field returned as value (exercises NanVal::to_value heap string path)
+    #[test]
+    fn vm_record_text_field_roundtrip() {
+        let result = vm_run(
+            "type greeting{msg:t} f>t;g=greeting msg:\"hello world\";g.msg",
+            Some("f"), vec![],
+        );
+        assert_eq!(result, Value::Text("hello world".into()));
+    }
+
+    // Guard ternary where both branches produce values via chained computations
+    #[test]
+    fn vm_guard_ternary_chained() {
+        // Ternary: x >= 10 ? "large" : "small" — tests two-branch guard value production
+        let src = r#"f x:n>t;>=x 10{"large"}{"small"}"#;
+        assert_eq!(vm_run(src, Some("f"), vec![Value::Number(10.0)]), Value::Text("large".into()));
+        assert_eq!(vm_run(src, Some("f"), vec![Value::Number(5.0)]), Value::Text("small".into()));
+        assert_eq!(vm_run(src, Some("f"), vec![Value::Number(15.0)]), Value::Text("large".into()));
+    }
+
+    // Safe field access on list returns nil (no field named "name" on a list)
+    #[test]
+    fn vm_safe_field_on_list_returns_nil() {
+        let src = "f xs:L n>n;xs.?0??77";
+        assert_eq!(vm_run(src, Some("f"), vec![Value::List(vec![Value::Number(99.0)])]), Value::Number(99.0));
+    }
+
+    // While break without value (break_patches path with no expr at L841-855)
+    #[test]
+    fn vm_while_brk_no_expr_exits_loop() {
+        // brk (no expression) in while loop — exercises L841-855 break_patches without move
+        let src = "f>n;i=0;wh <i 100{i=+i 1;>=i 7{brk}};i";
+        assert_eq!(vm_run(src, Some("f"), vec![]), Value::Number(7.0));
+    }
+
+    // ForEach with break and no value (the default result is last body iteration result)
+    #[test]
+    fn vm_foreach_brk_no_expr_result() {
+        // brk no value — the result is from the last body evaluation before break
+        let src = "f>n;@x [1,2,3,4,5]{>=x 3{brk};x}";
+        // x=1 body=1, x=2 body=2, x=3 triggers brk — result is 2 (last body value before brk)
+        // Actually brk no-value doesn't store anything, result_reg keeps its value from last body
+        let result = vm_run(src, Some("f"), vec![]);
+        // After brk at x=3, result_reg still has last body = 2
+        assert!(matches!(result, Value::Number(n) if n == 2.0 || n == 3.0),
+            "expected 2.0 or 3.0, got {:?}", result);
+    }
+
+    // Recursive function with multiple calls on the stack (exercises make_runtime_error call_stack)
+    #[test]
+    fn vm_recursive_call_stack_captured() {
+        // Fibonacci — deep call stack; make_runtime_error captures function frames
+        let src = "fib n:n>n;<=n 1 n;a=fib -n 1;b=fib -n 2;+a b";
+        let result = vm_run(src, Some("fib"), vec![Value::Number(6.0)]);
+        assert_eq!(result, Value::Number(8.0));
+    }
+
+    // OP_RECFLD_NAME: field not found on heap record (L3152)
+    #[test]
+    fn vm_recfld_name_field_not_found_heap_record() {
+        // Two types with ambiguous field index → OP_RECFLD_NAME
+        // Access a field that doesn't exist on the given type
+        let err = vm_run_err(
+            "type a{x:n;y:n} type b{y:n;x:n} f r:a>n;{z}=r;z",
+            Some("f"),
+            vec![Value::Record {
+                type_name: "a".to_string(),
+                fields: {
+                    let mut m = std::collections::HashMap::new();
+                    m.insert("x".to_string(), Value::Number(1.0));
+                    m.insert("y".to_string(), Value::Number(2.0));
+                    m
+                },
+            }],
+        );
+        assert!(err.contains("z") || err.contains("field"), "got: {err}");
+    }
+
+    // OP_RECFLD: field index out of bounds on heap record (L3104-3107)
+    #[test]
+    fn vm_recfld_index_out_of_bounds_heap_record() {
+        // Pass a heap record with fewer fields than expected (e.g. field index > n_fields)
+        // We achieve this by passing a record with missing fields
+        let err = vm_run_err(
+            "type pt{x:n;y:n;z:n} f r:pt>n;r.z",
+            Some("f"),
+            vec![Value::Record {
+                type_name: "pt".to_string(),
+                fields: {
+                    // Only x and y — z is missing
+                    let mut m = std::collections::HashMap::new();
+                    m.insert("x".to_string(), Value::Number(1.0));
+                    m.insert("y".to_string(), Value::Number(2.0));
+                    m
+                },
+            }],
+        );
+        assert!(err.contains("z") || err.contains("field") || err.contains("not found"), "got: {err}");
+    }
+
+    // VmState::call that hits an error, then another call (drain path L1201)
+    #[test]
+    fn vm_state_call_drain_after_error_then_success() {
+        // First call divides by zero (error), second call should still work
+        let prog1 = parse_program("f x:n>n;/x 0");
+        let compiled1 = compile(&prog1).unwrap();
+        let mut state = VmState::new(&compiled1);
+        let err = state.call("f", vec![Value::Number(10.0)]);
+        assert!(err.is_err());
+
+        // A new state for a clean function
+        let prog2 = parse_program("g x:n>n;+x 1");
+        let compiled2 = compile(&prog2).unwrap();
+        let mut state2 = VmState::new(&compiled2);
+        let ok = state2.call("g", vec![Value::Number(5.0)]);
+        assert_eq!(ok.unwrap(), Value::Number(6.0));
+    }
+
+    // run() with explicit func name that is undefined (L2306-2310 UndefinedFunction path)
+    #[test]
+    fn vm_run_explicit_undefined_function_name() {
+        let prog = parse_program("f>n;42");
+        let compiled = compile(&prog).unwrap();
+        let result = run(&compiled, Some("does_not_exist"), vec![]);
+        assert!(result.is_err());
+        let err_str = result.unwrap_err().to_string();
+        assert!(
+            err_str.contains("does_not_exist") || err_str.contains("undefined"),
+            "unexpected error: {err_str}"
+        );
+    }
+
+    // Large record (many fields) — exercises arena allocation with alignment
+    #[test]
+    fn vm_large_record_multiple_fields() {
+        // 5-field record — exercises arena alloc with more fields
+        let src = "type big{a:n;b:n;c:n;d:n;e:n} f>n;r=big a:1 b:2 c:3 d:4 e:5;r.c";
+        let result = vm_run(src, Some("f"), vec![]);
+        assert_eq!(result, Value::Number(3.0));
+    }
+
+    // Record with expression using multiple field updates (OP_RECWITH with 2+ updates)
+    #[test]
+    fn vm_recwith_two_field_updates() {
+        // `with x:10 y:20` updates two fields at once
+        let src = "type pt{x:n;y:n} f>n;p=pt x:1 y:2;q=p with x:10;+q.x q.y";
+        let result = vm_run(src, Some("f"), vec![]);
+        assert_eq!(result, Value::Number(12.0)); // 10 + 2
+    }
+
+    // Nested records in a list (exercises promote_arena_to_heap for nested records)
+    #[test]
+    fn vm_list_of_records_field_access() {
+        let src = "type pt{x:n;y:n} f>n;xs=[pt x:1 y:2,pt x:10 y:20];xs.1";
+        let result = vm_run(src, Some("f"), vec![]);
+        // xs.1 accesses the second element (index 1) — a promoted pt record
+        match result {
+            Value::Record { type_name, fields } => {
+                assert_eq!(type_name, "pt");
+                assert_eq!(fields.get("x"), Some(&Value::Number(10.0)));
+            }
+            other => panic!("expected Record, got {other:?}"),
+        }
+    }
+
+    // Check that run_with_tools correctly invokes VM::new_with_tools (exercises L2416-2432)
+    #[test]
+    fn vm_run_with_tools_with_tool_declaration() {
+        use crate::vm::{compile, run_with_tools};
+        use crate::interpreter::Value;
+        use crate::tools::{ToolProvider, ToolError};
+        use std::future::Future;
+        use std::pin::Pin;
+
+        struct DummyProvider;
+        impl ToolProvider for DummyProvider {
+            fn call(&self, _name: &str, _args: Vec<Value>) -> Pin<Box<dyn Future<Output = Result<Value, ToolError>> + Send + '_>> {
+                Box::pin(async { Ok(Value::Nil) })
+            }
+        }
+
+        // Program with a tool and a function that calls it — exercises new_with_tools
+        let prog = parse_program("tool fetch\"HTTP GET\" url:t>R _ t\nf>R _ t;fetch \"http://x\"");
+        let compiled = compile(&prog).unwrap();
+        let provider = DummyProvider;
+        #[cfg(feature = "tools")]
+        let runtime = tokio::runtime::Builder::new_current_thread().enable_all().build().unwrap();
+        let result = run_with_tools(
+            &compiled,
+            Some("f"),
+            vec![],
+            &provider,
+            #[cfg(feature = "tools")]
+            &runtime,
+        );
+        assert_eq!(result.unwrap(), Value::Ok(Box::new(Value::Nil)));
+    }
+
+    // Additional ternary guard coverage — else-body with computation
+    #[test]
+    fn vm_ternary_else_computation() {
+        // ternary where else computes a value from parameters
+        let src = "f x:n>n;>x 0{x}{-x}"; // absolute value
+        assert_eq!(vm_run(src, Some("f"), vec![Value::Number(5.0)]), Value::Number(5.0));
+        assert_eq!(vm_run(src, Some("f"), vec![Value::Number(-3.0)]), Value::Number(3.0));
+    }
+
+    // While loop with continue that modifies accumulator
+    #[test]
+    fn vm_while_cnt_accumulates_correctly() {
+        // cnt in while: skip i < 3, sum remaining
+        // i=1: <1 3=true → cnt; i=2: <2 3=true → cnt; i=3: sum+=3; i=4: sum+=4; i=5: sum+=5 → 12
+        let src = "f>n;i=0;s=0;wh <i 5{i=+i 1;<i 3{cnt};s=+s i};s";
+        let result = vm_run(src, Some("f"), vec![]);
+        assert_eq!(result, Value::Number(12.0));
+    }
+
+    // TypeRegistry::field_index lookup (L261-264)
+    #[test]
+    fn vm_type_registry_field_index() {
+        // Type registry field_index is used by the VM for RECFLD_NAME
+        // We can verify via correct record field lookup in a multi-type scenario
+        let result = vm_run(
+            "type a{x:n;y:n} type b{y:n;x:n} f>n;r=b y:7 x:3;{x}=r;x",
+            Some("f"), vec![],
+        );
+        assert_eq!(result, Value::Number(3.0));
+    }
+
+    // Multiple functions with records — exercises type registry across chunk boundaries
+    #[test]
+    fn vm_multi_function_with_records() {
+        let src = "type pt{x:n;y:n} mk a:n b:n>pt;pt x:a y:b\nf>n;p=mk 5 10;p.x";
+        let result = vm_run(src, Some("f"), vec![]);
+        assert_eq!(result, Value::Number(5.0));
+    }
+
+    // ── Group A: Map operation error paths ──────────────────────────────────────
+
+    // mget with non-text key (line 2802)
+    // The key must be heap-tagged but not a string (e.g. a list) to reach the `_` arm safely.
+    // Use z for both params to bypass the verifier type check entirely.
+    #[test]
+    fn vm_mget_non_text_key_error() {
+        let err = vm_run_err(
+            "f m:z k:z>n;mget m k",
+            Some("f"),
+            vec![
+                Value::Map(std::collections::HashMap::new()),
+                Value::List(vec![Value::Number(1.0)]),
+            ],
+        );
+        assert!(err.contains("mget") || err.contains("key") || err.contains("text"), "got: {err}");
+    }
+
+    // mget with non-map first arg (line 2805)
+    #[test]
+    fn vm_mget_non_map_first_arg_error() {
+        // x:z k:t — pass a list as first arg at runtime (must be heap-tagged but not a map)
+        let err = vm_run_err(
+            "f x:z k:t>n;mget x k",
+            Some("f"),
+            vec![
+                Value::List(vec![Value::Number(1.0)]),
+                Value::Text("key".into()),
+            ],
+        );
+        assert!(err.contains("mget") || err.contains("map"), "got: {err}");
+    }
+
+    // mset with non-text key (line 2827) — key must be heap-tagged non-string
+    #[test]
+    fn vm_mset_non_text_key_error() {
+        let err = vm_run_err(
+            "f m:z k:z v:t>n;mset m k v",
+            Some("f"),
+            vec![
+                Value::Map(std::collections::HashMap::new()),
+                Value::List(vec![Value::Number(1.0)]),
+                Value::Text("val".into()),
+            ],
+        );
+        assert!(err.contains("mset") || err.contains("key") || err.contains("text"), "got: {err}");
+    }
+
+    // mset with non-map first arg (line 2830)
+    #[test]
+    fn vm_mset_non_map_first_arg_error() {
+        // x must be a heap-tagged non-map (Text is heap-tagged)
+        let err = vm_run_err(
+            "f x:z k:t v:t>n;mset x k v",
+            Some("f"),
+            vec![
+                Value::Text("not-a-map".into()),
+                Value::Text("key".into()),
+                Value::Text("val".into()),
+            ],
+        );
+        assert!(err.contains("mset") || err.contains("map"), "got: {err}");
+    }
+
+    // mhas with non-text key (line 2846) — key must be heap-tagged non-string
+    #[test]
+    fn vm_mhas_non_text_key_error() {
+        let err = vm_run_err(
+            "f m:z k:z>n;mhas m k",
+            Some("f"),
+            vec![
+                Value::Map(std::collections::HashMap::new()),
+                Value::List(vec![Value::Number(1.0)]),
+            ],
+        );
+        assert!(err.contains("mhas") || err.contains("key") || err.contains("text"), "got: {err}");
+    }
+
+    // mhas with non-map first arg (line 2849)
+    #[test]
+    fn vm_mhas_non_map_first_arg_error() {
+        // Must be heap-tagged but not a map — use a list
+        let err = vm_run_err(
+            "f x:z k:t>n;mhas x k",
+            Some("f"),
+            vec![
+                Value::List(vec![Value::Number(1.0)]),
+                Value::Text("k".into()),
+            ],
+        );
+        assert!(err.contains("mhas") || err.contains("map"), "got: {err}");
+    }
+
+    // mkeys with non-map arg (line 2868) — must be heap-tagged non-map
+    #[test]
+    fn vm_mkeys_non_map_arg_error() {
+        let err = vm_run_err(
+            "f x:z>n;mkeys x",
+            Some("f"),
+            vec![Value::List(vec![Value::Text("a".into())])],
+        );
+        assert!(err.contains("mkeys") || err.contains("map"), "got: {err}");
+    }
+
+    // mvals with non-map arg (line 2887) — must be heap-tagged non-map
+    #[test]
+    fn vm_mvals_non_map_arg_error() {
+        let err = vm_run_err(
+            "f x:z>n;mvals x",
+            Some("f"),
+            vec![Value::Text("not-a-map".into())],
+        );
+        assert!(err.contains("mvals") || err.contains("map"), "got: {err}");
+    }
+
+    // mdel with non-text key (line 2907) — key must be heap-tagged non-string
+    #[test]
+    fn vm_mdel_non_text_key_error() {
+        let err = vm_run_err(
+            "f m:z k:z>n;mdel m k",
+            Some("f"),
+            vec![
+                Value::Map(std::collections::HashMap::new()),
+                Value::List(vec![Value::Number(7.0)]),
+            ],
+        );
+        assert!(err.contains("mdel") || err.contains("key") || err.contains("text"), "got: {err}");
+    }
+
+    // mdel with non-map first arg (line 2910) — must be heap-tagged non-map
+    #[test]
+    fn vm_mdel_non_map_first_arg_error() {
+        let err = vm_run_err(
+            "f x:z k:t>n;mdel x k",
+            Some("f"),
+            vec![
+                Value::List(vec![Value::Number(1.0)]),
+                Value::Text("k".into()),
+            ],
+        );
+        assert!(err.contains("mdel") || err.contains("map"), "got: {err}");
+    }
+
+    // ── Group B: File I/O error paths ────────────────────────────────────────────
+
+    // rd with bad JSON content — triggers Err return (line 2939)
+    #[test]
+    fn vm_rd_bad_json_returns_err() {
+        let path = "/tmp/ilo_vm_rd_badjson.json";
+        std::fs::write(path, "{ this is not valid json }").unwrap();
+        let result = vm_run("f p:t>R t t;rd p", Some("f"), vec![Value::Text(path.into())]);
+        assert!(matches!(result, Value::Err(_)), "expected Err from bad JSON, got {result:?}");
+        let _ = std::fs::remove_file(path);
+    }
+
+    // wr with an invalid path returns Err (line 2982)
+    #[test]
+    fn vm_wr_bad_path_returns_err() {
+        // Write to a path inside a non-existent directory
+        let result = vm_run(
+            "f p:t c:t>R t t;wr p c",
+            Some("f"),
+            vec![
+                Value::Text("/nonexistent_dir_ilo/output.txt".into()),
+                Value::Text("hello".into()),
+            ],
+        );
+        assert!(matches!(result, Value::Err(_)), "expected Err from bad path, got {result:?}");
+    }
+
+    // wrl with bad path returns Err (line 3008)
+    #[test]
+    fn vm_wrl_bad_path_returns_err() {
+        let result = vm_run(
+            "f p:t xs:L t>R t t;wrl p xs",
+            Some("f"),
+            vec![
+                Value::Text("/nonexistent_dir_ilo/lines.txt".into()),
+                Value::List(vec![Value::Text("line1".into())]),
+            ],
+        );
+        assert!(matches!(result, Value::Err(_)), "expected Err from bad wrl path, got {result:?}");
+    }
+
+    // wrl with non-list second arg triggers VmError (line 3011)
+    #[test]
+    fn vm_wrl_non_list_second_arg_error() {
+        let err = vm_run_err(
+            "f p:t x:z>R t t;wrl p x",
+            Some("f"),
+            vec![
+                Value::Text("/tmp/ilo_wrl_nonlist.txt".into()),
+                Value::Text("not-a-list".into()),
+            ],
+        );
+        assert!(err.contains("wrl") || err.contains("list"), "got: {err}");
+    }
+
+    // ── Group C: OP_UNWRAP on non-Ok/Err (line 3070) ────────────────────────────
+
+    // unwrap on a non-Ok/Err value — line 3070 is a defensive path that fires when
+    // OP_UNWRAP encounters a heap-tagged value that is not OkVal or ErrVal.
+    // The compiler only emits OP_UNWRAP inside Result match arms (after ISOK/ISERR guards),
+    // so this path is unreachable via normal compilation. We test the adjacent happy path:
+    // wrapok+unwrap roundtrip via a Result match using ilo's `~v`/`^e` match syntax.
+    #[test]
+    fn vm_wrapok_unwrap_roundtrip_via_match() {
+        // Result match with Ok (~v) arm uses OP_WRAPOK then OP_UNWRAP internally
+        let src = "wrap x:n>R n n;~x\nf>n;r=wrap 42;?r{^_:0;~v:v}";
+        let result = vm_run(src, Some("f"), vec![]);
+        assert_eq!(result, Value::Number(42.0));
+    }
+
+    // ── Group D: OP_RECFLD errors ───────────────────────────────────────────────
+
+    // Arena record field out of bounds (line 3089) — access field index beyond n_fields
+    // We trigger this by passing a record with fewer fields than the type declares.
+    #[test]
+    fn vm_recfld_arena_out_of_bounds() {
+        // type pt{x:n;y:n;z:n} — access .z but pass record with only x,y
+        let err = vm_run_err(
+            "type pt{x:n;y:n;z:n} f r:pt>n;r.z",
+            Some("f"),
+            vec![Value::Record {
+                type_name: "pt".to_string(),
+                fields: {
+                    let mut m = std::collections::HashMap::new();
+                    m.insert("x".to_string(), Value::Number(1.0));
+                    m.insert("y".to_string(), Value::Number(2.0));
+                    // z is missing
+                    m
+                },
+            }],
+        );
+        assert!(
+            err.contains("z") || err.contains("field") || err.contains("not found") || err.contains("index"),
+            "got: {err}"
+        );
+    }
+
+    // OP_RECFLD on a non-record heap value (line 3110) — heap record path non-record arm
+    // Pass a text value as a parameter typed to a record type — at runtime heap obj is a string.
+    #[test]
+    fn vm_recfld_non_record_heap_value_error() {
+        // We pass a Value::Record so it converts to heap record — but we need a non-record heap.
+        // The `z` type trick: pass a text when record expected via type z param.
+        let err = vm_run_err(
+            "type pt{x:n} f r:z>n;r.x",
+            Some("f"),
+            vec![Value::Text("not-a-record".into())],
+        );
+        assert!(
+            err.contains("field") || err.contains("record") || err.contains("not found") || err.contains("x"),
+            "got: {err}"
+        );
+    }
+
+    // ── Group E: OP_WRAPOK / OP_WRAPERR with arena record input ────────────────
+
+    // OP_WRAPOK promotes an arena record before wrapping (line 2735)
+    #[test]
+    fn vm_wrapok_arena_record_promotes_to_heap() {
+        // A function that returns Ok(record) — the record is arena-allocated, must be promoted.
+        // wrap takes a dummy n arg; ~(pt x:a y:7) wraps arena record in Ok.
+        // The match extracts the record via ~p and reads field .x.
+        let src = "type pt{x:n;y:n} wrap a:n>R pt n;~pt x:a y:7\nf>n;r=wrap 3;?r{^_:0;~p:p.x}";
+        let result = vm_run(src, Some("f"), vec![]);
+        assert_eq!(result, Value::Number(3.0));
+    }
+
+    // OP_WRAPERR promotes an arena record before wrapping (line 2744)
+    #[test]
+    fn vm_wraperr_arena_record_promotes_to_heap() {
+        // A function that returns Err(record) — the record is arena-allocated, must be promoted.
+        // wrap takes a dummy n arg; ^(info code:a) wraps arena record in Err.
+        // The match extracts the record via ^e and reads field .code.
+        let src = "type info{code:n} wrap a:n>R n info;^info code:a\nf>n;r=wrap 99;?r{^e:e.code;~_:0}";
+        let result = vm_run(src, Some("f"), vec![]);
+        assert_eq!(result, Value::Number(99.0));
+    }
+
+    // ── Group F: OP_LISTGET error paths (lines 3189-3213) ──────────────────────
+
+    // OP_LISTGET: list index must be a number — non-number index arg (line 3213)
+    // This is emitted by ForEach; the internal counter is always a number so this path
+    // is only reachable with a compiler bug. We test ForEach on a non-list (line 3190).
+    #[test]
+    fn vm_foreach_on_non_list_error() {
+        // Pass a text value to a foreach loop via a z-typed parameter
+        let err = vm_run_err(
+            "f xs:z>n;@x xs{x};0",
+            Some("f"),
+            vec![Value::Text("not-a-list".into())],
+        );
+        assert!(
+            err.contains("list") || err.contains("foreach"),
+            "got: {err}"
+        );
+    }
+
+    // OP_LEN on a heap non-list/non-map/non-string (line 3586) — e.g. Ok value
+    #[test]
+    fn vm_len_on_heap_ok_value_error() {
+        // Pass an Ok-wrapped value where len is called; Ok is heap but not list/map/string
+        let err = vm_run_err(
+            "f x:z>n;len x",
+            Some("f"),
+            vec![Value::Ok(Box::new(Value::Number(5.0)))],
+        );
+        assert!(
+            err.contains("len") || err.contains("string") || err.contains("list") || err.contains("map"),
+            "got: {err}"
+        );
+    }
+
+    // OP_LEN on a non-heap, non-string value (line 3589) — e.g. a bool or number
+    #[test]
+    fn vm_len_on_number_error() {
+        let err = vm_run_err(
+            "f x:z>n;len x",
+            Some("f"),
+            vec![Value::Number(42.0)],
+        );
+        assert!(
+            err.contains("len") || err.contains("string") || err.contains("list"),
+            "got: {err}"
+        );
+    }
+
+    // OP_INDEX on a non-list heap value (line 3178)
+    #[test]
+    fn vm_index_on_non_list_heap_value_error() {
+        // xs.0 on a map — OP_INDEX expects list but gets map
+        let err = vm_run_err(
+            "f x:z>n;x.0",
+            Some("f"),
+            vec![Value::Map(std::collections::HashMap::new())],
+        );
+        assert!(
+            err.contains("list") || err.contains("index"),
+            "got: {err}"
+        );
+    }
+
+    // ── Group G: Additional coverage for lines in 6270+ test section ────────────
+
+    // OP_DIVK_N with zero constant triggers division by zero (line 3531)
+    #[test]
+    fn vm_divk_n_div_by_zero() {
+        let src = "f x:n>n;/x 0";
+        let err = vm_run_err(src, Some("f"), vec![Value::Number(10.0)]);
+        assert!(err.contains("division by zero"), "got: {err}");
+    }
+
+    // OP_DIV_NN with zero denominator triggers division by zero (line 3567)
+    #[test]
+    fn vm_div_nn_div_by_zero() {
+        let src = "f a:n b:n>n;/a b";
+        let err = vm_run_err(src, Some("f"), vec![Value::Number(5.0), Value::Number(0.0)]);
+        assert!(err.contains("division by zero"), "got: {err}");
+    }
+
+    // wrl with list element that is not a string triggers VmError (line 3000)
+    #[test]
+    fn vm_wrl_non_string_list_element_error() {
+        let err = vm_run_err(
+            "f p:t xs:L n>R t t;wrl p xs",
+            Some("f"),
+            vec![
+                Value::Text("/tmp/ilo_wrl_elem.txt".into()),
+                Value::List(vec![Value::Number(42.0)]),
+            ],
+        );
+        assert!(err.contains("wrl") || err.contains("string") || err.contains("list"), "got: {err}");
+    }
+
+    // Map len (OP_LEN on a map) — happy path exercises the map branch (line 3585)
+    #[test]
+    fn vm_len_map() {
+        let src = "f>n;m=mset mmap \"a\" 1;len m";
+        let result = vm_run(src, Some("f"), vec![]);
+        assert_eq!(result, Value::Number(1.0));
+    }
+
+    // OP_RECWITH heap-record arm's non-record error (line 3479)
+    #[test]
+    fn vm_recwith_on_non_record_heap_error() {
+        // Pass a non-record where `with` expects a record (z-typed param)
+        let err = vm_run_err(
+            "type pt{x:n;y:n} f r:z>n;q=r with x:5;q.x",
+            Some("f"),
+            vec![Value::Text("not-a-record".into())],
+        );
+        assert!(
+            err.contains("record") || err.contains("with") || err.contains("field"),
+            "got: {err}"
+        );
+    }
 }

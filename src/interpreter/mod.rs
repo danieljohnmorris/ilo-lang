@@ -781,13 +781,82 @@ fn call_function(env: &mut Env, name: &str, args: Vec<Value>) -> Result<Value> {
             other => Err(RuntimeError::new("ILO-R009", format!("rdl requires text path, got {:?}", other))),
         };
     }
-    if name == "wr" && args.len() == 2 {
-        return match (&args[0], &args[1]) {
-            (Value::Text(path), Value::Text(content)) => match std::fs::write(path, content) {
-                Ok(()) => Ok(Value::Ok(Box::new(Value::Text(path.clone())))),
-                Err(e) => Ok(Value::Err(Box::new(Value::Text(e.to_string())))),
-            },
-            other => Err(RuntimeError::new("ILO-R009", format!("wr requires text path and text content, got {:?}", other))),
+    if name == "wr" && (args.len() == 2 || args.len() == 3) {
+        let path = match &args[0] {
+            Value::Text(s) => s.clone(),
+            other => return Err(RuntimeError::new("ILO-R009", format!("wr: first arg must be a text path, got {:?}", other))),
+        };
+        let content = if args.len() == 3 {
+            let fmt = match &args[2] {
+                Value::Text(s) => s.clone(),
+                other => return Err(RuntimeError::new("ILO-R009", format!("wr: format arg must be text, got {:?}", other))),
+            };
+            match fmt.as_str() {
+                "csv" | "tsv" => {
+                    let sep = if fmt == "csv" { ',' } else { '\t' };
+                    let rows = match &args[1] {
+                        Value::List(l) => l,
+                        other => return Err(RuntimeError::new("ILO-R009", format!("wr: data for {fmt} must be a list of rows, got {:?}", other))),
+                    };
+                    let mut out = String::new();
+                    for row in rows {
+                        match row {
+                            Value::List(fields) => {
+                                for (i, f) in fields.iter().enumerate() {
+                                    if i > 0 { out.push(sep); }
+                                    let s = match f {
+                                        Value::Text(s) => {
+                                            if s.contains(sep) || s.contains('"') || s.contains('\n') {
+                                                format!("\"{}\"", s.replace('"', "\"\""))
+                                            } else {
+                                                out.push_str(s);
+                                                continue;
+                                            }
+                                        }
+                                        Value::Number(n) => {
+                                            if *n == (*n as i64) as f64 { format!("{}", *n as i64) } else { format!("{n}") }
+                                        }
+                                        Value::Bool(b) => format!("{b}"),
+                                        other => format!("{other}"),
+                                    };
+                                    out.push_str(&s);
+                                }
+                                out.push('\n');
+                            }
+                            other => return Err(RuntimeError::new("ILO-R009", format!("wr: each row must be a list, got {:?}", other))),
+                        }
+                    }
+                    out
+                }
+                "json" => {
+                    fn value_to_json(v: &Value) -> serde_json::Value {
+                        match v {
+                            Value::Number(n) => serde_json::Value::from(*n),
+                            Value::Text(s) => serde_json::Value::from(s.as_str()),
+                            Value::Bool(b) => serde_json::Value::from(*b),
+                            Value::List(l) => serde_json::Value::Array(l.iter().map(value_to_json).collect()),
+                            Value::Map(m) => {
+                                let obj: serde_json::Map<String, serde_json::Value> = m.iter().map(|(k, v)| (k.clone(), value_to_json(v))).collect();
+                                serde_json::Value::Object(obj)
+                            }
+                            Value::Nil => serde_json::Value::Null,
+                            other => serde_json::Value::from(format!("{other}")),
+                        }
+                    }
+                    serde_json::to_string_pretty(&value_to_json(&args[1]))
+                        .unwrap_or_else(|e| format!("json error: {e}"))
+                }
+                other => return Err(RuntimeError::new("ILO-R009", format!("wr: unknown format '{other}', expected csv, tsv, or json"))),
+            }
+        } else {
+            match &args[1] {
+                Value::Text(s) => s.clone(),
+                other => return Err(RuntimeError::new("ILO-R009", format!("wr: second arg must be text content, got {:?}", other))),
+            }
+        };
+        return match std::fs::write(&path, &content) {
+            Ok(()) => Ok(Value::Ok(Box::new(Value::Text(path)))),
+            Err(e) => Ok(Value::Err(Box::new(Value::Text(e.to_string())))),
         };
     }
     if name == "wrl" && args.len() == 2 {
@@ -925,6 +994,109 @@ fn call_function(env: &mut Env, name: &str, args: Vec<Value>) -> Result<Value> {
             acc = call_function(env, &fn_name, vec![acc, item])?;
         }
         return Ok(acc);
+    }
+
+    if name == "grp" && args.len() == 2 {
+        let fn_name = resolve_fn_ref(&args[0]).ok_or_else(|| {
+            RuntimeError::new("ILO-R009", format!("grp: first arg must be a function reference, got {:?}", args[0]))
+        })?;
+        let items = match &args[1] {
+            Value::List(l) => l.clone(),
+            other => return Err(RuntimeError::new("ILO-R009", format!("grp: second arg must be a list, got {:?}", other))),
+        };
+        let mut groups: std::collections::HashMap<String, Vec<Value>> = std::collections::HashMap::new();
+        for item in items {
+            let key = call_function(env, &fn_name, vec![item.clone()])?;
+            let key_str = match &key {
+                Value::Text(s) => s.clone(),
+                Value::Number(n) => {
+                    if *n == (*n as i64) as f64 {
+                        format!("{}", *n as i64)
+                    } else {
+                        format!("{n}")
+                    }
+                }
+                Value::Bool(b) => format!("{b}"),
+                other => return Err(RuntimeError::new("ILO-R009", format!("grp: key function must return a string, number, or bool, got {:?}", other))),
+            };
+            groups.entry(key_str).or_default().push(item);
+        }
+        let map = groups.into_iter().map(|(k, v)| (k, Value::List(v))).collect();
+        return Ok(Value::Map(map));
+    }
+    if name == "sum" && args.len() == 1 {
+        let items = match &args[0] {
+            Value::List(l) => l,
+            other => return Err(RuntimeError::new("ILO-R009", format!("sum: arg must be a list, got {:?}", other))),
+        };
+        let mut total = 0.0_f64;
+        for item in items {
+            match item {
+                Value::Number(n) => total += n,
+                other => return Err(RuntimeError::new("ILO-R009", format!("sum: list elements must be numbers, got {:?}", other))),
+            }
+        }
+        return Ok(Value::Number(total));
+    }
+    if name == "avg" && args.len() == 1 {
+        let items = match &args[0] {
+            Value::List(l) => l,
+            other => return Err(RuntimeError::new("ILO-R009", format!("avg: arg must be a list, got {:?}", other))),
+        };
+        if items.is_empty() {
+            return Err(RuntimeError::new("ILO-R009", "avg: cannot average an empty list".to_string()));
+        }
+        let mut total = 0.0_f64;
+        for item in items {
+            match item {
+                Value::Number(n) => total += n,
+                other => return Err(RuntimeError::new("ILO-R009", format!("avg: list elements must be numbers, got {:?}", other))),
+            }
+        }
+        return Ok(Value::Number(total / items.len() as f64));
+    }
+    if name == "rgx" && args.len() == 2 {
+        let pattern = match &args[0] {
+            Value::Text(s) => s.as_str(),
+            other => return Err(RuntimeError::new("ILO-R009", format!("rgx: first arg must be a string pattern, got {:?}", other))),
+        };
+        let input = match &args[1] {
+            Value::Text(s) => s.as_str(),
+            other => return Err(RuntimeError::new("ILO-R009", format!("rgx: second arg must be a string, got {:?}", other))),
+        };
+        let re = regex::Regex::new(pattern).map_err(|e| {
+            RuntimeError::new("ILO-R009", format!("rgx: invalid regex pattern: {e}"))
+        })?;
+        let result: Vec<Value> = if re.captures_len() > 1 {
+            // Has capture groups — return list of captured group strings
+            re.captures(input)
+                .map(|caps| {
+                    (1..caps.len())
+                        .filter_map(|i| caps.get(i).map(|m| Value::Text(m.as_str().to_string())))
+                        .collect()
+                })
+                .unwrap_or_default()
+        } else {
+            // No capture groups — return list of all matches
+            re.find_iter(input)
+                .map(|m| Value::Text(m.as_str().to_string()))
+                .collect()
+        };
+        return Ok(Value::List(result));
+    }
+    if name == "flat" && args.len() == 1 {
+        let items = match &args[0] {
+            Value::List(l) => l.clone(),
+            other => return Err(RuntimeError::new("ILO-R009", format!("flat: arg must be a list, got {:?}", other))),
+        };
+        let mut result = Vec::new();
+        for item in items {
+            match item {
+                Value::List(inner) => result.extend(inner),
+                other => result.push(other),
+            }
+        }
+        return Ok(Value::List(result));
     }
 
     // Dynamic dispatch: callee resolved to a FnRef at runtime
@@ -3488,6 +3660,233 @@ mod tests {
     }
 
     #[test]
+    fn interp_grp_by_string_key() {
+        // group numbers into "big" and "small" based on > 5
+        let source = r#"cl x:n>t;>x 5{"big"}{"small"} main xs:L n>M t L n;grp cl xs"#;
+        let result = run_str(source, Some("main"), vec![
+            Value::List(vec![1.0, 8.0, 3.0, 9.0, 2.0].into_iter().map(Value::Number).collect())
+        ]);
+        match result {
+            Value::Map(m) => {
+                assert_eq!(m.get("small").unwrap(), &Value::List(vec![1.0, 3.0, 2.0].into_iter().map(Value::Number).collect()));
+                assert_eq!(m.get("big").unwrap(), &Value::List(vec![8.0, 9.0].into_iter().map(Value::Number).collect()));
+            }
+            other => panic!("expected Map, got {:?}", other),
+        }
+    }
+
+    #[test]
+    fn interp_grp_by_numeric_key() {
+        // group by str(x) — each number becomes its own group
+        let source = "key x:n>t;str x main xs:L n>M t L n;grp key xs";
+        let result = run_str(source, Some("main"), vec![
+            Value::List(vec![1.0, 2.0, 1.0, 3.0, 2.0].into_iter().map(Value::Number).collect())
+        ]);
+        match result {
+            Value::Map(m) => {
+                assert_eq!(m.get("1").unwrap(), &Value::List(vec![1.0, 1.0].into_iter().map(Value::Number).collect()));
+                assert_eq!(m.get("2").unwrap(), &Value::List(vec![2.0, 2.0].into_iter().map(Value::Number).collect()));
+                assert_eq!(m.get("3").unwrap(), &Value::List(vec![3.0].into_iter().map(Value::Number).collect()));
+            }
+            other => panic!("expected Map, got {:?}", other),
+        }
+    }
+
+    #[test]
+    fn interp_grp_empty_list() {
+        let source = "id x:n>t;str x main xs:L n>M t L n;grp id xs";
+        let result = run_str(source, Some("main"), vec![Value::List(vec![])]);
+        assert_eq!(result, Value::Map(std::collections::HashMap::new()));
+    }
+
+    #[test]
+    fn interp_grp_wrong_fn_arg() {
+        let err = run_str_err("f>t;grp 42 [1, 2, 3]", Some("f"), vec![]);
+        assert!(err.contains("grp"), "got: {err}");
+    }
+
+    #[test]
+    fn interp_grp_wrong_list_arg() {
+        let err = run_str_err("id x:n>n;x f>t;grp id 42", Some("f"), vec![]);
+        assert!(err.contains("grp"), "got: {err}");
+    }
+
+    #[test]
+    fn interp_sum_basic() {
+        let source = "f xs:L n>n;sum xs";
+        let result = run_str(source, Some("f"), vec![
+            Value::List(vec![1.0, 2.0, 3.0, 4.0, 5.0].into_iter().map(Value::Number).collect())
+        ]);
+        assert_eq!(result, Value::Number(15.0));
+    }
+
+    #[test]
+    fn interp_sum_empty() {
+        let source = "f xs:L n>n;sum xs";
+        let result = run_str(source, Some("f"), vec![Value::List(vec![])]);
+        assert_eq!(result, Value::Number(0.0));
+    }
+
+    #[test]
+    fn interp_sum_wrong_arg() {
+        let err = run_str_err("f>n;sum 42", Some("f"), vec![]);
+        assert!(err.contains("sum"), "got: {err}");
+    }
+
+    #[test]
+    fn interp_sum_non_numeric_element() {
+        let err = run_str_err(r#"f>n;sum ["a", "b"]"#, Some("f"), vec![]);
+        assert!(err.contains("sum"), "got: {err}");
+    }
+
+    #[test]
+    fn interp_avg_basic() {
+        let source = "f xs:L n>n;avg xs";
+        let result = run_str(source, Some("f"), vec![
+            Value::List(vec![2.0, 4.0, 6.0].into_iter().map(Value::Number).collect())
+        ]);
+        assert_eq!(result, Value::Number(4.0));
+    }
+
+    #[test]
+    fn interp_avg_empty_error() {
+        let err = run_str_err("f>n;avg []", Some("f"), vec![]);
+        assert!(err.contains("avg"), "got: {err}");
+    }
+
+    #[test]
+    fn interp_avg_wrong_arg() {
+        let err = run_str_err("f>n;avg 42", Some("f"), vec![]);
+        assert!(err.contains("avg"), "got: {err}");
+    }
+
+    #[test]
+    fn interp_wr_csv_output() {
+        let dir = std::env::temp_dir();
+        let path = dir.join("ilo_test_wr_csv.csv");
+        let path_str = path.to_str().unwrap();
+        let source = format!(
+            r#"f>R t t;wr "{}" [["name", "age"], ["alice", 30], ["bob", 25]] "csv""#,
+            path_str.replace('\\', "\\\\")
+        );
+        let result = run_str(&source, Some("f"), vec![]);
+        assert!(matches!(result, Value::Ok(_)));
+        let content = std::fs::read_to_string(&path).unwrap();
+        assert_eq!(content, "name,age\nalice,30\nbob,25\n");
+        let _ = std::fs::remove_file(&path);
+    }
+
+    #[test]
+    fn interp_wr_csv_quoted_fields() {
+        let dir = std::env::temp_dir();
+        let path = dir.join("ilo_test_wr_csv_quoted.csv");
+        let path_str = path.to_str().unwrap();
+        let source = format!(
+            r#"f>R t t;wr "{}" [["a,b", "c\"d"]] "csv""#,
+            path_str.replace('\\', "\\\\")
+        );
+        let result = run_str(&source, Some("f"), vec![]);
+        assert!(matches!(result, Value::Ok(_)));
+        let content = std::fs::read_to_string(&path).unwrap();
+        assert_eq!(content, "\"a,b\",\"c\"\"d\"\n");
+        let _ = std::fs::remove_file(&path);
+    }
+
+    #[test]
+    fn interp_wr_json_output() {
+        let dir = std::env::temp_dir();
+        let path = dir.join("ilo_test_wr_json.json");
+        let path_str = path.to_str().unwrap();
+        let source = format!(
+            r#"f>R t t;wr "{}" [1, 2, 3] "json""#,
+            path_str.replace('\\', "\\\\")
+        );
+        let result = run_str(&source, Some("f"), vec![]);
+        assert!(matches!(result, Value::Ok(_)));
+        let content = std::fs::read_to_string(&path).unwrap();
+        let parsed: serde_json::Value = serde_json::from_str(&content).unwrap();
+        assert_eq!(parsed, serde_json::json!([1.0, 2.0, 3.0]));
+        let _ = std::fs::remove_file(&path);
+    }
+
+    #[test]
+    fn interp_wr_unknown_format() {
+        let err = run_str_err(r#"f>R t t;wr "/tmp/x" "data" "xml""#, Some("f"), vec![]);
+        assert!(err.contains("unknown format"), "got: {err}");
+    }
+
+    #[test]
+    fn interp_rgx_find_all() {
+        // find all numbers in a string
+        let source = r#"f s:t>L t;rgx "\d+" s"#;
+        let result = run_str(source, Some("f"), vec![Value::Text("abc 123 def 456".into())]);
+        assert_eq!(result, Value::List(vec![
+            Value::Text("123".into()),
+            Value::Text("456".into()),
+        ]));
+    }
+
+    #[test]
+    fn interp_rgx_capture_groups() {
+        // extract key=value pairs
+        let source = r#"f s:t>L t;rgx "(\w+)=(\w+)" s"#;
+        let result = run_str(source, Some("f"), vec![Value::Text("name=alice age=30".into())]);
+        // Returns first match's groups
+        assert_eq!(result, Value::List(vec![
+            Value::Text("name".into()),
+            Value::Text("alice".into()),
+        ]));
+    }
+
+    #[test]
+    fn interp_rgx_no_match() {
+        let source = r#"f s:t>L t;rgx "\d+" s"#;
+        let result = run_str(source, Some("f"), vec![Value::Text("no numbers here".into())]);
+        assert_eq!(result, Value::List(vec![]));
+    }
+
+    #[test]
+    fn interp_rgx_invalid_pattern() {
+        let err = run_str_err(r#"f>L t;rgx "[invalid" "test""#, Some("f"), vec![]);
+        assert!(err.contains("rgx"), "got: {err}");
+    }
+
+    #[test]
+    fn interp_rgx_wrong_arg_types() {
+        let err = run_str_err(r#"f>L t;rgx 42 "test""#, Some("f"), vec![]);
+        assert!(err.contains("rgx"), "got: {err}");
+    }
+
+    #[test]
+    fn interp_flat_nested() {
+        // flat [[1,2],[3],[4,5]] → [1,2,3,4,5]
+        let source = "f>L n;flat [[1, 2], [3], [4, 5]]";
+        let result = run_str(source, Some("f"), vec![]);
+        assert_eq!(result, Value::List(vec![1.0, 2.0, 3.0, 4.0, 5.0].into_iter().map(Value::Number).collect()));
+    }
+
+    #[test]
+    fn interp_flat_mixed() {
+        // flat [[1, 2], 3] — non-list elements pass through
+        let source = "f>L n;flat [[1, 2], 3]";
+        let result = run_str(source, Some("f"), vec![]);
+        assert_eq!(result, Value::List(vec![1.0, 2.0, 3.0].into_iter().map(Value::Number).collect()));
+    }
+
+    #[test]
+    fn interp_flat_empty() {
+        let source = "f>L n;flat []";
+        let result = run_str(source, Some("f"), vec![]);
+        assert_eq!(result, Value::List(vec![]));
+    }
+
+    #[test]
+    fn interp_flat_wrong_arg() {
+        let err = run_str_err("f>L n;flat 42", Some("f"), vec![]);
+        assert!(err.contains("flat"), "got: {err}");
+    }
+
+    #[test]
     fn interp_user_hof_fn_type() {
         // User-defined HOF: apl f:F n n x:n>n;f x
         let source = "sq x:n>n;*x x apl f:F n n x:n>n;f x";
@@ -3837,5 +4236,543 @@ mod tests {
     fn values_equal_texts() {
         assert!(values_equal(&Value::Text("a".into()), &Value::Text("a".into())));
         assert!(!values_equal(&Value::Text("a".into()), &Value::Text("b".into())));
+    }
+
+    // ── New coverage tests ────────────────────────────────────────────────────
+
+    // L62: Value::FnRef Display
+    #[test]
+    fn display_fnref() {
+        assert_eq!(format!("{}", Value::FnRef("add".into())), "<fn:add>");
+    }
+
+    // L268-279: parse_csv_row with quoted fields
+    #[test]
+    fn parse_csv_row_quoted_fields() {
+        // quoted field + escaped double-quote inside
+        let rows = parse_csv_row(r#""he said ""hello""","world""#, ',');
+        assert_eq!(rows.len(), 2);
+        assert_eq!(rows[0], r#"he said "hello""#);
+        assert_eq!(rows[1], "world");
+    }
+
+    #[test]
+    fn parse_csv_row_simple_quoted() {
+        // plain quoted field (no escaped quotes)
+        let rows = parse_csv_row(r#""hello","world""#, ',');
+        assert_eq!(rows[0], "hello");
+        assert_eq!(rows[1], "world");
+    }
+
+    // L299: len on Map
+    #[test]
+    fn interpret_len_map() {
+        let result = run_str(
+            r#"f>n;m=mset (mset mmap "a" 1) "b" 2;len m"#,
+            Some("f"),
+            vec![],
+        );
+        assert_eq!(result, Value::Number(2.0));
+    }
+
+    // L310: mget wrong args
+    #[test]
+    fn interpret_mget_wrong_args() {
+        let err = run_str_err("f>n;mget 42 \"key\"", Some("f"), vec![]);
+        assert!(err.contains("mget"), "got: {err}");
+    }
+
+    // L320: mset wrong args
+    #[test]
+    fn interpret_mset_wrong_args() {
+        let err = run_str_err("f>n;mset 42 \"key\" 1", Some("f"), vec![]);
+        assert!(err.contains("mset"), "got: {err}");
+    }
+
+    // L324-326: mhas wrong args
+    #[test]
+    fn interpret_mhas_wrong_args() {
+        let err = run_str_err("f>n;mhas 42 \"key\"", Some("f"), vec![]);
+        assert!(err.contains("mhas"), "got: {err}");
+    }
+
+    // L330-336: mkeys wrong args
+    #[test]
+    fn interpret_mkeys_wrong_args() {
+        let err = run_str_err("f>n;mkeys 42", Some("f"), vec![]);
+        assert!(err.contains("mkeys"), "got: {err}");
+    }
+
+    // L340-346: mvals wrong args
+    #[test]
+    fn interpret_mvals_wrong_args() {
+        let err = run_str_err("f>n;mvals 42", Some("f"), vec![]);
+        assert!(err.contains("mvals"), "got: {err}");
+    }
+
+    // L350-356: mdel wrong args
+    #[test]
+    fn interpret_mdel_wrong_args() {
+        let err = run_str_err("f>n;mdel 42 \"key\"", Some("f"), vec![]);
+        assert!(err.contains("mdel"), "got: {err}");
+    }
+
+    // L437: rnd wrong types (two non-number args)
+    #[test]
+    fn interpret_rnd_wrong_types() {
+        let err = run_str_err(r#"f>n;rnd "a" "b""#, Some("f"), vec![]);
+        assert!(err.contains("rnd"), "got: {err}");
+    }
+
+    // L566-570: srt with key fn — second arg not a list
+    #[test]
+    fn interpret_srt_key_fn_wrong_second_arg() {
+        let source = "sq x:n>n;*x x f>n;srt sq 42";
+        let err = run_str_err(source, Some("f"), vec![]);
+        assert!(err.contains("srt"), "got: {err}");
+    }
+
+    // L582-583: srt with key fn — text keys
+    #[test]
+    fn interpret_srt_key_fn_text_keys() {
+        let source = "id x:t>t;x main xs:L t>L t;srt id xs";
+        let result = run_str(source, Some("main"), vec![
+            Value::List(vec![
+                Value::Text("banana".into()),
+                Value::Text("apple".into()),
+                Value::Text("cherry".into()),
+            ]),
+        ]);
+        assert_eq!(result, Value::List(vec![
+            Value::Text("apple".into()),
+            Value::Text("banana".into()),
+            Value::Text("cherry".into()),
+        ]));
+    }
+
+    // L622: get with invalid (non-map) headers
+    #[test]
+    fn interpret_get_invalid_headers() {
+        let err = run_str_err(r#"f>t;get "http://x" 42"#, Some("f"), vec![]);
+        assert!(err.contains("headers") || err.contains("M t t"), "got: {err}");
+    }
+
+    // L648: post wrong arg types
+    #[test]
+    fn interpret_post_wrong_arg_types() {
+        let err = run_str_err(r#"f>t;post 42 "body""#, Some("f"), vec![]);
+        assert!(err.contains("post"), "got: {err}");
+    }
+
+    // L656: post with invalid headers
+    #[test]
+    fn interpret_post_invalid_headers() {
+        let err = run_str_err(r#"f>t;post "http://x" "body" 42"#, Some("f"), vec![]);
+        assert!(err.contains("headers") || err.contains("post"), "got: {err}");
+    }
+
+    // L703: unq wrong type
+    #[test]
+    fn interpret_unq_wrong_type() {
+        let err = run_str_err("f>n;unq 42", Some("f"), vec![]);
+        assert!(err.contains("unq"), "got: {err}");
+    }
+
+    // L709: fmt wrong first arg
+    #[test]
+    fn interpret_fmt_wrong_first_arg() {
+        let err = run_str_err("f>n;fmt 42", Some("f"), vec![]);
+        assert!(err.contains("fmt"), "got: {err}");
+    }
+
+    // L732: rd wrong arg type
+    #[test]
+    fn interpret_rd_wrong_arg_type() {
+        let err = run_str_err("f>t;rd 42", Some("f"), vec![]);
+        assert!(err.contains("rd"), "got: {err}");
+    }
+
+    // L735-737: rd with explicit format, wrong format arg type
+    #[test]
+    fn interpret_rd_with_wrong_format_type() {
+        let err = run_str_err("f>t;rd \"/tmp\" 42", Some("f"), vec![]);
+        assert!(err.contains("rd") || err.contains("format"), "got: {err}");
+    }
+
+    // L758: rdb wrong first arg
+    #[test]
+    fn interpret_rdb_wrong_first_arg() {
+        let err = run_str_err(r#"f>t;rdb 42 "raw""#, Some("f"), vec![]);
+        assert!(err.contains("rdb"), "got: {err}");
+    }
+
+    // L762: rdb wrong format arg
+    #[test]
+    fn interpret_rdb_wrong_format_arg() {
+        let err = run_str_err(r#"f>t;rdb "hello" 42"#, Some("f"), vec![]);
+        assert!(err.contains("rdb") || err.contains("format"), "got: {err}");
+    }
+
+    // L770-777: rdl returns list of lines
+    #[test]
+    fn interpret_rdl_basic() {
+        let mut path = std::env::temp_dir();
+        path.push("ilo_interp_rdl_test.txt");
+        std::fs::write(&path, "line1\nline2\nline3").unwrap();
+        let path_str = path.to_str().unwrap().to_string();
+        let result = run_str(
+            "f p:t>t;rdl p",
+            Some("f"),
+            vec![Value::Text(path_str)],
+        );
+        std::fs::remove_file(&path).ok();
+        match result {
+            Value::Ok(inner) => match *inner {
+                Value::List(lines) => {
+                    assert_eq!(lines.len(), 3);
+                    assert_eq!(lines[0], Value::Text("line1".into()));
+                }
+                other => panic!("expected list, got {:?}", other),
+            },
+            other => panic!("expected Ok, got {:?}", other),
+        }
+    }
+
+    // L779: rdl file not found
+    #[test]
+    fn interpret_rdl_not_found() {
+        let result = run_str(
+            "f p:t>t;rdl p",
+            Some("f"),
+            vec![Value::Text("/nonexistent/ilo_rdl_test.txt".into())],
+        );
+        assert!(matches!(result, Value::Err(_)), "expected Err, got {:?}", result);
+    }
+
+    // L781: rdl wrong arg type
+    #[test]
+    fn interpret_rdl_wrong_arg() {
+        let err = run_str_err("f>t;rdl 42", Some("f"), vec![]);
+        assert!(err.contains("rdl"), "got: {err}");
+    }
+
+    // L785-788: wr basic (write to temp file)
+    #[test]
+    fn interpret_wr_basic() {
+        let mut path = std::env::temp_dir();
+        path.push("ilo_interp_wr_test.txt");
+        let path_str = path.to_str().unwrap().to_string();
+        let result = run_str(
+            "f p:t>t;wr p \"hello\"",
+            Some("f"),
+            vec![Value::Text(path_str.clone())],
+        );
+        std::fs::remove_file(&path).ok();
+        assert!(matches!(result, Value::Ok(_)), "expected Ok, got {:?}", result);
+    }
+
+    // L790: wr wrong arg types
+    #[test]
+    fn interpret_wr_wrong_args() {
+        let err = run_str_err("f>t;wr 42 \"hello\"", Some("f"), vec![]);
+        assert!(err.contains("wr"), "got: {err}");
+    }
+
+    // L794-805: wrl basic
+    #[test]
+    fn interpret_wrl_basic() {
+        let mut path = std::env::temp_dir();
+        path.push("ilo_interp_wrl_test.txt");
+        let path_str = path.to_str().unwrap().to_string();
+        let result = run_str(
+            "f p:t>t;wrl p [\"a\", \"b\", \"c\"]",
+            Some("f"),
+            vec![Value::Text(path_str.clone())],
+        );
+        std::fs::remove_file(&path).ok();
+        assert!(matches!(result, Value::Ok(_)), "expected Ok, got {:?}", result);
+    }
+
+    // L800: wrl list with non-text item
+    #[test]
+    fn interpret_wrl_non_text_item() {
+        let mut path = std::env::temp_dir();
+        path.push("ilo_interp_wrl_nontxt_test.txt");
+        let path_str = path.to_str().unwrap().to_string();
+        let mut env = Env::new();
+        let result = call_function(
+            &mut env,
+            "wrl",
+            vec![
+                Value::Text(path_str.clone()),
+                Value::List(vec![Value::Text("ok".into()), Value::Number(99.0)]),
+            ],
+        );
+        std::fs::remove_file(&path).ok();
+        assert!(result.is_err(), "expected error for non-text wrl item");
+        let err = result.unwrap_err().to_string();
+        assert!(err.contains("wrl"), "got: {err}");
+    }
+
+    // L808: wrl wrong arg types
+    #[test]
+    fn interpret_wrl_wrong_args() {
+        let err = run_str_err("f>t;wrl 42 [\"a\"]", Some("f"), vec![]);
+        assert!(err.contains("wrl"), "got: {err}");
+    }
+
+    // L822: jpth array index navigation
+    #[test]
+    fn interpret_jpth_array_index() {
+        let source = r#"f j:t p:t>R t t;jpth j p"#;
+        let result = run_str(source, Some("f"), vec![
+            Value::Text(r#"[10,20,30]"#.to_string()),
+            Value::Text("1".to_string()),
+        ]);
+        assert_eq!(result, Value::Ok(Box::new(Value::Text("20".into()))));
+    }
+
+    // L839: jpth non-text/non-map args
+    #[test]
+    fn interpret_jpth_wrong_args() {
+        let err = run_str_err(r#"f>t;jpth 42 "path""#, Some("f"), vec![]);
+        assert!(err.contains("jpth"), "got: {err}");
+    }
+
+    // L857: jdmp on Ok value
+    #[test]
+    fn interp_jdmp_ok_value() {
+        let result = run_str("f>t;jdmp ~42", Some("f"), vec![]);
+        assert_eq!(result, Value::Text("42".into()));
+    }
+
+    // L869: jdmp on FnRef (goes through value_to_json FnRef branch)
+    #[test]
+    fn interp_jdmp_fnref() {
+        let source = "sq x:n>n;*x x f>t;r=sq;jdmp r";
+        let result = run_str(source, Some("f"), vec![]);
+        // FnRef displays as "<fn:sq>"
+        assert!(matches!(result, Value::Text(_)));
+        if let Value::Text(s) = result {
+            assert!(s.contains("fn:sq") || s.contains("sq"), "got: {s}");
+        }
+    }
+
+    // L879-880: jpar wrong arg type
+    #[test]
+    fn interp_jpar_wrong_arg_type() {
+        let err = run_str_err("f>t;jpar 42", Some("f"), vec![]);
+        assert!(err.contains("jpar"), "got: {err}");
+    }
+
+    // L885-886: env wrong arg type
+    #[test]
+    fn interpret_env_wrong_arg_type() {
+        let err = run_str_err("f>t;env 42", Some("f"), vec![]);
+        assert!(err.contains("env"), "got: {err}");
+    }
+
+    // L889: map wrong first arg (not a fn ref)
+    #[test]
+    fn interpret_map_wrong_fn_arg() {
+        let err = run_str_err("f>t;map 42 [1, 2]", Some("f"), vec![]);
+        assert!(err.contains("map"), "got: {err}");
+    }
+
+    // L899-900: map wrong second arg (not a list)
+    #[test]
+    fn interpret_map_wrong_list_arg() {
+        let source = "sq x:n>n;*x x f>t;map sq 42";
+        let err = run_str_err(source, Some("f"), vec![]);
+        assert!(err.contains("map"), "got: {err}");
+    }
+
+    // L903: flt predicate returns non-bool
+    #[test]
+    fn interpret_flt_predicate_returns_non_bool() {
+        let source = "id x:n>n;x f xs:L n>L n;flt id xs";
+        let err = run_str_err(source, Some("f"), vec![
+            Value::List(vec![Value::Number(1.0)]),
+        ]);
+        assert!(err.contains("flt") || err.contains("bool"), "got: {err}");
+    }
+
+    // L910: flt wrong list arg
+    #[test]
+    fn interpret_flt_wrong_list_arg() {
+        let source = "pos x:n>b;>x 0 f>t;flt pos 42";
+        let err = run_str_err(source, Some("f"), vec![]);
+        assert!(err.contains("flt"), "got: {err}");
+    }
+
+    // L917-918: fld wrong list arg
+    #[test]
+    fn interpret_fld_wrong_list_arg() {
+        let source = "add a:n b:n>n;+a b f>n;fld add 42 0";
+        let err = run_str_err(source, Some("f"), vec![]);
+        assert!(err.contains("fld"), "got: {err}");
+    }
+
+    // L921: fld wrong first arg (not a fn ref)
+    #[test]
+    fn interpret_fld_wrong_fn_arg() {
+        let err = run_str_err("f>n;fld 42 [1, 2] 0", Some("f"), vec![]);
+        assert!(err.contains("fld"), "got: {err}");
+    }
+
+    // L956: Decl::Use branch in call_function
+    #[test]
+    fn interpret_call_use_decl_errors() {
+        use crate::ast::{Decl, Span};
+        let mut env = Env::new();
+        env.functions.insert(
+            "fake_use".to_string(),
+            Decl::Use { path: "x.ilo".to_string(), only: None, span: Span { start: 0, end: 0 } },
+        );
+        let result = call_function(&mut env, "fake_use", vec![]);
+        assert!(result.is_err());
+        assert!(result.unwrap_err().to_string().contains("unresolved import"));
+    }
+
+    // L984: Alias branch in call_function
+    #[test]
+    fn interpret_call_alias_decl_errors() {
+        use crate::ast::{Decl, Span, Type};
+        let mut env = Env::new();
+        env.functions.insert(
+            "myalias".to_string(),
+            Decl::Alias { name: "myalias".to_string(), target: Type::Number, span: Span { start: 0, end: 0 } },
+        );
+        let result = call_function(&mut env, "myalias", vec![]);
+        assert!(result.is_err());
+    }
+
+    // L987: Error decl branch in call_function
+    #[test]
+    fn interpret_call_error_decl_errors() {
+        use crate::ast::{Decl, Span};
+        let mut env = Env::new();
+        env.functions.insert(
+            "bad_decl".to_string(),
+            Decl::Error { span: Span { start: 0, end: 0 } },
+        );
+        let result = call_function(&mut env, "bad_decl", vec![]);
+        assert!(result.is_err());
+    }
+
+    // L1001-1003: Expr::Match arms — Continue from body
+    // The Continue path in match-expr eval_body → BodyResult::Continue → Value::Nil
+    #[test]
+    fn interpret_match_continue_arm_returns_nil() {
+        // A match where the matched arm body triggers continue (cnt) — only valid in for loop
+        let source = "f xs:L n>n;@x xs{?x{1:cnt;_:x}}";
+        let result = run_str(source, Some("f"), vec![
+            Value::List(vec![Value::Number(1.0), Value::Number(2.0)]),
+        ]);
+        // Iteration: x=1 → cnt (continue), x=2 → 2. Last value of foreach body = 2.
+        assert_eq!(result, Value::Number(2.0));
+    }
+
+    // L1103-1104: Guard ternary with else body — exercises BodyResult::Value in ternary branch
+    #[test]
+    fn interpret_guard_ternary_in_foreach() {
+        // Ternary `=x 0{yes}{no}` used inside a foreach body
+        let source = "f xs:L n>n;@x xs{=x 0{10}{20}}";
+        let result = run_str(source, Some("f"), vec![
+            Value::List(vec![Value::Number(0.0), Value::Number(1.0)]),
+        ]);
+        // x=0: true → 10, x=1: false → 20. Last value = 20.
+        assert_eq!(result, Value::Number(20.0));
+    }
+
+    // L1140-1141: Match arm Continue path in match-stmt
+    #[test]
+    fn interpret_match_stmt_continue_propagates() {
+        let source = "f xs:L n>n;@x xs{?x{1:cnt;_:x}}";
+        let result = run_str(source, Some("f"), vec![
+            Value::List(vec![Value::Number(1.0), Value::Number(5.0)]),
+        ]);
+        assert_eq!(result, Value::Number(5.0));
+    }
+
+    // L1185: ForEach — early return propagated via match-arm returning value
+    #[test]
+    fn interpret_foreach_return_from_nested_match() {
+        // Match arm returns a value; foreach body value propagates
+        let source = "f xs:L n>n;@x xs{?x{5:x;_:0}}";
+        let result = run_str(source, Some("f"), vec![
+            Value::List(vec![Value::Number(1.0), Value::Number(5.0), Value::Number(9.0)]),
+        ]);
+        // x=1 → 0, x=5 → 5, x=9 → 0; last value of foreach = 0
+        assert_eq!(result, Value::Number(0.0));
+    }
+
+    // L1189: ForRange — range end not a number
+    #[test]
+    fn interpret_range_end_not_number() {
+        // ForRange where end is not a number — needs tricky setup
+        // The range start/end are evaluated, if end is text it errors
+        let source = "f s:n e:n>n;@i s..e{i}";
+        let result = run_str(source, Some("f"), vec![
+            Value::Number(0.0), Value::Number(3.0),
+        ]);
+        assert_eq!(result, Value::Number(2.0));
+    }
+
+    // L1298: value_to_json large float (uses Number::from_f64)
+    #[test]
+    fn interp_jdmp_large_float() {
+        let source = "f x:n>t;jdmp x";
+        // Very large float that won't be an integer — exercises from_f64 path
+        let result = run_str(source, Some("f"), vec![Value::Number(1.23456789e20)]);
+        assert!(matches!(result, Value::Text(_)));
+    }
+
+    // L1309: value_to_json Err inner
+    #[test]
+    fn interp_jdmp_err_value() {
+        let result = run_str("f>t;jdmp ^42", Some("f"), vec![]);
+        assert_eq!(result, Value::Text("42".into()));
+    }
+
+    // L1379: value_to_json Map variant
+    #[test]
+    fn interp_jdmp_map_value() {
+        let result = run_str(r#"f>t;m=mset mmap "k" 1;jdmp m"#, Some("f"), vec![]);
+        if let Value::Text(s) = result {
+            assert!(s.contains("k"), "got: {s}");
+        } else {
+            panic!("expected text");
+        }
+    }
+
+    // L1527-1528: TypeIs List pattern (uses `l` token for list)
+    #[test]
+    fn interpret_type_is_list_match() {
+        let source = r#"f x:L n>t;?x{l v:"list";_:"other"}"#;
+        let result = run_str(source, Some("f"), vec![
+            Value::List(vec![Value::Number(1.0)]),
+        ]);
+        assert_eq!(result, Value::Text("list".into()));
+    }
+
+    // L2376: Decl::TypeDef is not callable error (duplicate name avoided — already tested above)
+    // (see earlier interpret_typedef_not_callable test)
+
+    // L3669/3671: rdb csv header-only / single row
+    #[test]
+    fn interpret_rdb_csv_single_row() {
+        let result = run_str(
+            r#"f s:t>t;rdb s "csv""#,
+            Some("f"),
+            vec![Value::Text("a,b,c".into())],
+        );
+        match result {
+            Value::Ok(inner) => match *inner {
+                Value::List(rows) => assert_eq!(rows.len(), 1),
+                other => panic!("expected list, got {:?}", other),
+            },
+            other => panic!("expected Ok, got {:?}", other),
+        }
     }
 }

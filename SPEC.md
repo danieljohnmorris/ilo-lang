@@ -263,6 +263,9 @@ Called like functions, compiled to dedicated opcodes.
 | `rdl path` | read file as list of lines | `R (L t) t` |
 | `rdb s fmt` | parse string/buffer in given format — for data from HTTP, env vars, etc. | `R ? t` |
 | `wr path s` | write text to file (overwrite) | `R t t` |
+| `wr path data "csv"` | write list-of-lists as CSV (with proper quoting) | `R t t` |
+| `wr path data "tsv"` | write list-of-lists as TSV | `R t t` |
+| `wr path data "json"` | write any value as pretty JSON | `R t t` |
 | `wrl path xs` | write list of lines to file (joins with `\n`) | `R t t` |
 | `trm s` | trim leading and trailing whitespace | `t` |
 | `spl t sep` | split text by separator | `L t` |
@@ -280,6 +283,11 @@ Called like functions, compiled to dedicated opcodes.
 | `jdmp value` | serialise ilo value to JSON text | `t` |
 | `prnt value` | print value to stdout, return it unchanged (passthrough) | same type |
 | `jpar text` | parse JSON text into ilo values | `R ? t` |
+| `grp fn xs` | group list by key function | `M t (L a)` |
+| `flat xs` | flatten one level of nesting | `L a` |
+| `sum xs` | sum of numeric list (0 for empty) | `n` |
+| `avg xs` | mean of numeric list (error if empty) | `n` |
+| `rgx pat s` | regex: no groups→all matches; groups→first match captures | `L t` |
 | `mmap` | create empty map | `M t _` |
 | `mget m k` | value at key k (nil if missing) | element or nil |
 | `mset m k v` | new map with key k set to v | `M k v` |
