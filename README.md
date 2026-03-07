@@ -20,33 +20,43 @@ AI agents pay three costs per program: generation tokens, error feedback, retrie
 
 ## Install
 
-**Claude Code** (CLI, recommended):
+### Claude Code (CLI, recommended)
 ```bash
 /plugin marketplace add ilo-lang/ilo   # add the marketplace (once)
 /plugin install ilo-lang/ilo           # install the plugin + teach the agent ilo
 ```
 
-**Cowork** (web): Browse Plugins → Add marketplace from GitHub → `ilo-lang/ilo` → install. Binary auto-installs via npm.
+### Cowork (web)
+Browse Plugins → Add marketplace from GitHub → `ilo-lang/ilo` → install. Binary auto-installs via npm.
 
-**npm (Node 20+):**
+### npm / npx (any platform with Node 20+)
 ```bash
-npx ilo-lang 'dbl x:n>n;*x 2' 5
-# or install globally:
-npm i -g ilo-lang
+npx ilo-lang 'dbl x:n>n;*x 2' 5   # run on-demand (no install needed)
+npm i -g ilo-lang                   # or install globally
 ```
 > **Note:** npm/WASM runs interpreter mode only. HTTP builtins (`get`, `$`, `post`) are not available; use the native binary for network access.
 
-**One-liner (macOS / Linux):**
+### macOS / Linux (one-liner)
 ```bash
 curl -fsSL https://raw.githubusercontent.com/ilo-lang/ilo/main/install.sh | sh
 ```
 
-**Direct download (example: macOS Apple Silicon):**
+### Direct download
 ```bash
+# macOS Apple Silicon
 curl -fsSL https://github.com/ilo-lang/ilo/releases/latest/download/ilo-aarch64-apple-darwin -o /usr/local/bin/ilo && chmod +x /usr/local/bin/ilo
+
+# macOS Intel
+curl -fsSL https://github.com/ilo-lang/ilo/releases/latest/download/ilo-x86_64-apple-darwin -o /usr/local/bin/ilo && chmod +x /usr/local/bin/ilo
+
+# Linux x86_64
+curl -fsSL https://github.com/ilo-lang/ilo/releases/latest/download/ilo-x86_64-unknown-linux-gnu -o /usr/local/bin/ilo && chmod +x /usr/local/bin/ilo
+
+# Windows (PowerShell)
+Invoke-WebRequest -Uri https://github.com/ilo-lang/ilo/releases/latest/download/ilo-x86_64-pc-windows-msvc.exe -OutFile ilo.exe
 ```
 
-**From crates.io / source:**
+### From source
 ```bash
 cargo install ilo
 # or from git:
