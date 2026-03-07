@@ -2252,3 +2252,93 @@ fn builtin_alias_no_hint_suppressed() {
     let stderr = String::from_utf8_lossy(&out.stderr);
     assert!(!stderr.contains("hint"), "hints should be suppressed: {stderr}");
 }
+
+// ── Alias coverage: exercise alias resolution in various AST contexts ───────
+
+#[test]
+fn alias_in_guard() {
+    // alias inside guard body (ternary form)
+    let out = ilo()
+        .args(["f x:n>n;>=x 5{floor x}{ceil x}", "7.3"])
+        .output()
+        .expect("failed to run ilo");
+    assert!(out.status.success(), "stderr: {}", String::from_utf8_lossy(&out.stderr));
+    assert_eq!(String::from_utf8_lossy(&out.stdout).trim(), "7");
+}
+
+#[test]
+fn alias_in_guard_else() {
+    // alias in else branch of ternary guard
+    let out = ilo()
+        .args(["f x:n>n;>=x 5{floor x}{ceil x}", "3.2"])
+        .output()
+        .expect("failed to run ilo");
+    assert!(out.status.success(), "stderr: {}", String::from_utf8_lossy(&out.stderr));
+    assert_eq!(String::from_utf8_lossy(&out.stdout).trim(), "4");
+}
+
+#[test]
+fn alias_in_let() {
+    // alias inside a let binding
+    let out = ilo()
+        .args(["f xs:L n>n;n=length xs;n", "5,6,7,8"])
+        .output()
+        .expect("failed to run ilo");
+    assert!(out.status.success(), "stderr: {}", String::from_utf8_lossy(&out.stderr));
+    assert_eq!(String::from_utf8_lossy(&out.stdout).trim(), "4");
+}
+
+#[test]
+fn alias_in_foreach() {
+    // alias inside a foreach body (parens needed for multi-arg call in braces)
+    let out = ilo()
+        .args(["f xs:L n>n;r=0;@x xs{r=+r (floor 1.9)};r", "1,2,3"])
+        .output()
+        .expect("failed to run ilo");
+    assert!(out.status.success(), "stderr: {}", String::from_utf8_lossy(&out.stderr));
+    assert_eq!(String::from_utf8_lossy(&out.stdout).trim(), "3");
+}
+
+#[test]
+fn alias_in_match_stmt() {
+    // alias in match arm body
+    let out = ilo()
+        .args(["f x:n>n;?x{1:(floor 3.7);_:0}", "1"])
+        .output()
+        .expect("failed to run ilo");
+    assert!(out.status.success(), "stderr: {}", String::from_utf8_lossy(&out.stderr));
+    assert_eq!(String::from_utf8_lossy(&out.stdout).trim(), "3");
+}
+
+#[test]
+fn alias_in_list_literal() {
+    // alias call nested inside a list literal
+    let out = ilo()
+        .args(["f x:n>L n;[floor x, ceil x]", "3.5"])
+        .output()
+        .expect("failed to run ilo");
+    assert!(out.status.success(), "stderr: {}", String::from_utf8_lossy(&out.stderr));
+    assert_eq!(String::from_utf8_lossy(&out.stdout).trim(), "[3, 4]");
+}
+
+#[test]
+fn alias_in_binop() {
+    // alias as operand of a binary operation
+    let out = ilo()
+        .args(["f x:n>n;+(floor x) 10", "3.7"])
+        .output()
+        .expect("failed to run ilo");
+    assert!(out.status.success(), "stderr: {}", String::from_utf8_lossy(&out.stderr));
+    assert_eq!(String::from_utf8_lossy(&out.stdout).trim(), "13");
+}
+
+#[test]
+fn alias_in_for_range() {
+    // alias inside a for-range body
+    let out = ilo()
+        .args(["f n:n>n;r=0;@i 0..n{r=+r (floor 1.5)};r", "3"])
+        .output()
+        .expect("failed to run ilo");
+    assert!(out.status.success(), "stderr: {}", String::from_utf8_lossy(&out.stderr));
+    assert_eq!(String::from_utf8_lossy(&out.stdout).trim(), "3");
+}
