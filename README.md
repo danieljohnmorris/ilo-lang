@@ -101,6 +101,7 @@ ilo help lang        # full spec
 
 | | |
 |---|---|
+| **[Installation](https://ilo-lang.ai/docs/installation/)** | All install methods |
 | **[Tutorial](https://ilo-lang.ai/docs/first-program/)** | Write your first program |
 | **[Types & Functions](https://ilo-lang.ai/docs/guide/types-and-functions/)** | Core language guide |
 | **[Prefix Notation](https://ilo-lang.ai/docs/guide/prefix-notation/)** | Why prefix saves tokens |
