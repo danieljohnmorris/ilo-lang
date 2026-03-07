@@ -131,8 +131,8 @@ Future exploration: training on ilo programs and error feedback loops may improv
 ## Running ilo
 
 ```bash
-ilo 'tot p:n q:n r:n>n;s=*p q;t=*s r;+s t' 10 20 30   # → 6200
-ilo program.ilo 10 20 30                                 # from file
+ilo 'tot p:n q:n r:n>n;s=*p q;t=*s r;+s t' 10 20 30  # → 6200
+ilo program.ilo 10 20 30                               # from file
 ```
 
 First arg is code or a file path (auto-detected). Remaining args are passed to the first function. Name a function to select it in multi-function programs:
