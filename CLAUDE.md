@@ -25,13 +25,14 @@ Prefix-notation, strongly-typed, AI-agent-first language. Programs are small, ve
 | `src/tools/` | MCP client, HTTP tool provider |
 | `examples/` | Runnable example programs (also `cargo test` regression suite) |
 | `skills/ilo/` | Agent Skill (Claude Code plugin + cross-platform installer) |
+| `npm/` | npm package (WASM build + Node.js WASI shim for `npx ilo-lang`) |
 | `SPEC.md` | Full language specification |
 | `research/TODO.md` | Planned work |
 
 ## Running
 
 ```bash
-ilo 'fn x:n>n;*x 2' 5          # inline code
+ilo 'dbl x:n>n;*x 2' 5          # inline code
 ilo program.ilo funcname args   # from file
 cargo test                       # full test suite
 ```
@@ -40,4 +41,8 @@ cargo test                       # full test suite
 
 1. Bump `version` in `Cargo.toml`
 2. Commit + tag `vX.Y.Z`
-3. `git push origin main --tags` → triggers `.github/workflows/release.yml` → builds 5 targets and publishes a GitHub Release
+3. `git push origin main --tags` → triggers `.github/workflows/release.yml` → builds 5 native targets + WASM, publishes GitHub Release + npm package
+
+## WASM / npm
+
+`cargo build --target wasm32-wasip1 --release --no-default-features` produces `ilo.wasm` (2.1MB). The `npm/` directory wraps it in a Node.js WASI shim published as `ilo-lang` on npm. Requires `NPM_TOKEN` secret in GitHub repo settings.

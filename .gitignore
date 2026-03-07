@@ -1,4 +1,5 @@
 /target
+npm/ilo.wasm
 .env
 __pycache__/
 research/explorations/test-output.txt

@@ -69,8 +69,35 @@ jobs:
           name: ilo-${{ matrix.target }}
           path: ilo-${{ matrix.target }}*
 
+  build-wasm:
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          sparse-checkout: |
+            src
+            build.rs
+            SPEC.md
+            Cargo.toml
+            Cargo.lock
+
+      - name: Install Rust
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: wasm32-wasip1
+
+      - name: Build WASM
+        run: cargo build --release --target wasm32-wasip1 --no-default-features
+
+      - name: Upload WASM artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: ilo-wasm
+          path: target/wasm32-wasip1/release/ilo.wasm
+
   release:
-    needs: build
+    needs: [build, build-wasm]
     runs-on: ubuntu-latest
 
     steps:
@@ -89,3 +116,30 @@ jobs:
           files: |
             ilo-*
             checksums-sha256.txt
+
+  publish-npm:
+    needs: [build-wasm]
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          sparse-checkout: npm
+
+      - name: Download WASM artifact
+        uses: actions/download-artifact@v4
+        with:
+          name: ilo-wasm
+          path: npm/
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+          registry-url: "https://registry.npmjs.org"
+
+      - name: Publish to npm
+        working-directory: npm
+        run: npm publish --access public
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}

@@ -106,6 +106,13 @@ See [research/JOURNEY.md](research/JOURNEY.md) for the full comparison table, ke
 ```
 Installs the ilo binary automatically and teaches the agent to write ilo. In Cowork, use Browse Plugins → Add marketplace from GitHub → `ilo-lang/ilo`. See [Teaching a model to write ilo](#teaching-a-model-to-write-ilo) for other agents.
 
+**npm (works everywhere Node 20+ is available):**
+```bash
+npx ilo-lang 'dbl x:n>n;*x 2' 5
+# or install globally:
+npm i -g ilo-lang
+```
+
 **One-liner (macOS / Linux):**
 ```bash
 curl -fsSL https://raw.githubusercontent.com/ilo-lang/ilo/main/install.sh | sh
