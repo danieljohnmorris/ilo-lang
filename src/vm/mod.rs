@@ -11308,4 +11308,44 @@ mod tests {
         let src = "type a{x:n;y:n} type b{y:n;x:n} f>n;r=a x:1 y:2;{y}=r;r2=a x:3 y:4;{y}=r2;y";
         assert_eq!(vm_run(src, Some("f"), vec![]), Value::Number(4.0));
     }
+
+    // search_field_index: same field at same index in two types → L408+L411 (Some prev==idx arm)
+    #[test]
+    fn vm_search_field_same_index_arm() {
+        // type a{x:n;y:n} and type b{x:n;z:n}: 'x' is at index 0 in both.
+        // search_field_index("x") → Some(0) for a, then Some(prev=0)==idx=0 for b → L408 arm
+        // Compiler emits OP_RECFLD (unambiguous index) rather than OP_RECFLD_NAME
+        let result = vm_run(
+            "type a{x:n;y:n} type b{x:n;z:n} f>n;r=a x:5 y:10;{x}=r;x",
+            Some("f"), vec![],
+        );
+        assert_eq!(result, Value::Number(5.0));
+    }
+
+    // TypeRegistry::register with duplicate name → early return (L253)
+    #[test]
+    fn vm_type_registry_register_duplicate_name() {
+        // Construct a Program with two TypeDef for the same name.
+        // The compiler calls register() for each TypeDef; second call returns existing id (L253).
+        use crate::ast::{Decl, Param, Program, Span, Type};
+        use crate::vm::compile;
+        let prog = Program {
+            declarations: vec![
+                Decl::TypeDef {
+                    name: "pt".to_string(),
+                    fields: vec![Param { name: "x".to_string(), ty: Type::Number }],
+                    span: Span::UNKNOWN,
+                },
+                Decl::TypeDef {
+                    name: "pt".to_string(), // duplicate — triggers early return at L253
+                    fields: vec![Param { name: "x".to_string(), ty: Type::Number }],
+                    span: Span::UNKNOWN,
+                },
+            ],
+            source: None,
+        };
+        let compiled = compile(&prog).expect("compile ok");
+        // Type "pt" should exist exactly once in the registry
+        assert_eq!(compiled.type_registry.types.len(), 1);
+    }
 }
