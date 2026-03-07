@@ -32,7 +32,7 @@ Discovered during a Claude Code session using ilo as a bash/python replacement. 
 - [x] **Guard-in-loop lint** — verifier emits ILO-W001 when a guard without else appears inside `@`/`wh`/range loops. Suggests ternary `{then}{else}` or `brk`/`cnt` for loop control.
 
 ### DX
-- [ ] **Idiomatic hints on successful runs** — walk the AST after execution and suggest canonical forms. E.g. `(a + b)` → `hint: +a b saves 2 tokens`, `==a b` → `hint: =a b saves 1 token`. Teaches idiomatic ilo as you go. Output channels: **TTY** → stderr (human sees it), **JSON/serv mode** → `"hints"` field in response (LLM sees it), **plain pipe** → nothing. Disable with `-nh` / `--no-hints`.
+- [x] **Idiomatic hints on successful runs** — scans source for non-canonical forms (e.g. `==` → `=`) and emits hints to stderr after execution. TTY → plain text, JSON mode → `{"hints":[...]}`. Disable with `--no-hints` / `-nh`.
 
 ### Nice-to-have
 - [x] **Modulo builtin** — `mod a b` returns remainder. Implemented across verifier, interpreter, and VM with division-by-zero check.
