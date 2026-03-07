@@ -5255,4 +5255,15 @@ mod tests {
         // x=3: match arm _ matches → 3, r=3 → foreach last=3
         assert_eq!(result, Value::Number(3.0));
     }
+
+    // ── BodyResult::Continue in eval_call → Ok(Nil) (line 1128) ─────────────
+
+    #[test]
+    fn interpret_continue_in_function_body_returns_nil() {
+        // cnt at top level of function body → eval_body returns BodyResult::Continue
+        // eval_call L1128: BodyResult::Continue => Ok(Value::Nil)
+        // Verifier rejects this pattern (ILO-T028), but run_str bypasses the verifier
+        let result = run_str("f>_;cnt", Some("f"), vec![]);
+        assert_eq!(result, Value::Nil);
+    }
 }
