@@ -4,7 +4,7 @@
 
 *Token-optimised programming language for AI agents.*
 
-Named from Toki Pona for "tool" ([sona.pona.la/wiki/ilo](https://sona.pona.la/wiki/ilo)).
+Named from [Toki Pona](https://sona.pona.la/wiki/ilo) for "tool".
 
 AI agents pay three costs per program: generation tokens, error feedback, retries. ilo cuts all three: 0.33× the tokens and 0.22× the characters of Python, type-verified before execution.
 
