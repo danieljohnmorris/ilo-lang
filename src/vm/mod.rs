@@ -5988,6 +5988,48 @@ mod tests {
         );
     }
 
+    #[test]
+    fn vm_equals_double_eq_sugar() {
+        // == is sugar for = — both produce the same result
+        let source = "f a:n b:n>b;==a b";
+        assert_eq!(
+            vm_run(source, Some("f"), vec![Value::Number(5.0), Value::Number(5.0)]),
+            Value::Bool(true)
+        );
+        assert_eq!(
+            vm_run(source, Some("f"), vec![Value::Number(5.0), Value::Number(3.0)]),
+            Value::Bool(false)
+        );
+    }
+
+    #[test]
+    fn vm_double_eq_in_guard() {
+        // ==x 3 as a guard condition (sugar for =x 3)
+        let source = "f x:n>t;==x 3{\"match\"};\"nope\"";
+        assert_eq!(
+            vm_run(source, Some("f"), vec![Value::Number(3.0)]),
+            Value::Text("match".to_string())
+        );
+        assert_eq!(
+            vm_run(source, Some("f"), vec![Value::Number(5.0)]),
+            Value::Text("nope".to_string())
+        );
+    }
+
+    #[test]
+    fn vm_assign_equality_with_double_eq() {
+        // e= ==c n: assignment e = (== c n) — space between = and ==
+        let source = "f x:n>t;e= ==x 3;e{\"match\"};\"nope\"";
+        assert_eq!(
+            vm_run(source, Some("f"), vec![Value::Number(3.0)]),
+            Value::Text("match".to_string())
+        );
+        assert_eq!(
+            vm_run(source, Some("f"), vec![Value::Number(5.0)]),
+            Value::Text("nope".to_string())
+        );
+    }
+
     // 5. BinOp::NotEquals — prefix !=a b
     #[test]
     fn vm_not_equals_prefix() {
@@ -6032,7 +6074,7 @@ mod tests {
 
     #[test]
     fn vm_const_fold_equals() {
-        let source = "f>b;x==3 3;x";
+        let source = "f>b;x= ==3 3;x";
         assert_eq!(vm_run(source, Some("f"), vec![]), Value::Bool(true));
     }
 
@@ -6068,7 +6110,7 @@ mod tests {
 
     #[test]
     fn vm_const_fold_bool_eq() {
-        let source = "f>b;x==true true;x";
+        let source = "f>b;x= ==true true;x";
         assert_eq!(vm_run(source, Some("f"), vec![]), Value::Bool(true));
     }
 
