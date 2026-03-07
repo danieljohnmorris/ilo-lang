@@ -133,9 +133,11 @@ Future exploration: training on ilo programs and error feedback loops may improv
 ```bash
 ilo 'tot p:n q:n r:n>n;s=*p q;t=*s r;+s t' 10 20 30  # → 6200
 ilo program.ilo 10 20 30                               # from file
+ilo repl                                               # interactive REPL
+ilo repl -j                                            # REPL with JSON output
 ```
 
-All programs are type-verified before execution. See the [CLI Reference](https://github.com/ilo-lang/ilo/wiki/CLI-Reference) for HOFs, pipes, REPL, output flags, and more.
+All programs are type-verified before execution. See the [CLI Reference](https://github.com/ilo-lang/ilo/wiki/CLI-Reference) for HOFs, pipes, output flags, and more.
 
 ## Language features
 
