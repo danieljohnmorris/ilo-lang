@@ -135,7 +135,7 @@ ilo 'tot p:n q:n r:n>n;s=*p q;t=*s r;+s t' 10 20 30  # → 6200
 ilo program.ilo 10 20 30                               # from file
 ```
 
-All programs are type-verified before execution. See the [CLI Reference](https://github.com/ilo-lang/ilo/wiki/CLI-Reference) for REPL, HOFs, pipes, output flags, and more.
+All programs are type-verified before execution. See the [CLI Reference](https://ilo-lang.ai/docs/reference/cli/) for REPL, HOFs, pipes, output flags, and more.
 
 ## Language features
 
@@ -145,7 +145,7 @@ All programs are type-verified before execution. See the [CLI Reference](https:/
 >=*+a b c 100      # ((a + b) * c) >= 100   saves 7 chars, 3 tokens
 ```
 
-Infix also works: `a + b`, `x * y + 1`. Across 25 expression patterns: **22% fewer tokens, 42% fewer characters** with prefix vs infix. See the [prefix-vs-infix benchmark](https://github.com/ilo-lang/ilo/wiki/Prefix-vs-Infix-Benchmark).
+Infix also works: `a + b`, `x * y + 1`. Across 25 expression patterns: **22% fewer tokens, 42% fewer characters** with prefix vs infix. See the [prefix-vs-infix benchmark](https://ilo-lang.ai/docs/guide/prefix-notation/).
 
 **Auto-unwrap `!`** eliminates Result matching boilerplate:
 ```bash
@@ -157,7 +157,7 @@ ilo 'inner x:n>R n t;~x outer x:n>R n t;~(inner! x)' 42
 # → 42
 ```
 
-For built-ins (HTTP, env, file I/O, data ops, imports) and CLI flags, see the [Tutorial](https://github.com/ilo-lang/ilo/wiki) and [SPEC.md](SPEC.md).
+For built-ins (HTTP, env, file I/O, data ops, imports) and CLI flags, see the [documentation](https://ilo-lang.ai/docs/introduction/) and [SPEC.md](SPEC.md).
 
 ## Integrations
 
@@ -165,7 +165,7 @@ For built-ins (HTTP, env, file I/O, data ops, imports) and CLI flags, see the [T
 
 **MCP servers** (`--mcp mcp.json`) — connect any MCP server; tools are type-checked end-to-end before execution.
 
-See the [Integrations wiki page](https://github.com/ilo-lang/ilo/wiki/Integrations) for full config examples and backend options.
+See the [Integrations docs](https://ilo-lang.ai/docs/integrations/mcp/) for full config examples and backend options.
 
 ## Principles
 
@@ -181,7 +181,7 @@ See [MANIFESTO.md](MANIFESTO.md) for full rationale.
 
 ## Design journey
 
-See the [[Design Journey|https://github.com/ilo-lang/ilo/wiki/Design-Journey]] wiki page — 9 syntax variants, key findings, benchmarks.
+See [MANIFESTO.md](MANIFESTO.md) for the full design rationale.
 
 ## Community
 
@@ -192,12 +192,10 @@ See the [[Design Journey|https://github.com/ilo-lang/ilo/wiki/Design-Journey]] w
 
 | Document | Purpose |
 |----------|---------|
-| [Tutorial](https://github.com/ilo-lang/ilo/wiki) | Step-by-step guide (10 lessons) |
+| [ilo-lang.ai](https://ilo-lang.ai/docs/introduction/) | Guides, reference, and tutorials |
 | [SPEC.md](SPEC.md) | Language specification |
 | [examples/](examples/) | Runnable example programs (also `cargo test` regression suite) |
 | [MANIFESTO.md](MANIFESTO.md) | Design rationale |
-| [Design Journey](https://github.com/ilo-lang/ilo/wiki/Design-Journey) | 9 syntax variants, key findings, benchmarks |
-| [Open Questions](https://github.com/ilo-lang/ilo/wiki/Open-Questions) | Unresolved design questions |
 | [skills/ilo/](skills/ilo/) | Agent Skill (for AI agents) |
 
 ```
