@@ -111,7 +111,7 @@ fn inline_invalid_code_errors() {
 #[test]
 fn file_bare_args_runs_first_func() {
     let out = ilo()
-        .args(["research/explorations/idea9-ultra-dense-short/01-simple-function.ilo", "10", "20", "0.1"])
+        .args(["examples/01-simple-function.ilo", "10", "20", "0.1"])
         .output()
         .expect("failed to run ilo");
     assert!(out.status.success(), "stderr: {}", String::from_utf8_lossy(&out.stderr));
@@ -122,7 +122,7 @@ fn file_bare_args_runs_first_func() {
 #[test]
 fn file_no_args_outputs_ast() {
     let out = ilo()
-        .args(["research/explorations/idea9-ultra-dense-short/01-simple-function.ilo"])
+        .args(["examples/01-simple-function.ilo"])
         .output()
         .expect("failed to run ilo");
     assert!(out.status.success());
