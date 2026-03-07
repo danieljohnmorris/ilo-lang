@@ -205,10 +205,11 @@ ilo 'f x:t>n;*x 2' hello
 #   = note: in function 'f'
 ```
 
-Use `--explain` to get a detailed explanation of any error code:
+Use `--explain` to get a detailed explanation of any error code, or to explain what a program does:
 
 ```bash
-ilo --explain ILO-T004
+ilo --explain ILO-T004              # explain an error code
+ilo 'f x:n>n;*x 2' --explain       # explain what the code does line-by-line
 ```
 
 This matches the manifesto: "verification before execution — all calls resolve, all types align, all dependencies exist."
