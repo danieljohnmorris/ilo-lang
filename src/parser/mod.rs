@@ -4411,4 +4411,206 @@ mod tests {
             _ => panic!("expected function"),
         }
     }
+
+    // ── Coverage: L484 — SumType loop break on param name ────────────────────
+
+    #[test]
+    fn parse_sum_type_stops_at_named_param() {
+        // `S a` collects "a" as variant; `n:n` triggers break at line 484 (ident+colon).
+        let prog = parse_str("f x:S a n:n>n;0");
+        match &prog.declarations[0] {
+            Decl::Function { params, .. } => {
+                assert_eq!(params.len(), 2);
+                match &params[0].ty {
+                    Type::Sum(variants) => assert_eq!(variants, &["a"]),
+                    t => panic!("expected Sum type, got {:?}", t),
+                }
+                assert_eq!(params[1].name, "n");
+            }
+            _ => panic!("expected function"),
+        }
+    }
+
+    // ── Coverage: L510 — FnType loop break on param name ─────────────────────
+
+    #[test]
+    fn parse_fn_type_stops_at_named_param() {
+        // Inside `F n`, after consuming the first `n`, the second `n:` is a named
+        // param (primitive ident + colon) → can_start_type returns true but
+        // the ident+colon guard at line 507-510 breaks the loop.
+        let prog = parse_str("f x:F n n:n>n;0");
+        match &prog.declarations[0] {
+            Decl::Function { params, .. } => {
+                assert_eq!(params.len(), 2);
+                match &params[0].ty {
+                    Type::Fn(param_types, ret) => {
+                        assert!(param_types.is_empty(), "F n should have no param types");
+                        assert!(matches!(ret.as_ref(), Type::Number));
+                    }
+                    t => panic!("expected Fn type, got {:?}", t),
+                }
+            }
+            _ => panic!("expected function"),
+        }
+    }
+
+    // ── Coverage: L534-L540 — can_start_type branches inside FnType ──────────
+
+    #[test]
+    fn parse_fn_type_with_underscore_param() {
+        // `F _ n` — Underscore arg type → can_start_type line 534
+        let prog = parse_str("f cb:F _ n>n;0");
+        match &prog.declarations[0] {
+            Decl::Function { params, .. } => {
+                assert_eq!(params.len(), 1);
+                assert!(matches!(&params[0].ty, Type::Fn(..)));
+            }
+            _ => panic!("expected function"),
+        }
+    }
+
+    #[test]
+    fn parse_fn_type_with_opt_param() {
+        // `F O n n` — OptType arg → can_start_type line 535
+        let prog = parse_str("f cb:F O n n>n;0");
+        match &prog.declarations[0] {
+            Decl::Function { params, .. } => {
+                assert_eq!(params.len(), 1);
+                assert!(matches!(&params[0].ty, Type::Fn(..)));
+            }
+            _ => panic!("expected function"),
+        }
+    }
+
+    #[test]
+    fn parse_fn_type_with_list_param() {
+        // `F L n n` — ListType arg → can_start_type line 536
+        let prog = parse_str("f cb:F L n n>n;0");
+        match &prog.declarations[0] {
+            Decl::Function { params, .. } => {
+                assert_eq!(params.len(), 1);
+                assert!(matches!(&params[0].ty, Type::Fn(..)));
+            }
+            _ => panic!("expected function"),
+        }
+    }
+
+    #[test]
+    fn parse_fn_type_with_map_param() {
+        // `F M t n n` — MapType arg → can_start_type line 537
+        let prog = parse_str("f cb:F M t n n>n;0");
+        match &prog.declarations[0] {
+            Decl::Function { params, .. } => {
+                assert_eq!(params.len(), 1);
+                assert!(matches!(&params[0].ty, Type::Fn(..)));
+            }
+            _ => panic!("expected function"),
+        }
+    }
+
+    #[test]
+    fn parse_fn_type_with_result_param() {
+        // `F R n t n` — ResultType arg → can_start_type line 538
+        let prog = parse_str("f cb:F R n t n>n;0");
+        match &prog.declarations[0] {
+            Decl::Function { params, .. } => {
+                assert_eq!(params.len(), 1);
+                assert!(matches!(&params[0].ty, Type::Fn(..)));
+            }
+            _ => panic!("expected function"),
+        }
+    }
+
+    #[test]
+    fn parse_fn_type_with_sum_param() {
+        // `F S a n` — SumType arg → can_start_type line 539
+        // Sum consumes all idents not followed by colon; "a" and "n" are both variants.
+        let prog = parse_str("f cb:F S a n>n;0");
+        match &prog.declarations[0] {
+            Decl::Function { params, .. } => {
+                assert_eq!(params.len(), 1);
+                assert!(matches!(&params[0].ty, Type::Fn(..)));
+            }
+            _ => panic!("expected function"),
+        }
+    }
+
+    #[test]
+    fn parse_fn_type_with_nested_fn_param() {
+        // `F F n n` — nested FnType arg → can_start_type line 540
+        let prog = parse_str("f cb:F F n n>n;0");
+        match &prog.declarations[0] {
+            Decl::Function { params, .. } => {
+                assert_eq!(params.len(), 1);
+                assert!(matches!(&params[0].ty, Type::Fn(..)));
+            }
+            _ => panic!("expected function"),
+        }
+    }
+
+    // ── Coverage: L677 — is_destructure_pattern returns false ────────────────
+
+    #[test]
+    fn parse_non_ident_inside_brace_is_not_destructure() {
+        // `{42}` at statement start: is_destructure_pattern hits `_ => return false`
+        // at line 677 (Number is not Ident/Semi/RBrace). Falls to expr parse → error.
+        let (_prog, errs) = parse_str_errors("f x:n>n;{42}=x");
+        assert!(!errs.is_empty(), "expected parse error for non-destructure brace");
+    }
+
+    // ── Coverage: L806 — TypeIs lookahead in semi_starts_new_arm (true path) ──
+
+    #[test]
+    fn parse_match_type_is_two_arms() {
+        // After parsing first arm body, `;n z:` triggers semi_starts_new_arm TypeIs
+        // lookahead (after_semi+2 < len, and tokens match ident+colon → line 806 true).
+        let prog = parse_str(r#"f x:n>n;?x{n y: +y 1; n z: *z 2}"#);
+        match &prog.declarations[0] {
+            Decl::Function { body, .. } => {
+                assert!(!body.is_empty());
+                match &body[0].node {
+                    Stmt::Match { arms, .. } => assert_eq!(arms.len(), 2),
+                    s => panic!("expected Match, got {:?}", s),
+                }
+            }
+            _ => panic!("expected function"),
+        }
+    }
+
+    // ── Coverage: L811 — TypeIs lookahead in semi_starts_new_arm (false path) ─
+
+    #[test]
+    fn parse_match_type_is_incomplete_at_eof() {
+        // `;n` at end of token stream — TypeIs arm: after_semi+2 >= len → line 811 false.
+        let (_prog, errs) = parse_str_errors("f x:n>n;?x{n y:1;n");
+        assert!(!errs.is_empty(), "expected parse error for incomplete TypeIs arm");
+    }
+
+    // ── Coverage: L1413 — Token::Dollar in parse_operand (as call argument) ───
+
+    #[test]
+    fn parse_dollar_as_function_argument() {
+        // `foo $url` — Dollar appears as an argument in parse_operand (line 1413),
+        // distinct from `$url` at statement level which uses parse_expr_inner (line 1118).
+        let prog = parse_str(r#"f url:t>t;fetch $url"#);
+        match &prog.declarations[0] {
+            Decl::Function { body, .. } => {
+                assert!(!body.is_empty());
+                match &body[0].node {
+                    Stmt::Expr(Expr::Call { function, args, .. }) => {
+                        assert_eq!(function, "fetch");
+                        assert_eq!(args.len(), 1);
+                        match &args[0] {
+                            Expr::Call { function: inner_fn, .. } => {
+                                assert_eq!(inner_fn, "get");
+                            }
+                            e => panic!("expected get call as arg, got {:?}", e),
+                        }
+                    }
+                    s => panic!("expected Call stmt, got {:?}", s),
+                }
+            }
+            _ => panic!("expected function"),
+        }
+    }
 }

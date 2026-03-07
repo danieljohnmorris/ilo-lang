@@ -4982,4 +4982,128 @@ mod tests {
         let result = run_str(r#"f>t;jdmp (mget mmap "k")"#, Some("f"), vec![]);
         assert_eq!(result, Value::Text("null".into()));
     }
+
+    // ── wr json — text/bool/map/nil value types (lines 835-843) ───────────────
+
+    #[test]
+    fn interpret_wr_json_text_value() {
+        // value_to_json Text branch (line 835)
+        let path = "/tmp/ilo_test_wr_json_text.json";
+        let source = format!(r#"f>R t t;wr "{path}" "hello world" "json""#);
+        let result = run_str(&source, Some("f"), vec![]);
+        match result {
+            Value::Ok(_) => {
+                let content = std::fs::read_to_string(path).unwrap();
+                assert!(content.contains("hello world"));
+            }
+            other => panic!("expected Ok, got {:?}", other),
+        }
+    }
+
+    #[test]
+    fn interpret_wr_json_bool_value() {
+        // value_to_json Bool branch (line 836)
+        let path = "/tmp/ilo_test_wr_json_bool.json";
+        let source = format!(r#"f>R t t;wr "{path}" true "json""#);
+        let result = run_str(&source, Some("f"), vec![]);
+        match result {
+            Value::Ok(_) => {
+                let content = std::fs::read_to_string(path).unwrap();
+                assert!(content.contains("true"));
+            }
+            other => panic!("expected Ok, got {:?}", other),
+        }
+    }
+
+    #[test]
+    fn interpret_wr_json_map_value() {
+        // value_to_json Map branch (lines 838-841)
+        let path = "/tmp/ilo_test_wr_json_map.json";
+        let source = format!(r#"f>R t t;m=mset mmap "k" 42;wr "{path}" m "json""#);
+        let result = run_str(&source, Some("f"), vec![]);
+        match result {
+            Value::Ok(_) => {
+                let content = std::fs::read_to_string(path).unwrap();
+                assert!(content.contains("\"k\""));
+                assert!(content.contains("42"));
+            }
+            other => panic!("expected Ok, got {:?}", other),
+        }
+    }
+
+    #[test]
+    fn interpret_wr_json_nil_value() {
+        // value_to_json Nil branch (line 842) — mget on missing key returns Nil
+        let path = "/tmp/ilo_test_wr_json_nil.json";
+        let source = format!(r#"f>R t t;v=mget mmap "x";wr "{path}" v "json""#);
+        let result = run_str(&source, Some("f"), vec![]);
+        match result {
+            Value::Ok(_) => {
+                let content = std::fs::read_to_string(path).unwrap();
+                assert_eq!(content.trim(), "null");
+            }
+            other => panic!("expected Ok, got {:?}", other),
+        }
+    }
+
+    // ── wr — error paths (lines 792, 799, 826) ────────────────────────────────
+
+    #[test]
+    fn interpret_wr_non_text_format_arg_errors() {
+        // wr format arg must be text (line 792)
+        let path = "/tmp/ilo_test_wr_fmt_err.csv";
+        let source = format!(r#"f>R t t;wr "{path}" [1] 42"#);
+        let err = run_str_err(&source, Some("f"), vec![]);
+        assert!(err.contains("wr"), "got: {err}");
+    }
+
+    #[test]
+    fn interpret_wr_csv_non_list_data_errors() {
+        // wr csv data must be a list (line 799)
+        let path = "/tmp/ilo_test_wr_csv_nonlist.csv";
+        let source = format!(r#"f>R t t;wr "{path}" 42 "csv""#);
+        let err = run_str_err(&source, Some("f"), vec![]);
+        assert!(err.contains("wr"), "got: {err}");
+    }
+
+    #[test]
+    fn interpret_wr_csv_row_not_a_list_errors() {
+        // each csv row must be a list (line 826)
+        let path = "/tmp/ilo_test_wr_csv_row_err.csv";
+        // [42] is a list with element 42 (number, not a list of fields)
+        let source = format!(r#"f>R t t;wr "{path}" [42] "csv""#);
+        let err = run_str_err(&source, Some("f"), vec![]);
+        assert!(err.contains("wr"), "got: {err}");
+    }
+
+    // ── grp — float key (line 1016) ──────────────────────────────────────────
+
+    #[test]
+    fn interpret_grp_float_key() {
+        // Key function returns a fractional number → format!("{n}") path (line 1016)
+        // Use floor-then-half: key = x/2 for x in [1,2,3] → keys 0.5, 1.0, 1.5
+        let source = "half x:n>n;/x 2 g xs:L n>_;grp half xs";
+        let result = run_str(source, Some("g"), vec![
+            Value::List(vec![Value::Number(1.0), Value::Number(2.0), Value::Number(3.0)]),
+        ]);
+        match result {
+            Value::Map(m) => {
+                // 1/2=0.5, 2/2=1, 3/2=1.5 → 3 groups
+                assert!(m.contains_key("0.5") || m.contains_key("1.5"),
+                    "expected float key, got: {:?}", m.keys().collect::<Vec<_>>());
+            }
+            other => panic!("expected Map, got {:?}", other),
+        }
+    }
+
+    // ── ForRange early return (lines 1370-1371) ───────────────────────────────
+
+    #[test]
+    fn interpret_for_range_early_return_via_guard() {
+        // A guard inside a for-range body causes early return from the function.
+        // When i >= 3, the guard returns i → BodyResult::Return propagates out of loop.
+        // Syntax: @binding start..end{body}
+        let result = run_str("f>n;@i 0..5{>=i 3{i};i}", Some("f"), vec![]);
+        assert_eq!(result, Value::Number(3.0));
+    }
 }

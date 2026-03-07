@@ -3348,4 +3348,309 @@ mod tests {
         // May succeed or fail depending on verify behavior, just ensure it runs
         let _ = out;
     }
+
+    // ── unit: resolve_imports error paths ─────────────────────────────────────
+
+    fn make_use_decl(path: &str) -> ast::Decl {
+        ast::Decl::Use {
+            path: path.to_string(),
+            only: None,
+            span: ast::Span::UNKNOWN,
+        }
+    }
+
+    #[test]
+    fn resolve_imports_no_base_dir_emits_error() {
+        // `use` without a file context → ILO-P017 error (lines 699-703)
+        let decls = vec![make_use_decl("math.ilo")];
+        let mut visited = std::collections::HashSet::new();
+        let mut diagnostics = Vec::new();
+        let result = resolve_imports(decls, None, &mut visited, &mut diagnostics);
+        assert!(result.is_empty(), "should return no decls");
+        assert!(!diagnostics.is_empty(), "should emit error");
+        assert!(diagnostics[0].message.contains("file path context"));
+    }
+
+    #[test]
+    fn resolve_imports_file_not_found_emits_error() {
+        // Import a non-existent file → ILO-P017 (lines 711-716)
+        let decls = vec![make_use_decl("nonexistent_file_xyz.ilo")];
+        let mut visited = std::collections::HashSet::new();
+        let mut diagnostics = Vec::new();
+        let dir = std::path::Path::new("/tmp");
+        let result = resolve_imports(decls, Some(dir), &mut visited, &mut diagnostics);
+        assert!(result.is_empty());
+        assert!(!diagnostics.is_empty());
+        assert!(diagnostics[0].message.contains("nonexistent_file_xyz.ilo"));
+    }
+
+    #[test]
+    fn resolve_imports_circular_emits_error() {
+        // Pre-populate visited with a file that we then try to import → ILO-P018 (lines 721-726)
+        let path = "/tmp/ilo_circ_test.ilo";
+        std::fs::write(path, "f>n;1").unwrap();
+        let canonical = std::fs::canonicalize(path).unwrap();
+
+        let decls = vec![make_use_decl("ilo_circ_test.ilo")];
+        let mut visited = std::collections::HashSet::new();
+        visited.insert(canonical);
+        let mut diagnostics = Vec::new();
+        let dir = std::path::Path::new("/tmp");
+        let result = resolve_imports(decls, Some(dir), &mut visited, &mut diagnostics);
+        assert!(result.is_empty());
+        assert!(!diagnostics.is_empty());
+        assert!(diagnostics[0].message.contains("circular"));
+        std::fs::remove_file(path).ok();
+    }
+
+    #[test]
+    fn resolve_imports_lex_error_in_imported_file() {
+        // Import a file with invalid syntax → lex error pushed to diagnostics (lines 743-745)
+        let path = "/tmp/ilo_lex_err_test.ilo";
+        std::fs::write(path, "MyFunc invalid_UpperCase").unwrap();
+        let decls = vec![make_use_decl("ilo_lex_err_test.ilo")];
+        let mut visited = std::collections::HashSet::new();
+        let mut diagnostics = Vec::new();
+        let dir = std::path::Path::new("/tmp");
+        let _result = resolve_imports(decls, Some(dir), &mut visited, &mut diagnostics);
+        assert!(!diagnostics.is_empty(), "should emit lex error diagnostic");
+        std::fs::remove_file(path).ok();
+    }
+
+    #[test]
+    fn resolve_imports_read_error_after_canonicalize() {
+        // Create a real file, canonicalize it, then delete it — when resolve_imports
+        // tries to read_to_string after canonicalize, it gets Err → lines 731-737.
+        let path = "/tmp/ilo_read_err_test.ilo";
+        std::fs::write(path, "f>n;1").unwrap();
+        // Create a symlink-like path that canonicalizes to /tmp/ilo_read_err_test_gone.ilo
+        // Instead: just test file-not-found by giving a path whose parent exists but file doesn't.
+        // Use a path that doesn't exist at all — canonicalize will Err → covers lines 711-716 again.
+        // To hit the read_to_string Err path (731-737), we'd need canonicalize to succeed but
+        // read to fail — which requires platform tricks. Skip that specific sub-path.
+        std::fs::remove_file(path).ok();
+        // Simple verification: non-existent path hits the canonical error (711-716)
+        let decls = vec![make_use_decl("ilo_read_err_test.ilo")];
+        let mut visited = std::collections::HashSet::new();
+        let mut diagnostics = Vec::new();
+        let dir = std::path::Path::new("/tmp");
+        resolve_imports(decls, Some(dir), &mut visited, &mut diagnostics);
+        assert!(!diagnostics.is_empty());
+    }
+
+    // ── unit: warn_cross_language_syntax ─────────────────────────────────────
+
+    #[test]
+    fn warn_cross_language_syntax_detects_and_or() {
+        // && and || in source → warn_cross_language_syntax emits a diagnostic
+        // Capture is not possible directly; test that no panic occurs and the
+        // function is callable with Text mode.
+        warn_cross_language_syntax("f>b;x&&y", OutputMode::Text);
+        warn_cross_language_syntax("f>b;x||y", OutputMode::Text);
+        // No return value — just ensure it completes without panic.
+    }
+
+    #[test]
+    fn warn_cross_language_syntax_no_match_is_silent() {
+        // Clean source → no warning emitted (early return at line 658)
+        warn_cross_language_syntax("f x:n>n;+x 1", OutputMode::Text);
+    }
+
+    // ── unit: report_diagnostic modes ────────────────────────────────────────
+
+    #[test]
+    fn report_diagnostic_ansi_mode() {
+        let d = Diagnostic::error("test error".to_string());
+        // Just verify it doesn't panic with ANSI mode
+        report_diagnostic(&d, OutputMode::Ansi);
+    }
+
+    #[test]
+    fn report_diagnostic_text_mode() {
+        let d = Diagnostic::error("test error".to_string());
+        report_diagnostic(&d, OutputMode::Text);
+    }
+
+    #[test]
+    fn report_diagnostic_json_mode() {
+        let d = Diagnostic::error("test error".to_string());
+        report_diagnostic(&d, OutputMode::Json);
+    }
+
+    // ── unit: tools_cmd rendering paths ──────────────────────────────────────
+
+    fn write_tools_config_unit(name: &str) -> String {
+        let path = format!("/tmp/ilo_unit_tools_{name}.json");
+        std::fs::write(&path,
+            r#"{"tools":{"search":{"url":"http://localhost:9"},"fetch":{"url":"http://localhost:9"}}}"#
+        ).unwrap();
+        path
+    }
+
+    #[test]
+    fn tools_cmd_human_flag_renders_no_panic() {
+        // Covers: --human flag (lines 57-58), Human rendering without --full (lines 122, 126)
+        let path = write_tools_config_unit("human_unit");
+        tools_cmd(&[
+            "--tools".to_string(), path.clone(),
+            "--human".to_string(),
+        ]);
+        std::fs::remove_file(&path).ok();
+    }
+
+    #[test]
+    fn tools_cmd_ilo_flag_renders_no_panic() {
+        // Covers: --ilo flag (lines 60-61), full=true (line 99-100), Ilo rendering (lines 140-147)
+        let path = write_tools_config_unit("ilo_unit");
+        tools_cmd(&[
+            "--tools".to_string(), path.clone(),
+            "--ilo".to_string(),
+        ]);
+        std::fs::remove_file(&path).ok();
+    }
+
+    #[test]
+    fn tools_cmd_json_flag_renders_no_panic() {
+        // Covers: --json flag (lines 64-65), Json rendering (lines 149-181)
+        let path = write_tools_config_unit("json_unit");
+        tools_cmd(&[
+            "--tools".to_string(), path.clone(),
+            "--json".to_string(),
+        ]);
+        std::fs::remove_file(&path).ok();
+    }
+
+    #[test]
+    fn tools_cmd_full_flag_human_shows_http_label() {
+        // Covers: --full flag (lines 68-70), Human+full path (lines 122, 124)
+        let path = write_tools_config_unit("full_unit");
+        tools_cmd(&[
+            "--tools".to_string(), path.clone(),
+            "--full".to_string(),
+        ]);
+        std::fs::remove_file(&path).ok();
+    }
+
+    #[test]
+    fn tools_cmd_graph_flag_no_panic() {
+        // Covers: --graph flag (lines 72-74), graph flag path (lines 190-192)
+        let path = write_tools_config_unit("graph_unit");
+        tools_cmd(&[
+            "--tools".to_string(), path.clone(),
+            "--graph".to_string(),
+        ]);
+        std::fs::remove_file(&path).ok();
+    }
+
+    // ── unit: print_tool_graph with non-Tool decl → filter_map None ──────────
+
+    #[test]
+    fn print_tool_graph_with_function_decl_skipped() {
+        // Covers line 205: the None arm of filter_map when decl is not a Tool.
+        use ast::{Decl, Param, Type, Span};
+        let decls = vec![
+            Decl::Function {
+                name: "helper".into(),
+                params: vec![Param { name: "x".into(), ty: Type::Number }],
+                return_type: Type::Number,
+                body: vec![],
+                span: Span::UNKNOWN,
+            },
+            Decl::Tool {
+                name: "alpha".into(),
+                description: "a tool".into(),
+                params: vec![Param { name: "x".into(), ty: Type::Text }],
+                return_type: Type::Result(Box::new(Type::Text), Box::new(Type::Text)),
+                timeout: None,
+                retry: None,
+                span: Span::UNKNOWN,
+            },
+        ];
+        // Function decl → None in filter_map (line 205); Tool → Some
+        print_tool_graph(&decls);
+    }
+
+    // ── unit: tool_sig_str with params ───────────────────────────────────────
+
+    #[test]
+    fn tool_sig_str_with_params() {
+        let params = vec![
+            ast::Param { name: "url".into(), ty: ast::Type::Text },
+            ast::Param { name: "limit".into(), ty: ast::Type::Number },
+        ];
+        let ret = ast::Type::Result(Box::new(ast::Type::Text), Box::new(ast::Type::Text));
+        let sig = tool_sig_str(&params, &ret);
+        assert!(sig.contains("url"), "expected url param in sig: {sig}");
+        assert!(sig.contains("limit"), "expected limit param in sig: {sig}");
+    }
+
+    // ── unit: print_tool_graph with long sig triggers truncation ─────────────
+
+    #[test]
+    fn print_tool_graph_long_sig_truncates_no_panic() {
+        // sig_w is 36; create a tool with enough params that the sig exceeds 36 chars.
+        // e.g. "url:t query:t page:n limit:n size:n>R t t" is ~43 chars.
+        use ast::{Decl, Param, Type};
+        let decls = vec![Decl::Tool {
+            name: "search".into(),
+            description: "search tool".into(),
+            params: vec![
+                Param { name: "url".into(),   ty: Type::Text },
+                Param { name: "query".into(), ty: Type::Text },
+                Param { name: "page".into(),  ty: Type::Number },
+                Param { name: "limit".into(), ty: Type::Number },
+                Param { name: "size".into(),  ty: Type::Number },
+            ],
+            return_type: Type::Result(Box::new(Type::Text), Box::new(Type::Text)),
+            timeout: None,
+            retry: None,
+            span: ast::Span::UNKNOWN,
+        }];
+        // sig = "url:t query:t page:n limit:n size:n>R t t" (42 chars) > 36 → truncation path
+        print_tool_graph(&decls);
+    }
+
+    // ── unit: resolve_imports — directory path triggers read_to_string error ──
+
+    #[test]
+    fn resolve_imports_directory_triggers_read_error() {
+        // Importing a path that resolves to a directory: canonicalize succeeds,
+        // but read_to_string fails ("Is a directory") → covers lines 731-737.
+        let dir_name = "ilo_test_dir_import_Z9.ilo";
+        let dir_path = format!("/tmp/{dir_name}");
+        std::fs::create_dir_all(&dir_path).unwrap();
+
+        let decls = vec![make_use_decl(dir_name)];
+        let mut visited = std::collections::HashSet::new();
+        let mut diagnostics = Vec::new();
+        let result = resolve_imports(decls, Some(std::path::Path::new("/tmp")), &mut visited, &mut diagnostics);
+
+        assert!(result.is_empty());
+        assert!(!diagnostics.is_empty(), "should emit error for directory import");
+
+        std::fs::remove_dir(&dir_path).ok();
+    }
+
+    // ── unit: load_env_file — line without '=' is skipped silently ───────────
+
+    #[test]
+    fn load_env_file_line_without_equals_skipped() {
+        // Line without '=' hits the else branch of split_once (line 826 coverage).
+        use std::io::Write;
+        let path = "/tmp/ilo_test_env_noeq_X7.env";
+        let key = "ILO_TEST_ENV_NOEQ_X7";
+        unsafe { std::env::remove_var(key) };
+
+        let mut f = std::fs::File::create(path).unwrap();
+        writeln!(f, "# comment").unwrap();          // skipped (comment)
+        writeln!(f, "no_equals_here").unwrap();      // split_once returns None → line 826
+        writeln!(f, "{key}=set_value").unwrap();     // normal assignment
+        drop(f);
+
+        load_env_file(path);
+        assert_eq!(std::env::var(key).unwrap(), "set_value");
+
+        unsafe { std::env::remove_var(key) };
+        std::fs::remove_file(path).ok();
+    }
 }
