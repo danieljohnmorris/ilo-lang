@@ -1,0 +1,27 @@
+-- Data builtins: sum, avg, flat, grp, rgx.
+-- Aggregation and reshape for data pipelines.
+
+-- Sum a list of numbers
+total xs:L n>n;sum xs
+
+-- Average a list of numbers
+mean xs:L n>n;avg xs
+
+-- Flatten nested lists one level
+smoosh>L n;flat [[1, 2], [3], [4, 5]]
+
+-- Group numbers into "big" (>5) and "small" by key function
+cl x:n>t;>x 5{"big"}{"small"}
+classify xs:L n>M t L n;grp cl xs
+
+-- Extract all numbers from a string with regex
+nums s:t>L t;rgx "\d+" s
+
+-- run: total [1,2,3,4,5]
+-- out: 15
+-- run: mean [2,4,6]
+-- out: 4
+-- run: smoosh
+-- out: [1, 2, 3, 4, 5]
+-- run: nums abc123def456
+-- out: [123, 456]

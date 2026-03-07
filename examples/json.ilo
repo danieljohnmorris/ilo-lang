@@ -1,0 +1,7 @@
+-- JSON operations: jdmp serialises ilo values to JSON text.
+
+-- Dump a list to JSON
+dump>t;jdmp [1, 2, 3]
+
+-- run: dump
+-- out: [1,2,3]

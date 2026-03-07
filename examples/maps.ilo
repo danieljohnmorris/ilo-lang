@@ -1,0 +1,23 @@
+-- Maps: M k v key-value collections.
+-- Built with mmap (empty), mset, and queried with mget, mhas, mkeys, mvals.
+
+-- Build a map and get a value
+lookup>t;m=mset mmap "name" "alice";r=mget m "name";?r{t v:v;_:"missing"}
+
+-- Check if a key exists
+check>b;m=mset mmap "x" "1";mhas m "x"
+
+-- Get all keys from a map (sorted)
+keys>L t;m=mset (mset mmap "b" "2") "a" "1";mkeys m
+
+-- Delete a key
+del>b;m=mset mmap "x" "1";m=mdel m "x";mhas m "x"
+
+-- run: lookup
+-- out: alice
+-- run: check
+-- out: true
+-- run: keys
+-- out: [a, b]
+-- run: del
+-- out: false

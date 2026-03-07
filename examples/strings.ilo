@@ -1,0 +1,17 @@
+-- String operations: spl, fmt, trm, unq.
+
+-- Split a string by separator (spl string sep)
+parts s:t>L t;spl s "-"
+
+-- Format with positional placeholders
+greet name:t age:t>t;fmt "Hello {}, you are {} years old" name age
+
+-- Deduplicate characters in text
+dedup s:t>t;unq s
+
+-- run: parts hello-world-foo
+-- out: [hello, world, foo]
+-- run: greet alice 30
+-- out: Hello alice, you are 30 years old
+-- run: dedup abracadabra
+-- out: abrcd
