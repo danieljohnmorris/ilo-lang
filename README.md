@@ -101,6 +101,7 @@ ilo help lang        # full spec
 
 | | |
 |---|---|
+| **[Introduction](https://ilo-lang.ai/docs/introduction/)** | What ilo is and why |
 | **[Installation](https://ilo-lang.ai/docs/installation/)** | All install methods |
 | **[Tutorial](https://ilo-lang.ai/docs/first-program/)** | Write your first program |
 | **[Types & Functions](https://ilo-lang.ai/docs/guide/types-and-functions/)** | Core language guide |
