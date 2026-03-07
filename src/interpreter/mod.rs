@@ -955,6 +955,37 @@ fn call_function(env: &mut Env, name: &str, args: Vec<Value>) -> Result<Value> {
         let map = groups.into_iter().map(|(k, v)| (k, Value::List(v))).collect();
         return Ok(Value::Map(map));
     }
+    if name == "sum" && args.len() == 1 {
+        let items = match &args[0] {
+            Value::List(l) => l.clone(),
+            other => return Err(RuntimeError::new("ILO-R009", format!("sum: arg must be a list, got {:?}", other))),
+        };
+        let mut total = 0.0_f64;
+        for item in &items {
+            match item {
+                Value::Number(n) => total += n,
+                other => return Err(RuntimeError::new("ILO-R009", format!("sum: list elements must be numbers, got {:?}", other))),
+            }
+        }
+        return Ok(Value::Number(total));
+    }
+    if name == "avg" && args.len() == 1 {
+        let items = match &args[0] {
+            Value::List(l) => l.clone(),
+            other => return Err(RuntimeError::new("ILO-R009", format!("avg: arg must be a list, got {:?}", other))),
+        };
+        if items.is_empty() {
+            return Err(RuntimeError::new("ILO-R009", "avg: cannot average an empty list".to_string()));
+        }
+        let mut total = 0.0_f64;
+        for item in &items {
+            match item {
+                Value::Number(n) => total += n,
+                other => return Err(RuntimeError::new("ILO-R009", format!("avg: list elements must be numbers, got {:?}", other))),
+            }
+        }
+        return Ok(Value::Number(total / items.len() as f64));
+    }
     if name == "flat" && args.len() == 1 {
         let items = match &args[0] {
             Value::List(l) => l.clone(),
@@ -3580,6 +3611,55 @@ mod tests {
     fn interp_grp_wrong_list_arg() {
         let err = run_str_err("id x:n>n;x f>t;grp id 42", Some("f"), vec![]);
         assert!(err.contains("grp"), "got: {err}");
+    }
+
+    #[test]
+    fn interp_sum_basic() {
+        let source = "f xs:L n>n;sum xs";
+        let result = run_str(source, Some("f"), vec![
+            Value::List(vec![1.0, 2.0, 3.0, 4.0, 5.0].into_iter().map(Value::Number).collect())
+        ]);
+        assert_eq!(result, Value::Number(15.0));
+    }
+
+    #[test]
+    fn interp_sum_empty() {
+        let source = "f xs:L n>n;sum xs";
+        let result = run_str(source, Some("f"), vec![Value::List(vec![])]);
+        assert_eq!(result, Value::Number(0.0));
+    }
+
+    #[test]
+    fn interp_sum_wrong_arg() {
+        let err = run_str_err("f>n;sum 42", Some("f"), vec![]);
+        assert!(err.contains("sum"), "got: {err}");
+    }
+
+    #[test]
+    fn interp_sum_non_numeric_element() {
+        let err = run_str_err(r#"f>n;sum ["a", "b"]"#, Some("f"), vec![]);
+        assert!(err.contains("sum"), "got: {err}");
+    }
+
+    #[test]
+    fn interp_avg_basic() {
+        let source = "f xs:L n>n;avg xs";
+        let result = run_str(source, Some("f"), vec![
+            Value::List(vec![2.0, 4.0, 6.0].into_iter().map(Value::Number).collect())
+        ]);
+        assert_eq!(result, Value::Number(4.0));
+    }
+
+    #[test]
+    fn interp_avg_empty_error() {
+        let err = run_str_err("f>n;avg []", Some("f"), vec![]);
+        assert!(err.contains("avg"), "got: {err}");
+    }
+
+    #[test]
+    fn interp_avg_wrong_arg() {
+        let err = run_str_err("f>n;avg 42", Some("f"), vec![]);
+        assert!(err.contains("avg"), "got: {err}");
     }
 
     #[test]
