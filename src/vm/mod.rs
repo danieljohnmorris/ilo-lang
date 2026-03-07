@@ -10256,17 +10256,15 @@ mod tests {
         assert_eq!(result, Value::Number(99.0));
     }
 
-    // OP_RECFLD_NAME on heap record via ambiguous field index
+    // OP_RECFLD_NAME on heap record via jpar-produced generic record
     #[test]
     fn vm_recfld_name_heap_record() {
-        // Two types with field at different indices force OP_RECFLD_NAME
-        // When the record is passed as argument (heap), exercises heap path in OP_RECFLD_NAME
-        let source = "type a{x:n;y:n} type b{y:n;x:n} f r:a>n;{y}=r;y";
-        let mut fields = std::collections::HashMap::new();
-        fields.insert("x".to_string(), Value::Number(10.0));
-        fields.insert("y".to_string(), Value::Number(20.0));
+        // jpar produces a generic record (rec_type=u16::MAX) → compiler emits OP_RECFLD_NAME
+        // Two types with y at different indices cause search_field_index to return None → OP_RECFLD_NAME
+        // OP_RECFLD_NAME uses the heap record's own TypeInfo for name lookup → correct result
+        let source = "type a{x:n;y:n} type b{y:n;x:n} f s:t>n;r=jpar! s;{y}=r;y";
         let result = vm_run(source, Some("f"), vec![
-            Value::Record { type_name: "a".to_string(), fields },
+            Value::Text(r#"{"x": 10, "y": 20}"#.to_string()),
         ]);
         assert_eq!(result, Value::Number(20.0));
     }

@@ -4775,4 +4775,211 @@ mod tests {
             other => panic!("expected Ok, got {:?}", other),
         }
     }
+
+    // ── mhas/mkeys/mvals/mdel happy paths ─────────────────────────────────
+
+    // L325: mhas Map+Text → true/false
+    #[test]
+    fn interpret_mhas_found() {
+        let result = run_str(r#"f>b;m=mset mmap "x" 1;mhas m "x""#, Some("f"), vec![]);
+        assert_eq!(result, Value::Bool(true));
+    }
+
+    #[test]
+    fn interpret_mhas_not_found() {
+        let result = run_str(r#"f>b;m=mset mmap "x" 1;mhas m "y""#, Some("f"), vec![]);
+        assert_eq!(result, Value::Bool(false));
+    }
+
+    // L331-334: mkeys happy path — sorted keys
+    #[test]
+    fn interpret_mkeys_happy_path() {
+        let result = run_str(r#"f>L t;m=mset (mset mmap "b" 2) "a" 1;mkeys m"#, Some("f"), vec![]);
+        assert_eq!(result, Value::List(vec![Value::Text("a".into()), Value::Text("b".into())]));
+    }
+
+    // L341-344: mvals happy path — values sorted by key
+    #[test]
+    fn interpret_mvals_happy_path() {
+        let result = run_str(r#"f>L n;m=mset (mset mmap "b" 2) "a" 1;mvals m"#, Some("f"), vec![]);
+        assert_eq!(result, Value::List(vec![Value::Number(1.0), Value::Number(2.0)]));
+    }
+
+    // L351-354: mdel happy path — delete key from map
+    #[test]
+    fn interpret_mdel_happy_path() {
+        let result = run_str(r#"f>n;m=mset (mset mmap "a" 1) "b" 2;m2=mdel m "a";len m2"#, Some("f"), vec![]);
+        assert_eq!(result, Value::Number(1.0));
+    }
+
+    // ── srt 2-arg key not fn-ref (line 566-567) ────────────────────────────
+
+    #[test]
+    fn interpret_srt_key_not_fn_ref() {
+        // 42 is a Number, resolve_fn_ref returns None → line 566-567 error
+        let err = run_str_err("f xs:L n>L n;srt 42 xs", Some("f"),
+            vec![Value::List(vec![Value::Number(1.0)])]);
+        assert!(err.contains("srt"), "got: {err}");
+    }
+
+    // ── flt first arg not fn-ref (lines 968-969) ────────────────────────────
+
+    #[test]
+    fn interpret_flt_key_not_fn_ref() {
+        let err = run_str_err("f xs:L n>L n;flt 42 xs", Some("f"),
+            vec![Value::List(vec![Value::Number(1.0)])]);
+        assert!(err.contains("flt"), "got: {err}");
+    }
+
+    // ── resolve_fn_ref Text path (line 948) via map with text fn name ───────
+
+    #[test]
+    fn interpret_map_with_text_fn_name() {
+        // Pass fn name as text arg; resolve_fn_ref hits Text branch (line 948)
+        let source = "sq x:n>n;*x x f cb:t xs:L n>L n;map cb xs";
+        let result = run_str(source, Some("f"), vec![
+            Value::Text("sq".into()),
+            Value::List(vec![Value::Number(3.0)]),
+        ]);
+        assert_eq!(result, Value::List(vec![Value::Number(9.0)]));
+    }
+
+    // ── rd 2-arg explicit format (lines 736, 749, 750-751) ──────────────────
+
+    #[test]
+    fn interpret_rd_explicit_raw_format() {
+        // Write a temp file, read with explicit "raw" format → lines 736, 749
+        let path = "/tmp/ilo_test_rd_explicit.txt";
+        std::fs::write(path, "hello").unwrap();
+        let source = format!(r#"f>R t t;rd "{path}" "raw""#);
+        let result = run_str(&source, Some("f"), vec![]);
+        match result {
+            Value::Ok(inner) => assert_eq!(*inner, Value::Text("hello".into())),
+            other => panic!("expected Ok, got {:?}", other),
+        }
+    }
+
+    #[test]
+    fn interpret_rd_explicit_format_parse_error() {
+        // Write invalid JSON to a temp file, read with "json" format → line 750-751
+        let path = "/tmp/ilo_test_rd_badjson.txt";
+        std::fs::write(path, "not json at all!!!").unwrap();
+        let source = format!(r#"f>R t t;rd "{path}" "json""#);
+        let result = run_str(&source, Some("f"), vec![]);
+        match result {
+            Value::Err(_) => {} // parse_format returns Err → line 750-751
+            other => panic!("expected Err, got {:?}", other),
+        }
+    }
+
+    // ── wr 3-arg csv/json (lines 792, 799, 819-820, 835-843) ───────────────
+
+    #[test]
+    fn interpret_wr_csv_format() {
+        // wr path data "csv" — csv format path → lines 795, 804, 816-817, 824
+        let path = "/tmp/ilo_test_wr.csv";
+        let source = format!(r#"f>R t t;wr "{path}" [[1,2],[3,4]] "csv""#);
+        let result = run_str(&source, Some("f"), vec![]);
+        match result {
+            Value::Ok(_) => {
+                let content = std::fs::read_to_string(path).unwrap();
+                assert!(content.contains("1,2"));
+            }
+            other => panic!("expected Ok, got {:?}", other),
+        }
+    }
+
+    #[test]
+    fn interpret_wr_csv_bool_field() {
+        // Bool field in csv row → line 819
+        let path = "/tmp/ilo_test_wr_bool.csv";
+        let source = format!(r#"f>R t t;wr "{path}" [[true,false]] "csv""#);
+        let result = run_str(&source, Some("f"), vec![]);
+        match result {
+            Value::Ok(_) => {
+                let content = std::fs::read_to_string(path).unwrap();
+                assert!(content.contains("true"));
+            }
+            other => panic!("expected Ok, got {:?}", other),
+        }
+    }
+
+    #[test]
+    fn interpret_wr_json_format() {
+        // wr path data "json" → lines 831, 834-848
+        let path = "/tmp/ilo_test_wr.json";
+        let source = format!(r#"f>R t t;wr "{path}" [1,2,3] "json""#);
+        let result = run_str(&source, Some("f"), vec![]);
+        match result {
+            Value::Ok(_) => {
+                let content = std::fs::read_to_string(path).unwrap();
+                assert!(content.contains("1"));
+            }
+            other => panic!("expected Ok, got {:?}", other),
+        }
+    }
+
+    // ── grp Number/Bool key (lines 1012-1016, 1019-1020) ───────────────────
+
+    #[test]
+    fn interpret_grp_number_key() {
+        // Key fn returns Number → lines 1012-1016
+        let source = "id x:n>n;x g xs:L n>_;grp id xs";
+        let result = run_str(source, Some("g"), vec![
+            Value::List(vec![Value::Number(1.0), Value::Number(2.0), Value::Number(1.0)]),
+        ]);
+        match result {
+            Value::Map(m) => assert_eq!(m.len(), 2),
+            other => panic!("expected map, got {:?}", other),
+        }
+    }
+
+    #[test]
+    fn interpret_grp_bool_key() {
+        // Key fn returns Bool → lines 1019-1020
+        let source = "pos x:n>b;>x 0 g xs:L n>_;grp pos xs";
+        let result = run_str(source, Some("g"), vec![
+            Value::List(vec![Value::Number(-1.0), Value::Number(1.0), Value::Number(2.0)]),
+        ]);
+        match result {
+            Value::Map(m) => {
+                assert!(m.contains_key("true"));
+                assert!(m.contains_key("false"));
+            }
+            other => panic!("expected map, got {:?}", other),
+        }
+    }
+
+    // ── avg non-number element (line 1053) ──────────────────────────────────
+
+    #[test]
+    fn interpret_avg_non_number_element() {
+        let err = run_str_err("f xs:L n>n;avg xs", Some("f"),
+            vec![Value::List(vec![Value::Text("x".into())])]);
+        assert!(err.contains("avg"), "got: {err}");
+    }
+
+    // ── rgx non-text second arg (line 1065) ─────────────────────────────────
+
+    #[test]
+    fn interpret_rgx_non_text_second_arg() {
+        let err = run_str_err(r#"f>L t;rgx "." 42"#, Some("f"), vec![]);
+        assert!(err.contains("rgx"), "got: {err}");
+    }
+
+    // ── jdmp Bool/Nil → value_to_json lines 1179-1180 ───────────────────────
+
+    #[test]
+    fn interpret_jdmp_bool_value() {
+        // value_to_json Bool branch (line 1179)
+        let result = run_str("f>t;jdmp true", Some("f"), vec![]);
+        assert_eq!(result, Value::Text("true".into()));
+    }
+
+    #[test]
+    fn interpret_jdmp_nil_value() {
+        // value_to_json Nil branch (line 1180) — mget on empty map returns Nil
+        let result = run_str(r#"f>t;jdmp (mget mmap "k")"#, Some("f"), vec![]);
+        assert_eq!(result, Value::Text("null".into()));
+    }
 }
