@@ -139,7 +139,12 @@ jobs:
     steps:
       - uses: actions/checkout@v4
         with:
-          sparse-checkout: npm
+          sparse-checkout: |
+            npm
+            README.md
+
+      - name: Copy README to npm package
+        run: cp README.md npm/README.md
 
       - name: Download WASM artifact
         uses: actions/download-artifact@v4

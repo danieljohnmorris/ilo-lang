@@ -13,9 +13,11 @@
     "ilo": "bin/ilo.mjs",
     "ilo-lang": "bin/ilo.mjs"
   },
+  "readme": "README.md",
   "files": [
     "bin/",
-    "ilo.wasm"
+    "ilo.wasm",
+    "README.md"
   ],
   "engines": {
     "node": ">=20.0.0"
