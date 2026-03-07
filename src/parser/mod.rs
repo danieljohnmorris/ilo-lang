@@ -1583,139 +1583,82 @@ mod tests {
         // tot p:n q:n r:n>n;s=*p q;t=*s r;+s t
         let prog = parse_str("tot p:n q:n r:n>n;s=*p q;t=*s r;+s t");
         assert_eq!(prog.declarations.len(), 1);
-        match &prog.declarations[0] {
-            Decl::Function { name, params, body, .. } => {
-                assert_eq!(name, "tot");
-                assert_eq!(params.len(), 3);
-                assert_eq!(body.len(), 3); // s=..., t=..., +s t
-            }
-            _ => panic!("expected function"),
-        }
+        let Decl::Function { name, params, body, .. } = &prog.declarations[0] else { panic!("expected function") };
+        assert_eq!(name, "tot");
+        assert_eq!(params.len(), 3);
+        assert_eq!(body.len(), 3); // s=..., t=..., +s t
     }
 
     #[test]
     fn parse_let_binding() {
         let prog = parse_str("f x:n>n;y=+x 1;y");
-        match &prog.declarations[0] {
-            Decl::Function { body, .. } => {
-                assert_eq!(body.len(), 2);
-                match &body[0].node {
-                    Stmt::Let { name, .. } => assert_eq!(name, "y"),
-                    _ => panic!("expected let"),
-                }
-            }
-            _ => panic!("expected function"),
-        }
+        let Decl::Function { body, .. } = &prog.declarations[0] else { panic!("expected function") };
+        assert_eq!(body.len(), 2);
+        let Stmt::Let { name, .. } = &body[0].node else { panic!("expected let") };
+        assert_eq!(name, "y");
     }
 
     #[test]
     fn parse_type_def() {
         let prog = parse_str("type point{x:n;y:n}");
-        match &prog.declarations[0] {
-            Decl::TypeDef { name, fields, .. } => {
-                assert_eq!(name, "point");
-                assert_eq!(fields.len(), 2);
-            }
-            _ => panic!("expected type def"),
-        }
+        let Decl::TypeDef { name, fields, .. } = &prog.declarations[0] else { panic!("expected type def") };
+        assert_eq!(name, "point");
+        assert_eq!(fields.len(), 2);
     }
 
     #[test]
     fn parse_guard() {
         let prog = parse_str(r#"cls sp:n>t;>=sp 1000{"gold"};"bronze""#);
-        match &prog.declarations[0] {
-            Decl::Function { name, body, .. } => {
-                assert_eq!(name, "cls");
-                assert!(body.len() >= 2);
-                match &body[0].node {
-                    Stmt::Guard { negated, .. } => assert!(!negated),
-                    _ => panic!("expected guard, got {:?}", body[0]),
-                }
-            }
-            _ => panic!("expected function"),
-        }
+        let Decl::Function { name, body, .. } = &prog.declarations[0] else { panic!("expected function") };
+        assert_eq!(name, "cls");
+        assert!(body.len() >= 2);
+        let Stmt::Guard { negated, .. } = &body[0].node else { panic!("expected guard") };
+        assert!(!negated);
     }
 
     #[test]
     fn parse_match_stmt() {
         let prog = parse_str(r#"f x:n>t;?{^e:^"error";~v:v;_:"default"}"#);
-        match &prog.declarations[0] {
-            Decl::Function { body, .. } => {
-                match &body[0].node {
-                    Stmt::Match { subject, arms } => {
-                        assert!(subject.is_none());
-                        assert_eq!(arms.len(), 3);
-                    }
-                    _ => panic!("expected match"),
-                }
-            }
-            _ => panic!("expected function"),
-        }
+        let Decl::Function { body, .. } = &prog.declarations[0] else { panic!("expected function") };
+        let Stmt::Match { subject, arms } = &body[0].node else { panic!("expected match") };
+        assert!(subject.is_none());
+        assert_eq!(arms.len(), 3);
     }
 
     #[test]
     fn parse_ok_err_exprs() {
         let prog = parse_str("f x:n>R n t;~x");
-        match &prog.declarations[0] {
-            Decl::Function { body, .. } => {
-                match &body[0].node {
-                    Stmt::Expr(Expr::Ok(_)) => {}
-                    _ => panic!("expected Ok expr"),
-                }
-            }
-            _ => panic!("expected function"),
-        }
+        let Decl::Function { body, .. } = &prog.declarations[0] else { panic!("expected function") };
+        assert!(matches!(&body[0].node, Stmt::Expr(Expr::Ok(_))), "expected Ok expr, got {:?}", body[0]);
     }
 
     #[test]
     fn parse_foreach() {
         let prog = parse_str("f xs:L n>n;s=0;@x xs{s=+s x};s");
-        match &prog.declarations[0] {
-            Decl::Function { body, .. } => {
-                assert!(body.len() >= 3);
-                match &body[1].node {
-                    Stmt::ForEach { binding, .. } => assert_eq!(binding, "x"),
-                    _ => panic!("expected foreach"),
-                }
-            }
-            _ => panic!("expected function"),
-        }
+        let Decl::Function { body, .. } = &prog.declarations[0] else { panic!("expected function") };
+        assert!(body.len() >= 3);
+        let Stmt::ForEach { binding, .. } = &body[1].node else { panic!("expected foreach") };
+        assert_eq!(binding, "x");
     }
 
     #[test]
     fn parse_for_range() {
         let prog = parse_str("f>n;@i 0..3{i}");
-        match &prog.declarations[0] {
-            Decl::Function { body, .. } => {
-                match &body[0].node {
-                    Stmt::ForRange { binding, start, end, .. } => {
-                        assert_eq!(binding, "i");
-                        assert_eq!(*start, Expr::Literal(Literal::Number(0.0)));
-                        assert_eq!(*end, Expr::Literal(Literal::Number(3.0)));
-                    }
-                    _ => panic!("expected ForRange"),
-                }
-            }
-            _ => panic!("expected function"),
-        }
+        let Decl::Function { body, .. } = &prog.declarations[0] else { panic!("expected function") };
+        let Stmt::ForRange { binding, start, end, .. } = &body[0].node else { panic!("expected ForRange") };
+        assert_eq!(binding, "i");
+        assert_eq!(*start, Expr::Literal(Literal::Number(0.0)));
+        assert_eq!(*end, Expr::Literal(Literal::Number(3.0)));
     }
 
     #[test]
     fn parse_for_range_with_expr_end() {
         // Dynamic end: @i 0..n{body}
         let prog = parse_str("f n:n>n;@i 0..n{i}");
-        match &prog.declarations[0] {
-            Decl::Function { body, .. } => {
-                match &body[0].node {
-                    Stmt::ForRange { binding, end, .. } => {
-                        assert_eq!(binding, "i");
-                        assert_eq!(*end, Expr::Ref("n".to_string()));
-                    }
-                    _ => panic!("expected ForRange"),
-                }
-            }
-            _ => panic!("expected function"),
-        }
+        let Decl::Function { body, .. } = &prog.declarations[0] else { panic!("expected function") };
+        let Stmt::ForRange { binding, end, .. } = &body[0].node else { panic!("expected ForRange") };
+        assert_eq!(binding, "i");
+        assert_eq!(*end, Expr::Ref("n".to_string()));
     }
 
     #[test]
@@ -1727,382 +1670,206 @@ mod tests {
     #[test]
     fn parse_nested_prefix() {
         let prog = parse_str("f a:n b:n c:n>n;+*a b c");
-        match &prog.declarations[0] {
-            Decl::Function { body, .. } => {
-                match &body[0].node {
-                    Stmt::Expr(Expr::BinOp { op: BinOp::Add, left, .. }) => {
-                        assert!(matches!(**left, Expr::BinOp { op: BinOp::Multiply, .. }));
-                    }
-                    _ => panic!("expected binop"),
-                }
-            }
-            _ => panic!("expected function"),
-        }
+        let Decl::Function { body, .. } = &prog.declarations[0] else { panic!("expected function") };
+        let Stmt::Expr(Expr::BinOp { op: BinOp::Add, left, .. }) = &body[0].node else { panic!("expected binop") };
+        assert!(matches!(**left, Expr::BinOp { op: BinOp::Multiply, .. }));
     }
 
     #[test]
     fn parse_list_literal() {
         let prog = parse_str("f x:n>L n;[x, *x 2, *x 3]");
-        match &prog.declarations[0] {
-            Decl::Function { body, .. } => {
-                match &body[0].node {
-                    Stmt::Expr(Expr::List(items)) => assert_eq!(items.len(), 3),
-                    _ => panic!("expected list"),
-                }
-            }
-            _ => panic!("expected function"),
-        }
+        let Decl::Function { body, .. } = &prog.declarations[0] else { panic!("expected function") };
+        let Stmt::Expr(Expr::List(items)) = &body[0].node else { panic!("expected list") };
+        assert_eq!(items.len(), 3);
     }
 
     #[test]
     fn parse_field_access() {
         let prog = parse_str("f p:point>n;p.x");
-        match &prog.declarations[0] {
-            Decl::Function { body, .. } => {
-                match &body[0].node {
-                    Stmt::Expr(Expr::Field { field, .. }) => assert_eq!(field, "x"),
-                    _ => panic!("expected field access"),
-                }
-            }
-            _ => panic!("expected function"),
-        }
+        let Decl::Function { body, .. } = &prog.declarations[0] else { panic!("expected function") };
+        let Stmt::Expr(Expr::Field { field, .. }) = &body[0].node else { panic!("expected field access") };
+        assert_eq!(field, "x");
     }
 
     #[test]
     fn parse_index_access() {
         let prog = parse_str("f xs:L n>n;xs.0");
-        match &prog.declarations[0] {
-            Decl::Function { body, .. } => {
-                match &body[0].node {
-                    Stmt::Expr(Expr::Index { index, .. }) => assert_eq!(*index, 0),
-                    _ => panic!("expected index access"),
-                }
-            }
-            _ => panic!("expected function"),
-        }
+        let Decl::Function { body, .. } = &prog.declarations[0] else { panic!("expected function") };
+        let Stmt::Expr(Expr::Index { index, .. }) = &body[0].node else { panic!("expected index access") };
+        assert_eq!(*index, 0);
     }
 
     #[test]
     fn parse_safe_field_access() {
         let prog = parse_str("f p:point>n;p.?x");
-        match &prog.declarations[0] {
-            Decl::Function { body, .. } => {
-                match &body[0].node {
-                    Stmt::Expr(Expr::Field { field, safe, .. }) => {
-                        assert_eq!(field, "x");
-                        assert!(*safe);
-                    }
-                    _ => panic!("expected safe field access"),
-                }
-            }
-            _ => panic!("expected function"),
-        }
+        let Decl::Function { body, .. } = &prog.declarations[0] else { panic!("expected function") };
+        let Stmt::Expr(Expr::Field { field, safe, .. }) = &body[0].node else { panic!("expected safe field access") };
+        assert_eq!(field, "x");
+        assert!(*safe);
     }
 
     #[test]
     fn parse_negated_guard() {
         let prog = parse_str(r#"f x:b>t;!x{"yes"};"no""#);
-        match &prog.declarations[0] {
-            Decl::Function { body, .. } => {
-                match &body[0].node {
-                    Stmt::Guard { negated, .. } => assert!(negated),
-                    _ => panic!("expected guard"),
-                }
-            }
-            _ => panic!("expected function"),
-        }
+        let Decl::Function { body, .. } = &prog.declarations[0] else { panic!("expected function") };
+        let Stmt::Guard { negated, .. } = &body[0].node else { panic!("expected guard") };
+        assert!(negated);
     }
 
     #[test]
     fn parse_record_construction() {
         let prog = parse_str("type point{x:n;y:n} f a:n b:n>point;point x:a y:b");
-        match &prog.declarations[1] {
-            Decl::Function { body, .. } => {
-                match &body[0].node {
-                    Stmt::Expr(Expr::Record { type_name, fields }) => {
-                        assert_eq!(type_name, "point");
-                        assert_eq!(fields.len(), 2);
-                    }
-                    _ => panic!("expected record"),
-                }
-            }
-            _ => panic!("expected function"),
-        }
+        let Decl::Function { body, .. } = &prog.declarations[1] else { panic!("expected function") };
+        let Stmt::Expr(Expr::Record { type_name, fields }) = &body[0].node else { panic!("expected record") };
+        assert_eq!(type_name, "point");
+        assert_eq!(fields.len(), 2);
     }
 
     #[test]
     fn parse_with_expr() {
         let prog = parse_str("type point{x:n;y:n} f p:point>point;p with x:1 y:2");
-        match &prog.declarations[1] {
-            Decl::Function { body, .. } => {
-                match &body[0].node {
-                    Stmt::Expr(Expr::With { updates, .. }) => {
-                        assert_eq!(updates.len(), 2);
-                    }
-                    _ => panic!("expected with expr"),
-                }
-            }
-            _ => panic!("expected function"),
-        }
+        let Decl::Function { body, .. } = &prog.declarations[1] else { panic!("expected function") };
+        let Stmt::Expr(Expr::With { updates, .. }) = &body[0].node else { panic!("expected with expr") };
+        assert_eq!(updates.len(), 2);
     }
 
     #[test]
     fn parse_tool_decl() {
         let prog = parse_str(r#"tool fetch"http get" url:t>t timeout:30,retry:3"#);
-        match &prog.declarations[0] {
-            Decl::Tool { name, description, timeout, retry, .. } => {
-                assert_eq!(name, "fetch");
-                assert_eq!(description, "http get");
-                assert_eq!(*timeout, Some(30.0));
-                assert_eq!(*retry, Some(3.0));
-            }
-            _ => panic!("expected tool"),
-        }
+        let Decl::Tool { name, description, timeout, retry, .. } = &prog.declarations[0] else { panic!("expected tool") };
+        assert_eq!(name, "fetch");
+        assert_eq!(description, "http get");
+        assert_eq!(*timeout, Some(30.0));
+        assert_eq!(*retry, Some(3.0));
     }
 
     #[test]
     fn parse_match_with_subject() {
         let prog = parse_str("f x:R n t>n;?x{~v:v;^e:0}");
-        match &prog.declarations[0] {
-            Decl::Function { body, .. } => {
-                match &body[0].node {
-                    Stmt::Match { subject, arms } => {
-                        assert!(subject.is_some());
-                        assert_eq!(arms.len(), 2);
-                    }
-                    _ => panic!("expected match stmt"),
-                }
-            }
-            _ => panic!("expected function"),
-        }
+        let Decl::Function { body, .. } = &prog.declarations[0] else { panic!("expected function") };
+        let Stmt::Match { subject, arms } = &body[0].node else { panic!("expected match stmt") };
+        assert!(subject.is_some());
+        assert_eq!(arms.len(), 2);
     }
 
     #[test]
     fn parse_match_expr_in_let() {
         let prog = parse_str(r#"f x:R n t>n;r=?x{~v:v;^e:0};r"#);
-        match &prog.declarations[0] {
-            Decl::Function { body, .. } => {
-                assert_eq!(body.len(), 2);
-                match &body[0].node {
-                    Stmt::Let { value: Expr::Match { .. }, .. } => {}
-                    _ => panic!("expected let with match expr, got {:?}", body[0]),
-                }
-            }
-            _ => panic!("expected function"),
-        }
+        let Decl::Function { body, .. } = &prog.declarations[0] else { panic!("expected function") };
+        assert_eq!(body.len(), 2);
+        assert!(matches!(&body[0].node, Stmt::Let { value: Expr::Match { .. }, .. }), "expected let with match expr, got {:?}", body[0]);
     }
 
     #[test]
     fn parse_call_with_prefix_arg() {
         // fac -n 1 should parse as Call(fac, [Subtract(n, 1)])
         let prog = parse_str("fac n:n>n;r=fac -n 1;*n r");
-        match &prog.declarations[0] {
-            Decl::Function { body, .. } => {
-                match &body[0].node {
-                    Stmt::Let { value: Expr::Call { function, args, .. }, .. } => {
-                        assert_eq!(function, "fac");
-                        assert_eq!(args.len(), 1);
-                        assert!(matches!(&args[0], Expr::BinOp { op: BinOp::Subtract, .. }));
-                    }
-                    _ => panic!("expected call with prefix arg"),
-                }
-            }
-            _ => panic!("expected function"),
-        }
+        let Decl::Function { body, .. } = &prog.declarations[0] else { panic!("expected function") };
+        let Stmt::Let { value: Expr::Call { function, args, .. }, .. } = &body[0].node else { panic!("expected call with prefix arg") };
+        assert_eq!(function, "fac");
+        assert_eq!(args.len(), 1);
+        assert!(matches!(&args[0], Expr::BinOp { op: BinOp::Subtract, .. }));
     }
 
     #[test]
     fn parse_zero_arg_call() {
         let prog = parse_str("f>n;g() g>n;42");
-        match &prog.declarations[0] {
-            Decl::Function { body, .. } => {
-                match &body[0].node {
-                    Stmt::Expr(Expr::Call { function, args, .. }) => {
-                        assert_eq!(function, "g");
-                        assert!(args.is_empty());
-                    }
-                    _ => panic!("expected zero-arg call"),
-                }
-            }
-            _ => panic!("expected function"),
-        }
+        let Decl::Function { body, .. } = &prog.declarations[0] else { panic!("expected function") };
+        let Stmt::Expr(Expr::Call { function, args, .. }) = &body[0].node else { panic!("expected zero-arg call") };
+        assert_eq!(function, "g");
+        assert!(args.is_empty());
     }
 
     #[test]
     fn parse_paren_expr() {
         let prog = parse_str("f x:n>n;*(+x 1) 2");
-        match &prog.declarations[0] {
-            Decl::Function { body, .. } => {
-                match &body[0].node {
-                    Stmt::Expr(Expr::BinOp { op: BinOp::Multiply, left, .. }) => {
-                        assert!(matches!(**left, Expr::BinOp { op: BinOp::Add, .. }));
-                    }
-                    _ => panic!("expected binop"),
-                }
-            }
-            _ => panic!("expected function"),
-        }
+        let Decl::Function { body, .. } = &prog.declarations[0] else { panic!("expected function") };
+        let Stmt::Expr(Expr::BinOp { op: BinOp::Multiply, left, .. }) = &body[0].node else { panic!("expected binop") };
+        assert!(matches!(**left, Expr::BinOp { op: BinOp::Add, .. }));
     }
 
     #[test]
     fn parse_list_append() {
         let prog = parse_str("f xs:L n x:n>L n;+=xs x");
-        match &prog.declarations[0] {
-            Decl::Function { body, .. } => {
-                match &body[0].node {
-                    Stmt::Expr(Expr::BinOp { op: BinOp::Append, .. }) => {}
-                    _ => panic!("expected append"),
-                }
-            }
-            _ => panic!("expected function"),
-        }
+        let Decl::Function { body, .. } = &prog.declarations[0] else { panic!("expected function") };
+        assert!(matches!(&body[0].node, Stmt::Expr(Expr::BinOp { op: BinOp::Append, .. })), "expected append, got {:?}", body[0]);
     }
 
     #[test]
     fn parse_trailing_comma_in_list() {
         let prog = parse_str("f>L n;[1, 2, 3,]");
-        match &prog.declarations[0] {
-            Decl::Function { body, .. } => {
-                match &body[0].node {
-                    Stmt::Expr(Expr::List(items)) => assert_eq!(items.len(), 3),
-                    _ => panic!("expected list"),
-                }
-            }
-            _ => panic!("expected function"),
-        }
+        let Decl::Function { body, .. } = &prog.declarations[0] else { panic!("expected function") };
+        let Stmt::Expr(Expr::List(items)) = &body[0].node else { panic!("expected list") };
+        assert_eq!(items.len(), 3);
     }
 
     #[test]
     fn parse_empty_list() {
         let prog = parse_str("f>L n;[]");
-        match &prog.declarations[0] {
-            Decl::Function { body, .. } => {
-                match &body[0].node {
-                    Stmt::Expr(Expr::List(items)) => assert!(items.is_empty()),
-                    _ => panic!("expected list"),
-                }
-            }
-            _ => panic!("expected function"),
-        }
+        let Decl::Function { body, .. } = &prog.declarations[0] else { panic!("expected function") };
+        let Stmt::Expr(Expr::List(items)) = &body[0].node else { panic!("expected list") };
+        assert!(items.is_empty());
     }
 
     #[test]
     fn parse_caret_stmt_in_match() {
         let prog = parse_str(r#"f x:R n t>n;?x{^e:^"error";~v:v;_:0}"#);
-        match &prog.declarations[0] {
-            Decl::Function { body, .. } => {
-                match &body[0].node {
-                    Stmt::Match { arms, .. } => {
-                        match &arms[0].body[0].node {
-                            Stmt::Expr(Expr::Err(_)) => {}
-                            _ => panic!("expected Err expr in first arm"),
-                        }
-                    }
-                    _ => panic!("expected match"),
-                }
-            }
-            _ => panic!("expected function"),
-        }
+        let Decl::Function { body, .. } = &prog.declarations[0] else { panic!("expected function") };
+        let Stmt::Match { arms, .. } = &body[0].node else { panic!("expected match") };
+        assert!(matches!(&arms[0].body[0].node, Stmt::Expr(Expr::Err(_))), "expected Err expr in first arm");
     }
 
     #[test]
     fn parse_chained_field_access() {
         let prog = parse_str("type inner{v:n} type outer{i:inner} f o:outer>n;o.i.v");
         // Should parse as o.i.v (chained field access)
-        match &prog.declarations[2] {
-            Decl::Function { body, .. } => {
-                match &body[0].node {
-                    Stmt::Expr(Expr::Field { object, field, .. }) => {
-                        assert_eq!(field, "v");
-                        assert!(matches!(**object, Expr::Field { .. }));
-                    }
-                    _ => panic!("expected chained field"),
-                }
-            }
-            _ => panic!("expected function"),
-        }
+        let Decl::Function { body, .. } = &prog.declarations[2] else { panic!("expected function") };
+        let Stmt::Expr(Expr::Field { object, field, .. }) = &body[0].node else { panic!("expected chained field") };
+        assert_eq!(field, "v");
+        assert!(matches!(**object, Expr::Field { .. }));
     }
 
     #[test]
     fn parse_multi_stmt_match_arm() {
         let prog = parse_str("f x:R n t>n;?x{~v:y=+v 1;*y 2;^e:0}");
-        match &prog.declarations[0] {
-            Decl::Function { body, .. } => {
-                match &body[0].node {
-                    Stmt::Match { arms, .. } => {
-                        assert_eq!(arms[0].body.len(), 2); // y=+v 1, *y 2
-                    }
-                    _ => panic!("expected match"),
-                }
-            }
-            _ => panic!("expected function"),
-        }
+        let Decl::Function { body, .. } = &prog.declarations[0] else { panic!("expected function") };
+        let Stmt::Match { arms, .. } = &body[0].node else { panic!("expected match") };
+        assert_eq!(arms[0].body.len(), 2); // y=+v 1, *y 2
     }
 
     #[test]
     fn parse_negated_guard_vs_not_expr() {
         // !x{body} is negated guard; !x as last stmt is logical NOT
         let prog = parse_str("f x:b>b;!x");
-        match &prog.declarations[0] {
-            Decl::Function { body, .. } => {
-                match &body[0].node {
-                    Stmt::Expr(Expr::UnaryOp { op: UnaryOp::Not, .. }) => {}
-                    _ => panic!("expected NOT expr, got {:?}", body[0]),
-                }
-            }
-            _ => panic!("expected function"),
-        }
+        let Decl::Function { body, .. } = &prog.declarations[0] else { panic!("expected function") };
+        assert!(matches!(&body[0].node, Stmt::Expr(Expr::UnaryOp { op: UnaryOp::Not, .. })), "expected NOT expr, got {:?}", body[0]);
     }
 
     #[test]
     fn parse_match_bool_literals() {
         let prog = parse_str("f x:b>n;?x{true:1;false:0}");
-        match &prog.declarations[0] {
-            Decl::Function { body, .. } => {
-                match &body[0].node {
-                    Stmt::Match { arms, .. } => {
-                        assert!(matches!(arms[0].pattern, Pattern::Literal(Literal::Bool(true))));
-                        assert!(matches!(arms[1].pattern, Pattern::Literal(Literal::Bool(false))));
-                    }
-                    _ => panic!("expected match"),
-                }
-            }
-            _ => panic!("expected function"),
-        }
+        let Decl::Function { body, .. } = &prog.declarations[0] else { panic!("expected function") };
+        let Stmt::Match { arms, .. } = &body[0].node else { panic!("expected match") };
+        assert!(matches!(arms[0].pattern, Pattern::Literal(Literal::Bool(true))));
+        assert!(matches!(arms[1].pattern, Pattern::Literal(Literal::Bool(false))));
     }
 
     #[test]
     fn parse_match_number_with_wildcard() {
         let prog = parse_str(r#"f x:n>t;?x{1:"one";2:"two";_:"other"}"#);
-        match &prog.declarations[0] {
-            Decl::Function { body, .. } => {
-                match &body[0].node {
-                    Stmt::Match { arms, .. } => {
-                        assert_eq!(arms.len(), 3);
-                        assert!(matches!(arms[2].pattern, Pattern::Wildcard));
-                    }
-                    _ => panic!("expected match"),
-                }
-            }
-            _ => panic!("expected function"),
-        }
+        let Decl::Function { body, .. } = &prog.declarations[0] else { panic!("expected function") };
+        let Stmt::Match { arms, .. } = &body[0].node else { panic!("expected match") };
+        assert_eq!(arms.len(), 3);
+        assert!(matches!(arms[2].pattern, Pattern::Wildcard));
     }
 
     #[test]
     fn parse_match_string_patterns() {
         let prog = parse_str(r#"f x:t>n;?x{"a":1;"b":2;_:0}"#);
-        match &prog.declarations[0] {
-            Decl::Function { body, .. } => {
-                match &body[0].node {
-                    Stmt::Match { arms, .. } => {
-                        assert_eq!(arms.len(), 3);
-                        assert!(matches!(&arms[0].pattern, Pattern::Literal(Literal::Text(s)) if s == "a"));
-                    }
-                    _ => panic!("expected match"),
-                }
-            }
-            _ => panic!("expected function"),
-        }
+        let Decl::Function { body, .. } = &prog.declarations[0] else { panic!("expected function") };
+        let Stmt::Match { arms, .. } = &body[0].node else { panic!("expected match") };
+        assert_eq!(arms.len(), 3);
+        assert!(matches!(&arms[0].pattern, Pattern::Literal(Literal::Text(s)) if s == "a"));
     }
 
     #[test]
@@ -2121,17 +1888,9 @@ mod tests {
         for (expr_str, expected_op) in tests {
             let code = format!("f a:b b:b>b;{}", expr_str);
             let prog = parse_str(&code);
-            match &prog.declarations[0] {
-                Decl::Function { body, .. } => {
-                    match &body[0].node {
-                        Stmt::Expr(Expr::BinOp { op, .. }) => {
-                            assert_eq!(*op, expected_op, "failed for expr: {}", expr_str);
-                        }
-                        _ => panic!("expected binop for {}", expr_str),
-                    }
-                }
-                _ => panic!("expected function"),
-            }
+            let Decl::Function { body, .. } = &prog.declarations[0] else { panic!("expected function") };
+            let Stmt::Expr(Expr::BinOp { op, .. }) = &body[0].node else { panic!("expected binop for {}", expr_str) };
+            assert_eq!(*op, expected_op, "failed for expr: {}", expr_str);
         }
     }
 
@@ -2157,40 +1916,28 @@ mod tests {
     #[test]
     fn fn_decl_span_covers_full_declaration() {
         let prog = parse_str("f x:n>n;*x 2");
-        match &prog.declarations[0] {
-            Decl::Function { span, .. } => {
-                assert_eq!(span.start, 0);
-                assert!(span.end > 0, "function span end should be > 0");
-            }
-            _ => panic!("expected function"),
-        }
+        let Decl::Function { span, .. } = &prog.declarations[0] else { panic!("expected function") };
+        assert_eq!(span.start, 0);
+        assert!(span.end > 0, "function span end should be > 0");
     }
 
     #[test]
     fn type_decl_span_covers_full_declaration() {
         let prog = parse_str("type point{x:n;y:n}");
-        match &prog.declarations[0] {
-            Decl::TypeDef { span, .. } => {
-                assert_eq!(span.start, 0);
-                // Should extend to cover the closing }
-                assert!(span.end >= 18, "type span end should cover closing brace, got {}", span.end);
-            }
-            _ => panic!("expected type def"),
-        }
+        let Decl::TypeDef { span, .. } = &prog.declarations[0] else { panic!("expected type def") };
+        assert_eq!(span.start, 0);
+        // Should extend to cover the closing }
+        assert!(span.end >= 18, "type span end should cover closing brace, got {}", span.end);
     }
 
     #[test]
     fn multi_decl_spans_are_distinct() {
         let prog = parse_str("f x:n>n;*x 2 g y:n>n;+y 1");
         assert_eq!(prog.declarations.len(), 2);
-        let span_f = match &prog.declarations[0] {
-            Decl::Function { span, .. } => *span,
-            _ => panic!("expected function"),
-        };
-        let span_g = match &prog.declarations[1] {
-            Decl::Function { span, .. } => *span,
-            _ => panic!("expected function"),
-        };
+        let Decl::Function { span: span_f, .. } = &prog.declarations[0] else { panic!("expected function") };
+        let span_f = *span_f;
+        let Decl::Function { span: span_g, .. } = &prog.declarations[1] else { panic!("expected function") };
+        let span_g = *span_g;
         // f starts at 0, g starts after f
         assert_eq!(span_f.start, 0);
         assert!(span_g.start > span_f.start, "g should start after f");
@@ -2200,13 +1947,9 @@ mod tests {
     #[test]
     fn tool_decl_has_span() {
         let prog = parse_str(r#"tool fetch"http get" url:t>t"#);
-        match &prog.declarations[0] {
-            Decl::Tool { span, .. } => {
-                assert_eq!(span.start, 0);
-                assert!(span.end > 0);
-            }
-            _ => panic!("expected tool"),
-        }
+        let Decl::Tool { span, .. } = &prog.declarations[0] else { panic!("expected tool") };
+        assert_eq!(span.start, 0);
+        assert!(span.end > 0);
     }
 
     // ---- File-based tests ----
@@ -2215,28 +1958,20 @@ mod tests {
     fn parse_example_01_simple_function() {
         let prog = parse_file("research/explorations/idea9-ultra-dense-short/01-simple-function.ilo");
         assert_eq!(prog.declarations.len(), 1);
-        match &prog.declarations[0] {
-            Decl::Function { name, params, return_type, body, .. } => {
-                assert_eq!(name, "tot");
-                assert_eq!(params.len(), 3);
-                assert_eq!(*return_type, Type::Number);
-                assert_eq!(body.len(), 3);
-            }
-            _ => panic!("expected function"),
-        }
+        let Decl::Function { name, params, return_type, body, .. } = &prog.declarations[0] else { panic!("expected function") };
+        assert_eq!(name, "tot");
+        assert_eq!(params.len(), 3);
+        assert_eq!(*return_type, Type::Number);
+        assert_eq!(body.len(), 3);
     }
 
     #[test]
     fn parse_example_02_with_dependencies() {
         let prog = parse_file("research/explorations/idea9-ultra-dense-short/02-with-dependencies.ilo");
         assert_eq!(prog.declarations.len(), 1);
-        match &prog.declarations[0] {
-            Decl::Function { name, return_type, .. } => {
-                assert_eq!(name, "prc");
-                assert!(matches!(return_type, Type::Result(_, _)));
-            }
-            _ => panic!("expected function"),
-        }
+        let Decl::Function { name, return_type, .. } = &prog.declarations[0] else { panic!("expected function") };
+        assert_eq!(name, "prc");
+        assert!(matches!(return_type, Type::Result(_, _)));
     }
 
     #[test]
@@ -2255,42 +1990,22 @@ mod tests {
     #[test]
     fn parse_complex_match_patterns() {
         let prog = parse_str(r#"f x:R n t>n;?x{^e:0;~v:?v{1:100;2:200;_:v}}"#);
-        match &prog.declarations[0] {
-            Decl::Function { body, .. } => {
-                assert_eq!(body.len(), 1);
-                match &body[0].node {
-                    Stmt::Match { arms, .. } => {
-                        assert_eq!(arms.len(), 2);
-                        // Second arm body should be a nested match statement
-                        assert!(matches!(&arms[1].body[0].node, Stmt::Match { .. }));
-                    }
-                    _ => panic!("expected match"),
-                }
-            }
-            _ => panic!("expected function"),
-        }
+        let Decl::Function { body, .. } = &prog.declarations[0] else { panic!("expected function") };
+        assert_eq!(body.len(), 1);
+        let Stmt::Match { arms, .. } = &body[0].node else { panic!("expected match") };
+        assert_eq!(arms.len(), 2);
+        // Second arm body should be a nested match statement
+        assert!(matches!(&arms[1].body[0].node, Stmt::Match { .. }));
     }
 
     #[test]
     fn parse_deeply_nested_prefix() {
         let prog = parse_str("f x:n>n;+*+x 1 2 3");
-        match &prog.declarations[0] {
-            Decl::Function { body, .. } => {
-                // Should be: +(*(+(x,1), 2), 3)
-                match &body[0].node {
-                    Stmt::Expr(Expr::BinOp { op: BinOp::Add, left, .. }) => {
-                        match &**left {
-                            Expr::BinOp { op: BinOp::Multiply, left: inner, .. } => {
-                                assert!(matches!(&**inner, Expr::BinOp { op: BinOp::Add, .. }));
-                            }
-                            _ => panic!("expected nested multiply"),
-                        }
-                    }
-                    _ => panic!("expected add"),
-                }
-            }
-            _ => panic!("expected function"),
-        }
+        let Decl::Function { body, .. } = &prog.declarations[0] else { panic!("expected function") };
+        // Should be: +(*(+(x,1), 2), 3)
+        let Stmt::Expr(Expr::BinOp { op: BinOp::Add, left, .. }) = &body[0].node else { panic!("expected add") };
+        let Expr::BinOp { op: BinOp::Multiply, left: inner, .. } = &**left else { panic!("expected nested multiply") };
+        assert!(matches!(&**inner, Expr::BinOp { op: BinOp::Add, .. }));
     }
 
     #[test]
@@ -2317,10 +2032,8 @@ mod tests {
         assert!(!errors.is_empty(), "expected parse error from f");
         let valid: Vec<_> = prog.declarations.iter().filter(|d| !matches!(d, Decl::Error { .. })).collect();
         assert_eq!(valid.len(), 1, "g should parse successfully");
-        match valid[0] {
-            Decl::Function { name, .. } => assert_eq!(name, "g"),
-            _ => panic!("expected function g"),
-        }
+        let Decl::Function { name, .. } = valid[0] else { panic!("expected function g") };
+        assert_eq!(name, "g");
     }
 
     #[test]
@@ -2473,36 +2186,20 @@ mod tests {
     fn parse_ok_expr_as_operand() {
         // `~x` as the argument to a function call — exercises Tilde in parse_operand
         let prog = parse_str("f x:n>R n t;g ~x");
-        match &prog.declarations[0] {
-            Decl::Function { body, .. } => {
-                match &body[0].node {
-                    Stmt::Expr(Expr::Call { function, args, .. }) => {
-                        assert_eq!(function, "g");
-                        assert!(matches!(&args[0], Expr::Ok(_)));
-                    }
-                    _ => panic!("expected call, got {:?}", body[0]),
-                }
-            }
-            _ => panic!("expected function"),
-        }
+        let Decl::Function { body, .. } = &prog.declarations[0] else { panic!("expected function") };
+        let Stmt::Expr(Expr::Call { function, args, .. }) = &body[0].node else { panic!("expected call") };
+        assert_eq!(function, "g");
+        assert!(matches!(&args[0], Expr::Ok(_)));
     }
 
     #[test]
     fn parse_err_expr_as_operand() {
         // `^x` as the argument to a function call — exercises Caret in parse_operand
         let prog = parse_str("f x:n>R n t;g ^x");
-        match &prog.declarations[0] {
-            Decl::Function { body, .. } => {
-                match &body[0].node {
-                    Stmt::Expr(Expr::Call { function, args, .. }) => {
-                        assert_eq!(function, "g");
-                        assert!(matches!(&args[0], Expr::Err(_)));
-                    }
-                    _ => panic!("expected call, got {:?}", body[0]),
-                }
-            }
-            _ => panic!("expected function"),
-        }
+        let Decl::Function { body, .. } = &prog.declarations[0] else { panic!("expected function") };
+        let Stmt::Expr(Expr::Call { function, args, .. }) = &body[0].node else { panic!("expected call") };
+        assert_eq!(function, "g");
+        assert!(matches!(&args[0], Expr::Err(_)));
     }
 
     #[test]
@@ -2529,13 +2226,9 @@ mod tests {
     fn parse_ident_guard_expr_or_guard() {
         // Ident-starting guard: `x{42}` exercises parse_expr_or_guard returning a Guard (L621-625)
         let prog = parse_str("f x:b>n;x{42}");
-        match &prog.declarations[0] {
-            Decl::Function { body, .. } => {
-                assert!(matches!(&body[0].node, Stmt::Guard { negated: false, .. }),
-                    "expected non-negated guard, got {:?}", body[0]);
-            }
-            _ => panic!("expected function"),
-        }
+        let Decl::Function { body, .. } = &prog.declarations[0] else { panic!("expected function") };
+        assert!(matches!(&body[0].node, Stmt::Guard { negated: false, .. }),
+            "expected non-negated guard, got {:?}", body[0]);
     }
 
     #[test]
@@ -2565,10 +2258,8 @@ mod tests {
     fn parse_body_trailing_semicolon() {
         // `f>n;42;` — `;` after `42` is consumed, then at_body_end (EOF) → break (L363)
         let prog = parse_str("f>n;42;");
-        match &prog.declarations[0] {
-            Decl::Function { body, .. } => assert_eq!(body.len(), 1),
-            _ => panic!("expected function"),
-        }
+        let Decl::Function { body, .. } = &prog.declarations[0] else { panic!("expected function") };
+        assert_eq!(body.len(), 1);
     }
 
     // L436: parse_match_arms trailing `;` before `}` — arm with empty body (L436)
@@ -2578,18 +2269,10 @@ mod tests {
     fn parse_match_arms_trailing_semi() {
         // `?{1:;}` — arm `1:` has empty body, `;` then `}` → break at L436
         let prog = parse_str("f>n;?{1:;}");
-        match &prog.declarations[0] {
-            Decl::Function { body, .. } => {
-                match &body[0].node {
-                    Stmt::Match { arms, .. } => {
-                        assert_eq!(arms.len(), 1);
-                        assert_eq!(arms[0].body.len(), 0); // empty body
-                    }
-                    _ => panic!("expected match"),
-                }
-            }
-            _ => panic!("expected function"),
-        }
+        let Decl::Function { body, .. } = &prog.declarations[0] else { panic!("expected function") };
+        let Stmt::Match { arms, .. } = &body[0].node else { panic!("expected match") };
+        assert_eq!(arms.len(), 1);
+        assert_eq!(arms[0].body.len(), 0); // empty body
     }
 
     // L460: parse_arm_body trailing `;` before `}` — consumed `;`, at_arm_end → break (L460)
@@ -2597,18 +2280,10 @@ mod tests {
     fn parse_arm_body_trailing_semi() {
         // `?0{_:1;}` — in arm body, `;` consumed, peek is `}` → at_arm_end → break (L460)
         let prog = parse_str("f>n;?0{_:1;}");
-        match &prog.declarations[0] {
-            Decl::Function { body, .. } => {
-                match &body[0].node {
-                    Stmt::Match { arms, .. } => {
-                        assert_eq!(arms.len(), 1);
-                        assert_eq!(arms[0].body.len(), 1);
-                    }
-                    _ => panic!("expected match"),
-                }
-            }
-            _ => panic!("expected function"),
-        }
+        let Decl::Function { body, .. } = &prog.declarations[0] else { panic!("expected function") };
+        let Stmt::Match { arms, .. } = &body[0].node else { panic!("expected match") };
+        assert_eq!(arms.len(), 1);
+        assert_eq!(arms[0].body.len(), 1);
     }
 
     // L477: semi_starts_new_arm — after_semi >= tokens.len() (EOF after `;`) → return false (L477)
@@ -2809,39 +2484,23 @@ mod tests {
     fn parse_unwrap_call() {
         // Single function with unwrap call as let-bind (no multi-func boundary issue)
         let prog = parse_str("f x:n>R n t;d=g! x;~d");
-        match &prog.declarations[0] {
-            Decl::Function { body, .. } => {
-                match &body[0].node {
-                    Stmt::Let { value: Expr::Call { function, args, unwrap }, .. } => {
-                        assert_eq!(function, "g");
-                        assert!(unwrap);
-                        assert_eq!(args.len(), 1);
-                        assert!(matches!(&args[0], Expr::Ref(n) if n == "x"));
-                    }
-                    _ => panic!("expected unwrap call, got {:?}", body[0]),
-                }
-            }
-            _ => panic!("expected function"),
-        }
+        let Decl::Function { body, .. } = &prog.declarations[0] else { panic!("expected function") };
+        let Stmt::Let { value: Expr::Call { function, args, unwrap }, .. } = &body[0].node else { panic!("expected unwrap call") };
+        assert_eq!(function, "g");
+        assert!(unwrap);
+        assert_eq!(args.len(), 1);
+        assert!(matches!(&args[0], Expr::Ref(n) if n == "x"));
     }
 
     #[test]
     fn parse_unwrap_zero_arg() {
         // fetch!() → Call { function: "fetch", unwrap: true, args: [] }
         let prog = parse_str("f>R t t;d=g!();~d");
-        match &prog.declarations[0] {
-            Decl::Function { body, .. } => {
-                match &body[0].node {
-                    Stmt::Let { value: Expr::Call { function, args, unwrap }, .. } => {
-                        assert_eq!(function, "g");
-                        assert!(unwrap);
-                        assert!(args.is_empty());
-                    }
-                    _ => panic!("expected unwrap zero-arg call, got {:?}", body[0]),
-                }
-            }
-            _ => panic!("expected function"),
-        }
+        let Decl::Function { body, .. } = &prog.declarations[0] else { panic!("expected function") };
+        let Stmt::Let { value: Expr::Call { function, args, unwrap }, .. } = &body[0].node else { panic!("expected unwrap zero-arg call") };
+        assert_eq!(function, "g");
+        assert!(unwrap);
+        assert!(args.is_empty());
     }
 
     #[test]
@@ -2849,20 +2508,12 @@ mod tests {
         // g !x → Call(g, [Not(Ref(x))]), NOT an unwrap call
         // Single-function to avoid boundary issues
         let prog = parse_str("f x:b>b;g !x");
-        match &prog.declarations[0] {
-            Decl::Function { body, .. } => {
-                match &body[0].node {
-                    Stmt::Expr(Expr::Call { function, args, unwrap, .. }) => {
-                        assert_eq!(function, "g");
-                        assert!(!unwrap);
-                        assert_eq!(args.len(), 1);
-                        assert!(matches!(&args[0], Expr::UnaryOp { op: UnaryOp::Not, .. }));
-                    }
-                    _ => panic!("expected call with NOT arg, got {:?}", body[0]),
-                }
-            }
-            _ => panic!("expected function"),
-        }
+        let Decl::Function { body, .. } = &prog.declarations[0] else { panic!("expected function") };
+        let Stmt::Expr(Expr::Call { function, args, unwrap, .. }) = &body[0].node else { panic!("expected call with NOT arg") };
+        assert_eq!(function, "g");
+        assert!(!unwrap);
+        assert_eq!(args.len(), 1);
+        assert!(matches!(&args[0], Expr::UnaryOp { op: UnaryOp::Not, .. }));
     }
 
     #[test]
@@ -2870,37 +2521,21 @@ mod tests {
         // f! a b → Call { function: "f", unwrap: true, args: [Ref("a"), Ref("b")] }
         // Use let-bind to avoid greedy arg consumption at decl boundary
         let prog = parse_str("f a:n b:n>R n t;d=g! a b;~d");
-        match &prog.declarations[0] {
-            Decl::Function { body, .. } => {
-                match &body[0].node {
-                    Stmt::Let { value: Expr::Call { function, args, unwrap }, .. } => {
-                        assert_eq!(function, "g");
-                        assert!(unwrap);
-                        assert_eq!(args.len(), 2);
-                    }
-                    _ => panic!("expected unwrap multi-arg call, got {:?}", body[0]),
-                }
-            }
-            _ => panic!("expected function"),
-        }
+        let Decl::Function { body, .. } = &prog.declarations[0] else { panic!("expected function") };
+        let Stmt::Let { value: Expr::Call { function, args, unwrap }, .. } = &body[0].node else { panic!("expected unwrap multi-arg call") };
+        assert_eq!(function, "g");
+        assert!(unwrap);
+        assert_eq!(args.len(), 2);
     }
 
     #[test]
     fn parse_unwrap_as_last_expr() {
         // Unwrap as the last expression in the body (tail position)
         let prog = parse_str("f x:n>R n t;g! x");
-        match &prog.declarations[0] {
-            Decl::Function { body, .. } => {
-                match &body[0].node {
-                    Stmt::Expr(Expr::Call { function, unwrap, .. }) => {
-                        assert_eq!(function, "g");
-                        assert!(unwrap);
-                    }
-                    _ => panic!("expected unwrap call expr, got {:?}", body[0]),
-                }
-            }
-            _ => panic!("expected function"),
-        }
+        let Decl::Function { body, .. } = &prog.declarations[0] else { panic!("expected function") };
+        let Stmt::Expr(Expr::Call { function, unwrap, .. }) = &body[0].node else { panic!("expected unwrap call expr") };
+        assert_eq!(function, "g");
+        assert!(unwrap);
     }
 
     // ---- Braceless guards ----
@@ -2909,139 +2544,83 @@ mod tests {
     fn braceless_guard_comparison_literal() {
         // >=sp 1000 "gold" → Guard with comparison condition and literal body
         let prog = parse_str(r#"cls sp:n>t;>=sp 1000 "gold";"bronze""#);
-        match &prog.declarations[0] {
-            Decl::Function { body, .. } => {
-                assert_eq!(body.len(), 2, "expected 2 stmts (guard + expr), got {:?}", body);
-                match &body[0].node {
-                    Stmt::Guard { condition, negated, body: guard_body, .. } => {
-                        assert!(!negated);
-                        assert!(matches!(condition, Expr::BinOp { op: BinOp::GreaterOrEqual, .. }));
-                        assert_eq!(guard_body.len(), 1);
-                        match &guard_body[0].node {
-                            Stmt::Expr(Expr::Literal(Literal::Text(s))) => assert_eq!(s, "gold"),
-                            _ => panic!("expected text literal body, got {:?}", guard_body[0]),
-                        }
-                    }
-                    _ => panic!("expected guard, got {:?}", body[0]),
-                }
-            }
-            _ => panic!("expected function"),
-        }
+        let Decl::Function { body, .. } = &prog.declarations[0] else { panic!("expected function") };
+        assert_eq!(body.len(), 2, "expected 2 stmts (guard + expr), got {:?}", body);
+        let Stmt::Guard { condition, negated, body: guard_body, .. } = &body[0].node else { panic!("expected guard") };
+        assert!(!negated);
+        assert!(matches!(condition, Expr::BinOp { op: BinOp::GreaterOrEqual, .. }));
+        assert_eq!(guard_body.len(), 1);
+        let Stmt::Expr(Expr::Literal(Literal::Text(s))) = &guard_body[0].node else { panic!("expected text literal body") };
+        assert_eq!(s, "gold");
     }
 
     #[test]
     fn braceless_guard_variable_body() {
         // <=n 1 n → Guard returning variable
         let prog = parse_str("fib n:n>n;<=n 1 n;+n 1");
-        match &prog.declarations[0] {
-            Decl::Function { body, .. } => {
-                assert_eq!(body.len(), 2);
-                match &body[0].node {
-                    Stmt::Guard { condition, negated, body: guard_body, .. } => {
-                        assert!(!negated);
-                        assert!(matches!(condition, Expr::BinOp { op: BinOp::LessOrEqual, .. }));
-                        assert_eq!(guard_body.len(), 1);
-                        assert!(matches!(&guard_body[0].node, Stmt::Expr(Expr::Ref(n)) if n == "n"));
-                    }
-                    _ => panic!("expected guard, got {:?}", body[0]),
-                }
-            }
-            _ => panic!("expected function"),
-        }
+        let Decl::Function { body, .. } = &prog.declarations[0] else { panic!("expected function") };
+        assert_eq!(body.len(), 2);
+        let Stmt::Guard { condition, negated, body: guard_body, .. } = &body[0].node else { panic!("expected guard") };
+        assert!(!negated);
+        assert!(matches!(condition, Expr::BinOp { op: BinOp::LessOrEqual, .. }));
+        assert_eq!(guard_body.len(), 1);
+        assert!(matches!(&guard_body[0].node, Stmt::Expr(Expr::Ref(n)) if n == "n"));
     }
 
     #[test]
     fn braceless_guard_ok_body() {
         // >=x 0 ~x → Guard returning Ok(x)
         let prog = parse_str("f x:n>R n t;>=x 0 ~x;^\"negative\"");
-        match &prog.declarations[0] {
-            Decl::Function { body, .. } => {
-                match &body[0].node {
-                    Stmt::Guard { body: guard_body, .. } => {
-                        assert_eq!(guard_body.len(), 1);
-                        assert!(matches!(&guard_body[0].node, Stmt::Expr(Expr::Ok(_))));
-                    }
-                    _ => panic!("expected guard, got {:?}", body[0]),
-                }
-            }
-            _ => panic!("expected function"),
-        }
+        let Decl::Function { body, .. } = &prog.declarations[0] else { panic!("expected function") };
+        let Stmt::Guard { body: guard_body, .. } = &body[0].node else { panic!("expected guard") };
+        assert_eq!(guard_body.len(), 1);
+        assert!(matches!(&guard_body[0].node, Stmt::Expr(Expr::Ok(_))));
     }
 
     #[test]
     fn braceless_guard_err_body() {
         // <x 0 ^"negative" → Guard returning Err
         let prog = parse_str(r#"f x:n>R n t;<x 0 ^"negative";~x"#);
-        match &prog.declarations[0] {
-            Decl::Function { body, .. } => {
-                match &body[0].node {
-                    Stmt::Guard { body: guard_body, .. } => {
-                        assert_eq!(guard_body.len(), 1);
-                        assert!(matches!(&guard_body[0].node, Stmt::Expr(Expr::Err(_))));
-                    }
-                    _ => panic!("expected guard, got {:?}", body[0]),
-                }
-            }
-            _ => panic!("expected function"),
-        }
+        let Decl::Function { body, .. } = &prog.declarations[0] else { panic!("expected function") };
+        let Stmt::Guard { body: guard_body, .. } = &body[0].node else { panic!("expected guard") };
+        assert_eq!(guard_body.len(), 1);
+        assert!(matches!(&guard_body[0].node, Stmt::Expr(Expr::Err(_))));
     }
 
     #[test]
     fn braceless_guard_operator_body() {
         // >=x 10 +x 1 → Guard returning x+1
         let prog = parse_str("f x:n>n;>=x 10 +x 1;*x 2");
-        match &prog.declarations[0] {
-            Decl::Function { body, .. } => {
-                assert_eq!(body.len(), 2);
-                match &body[0].node {
-                    Stmt::Guard { body: guard_body, .. } => {
-                        assert_eq!(guard_body.len(), 1);
-                        assert!(matches!(&guard_body[0].node, Stmt::Expr(Expr::BinOp { op: BinOp::Add, .. })));
-                    }
-                    _ => panic!("expected guard, got {:?}", body[0]),
-                }
-            }
-            _ => panic!("expected function"),
-        }
+        let Decl::Function { body, .. } = &prog.declarations[0] else { panic!("expected function") };
+        assert_eq!(body.len(), 2);
+        let Stmt::Guard { body: guard_body, .. } = &body[0].node else { panic!("expected guard") };
+        assert_eq!(guard_body.len(), 1);
+        assert!(matches!(&guard_body[0].node, Stmt::Expr(Expr::BinOp { op: BinOp::Add, .. })));
     }
 
     #[test]
     fn braceless_guard_multi_guard_program() {
         // Full classify program with braceless guards
         let prog = parse_str(r#"cls sp:n>t;>=sp 1000 "gold";>=sp 500 "silver";"bronze""#);
-        match &prog.declarations[0] {
-            Decl::Function { body, .. } => {
-                assert_eq!(body.len(), 3, "expected 3 stmts, got {:?}", body);
-                assert!(matches!(&body[0].node, Stmt::Guard { .. }));
-                assert!(matches!(&body[1].node, Stmt::Guard { .. }));
-                assert!(matches!(&body[2].node, Stmt::Expr(Expr::Literal(Literal::Text(_)))));
-            }
-            _ => panic!("expected function"),
-        }
+        let Decl::Function { body, .. } = &prog.declarations[0] else { panic!("expected function") };
+        assert_eq!(body.len(), 3, "expected 3 stmts, got {:?}", body);
+        assert!(matches!(&body[0].node, Stmt::Guard { .. }));
+        assert!(matches!(&body[1].node, Stmt::Guard { .. }));
+        assert!(matches!(&body[2].node, Stmt::Expr(Expr::Literal(Literal::Text(_)))));
     }
 
     #[test]
     fn braceless_guard_negated() {
         // !>=x 10 "small" → negated braceless guard
         let prog = parse_str(r#"f x:n>t;!>=x 10 "small";"big""#);
-        match &prog.declarations[0] {
-            Decl::Function { body, .. } => {
-                assert_eq!(body.len(), 2);
-                match &body[0].node {
-                    Stmt::Guard { condition, negated, body: guard_body, .. } => {
-                        assert!(negated);
-                        assert!(matches!(condition, Expr::BinOp { op: BinOp::GreaterOrEqual, .. }));
-                        assert_eq!(guard_body.len(), 1);
-                        match &guard_body[0].node {
-                            Stmt::Expr(Expr::Literal(Literal::Text(s))) => assert_eq!(s, "small"),
-                            _ => panic!("expected text body"),
-                        }
-                    }
-                    _ => panic!("expected negated guard, got {:?}", body[0]),
-                }
-            }
-            _ => panic!("expected function"),
-        }
+        let Decl::Function { body, .. } = &prog.declarations[0] else { panic!("expected function") };
+        assert_eq!(body.len(), 2);
+        let Stmt::Guard { condition, negated, body: guard_body, .. } = &body[0].node else { panic!("expected negated guard") };
+        assert!(negated);
+        assert!(matches!(condition, Expr::BinOp { op: BinOp::GreaterOrEqual, .. }));
+        assert_eq!(guard_body.len(), 1);
+        let Stmt::Expr(Expr::Literal(Literal::Text(s))) = &guard_body[0].node else { panic!("expected text body") };
+        assert_eq!(s, "small");
     }
 
     #[test]
@@ -3049,98 +2628,60 @@ mod tests {
         // +x y "result" — Add is NOT a comparison, so no braceless guard
         // +x y is an expr, "result" is a separate expr
         let prog = parse_str(r#"f x:n y:n>t;+x y;"result""#);
-        match &prog.declarations[0] {
-            Decl::Function { body, .. } => {
-                // First stmt should be an Expr (BinOp Add), not a Guard
-                assert!(matches!(&body[0].node, Stmt::Expr(Expr::BinOp { op: BinOp::Add, .. })),
-                    "non-comparison should not trigger braceless guard, got {:?}", body[0]);
-            }
-            _ => panic!("expected function"),
-        }
+        let Decl::Function { body, .. } = &prog.declarations[0] else { panic!("expected function") };
+        // First stmt should be an Expr (BinOp Add), not a Guard
+        assert!(matches!(&body[0].node, Stmt::Expr(Expr::BinOp { op: BinOp::Add, .. })),
+            "non-comparison should not trigger braceless guard, got {:?}", body[0]);
     }
 
     #[test]
     fn braceless_guard_braced_still_works() {
         // Braced guards should still work exactly as before
         let prog = parse_str(r#"cls sp:n>t;>=sp 1000{"gold"};"bronze""#);
-        match &prog.declarations[0] {
-            Decl::Function { body, .. } => {
-                assert_eq!(body.len(), 2);
-                match &body[0].node {
-                    Stmt::Guard { negated, .. } => assert!(!negated),
-                    _ => panic!("expected guard"),
-                }
-            }
-            _ => panic!("expected function"),
-        }
+        let Decl::Function { body, .. } = &prog.declarations[0] else { panic!("expected function") };
+        assert_eq!(body.len(), 2);
+        let Stmt::Guard { negated, .. } = &body[0].node else { panic!("expected guard") };
+        assert!(!negated);
     }
 
     #[test]
     fn braceless_guard_equality() {
         // =x "admin" ~x → equality check braceless guard
         let prog = parse_str(r#"f x:t>R t t;=x "admin" ~x;^"denied""#);
-        match &prog.declarations[0] {
-            Decl::Function { body, .. } => {
-                match &body[0].node {
-                    Stmt::Guard { condition, .. } => {
-                        assert!(matches!(condition, Expr::BinOp { op: BinOp::Equals, .. }));
-                    }
-                    _ => panic!("expected guard"),
-                }
-            }
-            _ => panic!("expected function"),
-        }
+        let Decl::Function { body, .. } = &prog.declarations[0] else { panic!("expected function") };
+        let Stmt::Guard { condition, .. } = &body[0].node else { panic!("expected guard") };
+        assert!(matches!(condition, Expr::BinOp { op: BinOp::Equals, .. }));
     }
 
     #[test]
     fn braceless_guard_logical_and() {
         // &a b "both" → logical AND braceless guard
         let prog = parse_str(r#"f a:b b:b>t;&a b "both";"nope""#);
-        match &prog.declarations[0] {
-            Decl::Function { body, .. } => {
-                match &body[0].node {
-                    Stmt::Guard { condition, .. } => {
-                        assert!(matches!(condition, Expr::BinOp { op: BinOp::And, .. }));
-                    }
-                    _ => panic!("expected guard, got {:?}", body[0]),
-                }
-            }
-            _ => panic!("expected function"),
-        }
+        let Decl::Function { body, .. } = &prog.declarations[0] else { panic!("expected function") };
+        let Stmt::Guard { condition, .. } = &body[0].node else { panic!("expected guard") };
+        assert!(matches!(condition, Expr::BinOp { op: BinOp::And, .. }));
     }
 
     #[test]
     fn braceless_guard_at_end_no_body() {
         // >=x 10 at end with semicolon but no body token → not a braceless guard
         let prog = parse_str("f x:n>b;>=x 10");
-        match &prog.declarations[0] {
-            Decl::Function { body, .. } => {
-                assert_eq!(body.len(), 1);
-                // Should be a plain expression, not a guard (nothing follows)
-                assert!(matches!(&body[0].node, Stmt::Expr(Expr::BinOp { op: BinOp::GreaterOrEqual, .. })));
-            }
-            _ => panic!("expected function"),
-        }
+        let Decl::Function { body, .. } = &prog.declarations[0] else { panic!("expected function") };
+        assert_eq!(body.len(), 1);
+        // Should be a plain expression, not a guard (nothing follows)
+        assert!(matches!(&body[0].node, Stmt::Expr(Expr::BinOp { op: BinOp::GreaterOrEqual, .. })));
     }
 
     #[test]
     fn braceless_guard_factorial() {
         // fac n:n>n;<=n 1 1;r=fac -n 1;*n r
         let prog = parse_str("fac n:n>n;<=n 1 1;r=fac -n 1;*n r");
-        match &prog.declarations[0] {
-            Decl::Function { body, .. } => {
-                assert_eq!(body.len(), 3, "expected 3 stmts (guard + let + expr), got {:?}", body);
-                match &body[0].node {
-                    Stmt::Guard { condition, body: guard_body, .. } => {
-                        assert!(matches!(condition, Expr::BinOp { op: BinOp::LessOrEqual, .. }));
-                        assert_eq!(guard_body.len(), 1);
-                        assert!(matches!(&guard_body[0].node, Stmt::Expr(Expr::Literal(Literal::Number(n))) if *n == 1.0));
-                    }
-                    _ => panic!("expected guard, got {:?}", body[0]),
-                }
-            }
-            _ => panic!("expected function"),
-        }
+        let Decl::Function { body, .. } = &prog.declarations[0] else { panic!("expected function") };
+        assert_eq!(body.len(), 3, "expected 3 stmts (guard + let + expr), got {:?}", body);
+        let Stmt::Guard { condition, body: guard_body, .. } = &body[0].node else { panic!("expected guard") };
+        assert!(matches!(condition, Expr::BinOp { op: BinOp::LessOrEqual, .. }));
+        assert_eq!(guard_body.len(), 1);
+        assert!(matches!(&guard_body[0].node, Stmt::Expr(Expr::Literal(Literal::Number(n))) if *n == 1.0));
     }
 
     // ---- Braceless guard ambiguity detection (ILO-P016) ----
@@ -3163,12 +2704,8 @@ mod tests {
     fn braceless_guard_valid_semicolon_terminates() {
         // >=sp 1000 classify; — `classify` as variable ref, semicolon terminates → valid
         let prog = parse_str("cls sp:n>t;>=sp 1000 classify;\"fallback\"");
-        match &prog.declarations[0] {
-            Decl::Function { body, .. } => {
-                assert!(matches!(&body[0].node, Stmt::Guard { .. }));
-            }
-            _ => panic!("expected function"),
-        }
+        let Decl::Function { body, .. } = &prog.declarations[0] else { panic!("expected function") };
+        assert!(matches!(&body[0].node, Stmt::Guard { .. }));
     }
 
     // ---- Dollar / HTTP get tests ----
@@ -3176,54 +2713,30 @@ mod tests {
     #[test]
     fn parse_dollar_desugars_to_get() {
         let prog = parse_str(r#"f url:t>R t t;$url"#);
-        match &prog.declarations[0] {
-            Decl::Function { body, .. } => {
-                match &body[0].node {
-                    Stmt::Expr(Expr::Call { function, args, unwrap }) => {
-                        assert_eq!(function, "get");
-                        assert_eq!(args.len(), 1);
-                        assert!(!unwrap);
-                    }
-                    _ => panic!("expected get call, got {:?}", body[0]),
-                }
-            }
-            _ => panic!("expected function"),
-        }
+        let Decl::Function { body, .. } = &prog.declarations[0] else { panic!("expected function") };
+        let Stmt::Expr(Expr::Call { function, args, unwrap }) = &body[0].node else { panic!("expected get call") };
+        assert_eq!(function, "get");
+        assert_eq!(args.len(), 1);
+        assert!(!unwrap);
     }
 
     #[test]
     fn parse_dollar_bang_desugars_to_get_unwrap() {
         let prog = parse_str(r#"f url:t>t;$!url"#);
-        match &prog.declarations[0] {
-            Decl::Function { body, .. } => {
-                match &body[0].node {
-                    Stmt::Expr(Expr::Call { function, args, unwrap }) => {
-                        assert_eq!(function, "get");
-                        assert_eq!(args.len(), 1);
-                        assert!(unwrap);
-                    }
-                    _ => panic!("expected get! call, got {:?}", body[0]),
-                }
-            }
-            _ => panic!("expected function"),
-        }
+        let Decl::Function { body, .. } = &prog.declarations[0] else { panic!("expected function") };
+        let Stmt::Expr(Expr::Call { function, args, unwrap }) = &body[0].node else { panic!("expected get! call") };
+        assert_eq!(function, "get");
+        assert_eq!(args.len(), 1);
+        assert!(unwrap);
     }
 
     #[test]
     fn parse_dollar_with_string_literal() {
         let prog = parse_str(r#"f>R t t;$"http://example.com""#);
-        match &prog.declarations[0] {
-            Decl::Function { body, .. } => {
-                match &body[0].node {
-                    Stmt::Expr(Expr::Call { function, args, .. }) => {
-                        assert_eq!(function, "get");
-                        assert!(matches!(&args[0], Expr::Literal(Literal::Text(_))));
-                    }
-                    _ => panic!("expected get call, got {:?}", body[0]),
-                }
-            }
-            _ => panic!("expected function"),
-        }
+        let Decl::Function { body, .. } = &prog.declarations[0] else { panic!("expected function") };
+        let Stmt::Expr(Expr::Call { function, args, .. }) = &body[0].node else { panic!("expected get call") };
+        assert_eq!(function, "get");
+        assert!(matches!(&args[0], Expr::Literal(Literal::Text(_))));
     }
 
     #[test]
@@ -3231,169 +2744,94 @@ mod tests {
         let source = r#"f x:n>t;=x 1{"yes"}{"no"}"#;
         let (program, errors) = parse_str_errors(source);
         assert!(errors.is_empty(), "parse errors: {:?}", errors);
-        match &program.declarations[0] {
-            Decl::Function { body, .. } => {
-                assert_eq!(body.len(), 1, "expected 1 stmt (ternary), got {:?}", body);
-                match &body[0].node {
-                    Stmt::Guard { else_body, .. } => {
-                        assert!(else_body.is_some(), "expected else_body in ternary");
-                        let eb = else_body.as_ref().unwrap();
-                        assert_eq!(eb.len(), 1);
-                    }
-                    other => panic!("expected guard with else, got {:?}", other),
-                }
-            }
-            _ => panic!("expected function"),
-        }
+        let Decl::Function { body, .. } = &program.declarations[0] else { panic!("expected function") };
+        assert_eq!(body.len(), 1, "expected 1 stmt (ternary), got {:?}", body);
+        let Stmt::Guard { else_body, .. } = &body[0].node else { panic!("expected guard with else") };
+        assert!(else_body.is_some(), "expected else_body in ternary");
+        let eb = else_body.as_ref().unwrap();
+        assert_eq!(eb.len(), 1);
     }
 
     #[test]
     fn parse_while_loop() {
         let prog = parse_str("f>n;wh true{42}");
-        match &prog.declarations[0] {
-            Decl::Function { body, .. } => {
-                match &body[0].node {
-                    Stmt::While { condition, body } => {
-                        assert!(matches!(condition, Expr::Literal(Literal::Bool(true))));
-                        assert_eq!(body.len(), 1);
-                    }
-                    other => panic!("expected While, got {:?}", other),
-                }
-            }
-            _ => panic!("expected function"),
-        }
+        let Decl::Function { body, .. } = &prog.declarations[0] else { panic!("expected function") };
+        let Stmt::While { condition, body } = &body[0].node else { panic!("expected While") };
+        assert!(matches!(condition, Expr::Literal(Literal::Bool(true))));
+        assert_eq!(body.len(), 1);
     }
 
     #[test]
     fn parse_ret_statement() {
         let prog = parse_str("f x:n>n;ret +x 1");
-        match &prog.declarations[0] {
-            Decl::Function { body, .. } => {
-                assert_eq!(body.len(), 1);
-                match &body[0].node {
-                    Stmt::Return(Expr::BinOp { op: BinOp::Add, .. }) => {}
-                    other => panic!("expected Return(BinOp::Add), got {:?}", other),
-                }
-            }
-            _ => panic!("expected function"),
-        }
+        let Decl::Function { body, .. } = &prog.declarations[0] else { panic!("expected function") };
+        assert_eq!(body.len(), 1);
+        assert!(matches!(&body[0].node, Stmt::Return(Expr::BinOp { op: BinOp::Add, .. })), "expected Return(BinOp::Add), got {:?}", body[0]);
     }
 
     #[test]
     fn parse_pipe_simple() {
         // f x>>g desugars to g(f(x))
         let prog = parse_str("add a:n b:n>n;+a b\nf x:n>n;add x 1>>add 2");
-        match &prog.declarations[1] {
-            Decl::Function { body, .. } => {
-                match &body[0].node {
-                    Stmt::Expr(Expr::Call { function, args, .. }) => {
-                        assert_eq!(function, "add");
-                        assert_eq!(args.len(), 2); // 2 and add(x, 1)
-                    }
-                    other => panic!("expected Call, got {:?}", other),
-                }
-            }
-            _ => panic!("expected function"),
-        }
+        let Decl::Function { body, .. } = &prog.declarations[1] else { panic!("expected function") };
+        let Stmt::Expr(Expr::Call { function, args, .. }) = &body[0].node else { panic!("expected Call") };
+        assert_eq!(function, "add");
+        assert_eq!(args.len(), 2); // 2 and add(x, 1)
     }
 
     #[test]
     fn parse_pipe_chain() {
         // str x>>len desugars to len(str(x))
         let prog = parse_str("f x:n>n;str x>>len");
-        match &prog.declarations[0] {
-            Decl::Function { body, .. } => {
-                match &body[0].node {
-                    Stmt::Expr(Expr::Call { function, args, .. }) => {
-                        assert_eq!(function, "len");
-                        assert_eq!(args.len(), 1);
-                        match &args[0] {
-                            Expr::Call { function, .. } => assert_eq!(function, "str"),
-                            other => panic!("expected Call(str), got {:?}", other),
-                        }
-                    }
-                    other => panic!("expected Call, got {:?}", other),
-                }
-            }
-            _ => panic!("expected function"),
-        }
+        let Decl::Function { body, .. } = &prog.declarations[0] else { panic!("expected function") };
+        let Stmt::Expr(Expr::Call { function, args, .. }) = &body[0].node else { panic!("expected Call") };
+        assert_eq!(function, "len");
+        assert_eq!(args.len(), 1);
+        let Expr::Call { function, .. } = &args[0] else { panic!("expected Call(str)") };
+        assert_eq!(function, "str");
     }
 
     #[test]
     fn parse_ret_in_guard() {
         let prog = parse_str(r#"f x:n>t;>x 0{ret "pos"};"neg""#);
-        match &prog.declarations[0] {
-            Decl::Function { body, .. } => {
-                assert_eq!(body.len(), 2);
-                match &body[0].node {
-                    Stmt::Guard { body: guard_body, .. } => {
-                        match &guard_body[0].node {
-                            Stmt::Return(Expr::Literal(Literal::Text(s))) => assert_eq!(s, "pos"),
-                            other => panic!("expected Return, got {:?}", other),
-                        }
-                    }
-                    other => panic!("expected guard, got {:?}", other),
-                }
-            }
-            _ => panic!("expected function"),
-        }
+        let Decl::Function { body, .. } = &prog.declarations[0] else { panic!("expected function") };
+        assert_eq!(body.len(), 2);
+        let Stmt::Guard { body: guard_body, .. } = &body[0].node else { panic!("expected guard") };
+        let Stmt::Return(Expr::Literal(Literal::Text(s))) = &guard_body[0].node else { panic!("expected Return") };
+        assert_eq!(s, "pos");
     }
 
     #[test]
     fn parse_brk_no_value() {
         let prog = parse_str("f>n;wh true{brk}");
-        match &prog.declarations[0] {
-            Decl::Function { body, .. } => match &body[0].node {
-                Stmt::While { body, .. } => {
-                    assert!(matches!(&body[0].node, Stmt::Break(None)));
-                }
-                other => panic!("expected While, got {:?}", other),
-            },
-            _ => panic!("expected function"),
-        }
+        let Decl::Function { body, .. } = &prog.declarations[0] else { panic!("expected function") };
+        let Stmt::While { body, .. } = &body[0].node else { panic!("expected While") };
+        assert!(matches!(&body[0].node, Stmt::Break(None)));
     }
 
     #[test]
     fn parse_brk_with_value() {
         let prog = parse_str("f>n;wh true{brk 42}");
-        match &prog.declarations[0] {
-            Decl::Function { body, .. } => match &body[0].node {
-                Stmt::While { body, .. } => {
-                    assert!(matches!(&body[0].node, Stmt::Break(Some(Expr::Literal(Literal::Number(n)))) if *n == 42.0));
-                }
-                other => panic!("expected While, got {:?}", other),
-            },
-            _ => panic!("expected function"),
-        }
+        let Decl::Function { body, .. } = &prog.declarations[0] else { panic!("expected function") };
+        let Stmt::While { body, .. } = &body[0].node else { panic!("expected While") };
+        assert!(matches!(&body[0].node, Stmt::Break(Some(Expr::Literal(Literal::Number(n)))) if *n == 42.0));
     }
 
     #[test]
     fn parse_cnt() {
         let prog = parse_str("f>n;wh true{cnt}");
-        match &prog.declarations[0] {
-            Decl::Function { body, .. } => match &body[0].node {
-                Stmt::While { body, .. } => {
-                    assert!(matches!(&body[0].node, Stmt::Continue));
-                }
-                other => panic!("expected While, got {:?}", other),
-            },
-            _ => panic!("expected function"),
-        }
+        let Decl::Function { body, .. } = &prog.declarations[0] else { panic!("expected function") };
+        let Stmt::While { body, .. } = &body[0].node else { panic!("expected While") };
+        assert!(matches!(&body[0].node, Stmt::Continue));
     }
 
     #[test]
     fn parse_dollar_in_operand() {
         // $ in operand position (inside a binary op)
         let prog = parse_str(r#"f url:t>R t t;cat [$url] ",""#);
-        match &prog.declarations[0] {
-            Decl::Function { body, .. } => match &body[0].node {
-                Stmt::Expr(Expr::Call { function, .. }) => {
-                    assert_eq!(function, "cat");
-                }
-                other => panic!("expected Call, got {:?}", other),
-            },
-            _ => panic!("expected function"),
-        }
+        let Decl::Function { body, .. } = &prog.declarations[0] else { panic!("expected function") };
+        let Stmt::Expr(Expr::Call { function, .. }) = &body[0].node else { panic!("expected Call") };
+        assert_eq!(function, "cat");
     }
 
     // ---- Destructuring bind tests ----
@@ -3401,47 +2839,26 @@ mod tests {
     #[test]
     fn parse_destructure_two_fields() {
         let prog = parse_str("type pt{x:n;y:n} f p:pt>n;{x;y}=p;+x y");
-        let func = match &prog.declarations[1] {
-            Decl::Function { body, .. } => body,
-            _ => panic!("expected function"),
-        };
-        match &func[0].node {
-            Stmt::Destructure { bindings, value } => {
-                assert_eq!(bindings, &["x", "y"]);
-                assert!(matches!(value, Expr::Ref(name) if name == "p"));
-            }
-            other => panic!("expected Destructure, got {:?}", other),
-        }
+        let Decl::Function { body: func, .. } = &prog.declarations[1] else { panic!("expected function") };
+        let Stmt::Destructure { bindings, value } = &func[0].node else { panic!("expected Destructure") };
+        assert_eq!(bindings, &["x", "y"]);
+        assert!(matches!(value, Expr::Ref(name) if name == "p"));
     }
 
     #[test]
     fn parse_destructure_single_field() {
         let prog = parse_str("type pt{x:n} f p:pt>n;{x}=p;x");
-        let func = match &prog.declarations[1] {
-            Decl::Function { body, .. } => body,
-            _ => panic!("expected function"),
-        };
-        match &func[0].node {
-            Stmt::Destructure { bindings, .. } => {
-                assert_eq!(bindings, &["x"]);
-            }
-            other => panic!("expected Destructure, got {:?}", other),
-        }
+        let Decl::Function { body: func, .. } = &prog.declarations[1] else { panic!("expected function") };
+        let Stmt::Destructure { bindings, .. } = &func[0].node else { panic!("expected Destructure") };
+        assert_eq!(bindings, &["x"]);
     }
 
     #[test]
     fn parse_destructure_three_fields() {
         let prog = parse_str("type pt{a:n;b:t;c:b} f p:pt>n;{a;b;c}=p;a");
-        let func = match &prog.declarations[1] {
-            Decl::Function { body, .. } => body,
-            _ => panic!("expected function"),
-        };
-        match &func[0].node {
-            Stmt::Destructure { bindings, .. } => {
-                assert_eq!(bindings, &["a", "b", "c"]);
-            }
-            other => panic!("expected Destructure, got {:?}", other),
-        }
+        let Decl::Function { body: func, .. } = &prog.declarations[1] else { panic!("expected function") };
+        let Stmt::Destructure { bindings, .. } = &func[0].node else { panic!("expected Destructure") };
+        assert_eq!(bindings, &["a", "b", "c"]);
     }
 
     // ---- Greedy argument parsing regression tests ----
@@ -3454,25 +2871,15 @@ mod tests {
         // `len xs` ends the first function; `g` starts a zero-param function (g>n)
         let prog = parse_str("f xs:n>n;len xs g>n;2");
         assert_eq!(prog.declarations.len(), 2, "expected exactly 2 declarations");
-        match &prog.declarations[0] {
-            Decl::Function { name, body, .. } => {
-                assert_eq!(name, "f");
-                // Body has one statement: Call(len, [xs])
-                match &body[0].node {
-                    Stmt::Expr(Expr::Call { function, args, .. }) => {
-                        assert_eq!(function, "len");
-                        assert_eq!(args.len(), 1, "len should have exactly 1 arg, not consume `g`");
-                        assert!(matches!(&args[0], Expr::Ref(n) if n == "xs"));
-                    }
-                    other => panic!("expected Call(len, [xs]), got {:?}", other),
-                }
-            }
-            _ => panic!("expected function f"),
-        }
-        match &prog.declarations[1] {
-            Decl::Function { name, .. } => assert_eq!(name, "g"),
-            _ => panic!("expected function g"),
-        }
+        let Decl::Function { name, body, .. } = &prog.declarations[0] else { panic!("expected function f") };
+        assert_eq!(name, "f");
+        // Body has one statement: Call(len, [xs])
+        let Stmt::Expr(Expr::Call { function, args, .. }) = &body[0].node else { panic!("expected Call(len, [xs])") };
+        assert_eq!(function, "len");
+        assert_eq!(args.len(), 1, "len should have exactly 1 arg, not consume `g`");
+        assert!(matches!(&args[0], Expr::Ref(n) if n == "xs"));
+        let Decl::Function { name, .. } = &prog.declarations[1] else { panic!("expected function g") };
+        assert_eq!(name, "g");
     }
 
     /// A non-last function ending with a call must not consume the next function's
@@ -3482,27 +2889,15 @@ mod tests {
         // `len xs` ends the first function; `g y:n>n` is a parameterised function
         let prog = parse_str("f xs:n>n;len xs g y:n>n;*y 2");
         assert_eq!(prog.declarations.len(), 2, "expected exactly 2 declarations");
-        match &prog.declarations[0] {
-            Decl::Function { name, body, .. } => {
-                assert_eq!(name, "f");
-                match &body[0].node {
-                    Stmt::Expr(Expr::Call { function, args, .. }) => {
-                        assert_eq!(function, "len");
-                        assert_eq!(args.len(), 1, "len should have exactly 1 arg, not consume `g`");
-                    }
-                    other => panic!("expected Call(len, [xs]), got {:?}", other),
-                }
-            }
-            _ => panic!("expected function f"),
-        }
-        match &prog.declarations[1] {
-            Decl::Function { name, params, .. } => {
-                assert_eq!(name, "g");
-                assert_eq!(params.len(), 1);
-                assert_eq!(params[0].name, "y");
-            }
-            _ => panic!("expected function g"),
-        }
+        let Decl::Function { name, body, .. } = &prog.declarations[0] else { panic!("expected function f") };
+        assert_eq!(name, "f");
+        let Stmt::Expr(Expr::Call { function, args, .. }) = &body[0].node else { panic!("expected Call(len, [xs])") };
+        assert_eq!(function, "len");
+        assert_eq!(args.len(), 1, "len should have exactly 1 arg, not consume `g`");
+        let Decl::Function { name, params, .. } = &prog.declarations[1] else { panic!("expected function g") };
+        assert_eq!(name, "g");
+        assert_eq!(params.len(), 1);
+        assert_eq!(params[0].name, "y");
     }
 
     /// Three functions in sequence — the middle one ends with a call.
@@ -3510,18 +2905,12 @@ mod tests {
     fn greedy_arg_three_functions_middle_ends_with_call() {
         let prog = parse_str("f xs:n>n;len xs g y:n>n;*y 2 h z:n>n;+z 1");
         assert_eq!(prog.declarations.len(), 3, "expected 3 declarations");
-        match &prog.declarations[0] {
-            Decl::Function { name, .. } => assert_eq!(name, "f"),
-            _ => panic!("expected function f"),
-        }
-        match &prog.declarations[1] {
-            Decl::Function { name, .. } => assert_eq!(name, "g"),
-            _ => panic!("expected function g"),
-        }
-        match &prog.declarations[2] {
-            Decl::Function { name, .. } => assert_eq!(name, "h"),
-            _ => panic!("expected function h"),
-        }
+        let Decl::Function { name, .. } = &prog.declarations[0] else { panic!("expected function f") };
+        assert_eq!(name, "f");
+        let Decl::Function { name, .. } = &prog.declarations[1] else { panic!("expected function g") };
+        assert_eq!(name, "g");
+        let Decl::Function { name, .. } = &prog.declarations[2] else { panic!("expected function h") };
+        assert_eq!(name, "h");
     }
 
     /// A function call with multiple valid args must still get all of them when the
@@ -3531,37 +2920,21 @@ mod tests {
         // `tot p q r` with three numeric args should still parse as Call(tot, [1, 2, 3])
         let prog = parse_str("f>n;tot 1 2 3");
         assert_eq!(prog.declarations.len(), 1);
-        match &prog.declarations[0] {
-            Decl::Function { body, .. } => {
-                match &body[0].node {
-                    Stmt::Expr(Expr::Call { function, args, .. }) => {
-                        assert_eq!(function, "tot");
-                        assert_eq!(args.len(), 3);
-                    }
-                    other => panic!("expected Call(tot, [1,2,3]), got {:?}", other),
-                }
-            }
-            _ => panic!("expected function"),
-        }
+        let Decl::Function { body, .. } = &prog.declarations[0] else { panic!("expected function") };
+        let Stmt::Expr(Expr::Call { function, args, .. }) = &body[0].node else { panic!("expected Call(tot, [1,2,3])") };
+        assert_eq!(function, "tot");
+        assert_eq!(args.len(), 3);
     }
 
     #[test]
     fn parse_type_is_pattern_in_match() {
         let prog = parse_str(r#"f x:t>t;?x{n v:"num";t v:v;_:"other"}"#);
-        match &prog.declarations[0] {
-            Decl::Function { body, .. } => {
-                match &body[0].node {
-                    Stmt::Match { arms, .. } => {
-                        assert_eq!(arms.len(), 3);
-                        assert!(matches!(&arms[0].pattern, Pattern::TypeIs { ty: Type::Number, binding } if binding == "v"), "arm0: {:?}", arms[0].pattern);
-                        assert!(matches!(&arms[1].pattern, Pattern::TypeIs { ty: Type::Text, binding } if binding == "v"), "arm1: {:?}", arms[1].pattern);
-                        assert!(matches!(&arms[2].pattern, Pattern::Wildcard), "arm2: {:?}", arms[2].pattern);
-                    }
-                    other => panic!("expected match: {:?}", other),
-                }
-            }
-            _ => panic!("expected function"),
-        }
+        let Decl::Function { body, .. } = &prog.declarations[0] else { panic!("expected function") };
+        let Stmt::Match { arms, .. } = &body[0].node else { panic!("expected match") };
+        assert_eq!(arms.len(), 3);
+        assert!(matches!(&arms[0].pattern, Pattern::TypeIs { ty: Type::Number, binding } if binding == "v"), "arm0: {:?}", arms[0].pattern);
+        assert!(matches!(&arms[1].pattern, Pattern::TypeIs { ty: Type::Text, binding } if binding == "v"), "arm1: {:?}", arms[1].pattern);
+        assert!(matches!(&arms[2].pattern, Pattern::Wildcard), "arm2: {:?}", arms[2].pattern);
     }
 
     // --- use declaration ---
@@ -3569,26 +2942,18 @@ mod tests {
     #[test]
     fn parse_use_basic() {
         let prog = parse_str(r#"use "lib.ilo""#);
-        match &prog.declarations[0] {
-            Decl::Use { path, only, .. } => {
-                assert_eq!(path, "lib.ilo");
-                assert!(only.is_none());
-            }
-            other => panic!("expected Use, got {:?}", other),
-        }
+        let Decl::Use { path, only, .. } = &prog.declarations[0] else { panic!("expected Use") };
+        assert_eq!(path, "lib.ilo");
+        assert!(only.is_none());
     }
 
     #[test]
     fn parse_use_with_scoped_imports() {
         let prog = parse_str(r#"use "lib.ilo" [foo bar]"#);
-        match &prog.declarations[0] {
-            Decl::Use { path, only, .. } => {
-                assert_eq!(path, "lib.ilo");
-                let names = only.as_ref().unwrap();
-                assert_eq!(names, &["foo", "bar"]);
-            }
-            other => panic!("expected Use, got {:?}", other),
-        }
+        let Decl::Use { path, only, .. } = &prog.declarations[0] else { panic!("expected Use") };
+        assert_eq!(path, "lib.ilo");
+        let names = only.as_ref().unwrap();
+        assert_eq!(names, &["foo", "bar"]);
     }
 
     #[test]
@@ -3610,25 +2975,17 @@ mod tests {
     #[test]
     fn parse_alias_basic() {
         let prog = parse_str("alias mynum n");
-        match &prog.declarations[0] {
-            Decl::Alias { name, target, .. } => {
-                assert_eq!(name, "mynum");
-                assert!(matches!(target, Type::Number));
-            }
-            other => panic!("expected Alias, got {:?}", other),
-        }
+        let Decl::Alias { name, target, .. } = &prog.declarations[0] else { panic!("expected Alias") };
+        assert_eq!(name, "mynum");
+        assert!(matches!(target, Type::Number));
     }
 
     #[test]
     fn parse_alias_complex_type() {
         let prog = parse_str("alias res R n t");
-        match &prog.declarations[0] {
-            Decl::Alias { name, target, .. } => {
-                assert_eq!(name, "res");
-                assert!(matches!(target, Type::Result(_, _)));
-            }
-            other => panic!("expected Alias, got {:?}", other),
-        }
+        let Decl::Alias { name, target, .. } = &prog.declarations[0] else { panic!("expected Alias") };
+        assert_eq!(name, "res");
+        assert!(matches!(target, Type::Result(_, _)));
     }
 
     // --- tool retry option ---
@@ -3636,26 +2993,18 @@ mod tests {
     #[test]
     fn parse_tool_retry_option() {
         let prog = parse_str(r#"tool fetch"Get a URL" url:t>R t t retry:3"#);
-        match &prog.declarations[0] {
-            Decl::Tool { name, retry, timeout, .. } => {
-                assert_eq!(name, "fetch");
-                assert_eq!(*retry, Some(3.0));
-                assert!(timeout.is_none());
-            }
-            other => panic!("expected Tool, got {:?}", other),
-        }
+        let Decl::Tool { name, retry, timeout, .. } = &prog.declarations[0] else { panic!("expected Tool") };
+        assert_eq!(name, "fetch");
+        assert_eq!(*retry, Some(3.0));
+        assert!(timeout.is_none());
     }
 
     #[test]
     fn parse_tool_timeout_and_retry() {
         let prog = parse_str(r#"tool fetch"Get a URL" url:t>R t t timeout:5,retry:3"#);
-        match &prog.declarations[0] {
-            Decl::Tool { timeout, retry, .. } => {
-                assert_eq!(*timeout, Some(5.0));
-                assert_eq!(*retry, Some(3.0));
-            }
-            other => panic!("expected Tool, got {:?}", other),
-        }
+        let Decl::Tool { timeout, retry, .. } = &prog.declarations[0] else { panic!("expected Tool") };
+        assert_eq!(*timeout, Some(5.0));
+        assert_eq!(*retry, Some(3.0));
     }
 
     // --- nil coalesce ---
@@ -3663,20 +3012,10 @@ mod tests {
     #[test]
     fn parse_nil_coalesce_basic() {
         let prog = parse_str("f x:n>n;x??99");
-        match &prog.declarations[0] {
-            Decl::Function { body, .. } => {
-                match &body[0].node {
-                    Stmt::Expr(Expr::NilCoalesce { default, .. }) => {
-                        match default.as_ref() {
-                            Expr::Literal(Literal::Number(n)) => assert_eq!(*n, 99.0),
-                            other => panic!("expected 99, got {:?}", other),
-                        }
-                    }
-                    other => panic!("expected NilCoalesce, got {:?}", other),
-                }
-            }
-            _ => panic!("expected function"),
-        }
+        let Decl::Function { body, .. } = &prog.declarations[0] else { panic!("expected function") };
+        let Stmt::Expr(Expr::NilCoalesce { default, .. }) = &body[0].node else { panic!("expected NilCoalesce") };
+        let Expr::Literal(Literal::Number(n)) = default.as_ref() else { panic!("expected 99") };
+        assert_eq!(*n, 99.0);
     }
 
     // ---- Reserved words as identifiers (expect_ident error paths, lines 80-114) ----
@@ -3960,92 +3299,64 @@ mod tests {
     fn nil_type_underscore_in_param() {
         // `_` starts a Nil type
         let prog = parse_str("f x:_>_;x");
-        match &prog.declarations[0] {
-            Decl::Function { params, return_type, .. } => {
-                assert_eq!(params[0].ty, Type::Nil);
-                assert_eq!(*return_type, Type::Nil);
-            }
-            _ => panic!("expected function"),
-        }
+        let Decl::Function { params, return_type, .. } = &prog.declarations[0] else { panic!("expected function") };
+        assert_eq!(params[0].ty, Type::Nil);
+        assert_eq!(*return_type, Type::Nil);
     }
 
     #[test]
     fn optional_type_in_param() {
         // `O t` — OptType token `O` starts an optional type
         let prog = parse_str("f x:O t>O t;x");
-        match &prog.declarations[0] {
-            Decl::Function { params, return_type, .. } => {
-                assert!(matches!(params[0].ty, Type::Optional(_)));
-                assert!(matches!(*return_type, Type::Optional(_)));
-            }
-            _ => panic!("expected function"),
-        }
+        let Decl::Function { params, return_type, .. } = &prog.declarations[0] else { panic!("expected function") };
+        assert!(matches!(params[0].ty, Type::Optional(_)));
+        assert!(matches!(*return_type, Type::Optional(_)));
     }
 
     #[test]
     fn list_type_in_param() {
         // `L n` — ListType starts a list type
         let prog = parse_str("f x:L n>L n;x");
-        match &prog.declarations[0] {
-            Decl::Function { params, return_type, .. } => {
-                assert!(matches!(&params[0].ty, Type::List(inner) if **inner == Type::Number));
-                assert!(matches!(&*return_type, Type::List(inner) if **inner == Type::Number));
-            }
-            _ => panic!("expected function"),
-        }
+        let Decl::Function { params, return_type, .. } = &prog.declarations[0] else { panic!("expected function") };
+        assert!(matches!(&params[0].ty, Type::List(inner) if **inner == Type::Number));
+        assert!(matches!(&*return_type, Type::List(inner) if **inner == Type::Number));
     }
 
     #[test]
     fn map_type_in_param() {
         // `M t n` — MapType starts a map type
         let prog = parse_str("f x:M t n>M t n;x");
-        match &prog.declarations[0] {
-            Decl::Function { params, return_type, .. } => {
-                assert!(matches!(&params[0].ty, Type::Map(_, _)));
-                assert!(matches!(&*return_type, Type::Map(_, _)));
-            }
-            _ => panic!("expected function"),
-        }
+        let Decl::Function { params, return_type, .. } = &prog.declarations[0] else { panic!("expected function") };
+        assert!(matches!(&params[0].ty, Type::Map(_, _)));
+        assert!(matches!(&*return_type, Type::Map(_, _)));
     }
 
     #[test]
     fn result_type_in_param() {
         // `R t t` — ResultType starts a result type
         let prog = parse_str("f x:R t t>R t t;x");
-        match &prog.declarations[0] {
-            Decl::Function { params, return_type, .. } => {
-                assert!(matches!(&params[0].ty, Type::Result(_, _)));
-                assert!(matches!(&*return_type, Type::Result(_, _)));
-            }
-            _ => panic!("expected function"),
-        }
+        let Decl::Function { params, return_type, .. } = &prog.declarations[0] else { panic!("expected function") };
+        assert!(matches!(&params[0].ty, Type::Result(_, _)));
+        assert!(matches!(&*return_type, Type::Result(_, _)));
     }
 
     #[test]
     fn sum_type_in_param() {
         // `S ok err` — SumType starts a sum type with variants
         let prog = parse_str("f x:S ok err>S ok err;x");
-        match &prog.declarations[0] {
-            Decl::Function { params, return_type, .. } => {
-                assert!(matches!(&params[0].ty, Type::Sum(variants) if variants.len() == 2));
-                assert!(matches!(&*return_type, Type::Sum(variants) if variants.len() == 2));
-            }
-            _ => panic!("expected function"),
-        }
+        let Decl::Function { params, return_type, .. } = &prog.declarations[0] else { panic!("expected function") };
+        assert!(matches!(&params[0].ty, Type::Sum(variants) if variants.len() == 2));
+        assert!(matches!(&*return_type, Type::Sum(variants) if variants.len() == 2));
     }
 
     #[test]
     fn fn_type_in_param() {
         // `F n n` — FnType starts a function type (param: n, return: n)
         let prog = parse_str("f x:F n n>F n n;x");
-        match &prog.declarations[0] {
-            Decl::Function { params, return_type, .. } => {
-                // F n n → Fn([Number], Number)
-                assert!(matches!(&params[0].ty, Type::Fn(param_types, _) if param_types.len() == 1));
-                assert!(matches!(&*return_type, Type::Fn(param_types, _) if param_types.len() == 1));
-            }
-            _ => panic!("expected function"),
-        }
+        let Decl::Function { params, return_type, .. } = &prog.declarations[0] else { panic!("expected function") };
+        // F n n → Fn([Number], Number)
+        assert!(matches!(&params[0].ty, Type::Fn(param_types, _) if param_types.len() == 1));
+        assert!(matches!(&*return_type, Type::Fn(param_types, _) if param_types.len() == 1));
     }
 
     // ---- Match arm with type-annotated (TypeIs) patterns ----
@@ -4054,39 +3365,23 @@ mod tests {
     fn match_arm_multiple_type_is_patterns() {
         // ?x{n v:v;t v:v;b v:v} — three TypeIs arms each binding a different type
         let prog = parse_str(r#"f x:t>t;?x{n v:"num";t v:v;b v:"bool"}"#);
-        match &prog.declarations[0] {
-            Decl::Function { body, .. } => {
-                match &body[0].node {
-                    Stmt::Match { arms, .. } => {
-                        assert_eq!(arms.len(), 3, "expected 3 arms");
-                        assert!(matches!(&arms[0].pattern, Pattern::TypeIs { ty: Type::Number, binding } if binding == "v"));
-                        assert!(matches!(&arms[1].pattern, Pattern::TypeIs { ty: Type::Text, binding } if binding == "v"));
-                        assert!(matches!(&arms[2].pattern, Pattern::TypeIs { ty: Type::Bool, binding } if binding == "v"));
-                    }
-                    other => panic!("expected match, got {:?}", other),
-                }
-            }
-            _ => panic!("expected function"),
-        }
+        let Decl::Function { body, .. } = &prog.declarations[0] else { panic!("expected function") };
+        let Stmt::Match { arms, .. } = &body[0].node else { panic!("expected match") };
+        assert_eq!(arms.len(), 3, "expected 3 arms");
+        assert!(matches!(&arms[0].pattern, Pattern::TypeIs { ty: Type::Number, binding } if binding == "v"));
+        assert!(matches!(&arms[1].pattern, Pattern::TypeIs { ty: Type::Text, binding } if binding == "v"));
+        assert!(matches!(&arms[2].pattern, Pattern::TypeIs { ty: Type::Bool, binding } if binding == "v"));
     }
 
     #[test]
     fn match_arm_type_is_with_wildcard_binding() {
         // n _: pattern with wildcard binding
         let prog = parse_str(r#"f x:t>t;?x{n _:"num";_:"other"}"#);
-        match &prog.declarations[0] {
-            Decl::Function { body, .. } => {
-                match &body[0].node {
-                    Stmt::Match { arms, .. } => {
-                        assert_eq!(arms.len(), 2);
-                        assert!(matches!(&arms[0].pattern, Pattern::TypeIs { ty: Type::Number, binding } if binding == "_"));
-                        assert!(matches!(&arms[1].pattern, Pattern::Wildcard));
-                    }
-                    other => panic!("expected match, got {:?}", other),
-                }
-            }
-            _ => panic!("expected function"),
-        }
+        let Decl::Function { body, .. } = &prog.declarations[0] else { panic!("expected function") };
+        let Stmt::Match { arms, .. } = &body[0].node else { panic!("expected match") };
+        assert_eq!(arms.len(), 2);
+        assert!(matches!(&arms[0].pattern, Pattern::TypeIs { ty: Type::Number, binding } if binding == "_"));
+        assert!(matches!(&arms[1].pattern, Pattern::Wildcard));
     }
 
     // ---- use statement error paths ----
@@ -4159,10 +3454,8 @@ mod tests {
     fn parse_tool_decl_stops_at_non_option_token() {
         // tool with no timeout/retry: the loop hits `_ => break` immediately
         let prog = parse_str(r#"tool ping "ping server" url:t>t"#);
-        match &prog.declarations[0] {
-            Decl::Tool { name, .. } => assert_eq!(name, "ping"),
-            _ => panic!("expected tool decl"),
-        }
+        let Decl::Tool { name, .. } = &prog.declarations[0] else { panic!("expected tool decl") };
+        assert_eq!(name, "ping");
     }
 
     // ── Coverage: L484 — sum type variant loop breaks on `ident:` ─────────────
@@ -4173,18 +3466,10 @@ mod tests {
         // uses an S type as param and has `ident:` after the variants.
         // `f x:S foo bar>t;"ok"` → type `S foo bar` parsed, loop breaks at `>`
         let prog = parse_str(r#"f x:S foo bar>t;"ok""#);
-        match &prog.declarations[0] {
-            Decl::Function { params, .. } => {
-                assert_eq!(params.len(), 1);
-                match &params[0].ty {
-                    Type::Sum(variants) => {
-                        assert_eq!(variants, &["foo".to_string(), "bar".to_string()]);
-                    }
-                    t => panic!("expected Sum type, got: {:?}", t),
-                }
-            }
-            _ => panic!("expected function"),
-        }
+        let Decl::Function { params, .. } = &prog.declarations[0] else { panic!("expected function") };
+        assert_eq!(params.len(), 1);
+        let Type::Sum(variants) = &params[0].ty else { panic!("expected Sum type") };
+        assert_eq!(variants, &["foo".to_string(), "bar".to_string()]);
     }
 
     // ── Coverage: L510 — F type break when `ident:` follows ──────────────────
@@ -4193,19 +3478,11 @@ mod tests {
     fn parse_fn_type_in_param_breaks_at_colon() {
         // `f cb:F n t x:n>n;x` — cb has type F n t (fn n>t), loop breaks at `x:`
         let prog = parse_str(r#"f cb:F n t x:n>n;x"#);
-        match &prog.declarations[0] {
-            Decl::Function { params, .. } => {
-                assert_eq!(params.len(), 2);
-                match &params[0].ty {
-                    Type::Fn(arg_types, ret) => {
-                        assert_eq!(arg_types.len(), 1);
-                        assert!(matches!(**ret, Type::Text));
-                    }
-                    t => panic!("expected Fn type, got: {:?}", t),
-                }
-            }
-            _ => panic!("expected function"),
-        }
+        let Decl::Function { params, .. } = &prog.declarations[0] else { panic!("expected function") };
+        assert_eq!(params.len(), 2);
+        let Type::Fn(arg_types, ret) = &params[0].ty else { panic!("expected Fn type") };
+        assert_eq!(arg_types.len(), 1);
+        assert!(matches!(**ret, Type::Text));
     }
 
     // ── Coverage: L534-540 — can_start_type() for special type tokens ─────────
@@ -4224,46 +3501,30 @@ mod tests {
     fn parse_opt_type_in_param() {
         // `O t` = optional text type
         let prog = parse_str("f x:O t>n;0");
-        match &prog.declarations[0] {
-            Decl::Function { params, .. } => {
-                assert_eq!(params.len(), 1);
-                assert!(matches!(&params[0].ty, Type::Optional(_)));
-            }
-            _ => panic!("expected function"),
-        }
+        let Decl::Function { params, .. } = &prog.declarations[0] else { panic!("expected function") };
+        assert_eq!(params.len(), 1);
+        assert!(matches!(&params[0].ty, Type::Optional(_)));
     }
 
     #[test]
     fn parse_list_type_in_param() {
         let prog = parse_str("f xs:L n>n;0");
-        match &prog.declarations[0] {
-            Decl::Function { params, .. } => {
-                assert!(matches!(&params[0].ty, Type::List(_)));
-            }
-            _ => panic!("expected function"),
-        }
+        let Decl::Function { params, .. } = &prog.declarations[0] else { panic!("expected function") };
+        assert!(matches!(&params[0].ty, Type::List(_)));
     }
 
     #[test]
     fn parse_map_type_in_param() {
         let prog = parse_str("f m:M t n>n;0");
-        match &prog.declarations[0] {
-            Decl::Function { params, .. } => {
-                assert!(matches!(&params[0].ty, Type::Map(_, _)));
-            }
-            _ => panic!("expected function"),
-        }
+        let Decl::Function { params, .. } = &prog.declarations[0] else { panic!("expected function") };
+        assert!(matches!(&params[0].ty, Type::Map(_, _)));
     }
 
     #[test]
     fn parse_result_type_in_param() {
         let prog = parse_str("f r:R n t>n;0");
-        match &prog.declarations[0] {
-            Decl::Function { params, .. } => {
-                assert!(matches!(&params[0].ty, Type::Result(_, _)));
-            }
-            _ => panic!("expected function"),
-        }
+        let Decl::Function { params, .. } = &prog.declarations[0] else { panic!("expected function") };
+        assert!(matches!(&params[0].ty, Type::Result(_, _)));
     }
 
     // ── Coverage: L677 — is_guard_eligible_condition `_ => return false` ─────
@@ -4273,15 +3534,11 @@ mod tests {
         // A literal in condition position: `42{body}` — not guard-eligible by ident
         // The condition is a number literal → `_ => return false` in is_guard_eligible_condition
         let prog = parse_str(r#"f x:n>n;x{x}"#);
-        match &prog.declarations[0] {
-            Decl::Function { body, .. } => {
-                assert!(!body.is_empty());
-                // x is an ident which IS eligible — need a pure literal
-                // Instead test `1{x}` which would parse as guard with Literal condition
-                let _ = body;
-            }
-            _ => panic!("expected function"),
-        }
+        let Decl::Function { body, .. } = &prog.declarations[0] else { panic!("expected function") };
+        assert!(!body.is_empty());
+        // x is an ident which IS eligible — need a pure literal
+        // Instead test `1{x}` which would parse as guard with Literal condition
+        let _ = body;
     }
 
     #[test]
@@ -4300,10 +3557,8 @@ mod tests {
         // A match where the type pattern lookahead (after_semi + 2) might exceed
         // token length — create a minimal match that exercises the bounds check
         let prog = parse_str(r#"f x:n>t;?x{~v:"ok";^_:"err"}"#);
-        match &prog.declarations[0] {
-            Decl::Function { body, .. } => assert!(!body.is_empty()),
-            _ => panic!("expected function"),
-        }
+        let Decl::Function { body, .. } = &prog.declarations[0] else { panic!("expected function") };
+        assert!(!body.is_empty());
     }
 
     // ── Coverage: L928 — negated guard with else body ─────────────────────────
@@ -4312,19 +3567,11 @@ mod tests {
     fn parse_negated_guard_with_else_body() {
         // `!cond{then}{else}` — negated guard with an else branch
         let prog = parse_str(r#"f x:n>n;!>x 0{-1}{1}"#);
-        match &prog.declarations[0] {
-            Decl::Function { body, .. } => {
-                assert!(!body.is_empty());
-                match &body[0].node {
-                    Stmt::Guard { negated, else_body, .. } => {
-                        assert!(negated, "expected negated guard");
-                        assert!(else_body.is_some(), "expected else body");
-                    }
-                    s => panic!("expected Guard, got: {:?}", s),
-                }
-            }
-            _ => panic!("expected function"),
-        }
+        let Decl::Function { body, .. } = &prog.declarations[0] else { panic!("expected function") };
+        assert!(!body.is_empty());
+        let Stmt::Guard { negated, else_body, .. } = &body[0].node else { panic!("expected Guard") };
+        assert!(negated, "expected negated guard");
+        assert!(else_body.is_some(), "expected else body");
     }
 
     // ── Coverage: L964 — regular guard with else body ─────────────────────────
@@ -4333,19 +3580,11 @@ mod tests {
     fn parse_guard_with_else_body() {
         // `cond{then}{else}` — guard with an else branch
         let prog = parse_str(r#"f x:n>n;>x 0{1}{-1}"#);
-        match &prog.declarations[0] {
-            Decl::Function { body, .. } => {
-                assert!(!body.is_empty());
-                match &body[0].node {
-                    Stmt::Guard { negated, else_body, .. } => {
-                        assert!(!negated, "expected non-negated guard");
-                        assert!(else_body.is_some(), "expected else body");
-                    }
-                    s => panic!("expected Guard, got: {:?}", s),
-                }
-            }
-            _ => panic!("expected function"),
-        }
+        let Decl::Function { body, .. } = &prog.declarations[0] else { panic!("expected function") };
+        assert!(!body.is_empty());
+        let Stmt::Guard { negated, else_body, .. } = &body[0].node else { panic!("expected Guard") };
+        assert!(!negated, "expected non-negated guard");
+        assert!(else_body.is_some(), "expected else body");
     }
 
     // ── Coverage: L975 — braceless negated guard ──────────────────────────────
@@ -4354,16 +3593,10 @@ mod tests {
     fn parse_braceless_negated_guard() {
         // `!>x 0 99` — negated braceless guard: if NOT (x > 0), return 99
         let prog = parse_str(r#"f x:n>n;!>x 0 99;x"#);
-        match &prog.declarations[0] {
-            Decl::Function { body, .. } => {
-                assert!(body.len() >= 2);
-                match &body[0].node {
-                    Stmt::Guard { negated, .. } => assert!(negated),
-                    s => panic!("expected Guard, got: {:?}", s),
-                }
-            }
-            _ => panic!("expected function"),
-        }
+        let Decl::Function { body, .. } = &prog.declarations[0] else { panic!("expected function") };
+        assert!(body.len() >= 2);
+        let Stmt::Guard { negated, .. } = &body[0].node else { panic!("expected Guard") };
+        assert!(negated);
     }
 
     // ── Coverage: L1080-1085 — pipe with `!` unwrap ───────────────────────────
@@ -4372,18 +3605,10 @@ mod tests {
     fn parse_pipe_with_bang_unwrap() {
         // `expr >> func!` — pipe with adjacent `!` triggers unwrap path
         let prog = parse_str(r#"dbl x:n>n;*x 2  f s:t>n;s>>num!"#);
-        match prog.declarations.last() {
-            Some(Decl::Function { body, .. }) => {
-                assert!(!body.is_empty());
-                match &body[0].node {
-                    Stmt::Expr(Expr::Call { unwrap, .. }) => {
-                        assert!(unwrap, "expected unwrap=true on piped call");
-                    }
-                    s => panic!("expected Call expr, got: {:?}", s),
-                }
-            }
-            _ => panic!("expected function"),
-        }
+        let Some(Decl::Function { body, .. }) = prog.declarations.last() else { panic!("expected function") };
+        assert!(!body.is_empty());
+        let Stmt::Expr(Expr::Call { unwrap, .. }) = &body[0].node else { panic!("expected Call expr") };
+        assert!(unwrap, "expected unwrap=true on piped call");
     }
 
     // ── Coverage: L1413 — Token::Dollar in parse_operand ─────────────────────
@@ -4392,24 +3617,12 @@ mod tests {
     fn parse_dollar_as_operand_in_let() {
         // `r = $url` where `$url` appears in operand position inside a let binding
         let prog = parse_str(r#"f url:t>R t t;r=$url;r"#);
-        match &prog.declarations[0] {
-            Decl::Function { body, .. } => {
-                assert!(!body.is_empty());
-                match &body[0].node {
-                    Stmt::Let { value, .. } => {
-                        match value {
-                            Expr::Call { function, unwrap, .. } => {
-                                assert_eq!(function, "get");
-                                assert!(!unwrap);
-                            }
-                            e => panic!("expected get call, got: {:?}", e),
-                        }
-                    }
-                    s => panic!("expected let, got: {:?}", s),
-                }
-            }
-            _ => panic!("expected function"),
-        }
+        let Decl::Function { body, .. } = &prog.declarations[0] else { panic!("expected function") };
+        assert!(!body.is_empty());
+        let Stmt::Let { value, .. } = &body[0].node else { panic!("expected let") };
+        let Expr::Call { function, unwrap, .. } = value else { panic!("expected get call") };
+        assert_eq!(function, "get");
+        assert!(!unwrap);
     }
 
     // ── Coverage: L484 — SumType loop break on param name ────────────────────
@@ -4418,17 +3631,11 @@ mod tests {
     fn parse_sum_type_stops_at_named_param() {
         // `S a` collects "a" as variant; `n:n` triggers break at line 484 (ident+colon).
         let prog = parse_str("f x:S a n:n>n;0");
-        match &prog.declarations[0] {
-            Decl::Function { params, .. } => {
-                assert_eq!(params.len(), 2);
-                match &params[0].ty {
-                    Type::Sum(variants) => assert_eq!(variants, &["a"]),
-                    t => panic!("expected Sum type, got {:?}", t),
-                }
-                assert_eq!(params[1].name, "n");
-            }
-            _ => panic!("expected function"),
-        }
+        let Decl::Function { params, .. } = &prog.declarations[0] else { panic!("expected function") };
+        assert_eq!(params.len(), 2);
+        let Type::Sum(variants) = &params[0].ty else { panic!("expected Sum type") };
+        assert_eq!(variants, &["a"]);
+        assert_eq!(params[1].name, "n");
     }
 
     // ── Coverage: L510 — FnType loop break on param name ─────────────────────
@@ -4439,19 +3646,11 @@ mod tests {
         // param (primitive ident + colon) → can_start_type returns true but
         // the ident+colon guard at line 507-510 breaks the loop.
         let prog = parse_str("f x:F n n:n>n;0");
-        match &prog.declarations[0] {
-            Decl::Function { params, .. } => {
-                assert_eq!(params.len(), 2);
-                match &params[0].ty {
-                    Type::Fn(param_types, ret) => {
-                        assert!(param_types.is_empty(), "F n should have no param types");
-                        assert!(matches!(ret.as_ref(), Type::Number));
-                    }
-                    t => panic!("expected Fn type, got {:?}", t),
-                }
-            }
-            _ => panic!("expected function"),
-        }
+        let Decl::Function { params, .. } = &prog.declarations[0] else { panic!("expected function") };
+        assert_eq!(params.len(), 2);
+        let Type::Fn(param_types, ret) = &params[0].ty else { panic!("expected Fn type") };
+        assert!(param_types.is_empty(), "F n should have no param types");
+        assert!(matches!(ret.as_ref(), Type::Number));
     }
 
     // ── Coverage: L534-L540 — can_start_type branches inside FnType ──────────
@@ -4460,65 +3659,45 @@ mod tests {
     fn parse_fn_type_with_underscore_param() {
         // `F _ n` — Underscore arg type → can_start_type line 534
         let prog = parse_str("f cb:F _ n>n;0");
-        match &prog.declarations[0] {
-            Decl::Function { params, .. } => {
-                assert_eq!(params.len(), 1);
-                assert!(matches!(&params[0].ty, Type::Fn(..)));
-            }
-            _ => panic!("expected function"),
-        }
+        let Decl::Function { params, .. } = &prog.declarations[0] else { panic!("expected function") };
+        assert_eq!(params.len(), 1);
+        assert!(matches!(&params[0].ty, Type::Fn(..)));
     }
 
     #[test]
     fn parse_fn_type_with_opt_param() {
         // `F O n n` — OptType arg → can_start_type line 535
         let prog = parse_str("f cb:F O n n>n;0");
-        match &prog.declarations[0] {
-            Decl::Function { params, .. } => {
-                assert_eq!(params.len(), 1);
-                assert!(matches!(&params[0].ty, Type::Fn(..)));
-            }
-            _ => panic!("expected function"),
-        }
+        let Decl::Function { params, .. } = &prog.declarations[0] else { panic!("expected function") };
+        assert_eq!(params.len(), 1);
+        assert!(matches!(&params[0].ty, Type::Fn(..)));
     }
 
     #[test]
     fn parse_fn_type_with_list_param() {
         // `F L n n` — ListType arg → can_start_type line 536
         let prog = parse_str("f cb:F L n n>n;0");
-        match &prog.declarations[0] {
-            Decl::Function { params, .. } => {
-                assert_eq!(params.len(), 1);
-                assert!(matches!(&params[0].ty, Type::Fn(..)));
-            }
-            _ => panic!("expected function"),
-        }
+        let Decl::Function { params, .. } = &prog.declarations[0] else { panic!("expected function") };
+        assert_eq!(params.len(), 1);
+        assert!(matches!(&params[0].ty, Type::Fn(..)));
     }
 
     #[test]
     fn parse_fn_type_with_map_param() {
         // `F M t n n` — MapType arg → can_start_type line 537
         let prog = parse_str("f cb:F M t n n>n;0");
-        match &prog.declarations[0] {
-            Decl::Function { params, .. } => {
-                assert_eq!(params.len(), 1);
-                assert!(matches!(&params[0].ty, Type::Fn(..)));
-            }
-            _ => panic!("expected function"),
-        }
+        let Decl::Function { params, .. } = &prog.declarations[0] else { panic!("expected function") };
+        assert_eq!(params.len(), 1);
+        assert!(matches!(&params[0].ty, Type::Fn(..)));
     }
 
     #[test]
     fn parse_fn_type_with_result_param() {
         // `F R n t n` — ResultType arg → can_start_type line 538
         let prog = parse_str("f cb:F R n t n>n;0");
-        match &prog.declarations[0] {
-            Decl::Function { params, .. } => {
-                assert_eq!(params.len(), 1);
-                assert!(matches!(&params[0].ty, Type::Fn(..)));
-            }
-            _ => panic!("expected function"),
-        }
+        let Decl::Function { params, .. } = &prog.declarations[0] else { panic!("expected function") };
+        assert_eq!(params.len(), 1);
+        assert!(matches!(&params[0].ty, Type::Fn(..)));
     }
 
     #[test]
@@ -4526,26 +3705,18 @@ mod tests {
         // `F S a n` — SumType arg → can_start_type line 539
         // Sum consumes all idents not followed by colon; "a" and "n" are both variants.
         let prog = parse_str("f cb:F S a n>n;0");
-        match &prog.declarations[0] {
-            Decl::Function { params, .. } => {
-                assert_eq!(params.len(), 1);
-                assert!(matches!(&params[0].ty, Type::Fn(..)));
-            }
-            _ => panic!("expected function"),
-        }
+        let Decl::Function { params, .. } = &prog.declarations[0] else { panic!("expected function") };
+        assert_eq!(params.len(), 1);
+        assert!(matches!(&params[0].ty, Type::Fn(..)));
     }
 
     #[test]
     fn parse_fn_type_with_nested_fn_param() {
         // `F F n n` — nested FnType arg → can_start_type line 540
         let prog = parse_str("f cb:F F n n>n;0");
-        match &prog.declarations[0] {
-            Decl::Function { params, .. } => {
-                assert_eq!(params.len(), 1);
-                assert!(matches!(&params[0].ty, Type::Fn(..)));
-            }
-            _ => panic!("expected function"),
-        }
+        let Decl::Function { params, .. } = &prog.declarations[0] else { panic!("expected function") };
+        assert_eq!(params.len(), 1);
+        assert!(matches!(&params[0].ty, Type::Fn(..)));
     }
 
     // ── Coverage: L677 — is_destructure_pattern returns false ────────────────
@@ -4565,16 +3736,10 @@ mod tests {
         // After parsing first arm body, `;n z:` triggers semi_starts_new_arm TypeIs
         // lookahead (after_semi+2 < len, and tokens match ident+colon → line 806 true).
         let prog = parse_str(r#"f x:n>n;?x{n y: +y 1; n z: *z 2}"#);
-        match &prog.declarations[0] {
-            Decl::Function { body, .. } => {
-                assert!(!body.is_empty());
-                match &body[0].node {
-                    Stmt::Match { arms, .. } => assert_eq!(arms.len(), 2),
-                    s => panic!("expected Match, got {:?}", s),
-                }
-            }
-            _ => panic!("expected function"),
-        }
+        let Decl::Function { body, .. } = &prog.declarations[0] else { panic!("expected function") };
+        assert!(!body.is_empty());
+        let Stmt::Match { arms, .. } = &body[0].node else { panic!("expected Match") };
+        assert_eq!(arms.len(), 2);
     }
 
     // ── Coverage: L811 — TypeIs lookahead in semi_starts_new_arm (false path) ─
@@ -4593,24 +3758,12 @@ mod tests {
         // `foo $url` — Dollar appears as an argument in parse_operand (line 1413),
         // distinct from `$url` at statement level which uses parse_expr_inner (line 1118).
         let prog = parse_str(r#"f url:t>t;fetch $url"#);
-        match &prog.declarations[0] {
-            Decl::Function { body, .. } => {
-                assert!(!body.is_empty());
-                match &body[0].node {
-                    Stmt::Expr(Expr::Call { function, args, .. }) => {
-                        assert_eq!(function, "fetch");
-                        assert_eq!(args.len(), 1);
-                        match &args[0] {
-                            Expr::Call { function: inner_fn, .. } => {
-                                assert_eq!(inner_fn, "get");
-                            }
-                            e => panic!("expected get call as arg, got {:?}", e),
-                        }
-                    }
-                    s => panic!("expected Call stmt, got {:?}", s),
-                }
-            }
-            _ => panic!("expected function"),
-        }
+        let Decl::Function { body, .. } = &prog.declarations[0] else { panic!("expected function") };
+        assert!(!body.is_empty());
+        let Stmt::Expr(Expr::Call { function, args, .. }) = &body[0].node else { panic!("expected Call stmt") };
+        assert_eq!(function, "fetch");
+        assert_eq!(args.len(), 1);
+        let Expr::Call { function: inner_fn, .. } = &args[0] else { panic!("expected get call as arg") };
+        assert_eq!(inner_fn, "get");
     }
 }
