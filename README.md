@@ -63,7 +63,7 @@ ilo ships as an [Agent Skill](https://agentskills.io) — install the plugin and
 | Surface | How to use ilo |
 |---------|---------------|
 | **Claude Code** (CLI) | Add marketplace then install (see [Install](#install)) |
-| **Claude Cowork** (web) | Install the ilo plugin from Browse Plugins, then run `npm i -g ilo-lang` to get the binary |
+| **Claude Cowork** (web) | Install plugin from Browse Plugins — binary auto-installs via npm (WASM, no GitHub needed) |
 | **Claude API / Console** | Run `ilo help ai` locally, paste the output into your system prompt |
 
 **Other agents** (Codex, Cursor, GitHub Copilot, etc.):
@@ -99,14 +99,14 @@ See [research/JOURNEY.md](research/JOURNEY.md) for the full comparison table, ke
 
 ## Install
 
-**Agent Skill (Claude Code / Cowork):**
+**Claude Code** (CLI):
 ```bash
 /plugin marketplace add ilo-lang/ilo   # add the marketplace (once)
 /plugin install ilo-lang/ilo           # install the plugin
 ```
 Installs the ilo binary automatically and teaches the agent to write ilo. See [Teaching a model to write ilo](#teaching-a-model-to-write-ilo) for other agents.
 
-**Cowork** — the plugin teaches the agent ilo, but cowork can't download from GitHub directly. After installing the plugin, ask the agent to run `npm i -g ilo-lang` to get the ilo binary via npm.
+**Cowork** (web): Browse Plugins → Add marketplace from GitHub → `ilo-lang/ilo` → install the ilo plugin. The skill auto-installs the binary via npm since Cowork can't access GitHub directly.
 
 **npm (works everywhere Node 20+ is available):**
 ```bash
