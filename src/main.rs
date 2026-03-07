@@ -1002,6 +1002,7 @@ fn main() {
             println!("  --ansi / -a   Force ANSI colour output (default when stderr is a TTY)");
             println!("  --text / -t   Force plain text output (no colour)");
             println!("  --json / -j   Force JSON output (default when stderr is not a TTY)");
+            println!("  --no-hints / -nh  Suppress idiomatic hints after execution");
             println!("  NO_COLOR=1    Disable colour (same as --text)\n");
             println!("Tool providers (requires --features tools build):");
             println!("  --tools <path>   HTTP tool provider config (JSON)");
