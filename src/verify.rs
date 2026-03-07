@@ -1545,9 +1545,7 @@ impl VerifyContext {
                     if !arity_ok {
                         let arity_desc = if callee == "rnd" {
                             "0 or 2".to_string()
-                        } else if callee == "srt" || callee == "rd" {
-                            "1 or 2".to_string()
-                        } else if callee == "get" {
+                        } else if callee == "srt" || callee == "rd" || callee == "get" {
                             "1 or 2".to_string()
                         } else if callee == "post" {
                             "2 or 3".to_string()
@@ -1662,6 +1660,9 @@ impl VerifyContext {
                             // Check enclosing function returns a Result.
                             // Clone the return type to release the &self borrow before calling self.err.
                             let enc_rt = self.functions.get(func).map(|sig| sig.return_type.clone());
+                            // `for` over Option avoids a phantom else-branch in LLVM coverage
+                            // (the None path is unreachable in practice — func is always registered).
+                            #[allow(for_loops_over_fallibles)]
                             for rt in enc_rt {
                                 match rt {
                                     Ty::Result(_, _) => {}

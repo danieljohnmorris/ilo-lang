@@ -83,7 +83,7 @@ pub fn explain(program: &Program, filename: Option<&str>) -> String {
             }
         };
 
-        for s in snippet {
+        if let Some(s) = snippet {
             if !first { out.push('\n'); }
             first = false;
             out.push_str(&s);
