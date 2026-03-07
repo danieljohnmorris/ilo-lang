@@ -255,6 +255,27 @@ ilo 'f xs:L t>L t;unq xs' a,b,a,c,b   # → ["a" "b" "c"]
 ilo 'f>t;fmt "{} + {} = {}" 1 2 3'     # → "1 + 2 = 3"
 ```
 
+**Aggregation & reshape** — `grp`, `flat`, `sum`, `avg`, `rgx` for data pipelines:
+```bash
+# grp: group list by key function → M t (L a)
+ilo 'cl x:n>t;>x 5{"big"}{"small"} f xs:L n>M t L n;grp cl xs' f 1,8,3,9
+# → {"small": [1, 3], "big": [8, 9]}
+
+# sum / avg: numeric aggregation
+ilo 'f xs:L n>n;sum xs' 1,2,3,4,5      # → 15
+ilo 'f xs:L n>n;avg xs' 2,4,6          # → 4
+
+# flat: flatten nested lists one level
+# rgx: regex match/extract
+ilo 'f s:t>L t;rgx "\d+" s' "abc 123 def 456"   # → ["123", "456"]
+```
+
+**Structured output** — `wr` with format arg writes CSV, TSV, or JSON:
+```bash
+# wr path data "csv" — writes list-of-lists as CSV with proper quoting
+# wr path data "json" — writes any value as pretty JSON
+```
+
 **Imports** — split programs across files:
 ```bash
 # math.ilo: dbl n:n>n;*n 2
