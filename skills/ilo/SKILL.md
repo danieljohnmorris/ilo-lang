@@ -21,6 +21,16 @@ ${CLAUDE_SKILL_DIR}/scripts/ensure-ilo.sh
 
 Run this at the start of every ilo task. It installs ilo if missing, or updates it if a newer version is available.
 
+## Load the Full Spec
+
+After ensuring ilo is installed, load the compact AI spec for complete language reference:
+
+```bash
+ilo help ai
+```
+
+This outputs the full spec optimised for LLM consumption. Read it before writing ilo code if you need details beyond the summary below.
+
 ## Overview
 
 ilo is a token-minimal programming language for AI agents. Prefix-notation, strongly-typed, verified before execution.

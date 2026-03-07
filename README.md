@@ -346,6 +346,19 @@ cargo test
 
 Tests cover: lexer, parser, interpreter, VM, verifier, codegen, diagnostic, formatter, CLI integration, and annotated example programs.
 
+## Agent Skill
+
+ilo ships as an [Agent Skill](https://agentskills.io) — a portable skill that teaches AI agents to write, run, and debug ilo programs. Works with Claude Code, Codex, Cursor, GitHub Copilot, and any tool that supports the Agent Skills standard.
+
+**Claude Code plugin:**
+```bash
+/plugin install danieljohnmorris/ilo-lang
+```
+
+**Manual:** copy `skills/ilo/` into your agent's skills directory (e.g. `~/.claude/skills/`, `~/.agents/skills/`, `.cursor/skills/`).
+
+The skill auto-installs the ilo binary if it's not already present.
+
 ## Documentation
 
 | Document | Purpose |
@@ -353,6 +366,7 @@ Tests cover: lexer, parser, interpreter, VM, verifier, codegen, diagnostic, form
 | [SPEC.md](SPEC.md) | Language specification |
 | [examples/](examples/) | Runnable example programs (also `cargo test` regression suite) |
 | [MANIFESTO.md](MANIFESTO.md) | Design rationale |
+| [skills/ilo/](skills/ilo/) | Agent Skill (for AI coding agents) |
 | [research/TODO.md](research/TODO.md) | Planned work |
 | [research/OPEN.md](research/OPEN.md) | Open design questions |
 | [research/BUILDING-A-LANGUAGE.md](research/BUILDING-A-LANGUAGE.md) | How to build a language — research & plan |

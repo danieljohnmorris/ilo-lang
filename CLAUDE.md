@@ -24,6 +24,7 @@ Prefix-notation, strongly-typed, AI-agent-first language. Programs are small, ve
 | `src/codegen/` | Python, explain, fmt, dense-wire emitters |
 | `src/tools/` | MCP client, HTTP tool provider |
 | `examples/` | Runnable example programs (also `cargo test` regression suite) |
+| `skills/ilo/` | Agent Skill (Claude Code plugin + cross-platform installer) |
 | `SPEC.md` | Full language specification |
 | `research/TODO.md` | Planned work |
 
