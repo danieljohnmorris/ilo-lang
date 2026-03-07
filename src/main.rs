@@ -1185,6 +1185,7 @@ fn main() {
             println!("  ilo <code> --expanded / -e          Reformat (expanded human format)");
             println!("  ilo <code>                        Print AST as JSON (no args)");
             println!("  ilo <code> --bench func [args...] Benchmark a function");
+            println!("  ilo repl                          Interactive REPL");
             println!("  ilo help lang                     Show language specification");
             println!("  ilo help ai | ilo -ai             Compact spec for LLM consumption");
             println!("  ilo --explain ILO-T005            Explain an error code\n");

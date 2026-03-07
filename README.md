@@ -181,6 +181,12 @@ ilo 'f xs:L t>t;xs.0' 'a,b,c'         # → a
 ilo program.ilo 10 20 30
 ```
 
+**Interactive REPL:**
+```bash
+ilo repl                     # start interactive session
+```
+Define functions, evaluate expressions, accumulate state. nvim-style commands: `:q` `:w file.ilo` `:defs` `:clear` `:help`.
+
 **Help & language spec:**
 ```bash
 ilo help                     # usage and examples
