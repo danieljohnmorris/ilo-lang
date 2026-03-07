@@ -97,6 +97,12 @@ See [research/JOURNEY.md](research/JOURNEY.md) for the full comparison table, ke
 
 ## Install
 
+**Agent Skill (Claude Code / Cowork):**
+```bash
+/plugin install ilo-lang/ilo
+```
+Installs the ilo binary automatically and teaches the agent to write ilo. See [Teaching a model to write ilo](#teaching-a-model-to-write-ilo) for other agents.
+
 **One-liner (macOS / Linux):**
 ```bash
 curl -fsSL https://raw.githubusercontent.com/ilo-lang/ilo/main/install.sh | sh
