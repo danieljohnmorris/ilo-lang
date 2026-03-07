@@ -304,6 +304,7 @@ pub enum Literal {
     Number(f64),
     Text(String),
     Bool(bool),
+    Nil,
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]

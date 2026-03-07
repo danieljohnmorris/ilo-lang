@@ -53,6 +53,8 @@ pub enum Token {
     True,
     #[token("false")]
     False,
+    #[token("nil")]
+    Nil,
 
     // Multi-char operators (greedy — must come before single-char)
     #[token(">=")]

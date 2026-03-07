@@ -1594,6 +1594,7 @@ fn eval_literal(lit: &Literal) -> Value {
         Literal::Number(n) => Value::Number(*n),
         Literal::Text(s) => Value::Text(s.clone()),
         Literal::Bool(b) => Value::Bool(*b),
+        Literal::Nil => Value::Nil,
     }
 }
 

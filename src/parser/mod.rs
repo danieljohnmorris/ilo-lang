@@ -794,7 +794,7 @@ impl Parser {
                     && self.token_at(after_semi + 1) == Some(&Token::Colon)
             }
             // literal: → literal pattern (number, string, bool)
-            Some(Token::Number(_) | Token::Text(_) | Token::True | Token::False) => {
+            Some(Token::Number(_) | Token::Text(_) | Token::True | Token::False | Token::Nil) => {
                 after_semi + 1 < self.tokens.len()
                     && self.token_at(after_semi + 1) == Some(&Token::Colon)
             }
@@ -868,6 +868,10 @@ impl Parser {
             Some(Token::False) => {
                 self.advance();
                 Ok(Pattern::Literal(Literal::Bool(false)))
+            }
+            Some(Token::Nil) => {
+                self.advance();
+                Ok(Pattern::Literal(Literal::Nil))
             }
             Some(Token::Ident(name)) if matches!(name.as_str(), "n" | "t" | "b" | "l") => {
                 let ty_str = name.clone();
@@ -1418,7 +1422,7 @@ impl Parser {
             let t = &self.tokens[look].0;
             match t {
                 Token::Ident(_) | Token::Number(_) | Token::Text(_)
-                | Token::True | Token::False | Token::Underscore => {
+                | Token::True | Token::False | Token::Nil | Token::Underscore => {
                     count += 1;
                     look += 1;
                 }
@@ -1451,6 +1455,7 @@ impl Parser {
                 | Some(Token::Text(_))
                 | Some(Token::True)
                 | Some(Token::False)
+                | Some(Token::Nil)
                 | Some(Token::Underscore)
                 | Some(Token::LParen)
                 | Some(Token::LBracket)
@@ -1543,6 +1548,10 @@ impl Parser {
             Some(Token::False) => {
                 self.advance();
                 Ok(Expr::Literal(Literal::Bool(false)))
+            }
+            Some(Token::Nil) => {
+                self.advance();
+                Ok(Expr::Literal(Literal::Nil))
             }
             Some(Token::Underscore) => {
                 self.advance();

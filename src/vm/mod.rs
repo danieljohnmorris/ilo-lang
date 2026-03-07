@@ -949,6 +949,7 @@ impl RegCompiler {
                         Literal::Number(n) => Value::Number(*n),
                         Literal::Text(s) => Value::Text(s.clone()),
                         Literal::Bool(b) => Value::Bool(*b),
+                        Literal::Nil => Value::Nil,
                     };
                     let const_reg = self.alloc_reg();
                     let ki = self.current.add_const(val);
@@ -1013,6 +1014,7 @@ impl RegCompiler {
                 Literal::Number(n) => Value::Number(*n),
                 Literal::Text(s) => Value::Text(s.clone()),
                 Literal::Bool(b) => Value::Bool(*b),
+                Literal::Nil => Value::Nil,
             }),
             Expr::BinOp { op, left, right } => {
                 let lv = Self::try_const_fold(left)?;
@@ -1081,6 +1083,7 @@ impl RegCompiler {
                     Literal::Number(n) => Value::Number(*n),
                     Literal::Text(s) => Value::Text(s.clone()),
                     Literal::Bool(b) => Value::Bool(*b),
+                    Literal::Nil => Value::Nil,
                 };
                 let reg = self.alloc_reg();
                 let ki = self.current.add_const(val);

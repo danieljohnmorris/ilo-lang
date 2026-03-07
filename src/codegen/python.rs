@@ -760,6 +760,7 @@ fn emit_literal(lit: &Literal) -> String {
             format!("\"{}\"", escaped)
         }
         Literal::Bool(b) => if *b { "True".to_string() } else { "False".to_string() },
+        Literal::Nil => "None".to_string(),
     }
 }
 

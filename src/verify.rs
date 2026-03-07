@@ -1499,6 +1499,7 @@ impl VerifyContext {
                 Literal::Number(_) => Ty::Number,
                 Literal::Text(_) => Ty::Text,
                 Literal::Bool(_) => Ty::Bool,
+                Literal::Nil => Ty::Nil,
             },
 
             Expr::Ref(name) => {

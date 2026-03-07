@@ -485,6 +485,7 @@ fn fmt_literal(lit: &Literal) -> String {
         Literal::Number(n) => fmt_num(*n),
         Literal::Text(s) => format!("\"{}\"", escape_text(s)),
         Literal::Bool(b) => if *b { "true".to_string() } else { "false".to_string() },
+        Literal::Nil => "nil".to_string(),
     }
 }
 
