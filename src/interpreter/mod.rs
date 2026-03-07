@@ -1025,11 +1025,11 @@ fn call_function(env: &mut Env, name: &str, args: Vec<Value>) -> Result<Value> {
     }
     if name == "sum" && args.len() == 1 {
         let items = match &args[0] {
-            Value::List(l) => l.clone(),
+            Value::List(l) => l,
             other => return Err(RuntimeError::new("ILO-R009", format!("sum: arg must be a list, got {:?}", other))),
         };
         let mut total = 0.0_f64;
-        for item in &items {
+        for item in items {
             match item {
                 Value::Number(n) => total += n,
                 other => return Err(RuntimeError::new("ILO-R009", format!("sum: list elements must be numbers, got {:?}", other))),
@@ -1039,14 +1039,14 @@ fn call_function(env: &mut Env, name: &str, args: Vec<Value>) -> Result<Value> {
     }
     if name == "avg" && args.len() == 1 {
         let items = match &args[0] {
-            Value::List(l) => l.clone(),
+            Value::List(l) => l,
             other => return Err(RuntimeError::new("ILO-R009", format!("avg: arg must be a list, got {:?}", other))),
         };
         if items.is_empty() {
             return Err(RuntimeError::new("ILO-R009", "avg: cannot average an empty list".to_string()));
         }
         let mut total = 0.0_f64;
-        for item in &items {
+        for item in items {
             match item {
                 Value::Number(n) => total += n,
                 other => return Err(RuntimeError::new("ILO-R009", format!("avg: list elements must be numbers, got {:?}", other))),
@@ -1056,14 +1056,14 @@ fn call_function(env: &mut Env, name: &str, args: Vec<Value>) -> Result<Value> {
     }
     if name == "rgx" && args.len() == 2 {
         let pattern = match &args[0] {
-            Value::Text(s) => s.clone(),
+            Value::Text(s) => s.as_str(),
             other => return Err(RuntimeError::new("ILO-R009", format!("rgx: first arg must be a string pattern, got {:?}", other))),
         };
         let input = match &args[1] {
-            Value::Text(s) => s.clone(),
+            Value::Text(s) => s.as_str(),
             other => return Err(RuntimeError::new("ILO-R009", format!("rgx: second arg must be a string, got {:?}", other))),
         };
-        let re = regex::Regex::new(&pattern).map_err(|e| {
+        let re = regex::Regex::new(pattern).map_err(|e| {
             RuntimeError::new("ILO-R009", format!("rgx: invalid regex pattern: {e}"))
         })?;
         let result: Vec<Value> = if re.captures_len() > 1 {
