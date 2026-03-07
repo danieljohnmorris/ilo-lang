@@ -346,6 +346,28 @@ cargo test
 
 Tests cover: lexer, parser, interpreter, VM, verifier, codegen, diagnostic, formatter, CLI integration, and annotated example programs.
 
+## Limitations
+
+ilo is intentionally minimal — designed for AI agent token economy, not general-purpose programming. Here's what it **does not** support:
+
+| Category | Not supported |
+|----------|--------------|
+| **OOP** | No classes, inheritance, methods, or visibility modifiers |
+| **Mutability** | All values are immutable; rebinding (`x=expr`) creates new bindings |
+| **Closures** | No anonymous functions or lambdas; function refs (`map fn xs`) but no captured scope |
+| **Async/concurrency** | No async/await, threads, or parallel execution |
+| **Exceptions** | No try/catch — errors handled via `R ok err` Result types only |
+| **Generics** | Weak type variables (`a`) only — no bounds, traits, or consistency checking |
+| **Modules** | Flat namespace; no qualified names (`mod::fn`), no pub/private |
+| **Operators** | No modulo (`%`), no bitwise ops, no exponentiation, no custom operators |
+| **Data structures** | No sets, tuples, or user-defined collections; map keys are always text |
+| **Macros** | No metaprogramming, reflection, or code generation |
+| **REPL** | No interactive mode — batch execution only |
+| **Debugging** | No debugger, breakpoints, or step-through |
+| **Tail-call optimisation** | Recursive calls are full function calls |
+
+See the [Limitations section in SPEC.md](SPEC.md#limitations) for the full list with details.
+
 ## Documentation
 
 | Document | Purpose |

@@ -949,3 +949,97 @@ fac n:n>n;<=n 1 1;r=fac -n 1;*n r
 ```
 fib n:n>n;<=n 1 n;a=fib -n 1;b=fib -n 2;+a b
 ```
+
+---
+
+## Limitations
+
+ilo is intentionally constrained — every omission is a design choice that reduces token cost, limits wrong-choice surface area, or keeps the language small enough for an LLM to learn from a single spec read. This section documents what ilo **does not** support.
+
+### No classes or OOP
+
+No classes, inheritance, interfaces, traits, or methods. Records (`type point{x:n;y:n}`) are immutable value types with named fields — not objects. Functions are standalone; there is no way to associate a function with a type.
+
+### No mutation
+
+All values are immutable. Variable bindings (`x=expr`) create new bindings rather than mutating existing state. Inside loops, rebinding updates the variable in the enclosing scope, but the underlying value is replaced, not mutated in-place. There are no mutable references, pointers, or in-place collection updates.
+
+### No closures or lambdas
+
+Functions cannot be defined inline or capture variables from their enclosing scope. Function references can be passed to higher-order builtins (`map`, `flt`, `fld`, `grp`, `srt`), but the referenced function must be a named top-level declaration — not an anonymous function.
+
+### No async, concurrency, or parallelism
+
+No async/await, threads, tasks, channels, or parallel execution. All operations — including HTTP requests (`get`/`post`) and file I/O (`rd`/`wr`) — are synchronous and blocking. Execution is single-threaded.
+
+### No exceptions
+
+No try/catch/throw mechanism. Error handling uses `R ok err` (Result) types exclusively. Functions that can fail return `R`, callers match on `~v` (Ok) and `^e` (Err), and the auto-unwrap operator `!` propagates errors to the enclosing function.
+
+### No real generics
+
+Type variables (`a`, `c`, `d`, etc.) provide weak generics — the verifier accepts any type without consistency checking across call sites. There are no type bounds, trait constraints, or specialisation. Generic records are not supported; only functions can use type variables.
+
+### Flat namespace only
+
+All imports (`use "file.ilo"`) merge into a single global namespace. There is no module system, qualified names (`mod::fn`), or pub/private visibility. Name collisions are verifier errors with no resolution mechanism beyond renaming.
+
+### No modulo, bitwise, or exponentiation operators
+
+The operator set is: `+`, `-`, `*`, `/`, `=`, `!=`, `>`, `<`, `>=`, `<=`, `&`, `|`, `!`, `??`, `>>`. There is no modulo (`%`), no bitwise operations (AND, OR, XOR, shift), and no exponentiation. To compute modulo, use `flr` and arithmetic manually.
+
+### No custom operators or overloading
+
+Operators are fixed and built-in. There is no way to define custom operators, overload existing ones, or change operator precedence.
+
+### No string interpolation
+
+Strings do not support embedded expressions. Use `fmt "template {} {}" arg1 arg2` for string formatting with positional `{}` placeholders.
+
+### Limited data structures
+
+- **Lists** are homogeneous and immutable
+- **Maps** (`M k v`) have text-only keys at runtime
+- **Records** have fixed fields per type definition
+- No sets, tuples, stacks, queues, trees, or user-defined collections
+- No lazy sequences or iterators
+
+### No macros or metaprogramming
+
+No macro system, compile-time code generation, reflection, or introspection.
+
+### No REPL
+
+No interactive read-eval-print loop. Programs execute in batch mode only: `ilo 'code' args` or `ilo file.ilo func args`.
+
+### No debugger
+
+No breakpoints, step-through, or interactive debugging. Errors include source spans and call context, and `prnt` can be used for inspection, but there is no debugger.
+
+### No tail-call optimisation
+
+Recursive calls are full function calls with stack frames. Deep recursion can overflow the stack. Use loops (`@`, `wh`) for unbounded iteration.
+
+### No variadic user functions
+
+Only the builtin `fmt` accepts a variable number of arguments. User-defined functions have fixed arity.
+
+### No compile-time evaluation
+
+All evaluation happens at runtime. There is no `const`, `comptime`, or constant folding at the language level.
+
+### Parser constraints
+
+- **Operators only accept atoms or nested operators as operands** — function calls must be bound first: `r=f x;+r 1` (not `+f x 1`)
+- **Comparison operators at statement position are guards** — `=x 1` at statement level is a guard, not a return expression; bind first: `r==x 1;r`
+- **`--` is greedy** — `--x 1` is a comment, not "negate (subtract x 1)"; use `- -x 1`
+- **Non-last functions cannot end with bare refs or calls** — greedy parsing consumes tokens across function boundaries; end with a binary expression (`+x 0`) or parenthesised pipe (`(x>>f)`)
+
+### Not yet implemented
+
+The following are planned but not currently available (see [research/TODO.md](research/TODO.md)):
+
+- LSP / language server for editor integration
+- JavaScript/TypeScript codegen
+- WASM compilation target
+- Infix operator syntax (accepting `a + b` alongside `+a b`)

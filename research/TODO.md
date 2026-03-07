@@ -37,6 +37,21 @@ Discovered during a Claude Code session using ilo as a bash/python replacement. 
 ### Nice-to-have
 - [ ] **Modulo builtin** — `mod a b` or `%a b`. Currently requires `flr /a b` then `*` then compare. Common enough (FizzBuzz, even/odd checks) to justify a builtin.
 
+### Intentionally not planned
+
+The following are **deliberately excluded** — not missing features, but design decisions. See [SPEC.md § Limitations](../SPEC.md#limitations) and [MANIFESTO.md § What ilo Is Not](../MANIFESTO.md#what-ilo-is-not) for rationale.
+
+- Classes, inheritance, OOP, methods
+- Mutable variables, mutable references, in-place mutation
+- Closures, lambdas, anonymous functions
+- Async/await, threads, concurrency
+- Exceptions (try/catch/throw)
+- Macros, metaprogramming, reflection
+- Generics with bounds/traits/specialisation
+- Custom operators, operator overloading
+- String interpolation (use `fmt`)
+- Bitwise operators, exponentiation
+
 ### Testing
 - [ ] **Parser coverage 85% → 90%+** — lowest coverage module. The multi-function boundary and `==` lexing issues suggest more edge case tests are needed.
 

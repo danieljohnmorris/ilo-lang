@@ -132,6 +132,19 @@ ilo does the same for machine programmers. A minimal, verified vocabulary. Compl
 
 **Not theoretical.** Every principle here addresses measured failure modes in AI-generated code: hallucinated APIs, context window exhaustion, wasted retry cycles from vague errors.
 
+**Not a general-purpose language.** ilo deliberately excludes features that general-purpose languages consider essential. Each omission reduces the next-token search space for LLM generation:
+
+- **No classes, inheritance, or OOP** — records are immutable value types, not objects. Methods, constructors, and visibility modifiers add token cost and design choices without agent benefit.
+- **No mutable variables** — all values are immutable. `x=expr` creates a new binding, not a mutation. No mutable references, pointers, or in-place collection updates. Immutability eliminates an entire class of bugs agents would otherwise generate and debug.
+- **No closures or lambdas** — functions are named top-level declarations. No anonymous functions, no captured scope. This keeps the call graph static and verifiable.
+- **No async/await or concurrency** — all execution is single-threaded and synchronous. Concurrency adds token cost (syntax), error surface (races, deadlocks), and retry cost (nondeterministic failures).
+- **No exceptions** — error handling is `R ok err` (Result types) only. One pattern, one syntax, zero surprise control flow.
+- **No macros or metaprogramming** — the language is what the spec says. No hidden code generation, no compile-time magic, no abstraction layers that obscure the actual program.
+- **No generics** (beyond weak type variables) — no trait bounds, no specialisation, no type-level programming. The verifier accepts type variables as `Unknown` — simple and predictable.
+- **No modulo, bitwise, or exponentiation operators** — the operator set is deliberately small. Each additional operator expands the next-token set at every expression position.
+
+These aren't missing features — they're design decisions. Every omission closes off branches in the generation tree, making the remaining branches more likely to be correct.
+
 ## What ilo Is
 
 A **minimal, verified action space** — the smallest set of constructs an agent needs to express computational intent, with relationships made explicit and everything else stripped away.
