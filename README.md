@@ -25,16 +25,20 @@ tot p:n q:n r:n>n;s=*p q;t=*s r;+s t
 
 0.33x the tokens, 0.22x the characters. Same semantics.
 
-### Why prefix notation?
+### Prefix and infix notation
 
-ilo uses prefix notation (`+a b` instead of `a + b`). Nesting eliminates parentheses entirely:
+ilo supports both prefix (`+a b`) and infix (`a + b`) notation. Prefix is the **token-optimal** form — it eliminates parentheses and is preferred for AI agents:
 
 ```
 (a * b) + c       →  +*a b c        -- saves 4 chars, 1 token
 ((a + b) * c) >= 100  →  >=*+a b c 100  -- saves 7 chars, 3 tokens
 ```
 
-Across 25 expression patterns: **22% fewer tokens, 42% fewer characters** vs infix. See the [prefix-vs-infix benchmark](research/explorations/prefix-vs-infix/).
+Infix is available for readability when needed: `a + b`, `x * y + 1`, `(x + y) * 2`. Standard mathematical precedence applies.
+
+Across 25 expression patterns: **22% fewer tokens, 42% fewer characters** with prefix vs infix. See the [prefix-vs-infix benchmark](research/explorations/prefix-vs-infix/).
+
+Equality: `=a b` (prefix, token-optimal) and `a == b` (infix) are equivalent. `==a b` is also accepted as prefix.
 
 ## Principles
 
@@ -50,30 +54,56 @@ See [MANIFESTO.md](MANIFESTO.md) for the full rationale.
 
 ## Teaching a model to write ilo
 
-Three paths, in order of friction:
+### Agent Skills (zero friction)
 
-**1. Context loading** — paste the spec into the system prompt. The compact form fits comfortably in any context window:
+ilo ships as an [Agent Skill](https://agentskills.io) — install the plugin and the agent learns ilo automatically. No manual context loading needed.
+
+**Claude** — works across all three surfaces:
+
+| Surface | How to use ilo |
+|---------|---------------|
+| **Claude Code** (CLI) | `/plugin install ilo-lang/ilo` — the skill loads automatically |
+| **Claude Cowork** (web) | Install the ilo plugin from Browse Plugins → the agent can write and run ilo |
+| **Claude API / Console** | Paste `ilo help ai` into the system prompt (see context loading below) |
+
+**Other agents** (Codex, Cursor, GitHub Copilot, etc.):
+
+Copy `skills/ilo/` into your agent's skills directory (e.g. `~/.agents/skills/`, `.cursor/skills/`). Any tool supporting the [Agent Skills standard](https://agentskills.io) will pick it up.
+
+> **Note:** Codex and similar sandboxed environments may not grant agents full filesystem or network access, so the skill's auto-install script and I/O builtins (`rd`, `get`, etc.) may not work. In those environments, pre-install ilo in the container image and use context loading instead.
+
+### Context loading
+
+For agents without plugin support, paste the spec into the system prompt:
 
 ```bash
 ilo help ai          # ~16-line ultra-compact spec for LLM consumption
 ilo help lang        # full spec
 ```
 
-Lowest friction. Works with any model today. Good for one-off agents and short sessions.
+Works with any model. Good for one-off agents and short sessions.
 
-**2. Fine-tuning** — train on ilo programs and error feedback loops. Best for production agents that write a lot of ilo. Not yet available as a hosted service.
+### Fine-tuning
 
-**3. Foundation model training** — ilo is public and MIT licensed. As usage grows, frontier models will encounter it in training data and learn it natively — the same path Python, SQL, and JSON took.
+Train on ilo programs and error feedback loops. Best for production agents that write a lot of ilo. Not yet available as a hosted service.
 
-The compact spec (`ilo help ai`) is designed specifically for path 1: small enough to fit in a system prompt, dense enough to fully constrain generation.
+### Foundation model training
+
+ilo is public and MIT licensed. As usage grows, frontier models will encounter it in training data and learn it natively — the same path Python, SQL, and JSON took.
 
 ## Design Journey
 
-We explored 9 syntax variants before settling on the current design. The final syntax achieves 0.33x the tokens and 0.22x the characters of equivalent Python — with perfect 10/10 LLM generation accuracy.
+We explored 9 syntax variants before settling on the current design. The final syntax achieves 0.33x the tokens and 0.22x the characters of equivalent Python — with high LLM generation accuracy.
 
 See [research/JOURNEY.md](research/JOURNEY.md) for the full comparison table, key findings, and links to all research documents.
 
 ## Install
+
+**Agent Skill (Claude Code / Cowork):**
+```bash
+/plugin install ilo-lang/ilo
+```
+Installs the ilo binary automatically and teaches the agent to write ilo. See [Teaching a model to write ilo](#teaching-a-model-to-write-ilo) for other agents.
 
 **One-liner (macOS / Linux):**
 ```bash
@@ -175,10 +205,11 @@ ilo 'f x:t>n;*x 2' hello
 #   = note: in function 'f'
 ```
 
-Use `--explain` to get a detailed explanation of any error code:
+Use `--explain` to get a detailed explanation of any error code, or to explain what a program does:
 
 ```bash
-ilo --explain ILO-T004
+ilo --explain ILO-T004              # explain an error code
+ilo 'f x:n>n;*x 2' --explain       # explain what the code does line-by-line
 ```
 
 This matches the manifesto: "verification before execution — all calls resolve, all types align, all dependencies exist."
@@ -331,19 +362,6 @@ cargo test
 ```
 
 Tests cover: lexer, parser, interpreter, VM, verifier, codegen, diagnostic, formatter, CLI integration, and annotated example programs.
-
-## Agent Skill
-
-ilo ships as an [Agent Skill](https://agentskills.io) — a portable skill that teaches AI agents to write, run, and debug ilo programs. Works with Claude Code, Codex, Cursor, GitHub Copilot, and any tool that supports the Agent Skills standard.
-
-**Claude Code plugin:**
-```bash
-/plugin install ilo-lang/ilo
-```
-
-**Manual:** copy `skills/ilo/` into your agent's skills directory (e.g. `~/.claude/skills/`, `~/.agents/skills/`, `.cursor/skills/`).
-
-The skill auto-installs the ilo binary if it's not already present.
 
 ## Documentation
 
