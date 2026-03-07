@@ -111,7 +111,7 @@ ilo ships as an [Agent Skill](https://agentskills.io). Install the plugin and th
 |---------|---------------|
 | **Claude Code** (CLI) | Add marketplace then install (see [Install](#install)) |
 | **Claude Cowork** (web) | Browse Plugins → install ilo (binary auto-installs via npm) |
-| **Claude API / Console** | Run `ilo help ai` locally, paste output into system prompt |
+| **Claude API / Console** | Run `ilo -ai`, paste output into your system prompt |
 
 **Other agents** (Codex, Cursor, Copilot, etc.): copy `skills/ilo/` into your agent's skills directory. Any tool supporting the [Agent Skills standard](https://agentskills.io) will pick it up.
 
