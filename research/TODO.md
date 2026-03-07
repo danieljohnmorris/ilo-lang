@@ -15,24 +15,6 @@
 
 - [ ] Namespacing — prevent name collisions when merging many declaration graphs (low priority)
 
-## Data scripting (P1)
-
-See [DATA-MANIPULATION.md](DATA-MANIPULATION.md) for full gap analysis.
-
-- [x] `trm s` — trim whitespace from string ends
-- [x] `unq xs` — deduplicate list or text chars, preserve order
-- [x] `fmt "template {}" args…` — `{}` positional interpolation
-
-## Data scripting (P2) — aggregation & reshape
-
-Close the gap for real data pipelines: fetch → read → transform → **aggregate** → write.
-
-- [x] `grp fn xs` — group by key function, returns map of key → list
-- [x] `flat xs` — flatten nested lists one level
-- [x] `sum xs` / `avg xs` — basic numeric aggregation
-- [x] `rgx pat s` — regex match/extract
-- [x] Structured CSV/TSV/JSON output via `wr path data "csv"`
-
 ---
 
 ## Completed
@@ -86,6 +68,14 @@ Close the gap for real data pipelines: fetch → read → transform → **aggreg
 - [x] `cat`, `has`, `hd`, `tl`, `rev`, `srt`, `srt fn xs`, `slc`, `spl`
 - [x] `map`, `flt`, `fld` — higher-order functions
 - [x] `jpth`, `jdmp`, `jpar` — JSON path/dump/parse
+- [x] `trm s` — trim whitespace from string ends
+- [x] `unq xs` — deduplicate list or text chars, preserve order
+- [x] `fmt "template {}" args…` — `{}` positional interpolation
+- [x] `grp fn xs` — group by key function, returns map of key → list
+- [x] `flat xs` — flatten nested lists one level
+- [x] `sum xs` / `avg xs` — basic numeric aggregation
+- [x] `rgx pat s` — regex match/extract
+- [x] Structured CSV/TSV/JSON output via `wr path data "csv"`
 
 ### Error infrastructure
 - [x] Spans, Diagnostic model, ANSI/JSON renderers, error codes (ILO-L/P/T/R)
