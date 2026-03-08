@@ -1120,6 +1120,10 @@ fn file_read_error() {
     use std::os::unix::fs::PermissionsExt;
     let dir = std::env::temp_dir();
     let path = dir.join("ilo_test_unreadable.ilo");
+    // Restore permissions first in case a previous run left the file unreadable
+    if path.exists() {
+        let _ = std::fs::set_permissions(&path, std::fs::Permissions::from_mode(0o644));
+    }
     std::fs::write(&path, "f>n;42").unwrap();
     std::fs::set_permissions(&path, std::fs::Permissions::from_mode(0o000)).unwrap();
     let out = ilo()

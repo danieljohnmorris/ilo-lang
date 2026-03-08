@@ -1882,14 +1882,27 @@ pub(crate) struct ArenaRecord {
 }
 
 impl ArenaRecord {
+    /// # Safety
+    /// `idx` must be less than `self.n_fields`. The pointer is valid for the
+    /// lifetime of the arena allocation. Layout: 8-byte header followed by
+    /// `n_fields` × u64 (NanVal) fields, all 8-byte aligned.
     #[inline]
     pub(crate) unsafe fn field_ptr(&self, idx: usize) -> *const u64 {
+        debug_assert!(idx < self.n_fields as usize, "field_ptr: idx {idx} >= n_fields {}", self.n_fields);
+        // SAFETY: caller guarantees idx < n_fields; layout is repr(C) with
+        // 8-byte header then n_fields×u64.
         unsafe { (self as *const Self as *const u8).add(8).cast::<u64>().add(idx) }
     }
 
     /// Mutable field pointer. Callers must ensure exclusive access.
+    ///
+    /// # Safety
+    /// `idx` must be less than `self.n_fields`. Caller must have exclusive
+    /// access to this record (no aliasing readers or writers).
     #[inline]
     pub(crate) unsafe fn field_ptr_mut(&mut self, idx: usize) -> *mut u64 {
+        debug_assert!(idx < self.n_fields as usize, "field_ptr_mut: idx {idx} >= n_fields {}", self.n_fields);
+        // SAFETY: caller guarantees idx < n_fields and exclusive access.
         unsafe { (self as *mut Self as *mut u8).add(8).cast::<u64>().add(idx) }
     }
 }
@@ -1920,6 +1933,10 @@ impl BumpArena {
         // Walk all arena records and drop_rc their heap fields before resetting.
         let mut off = 0usize;
         while off + 8 <= self.offset {
+            // SAFETY: `off` is within `[0, self.offset)` which is within the
+            // allocated buffer. Records are 8-byte aligned and written by
+            // `alloc()` which enforces alignment. The pointer is valid because
+            // the buffer is live until we clear `self.offset` below.
             let ptr = unsafe { self.buf_ptr.add(off) } as *const ArenaRecord;
             let rec = unsafe { &*ptr };
             let n = rec.n_fields as usize;
@@ -2150,12 +2167,17 @@ impl NanVal {
     }
 
     /// # Safety
-    /// Caller must ensure `self` was created via one of the `heap_*` constructors
-    /// (i.e. `is_heap()` returns true) and that the underlying `Rc<HeapObj>` is
-    /// still alive — i.e. the strong count has not reached zero. The returned
-    /// reference borrows the heap allocation; its lifetime is bounded by the
-    /// caller's knowledge of the RC lifetime, not by `'a`. Callers must not
-    /// hold the reference across any operation that could decrement the RC to zero.
+    /// Caller must ensure:
+    /// 1. `self` was created via one of the `heap_*` constructors (`is_heap()` is true).
+    /// 2. The underlying `Rc<HeapObj>` is still alive (strong count > 0).
+    /// 3. The returned reference is **not** held across any operation that could
+    ///    decrement this NanVal's RC to zero (including `drop_rc()`, `reg_set!`,
+    ///    or dropping a container that holds this NanVal).
+    ///
+    /// The lifetime `'a` is unconstrained because NanVal is `Copy` (no borrow
+    /// tracking). The caller is responsible for ensuring the reference does not
+    /// outlive the RC. In practice, all call sites use the reference within a
+    /// single opcode dispatch before any RC-dropping operation on the same value.
     #[inline]
     unsafe fn as_heap_ref<'a>(self) -> &'a HeapObj {
         let ptr = (self.0 & PTR_MASK) as *const HeapObj;

@@ -157,14 +157,25 @@ pub(crate) fn compile(chunk: &Chunk, nan_consts: &[NanVal]) -> Option<JitFunctio
 }
 
 /// Call a compiled function.
+///
+/// # Safety (internal)
+/// Each `transmute` casts the LLVM JIT function pointer to a typed `extern "C"` fn.
+/// This is sound because:
+/// 1. `compile()` generates LLVM IR using the C calling convention with all
+///    parameters and return value as `f64` (LLVMDoubleType).
+/// 2. The function pointer is obtained from `LLVMGetFunctionAddress()` after
+///    successful compilation by the LLVM MCJIT engine.
+/// 3. `args.len() == func.param_count` is checked before dispatch.
 pub(crate) fn call(func: &JitFunction, args: &[f64]) -> Option<f64> {
     if args.len() != func.param_count { return None; }
     Some(match args.len() {
         0 => {
+            // SAFETY: see call() doc — LLVM compiled with 0 f64 params, returns f64.
             let f: extern "C" fn() -> f64 = unsafe { std::mem::transmute(func.func_ptr) };
             f()
         }
         1 => {
+            // SAFETY: see call() doc — LLVM compiled with 1 f64 param, returns f64.
             let f: extern "C" fn(f64) -> f64 = unsafe { std::mem::transmute(func.func_ptr) };
             f(args[0])
         }

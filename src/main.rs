@@ -582,7 +582,10 @@ fn repl_cmd() {
                 }
                 _ if input.starts_with(":wq ") || input.starts_with(":w ") => {
                     let is_wq = input.starts_with(":wq");
-                    let path = input.split_once(' ').unwrap().1.trim();
+                    let path = match input.split_once(' ') {
+                        Some((_, p)) => p.trim(),
+                        None => { eprintln!("usage: :w <file.ilo>"); continue; }
+                    };
                     if defs.is_empty() {
                         eprintln!("no definitions to save");
                     } else if let Err(e) = std::fs::write(path, defs.join(" ") + "\n") {
