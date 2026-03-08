@@ -133,7 +133,7 @@ pub struct McpProvider {
 impl McpProvider {
     /// Connect to all servers in the config and discover their tools.
     pub async fn connect(config: &McpConfig) -> Result<Self, String> {
-        let mut clients: Vec<(McpClient, Vec<McpToolDef>)> = Vec::new();
+        let mut clients: Vec<(McpClient, Vec<McpToolDef>)> = Vec::with_capacity(config.mcp_servers.len());
         let mut tool_index: HashMap<String, (usize, Vec<String>)> = HashMap::new();
 
         for (server_name, server_cfg) in &config.mcp_servers {

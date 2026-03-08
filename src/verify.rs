@@ -1529,7 +1529,7 @@ impl VerifyContext {
 
                 let call_ty = if is_builtin(callee) {
                     // Check arity (rnd accepts 0 or 2 args)
-                    let expected_arity = builtin_arity(callee).unwrap();
+                    let expected_arity = builtin_arity(callee).expect("is_builtin guarantees arity exists");
                     let arity_ok = if callee == "rnd" {
                         args.is_empty() || args.len() == 2
                     } else if callee == "srt" || callee == "rd" {

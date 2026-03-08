@@ -177,7 +177,7 @@ fn encode_abx(op: u8, a: u8, bx: u16) -> u32 {
 
 // ── Chunk ────────────────────────────────────────────────────────────
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Default)]
 pub struct Chunk {
     pub code: Vec<u32>,
     pub constants: Vec<Value>,
@@ -490,7 +490,7 @@ impl RegCompiler {
                 }
 
                 self.current.reg_count = self.max_reg;
-                self.chunks.push(self.current.clone());
+                self.chunks.push(std::mem::take(&mut self.current));
             } else if let Decl::Tool { params, .. } = decl {
                 // Tool stub: emit LOADK Nil → WRAPOK → RET  (returns Ok(Nil))
                 // Matches interpreter behaviour (interpreter/mod.rs:241–244)
@@ -507,7 +507,7 @@ impl RegCompiler {
                 self.emit_abx(OP_RET, ok_reg, 0);
 
                 self.current.reg_count = self.max_reg;
-                self.chunks.push(self.current.clone());
+                self.chunks.push(std::mem::take(&mut self.current));
             }
             // TypeDef, Alias, Error — no chunk emitted (not in func_names)
         }
@@ -1960,7 +1960,7 @@ pub(crate) struct BumpArena {
 
 impl BumpArena {
     pub(crate) fn new() -> Self {
-        let layout = std::alloc::Layout::from_size_align(ARENA_DEFAULT_SIZE, 8).unwrap();
+        let layout = std::alloc::Layout::from_size_align(ARENA_DEFAULT_SIZE, 8).expect("valid arena layout");
         // SAFETY: layout is non-zero (64KB, 8-align). No zero-fill needed since
         // arena tracks its own offset and only reads initialized records.
         let ptr = unsafe { std::alloc::alloc(layout) };
@@ -2017,7 +2017,7 @@ impl Drop for BumpArena {
     fn drop(&mut self) {
         self.reset(); // drop_rc all heap fields
         unsafe {
-            let layout = std::alloc::Layout::from_size_align(self.buf_cap, 8).unwrap();
+            let layout = std::alloc::Layout::from_size_align(self.buf_cap, 8).expect("valid arena layout");
             std::alloc::dealloc(self.buf_ptr, layout);
         }
     }
@@ -4112,7 +4112,7 @@ impl<'a> VM<'a> {
                         if s.is_empty() {
                             return Err(VmError::Type("hd: empty text"));
                         }
-                        NanVal::heap_string(s.chars().next().unwrap().to_string())
+                        NanVal::heap_string(s.chars().next().expect("non-empty checked above").to_string())
                     } else if v.is_heap() {
                         match unsafe { v.as_heap_ref() } {
                             HeapObj::List(items) => {
@@ -4933,7 +4933,7 @@ pub(crate) extern "C" fn jit_hd(a: u64) -> u64 {
     if v.is_string() {
         let s = unsafe { match v.as_heap_ref() { HeapObj::Str(s) => s, _ => unreachable!() } };
         if s.is_empty() { return TAG_NIL; }
-        return NanVal::heap_string(s.chars().next().unwrap().to_string()).0;
+        return NanVal::heap_string(s.chars().next().expect("non-empty checked above").to_string()).0;
     }
     if v.is_heap()
         && let HeapObj::List(items) = unsafe { v.as_heap_ref() } {

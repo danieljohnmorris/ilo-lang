@@ -235,11 +235,11 @@ impl Parser {
             Some(Token::Use) => self.parse_use_decl(),
             Some(Token::Ident(_)) => {
                 // Check for keywords from other languages before attempting fn parse
-                let ident_str = if let Some(Token::Ident(s)) = self.peek() { s.clone() } else { unreachable!() };
+                let ident_str = match self.peek() { Some(Token::Ident(s)) => s.as_str(), _ => unreachable!() };
                 if ident_str == "alias" {
                     return self.parse_alias_decl();
                 }
-                let hint = match ident_str.as_str() {
+                let hint = match ident_str {
                     "function" | "def" | "fn" =>
                         Some("ilo function syntax: name param:type > return-type; body".to_string()),
                     "let" | "var" | "const" =>
@@ -514,7 +514,7 @@ impl Parser {
                 if types.is_empty() {
                     return Err(self.error("ILO-P009", "F type requires at least a return type".into()));
                 }
-                let return_type = types.pop().unwrap();
+                let return_type = types.pop().expect("F type requires at least a return type");
                 Ok(Type::Fn(types, Box::new(return_type)))
             }
             Some(Token::Ident(name)) => {
@@ -881,18 +881,17 @@ impl Parser {
                 Ok(Pattern::Literal(Literal::Nil))
             }
             Some(Token::Ident(name)) if matches!(name.as_str(), "n" | "t" | "b" | "l") => {
-                let ty_str = name.clone();
-                self.advance();
-                let binding = match self.peek() {
-                    Some(Token::Underscore) => { self.advance(); "_".to_string() }
-                    _ => self.expect_ident()?,
-                };
-                let ty = match ty_str.as_str() {
+                let ty = match name.as_str() {
                     "n" => Type::Number,
                     "t" => Type::Text,
                     "b" => Type::Bool,
                     "l" => Type::List(Box::new(Type::Text)),
                     _ => unreachable!(),
+                };
+                self.advance();
+                let binding = match self.peek() {
+                    Some(Token::Underscore) => { self.advance(); "_".to_string() }
+                    _ => self.expect_ident()?,
                 };
                 Ok(Pattern::TypeIs { ty, binding })
             }
