@@ -301,12 +301,22 @@ pub(crate) struct JitFunction {
     size: usize,
 }
 
+/// # Safety (internal — all `call_N` methods)
+/// Each `transmute` casts the mmap'd JIT code pointer to a typed `extern "C"` fn.
+/// This is sound because:
+/// 1. `compile()` emits raw ARM64 machine code using the AAPCS64 calling
+///    convention: f64 params in d0..d7, f64 return in d0.
+/// 2. The pointer comes from `mmap(PROT_READ|PROT_EXEC)` after writing the
+///    machine code and flushing the instruction cache.
+/// 3. The caller matches the param count to the compiled function's arity.
 impl JitFunction {
     fn call_0(&self) -> f64 {
+        // SAFETY: see JitFunction doc — 0 f64 params, returns f64 in d0.
         let f: extern "C" fn() -> f64 = unsafe { std::mem::transmute(self.ptr) };
         f()
     }
     fn call_1(&self, a0: f64) -> f64 {
+        // SAFETY: see JitFunction doc — 1 f64 param in d0, returns f64.
         let f: extern "C" fn(f64) -> f64 = unsafe { std::mem::transmute(self.ptr) };
         f(a0)
     }

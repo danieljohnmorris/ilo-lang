@@ -1201,14 +1201,27 @@ pub(crate) fn compile(chunk: &Chunk, nan_consts: &[NanVal], program: &CompiledPr
 }
 
 /// Call a compiled NanVal JIT function with u64 args, returns u64.
+///
+/// # Safety (internal)
+/// Each `transmute` casts the JIT function pointer to a typed `extern "C"` fn.
+/// This is sound because:
+/// 1. `compile()` generates code using the SystemV/Win64 C calling convention
+///    (Cranelift's `CallConv::SystemV` / platform default).
+/// 2. All parameters and the return value are `u64` (NanVal bit patterns),
+///    matching the `I64` Cranelift type used for every parameter and return.
+/// 3. The function pointer is obtained from `module.get_finalized_function()`
+///    which returns executable memory with the correct entry point.
+/// 4. `args.len() == func.param_count` is checked before dispatch.
 fn call_raw(func: &JitFunction, args: &[u64]) -> Option<u64> {
     if args.len() != func.param_count { return None; }
     Some(match args.len() {
         0 => {
+            // SAFETY: see call_raw doc — JIT compiled with 0 I64 params, returns I64.
             let f: extern "C" fn() -> u64 = unsafe { std::mem::transmute(func.func_ptr) };
             f()
         }
         1 => {
+            // SAFETY: see call_raw doc — JIT compiled with 1 I64 param, returns I64.
             let f: extern "C" fn(u64) -> u64 = unsafe { std::mem::transmute(func.func_ptr) };
             f(args[0])
         }
