@@ -1988,16 +1988,43 @@ thread_local! {
     static ACTIVE_REGISTRY: std::cell::Cell<*const TypeRegistry> = const { std::cell::Cell::new(std::ptr::null()) };
 }
 
-/// Set the active TypeRegistry for arena record field name resolution.
+/// Run `f` with the active `TypeRegistry` pointer set to `program.type_registry`.
 ///
-/// # Safety
-/// The caller must ensure that `program` outlives any JIT invocation that runs
-/// on this thread while the pointer is active. Specifically, `program` must not
-/// be dropped until after all `jit_arena_reset()` calls that dereference
-/// `ACTIVE_REGISTRY` have completed. In practice: call this once before the
-/// bench/run loop and keep `program` alive for the duration of the loop.
-pub unsafe fn set_active_registry(program: &CompiledProgram) {
+/// The pointer is only live for the duration of `f`; it is unconditionally
+/// cleared (set to null) when `f` returns **or panics**, so there is no risk
+/// of a dangling pointer after `program` is dropped.
+pub fn with_active_registry<R>(program: &CompiledProgram, f: impl FnOnce() -> R) -> R {
+    struct ClearGuard;
+    impl Drop for ClearGuard {
+        fn drop(&mut self) {
+            ACTIVE_REGISTRY.with(|r| r.set(std::ptr::null()));
+        }
+    }
+
     ACTIVE_REGISTRY.with(|r| r.set(&program.type_registry as *const TypeRegistry));
+    let _guard = ClearGuard;
+    f()
+}
+
+/// Clear the active `TypeRegistry` pointer.
+///
+/// Called at the end of `VM::execute()` where wrapping in a closure is
+/// impractical. The `execute` method also uses `ActiveRegistryGuard` to ensure
+/// the pointer is cleared on early return or panic.
+fn clear_active_registry() {
+    ACTIVE_REGISTRY.with(|r| r.set(std::ptr::null()));
+}
+
+/// RAII guard that clears `ACTIVE_REGISTRY` on drop.
+///
+/// Used inside `VM::execute()` to guarantee cleanup even on `?` early returns
+/// or panics.
+pub(crate) struct ActiveRegistryGuard;
+
+impl Drop for ActiveRegistryGuard {
+    fn drop(&mut self) {
+        clear_active_registry();
+    }
 }
 
 /// Get a raw pointer to the JIT arena (for passing to jit_recnew).
@@ -2530,8 +2557,10 @@ impl<'a> VM<'a> {
     #[allow(unused_unsafe)]
     fn execute(&mut self) -> VmResult<Value> {
         // Set active registry for arena record promotion in nanval_to_json and JIT callbacks.
-        // SAFETY: `self.program` is owned by the VM and outlives `execute()`.
+        // `self.program` is owned by the VM and outlives `execute()`.
+        // The guard ensures the pointer is cleared on return or panic.
         ACTIVE_REGISTRY.with(|r| r.set(&self.program.type_registry as *const TypeRegistry));
+        let _registry_guard = ActiveRegistryGuard;
         // SAFETY: execute() is only called from call() after setup_call() has pushed
         // a frame, so frames is non-empty.
         let frame = unsafe { self.frames.last().unwrap_unchecked() };

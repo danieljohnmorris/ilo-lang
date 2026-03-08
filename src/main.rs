@@ -1978,30 +1978,30 @@ fn run_bench(program: &ast::Program, func_name: Option<&str>, args: &[interprete
         let chunk = &compiled.chunks[fi];
         let nan_consts = &compiled.nan_constants[fi];
         let nan_args: Vec<u64> = args.iter().map(|v| vm::NanVal::from_value(v).0).collect();
-        // SAFETY: `compiled` outlives the entire bench loop below.
-        unsafe { vm::set_active_registry(&compiled); }
-        if let Some(jit_func) = vm::jit_cranelift::compile(chunk, nan_consts, &compiled) {
-            for _ in 0..100 {
-                let _ = vm::jit_cranelift::call(&jit_func, &nan_args);
-            }
+        vm::with_active_registry(&compiled, || {
+            if let Some(jit_func) = vm::jit_cranelift::compile(chunk, nan_consts, &compiled) {
+                for _ in 0..100 {
+                    let _ = vm::jit_cranelift::call(&jit_func, &nan_args);
+                }
 
-            let start = Instant::now();
-            let mut jit_result_bits = 0u64;
-            for _ in 0..iterations {
-                jit_result_bits = vm::jit_cranelift::call(&jit_func, &nan_args).expect("Cranelift JIT error during benchmark");
-            }
-            let jit_dur = start.elapsed();
-            let ns = jit_dur.as_nanos() / iterations as u128;
-            jit_cranelift_ns = Some(ns);
+                let start = Instant::now();
+                let mut jit_result_bits = 0u64;
+                for _ in 0..iterations {
+                    jit_result_bits = vm::jit_cranelift::call(&jit_func, &nan_args).expect("Cranelift JIT error during benchmark");
+                }
+                let jit_dur = start.elapsed();
+                let ns = jit_dur.as_nanos() / iterations as u128;
+                jit_cranelift_ns = Some(ns);
 
-            let jit_result = vm::NanVal(jit_result_bits).to_value();
-            println!("Cranelift JIT");
-            println!("  result:     {}", jit_result);
-            println!("  iterations: {}", iterations);
-            println!("  total:      {:.2}ms", jit_dur.as_nanos() as f64 / 1e6);
-            println!("  per call:   {}ns", ns);
-            println!();
-        }
+                let jit_result = vm::NanVal(jit_result_bits).to_value();
+                println!("Cranelift JIT");
+                println!("  result:     {}", jit_result);
+                println!("  iterations: {}", iterations);
+                println!("  total:      {:.2}ms", jit_dur.as_nanos() as f64 / 1e6);
+                println!("  per call:   {}ns", ns);
+                println!();
+            }
+        });
     }
 
     #[allow(unused_variables)]
