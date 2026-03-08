@@ -8357,19 +8357,20 @@ mod tests {
 
     #[test]
     fn vm_wrl_creates_file() {
-        let path = "/tmp/ilo_vm_wrl_test.txt";
+        let path = std::env::temp_dir().join("ilo_vm_wrl_test.txt");
+        let path_str = path.to_str().unwrap();
         let result = vm_run(
             "f p:t xs:L t>R t t;wrl p xs",
             Some("f"),
             vec![
-                Value::Text(path.into()),
+                Value::Text(path_str.into()),
                 Value::List(vec![Value::Text("line1".into()), Value::Text("line2".into())]),
             ],
         );
         assert!(matches!(result, Value::Ok(_)), "wrl should succeed, got {result:?}");
-        let content = std::fs::read_to_string(path).unwrap();
+        let content = std::fs::read_to_string(&path).unwrap();
         assert!(content.contains("line1"), "got: {content}");
-        let _ = std::fs::remove_file(path);
+        let _ = std::fs::remove_file(&path);
     }
 
     // --- RECWITH (with expression) edge cases ---
