@@ -8343,21 +8343,22 @@ mod tests {
 
     #[test]
     fn vm_wr_creates_file() {
-        let path = "/tmp/ilo_vm_wr_test.txt";
+        let path = std::env::temp_dir().join(format!("ilo_vm_wr_test_{}.txt", std::process::id()));
+        let path_str = path.to_str().unwrap();
         let result = vm_run(
             "f p:t c:t>R t t;wr p c",
             Some("f"),
-            vec![Value::Text(path.into()), Value::Text("hello from ilo".into())],
+            vec![Value::Text(path_str.into()), Value::Text("hello from ilo".into())],
         );
         assert!(matches!(result, Value::Ok(_)), "wr should succeed, got {result:?}");
-        let content = std::fs::read_to_string(path).unwrap();
+        let content = std::fs::read_to_string(&path).unwrap();
         assert_eq!(content, "hello from ilo");
-        let _ = std::fs::remove_file(path);
+        let _ = std::fs::remove_file(&path);
     }
 
     #[test]
     fn vm_wrl_creates_file() {
-        let path = std::env::temp_dir().join("ilo_vm_wrl_test.txt");
+        let path = std::env::temp_dir().join(format!("ilo_vm_wrl_test_{}.txt", std::process::id()));
         let path_str = path.to_str().unwrap();
         let result = vm_run(
             "f p:t xs:L t>R t t;wrl p xs",
