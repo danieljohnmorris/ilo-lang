@@ -584,12 +584,7 @@ impl Parser {
     fn parse_stmt(&mut self) -> Result<Stmt> {
         match self.peek() {
             Some(Token::Question) => {
-                // Prefix ternary: ?=x 0 10 20 (? followed by comparison op)
-                let is_ternary = matches!(
-                    self.token_at(self.pos + 1),
-                    Some(Token::Eq | Token::Greater | Token::Less | Token::GreaterEq | Token::LessEq | Token::NotEq)
-                );
-                if is_ternary {
+                if self.is_prefix_ternary() {
                     let expr = self.parse_prefix_ternary()?;
                     Ok(Stmt::Expr(expr))
                 } else {
@@ -1214,16 +1209,17 @@ impl Parser {
         })
     }
 
-    /// Parse `?` as either match (`?expr{...}`) or prefix ternary (`?=x 0 10 20`).
-    /// Ternary: `?` followed by a comparison op (=, >, <, >=, <=, !=) that is NOT
-    /// followed by `{` after the comparison args — the next two exprs are then/else.
-    fn parse_question_expr(&mut self) -> Result<Expr> {
-        // Peek ahead: `?` then a comparison op means ternary
-        let is_ternary = matches!(
+    /// Check if `?` at current position is followed by a comparison op (prefix ternary).
+    fn is_prefix_ternary(&self) -> bool {
+        matches!(
             self.token_at(self.pos + 1),
             Some(Token::Eq | Token::Greater | Token::Less | Token::GreaterEq | Token::LessEq | Token::NotEq)
-        );
-        if is_ternary {
+        )
+    }
+
+    /// Parse `?` as either match (`?expr{...}`) or prefix ternary (`?=x 0 10 20`).
+    fn parse_question_expr(&mut self) -> Result<Expr> {
+        if self.is_prefix_ternary() {
             return self.parse_prefix_ternary();
         }
         self.parse_match_expr()
