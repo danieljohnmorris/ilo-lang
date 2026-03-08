@@ -16,7 +16,7 @@ ilo is designed for them.
 Total cost = spec loading + generation + context loading + error feedback + retries
 ```
 
-Every design decision is evaluated against this number. If a feature reduces it, it's in. If it increases it, it's out. No exceptions for elegance, readability, or convention.
+Every design decision is evaluated against this number. If a feature reduces it, it's in. If it increases it, it's out. No exceptions for elegance, readability, or convention. Note: until agents are trained on ilo, spec clarity is itself a token cost — a confusing spec means more retries. Some decisions that look like "readability" concessions are actually optimising the spec-loading term.
 
 ## The Five Principles
 
@@ -56,12 +56,12 @@ No nesting. No closing braces to match. Each guard is a single statement the age
 
 ### 2. Constrained
 
-Small vocabulary. Closed world. One way to do things.
+Small vocabulary. Closed world. Few ways to do things.
 
 When an agent generates the next token, how many valid options are there? Fewer valid next-tokens means fewer wrong choices means fewer retries. This isn't about limiting expressiveness — it's about making the right token obvious.
 
 - **Closed world.** Every callable function is known ahead of time. The agent cannot hallucinate an API that doesn't exist.
-- **Small vocabulary.** Fewer keywords, fewer constructs, one way to define a function, one way to call it, one way to handle errors.
+- **Small vocabulary.** Fewer keywords, fewer constructs, one way to define a function, one way to call it, one way to handle errors. Where multiple forms exist (braceless guards vs braced guards, prefix ternary vs braced ternary, short aliases vs long aliases), each serves a different context — inline vs file, simple vs complex — rather than offering interchangeable alternatives.
 - **Verification before execution.** All calls resolve, all types align, all dependencies exist — checked before running anything.
 
 **What the agent cares about:** "At each generation step, how many valid tokens are there?"
@@ -73,7 +73,7 @@ Each unit carries its own context: deps, types, rules.
 
 An agent working on function A shouldn't need to load functions B through Z to understand what A does. The less context required per step, the fewer tokens consumed, the more of the context window is available for the actual task.
 
-- **Explicit dependencies.** Each function declares exactly what it needs — by name, with types. No globals, no ambient state, no implicit imports.
+- **Explicit dependencies.** Each function declares exactly what it needs — by name, with types. No globals, no ambient state, no implicit imports. I/O boundaries (`env`, `rd`, `now`) are the deliberate exception — they access the outside world, but the program itself has no mutable shared state.
 - **Small units.** A function that fits in a few dozen tokens can be loaded, understood, and modified cheaply.
 - **Spec as context.** Until foundation models are trained on ilo, agents need the spec somewhere they can access it — bundled with the program, fetched on demand, or installed locally.
 
@@ -84,29 +84,31 @@ An agent working on function A shouldn't need to load functions B through Z to u
 
 Minimise dependency on English or any natural language.
 
-Early variants used short English-derived keywords (`fn`, `let`, `match`, `for`, `if`). Experiments showed structural tokens outperform keywords entirely — the winning syntax (idea8/idea9) replaced all keywords with single-character sigils:
+Early variants used short English-derived keywords (`fn`, `let`, `match`, `for`, `if`). Experiments showed structural tokens outperform keywords entirely — the winning syntax (idea8/idea9) replaced control-flow keywords with single-character sigils:
 
-- `?` conditional, `!` effect/call, `~` transform, `@` iterate, `>` pipe/return
-- Keywords are abbreviated or single-letter: `type`, `tool`, `wh`, `ret`, `brk`, `cnt`, `with`, `use`, `nil`, `true`, `false`, plus type sigils `L`, `R`, `O`, `M`, `S`, `F`
-- Agents learned the sigil set from spec + examples with 10/10 accuracy
+- `?` conditional/match, `!` auto-unwrap, `~` ok-wrap, `^` err/throw, `@` iterate, `>` pipe/return
+- Control-flow keywords reduced to abbreviations: `wh`, `ret`, `brk`, `cnt`
+- Builtins are short abbreviated names: `len`, `hd`, `tl`, `map`, `flt`, `fld`, `srt`, `cat`, `spl`, `rd`, `wr`, `env`, `prnt`, `fmt`, `str`, `num`, etc. These read as domain vocabulary, not English prose — an agent learns them as fixed tokens from the spec, not from natural-language understanding.
+- Remaining keywords: `type`, `tool`, `with`, `use`, `nil`, `true`, `false`, plus type sigils `L`, `R`, `O`, `M`, `S`, `F`
+- Agents learned the full vocabulary from spec + examples with 10/10 accuracy
 
-Structural tokens won because they are unambiguous single tokens that cannot be confused with variable names or hallucinated into natural-language variations.
+Sigils won for control flow because they are unambiguous single tokens that cannot be confused with variable names or hallucinated into natural-language variations. Builtins use short names rather than sigils because there are too many to encode as single characters — but they are a closed, memorisable set, not open-ended English.
 
 **What the agent cares about:** "Can I learn this language from its spec and examples, regardless of my training?"
 **How this helps:** The spec is small enough to bundle with any program. Keywords are learned from structure, not from natural language understanding.
 
-### 5. Graph-Native
+### 5. Graph-Reducible
 
-Programs express relationships: calls, depends-on, has-type. Navigable as a graph, not just readable as linear text.
+When analysing code, reduce context size by loading only the relevant subgraph.
 
-Traditional source code is a flat file. Understanding program structure requires parsing it mentally (or literally). ilo makes the graph explicit — every function declares its edges (what it calls, what it depends on, what it produces).
+Writing code costs the same tokens regardless of program size. But *reading* code — understanding what exists, what calls what, what breaks if you change something — scales with program size. In a traditional language, the agent loads entire files or entire repos to answer simple questions. ilo makes the dependency graph explicit and queryable, so the agent loads only what it needs.
 
-- **Edges are first-class.** "A calls B" is expressed directly, not inferred from reading A's body.
-- **Queryable structure.** An agent can ask "what depends on X?" without loading the entire program.
-- **Composable.** Units connect through declared interfaces. The graph is the program.
+- **Typed signatures as contracts.** Every function declares its params and return type. To understand what `create-user` does, an agent only needs its signature — not the 20 other functions in the file. Signatures are the graph's edges.
+- **Explicit dependencies.** `use "auth.ilo" [vld-email vld-plan]` declares exactly what's imported. No scanning, no guessing. The call graph is derivable from the AST without execution.
+- **Queryable structure.** `ilo graph` extracts call graphs, type dependencies, reverse callers, and transitive subgraphs as JSON. An agent modifying one function in a 30-function program loads 6-10% of the code instead of 100%.
 
-**What the agent cares about:** "Can I navigate program structure without loading everything?"
-**How this helps:** Agents work on subgraphs, not entire codebases. Dependencies are explicit. Impact analysis is cheap.
+**What the agent cares about:** "How much do I need to read before I can write?"
+**How this helps:** The agent loads the target function's source, its dependencies' signatures, and the types it references — nothing more. As programs grow, the savings compound: the subgraph stays small even as the program gets large.
 
 ## Principles We Considered and Dropped
 
