@@ -364,3 +364,222 @@ unsafe extern "C" {
     fn pthread_jit_write_protect_np(enabled: i32);
     fn sys_icache_invalidate(start: *mut libc::c_void, size: usize);
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::lexer;
+    use crate::parser;
+
+    /// Compile ilo source, extract the named function's chunk, JIT-compile it
+    /// via the ARM64 backend, and call it with the given f64 args.
+    fn jit_run_numeric(source: &str, func_name: &str, args: &[f64]) -> Option<f64> {
+        let tokens: Vec<crate::lexer::Token> = lexer::lex(source)
+            .unwrap()
+            .into_iter()
+            .map(|(t, _)| t)
+            .collect();
+        let prog = parser::parse_tokens(tokens).unwrap();
+        let compiled = crate::vm::compile(&prog).unwrap();
+        let idx = compiled.func_names.iter().position(|n| n == func_name)?;
+        let chunk = &compiled.chunks[idx];
+        let nan_consts = &compiled.nan_constants[idx];
+        compile_and_call(chunk, nan_consts, args)
+    }
+
+    // ── Basic arithmetic ───────────────────────────────────────────────
+
+    #[test]
+    fn arm64_add_nn() {
+        let result = jit_run_numeric("f a:n b:n>n;+a b", "f", &[3.0, 7.0]);
+        assert_eq!(result, Some(10.0));
+    }
+
+    #[test]
+    fn arm64_sub_nn() {
+        let result = jit_run_numeric("f a:n b:n>n;-a b", "f", &[10.0, 3.0]);
+        assert_eq!(result, Some(7.0));
+    }
+
+    #[test]
+    fn arm64_mul_nn() {
+        let result = jit_run_numeric("f a:n b:n>n;*a b", "f", &[4.0, 5.0]);
+        assert_eq!(result, Some(20.0));
+    }
+
+    #[test]
+    fn arm64_div_nn() {
+        let result = jit_run_numeric("f a:n b:n>n;/a b", "f", &[10.0, 2.0]);
+        assert_eq!(result, Some(5.0));
+    }
+
+    #[test]
+    fn arm64_neg() {
+        let result = jit_run_numeric("f x:n>n;-x", "f", &[5.0]);
+        assert_eq!(result, Some(-5.0));
+    }
+
+    // ── Constant operations ────────────────────────────────────────────
+
+    #[test]
+    fn arm64_addk_n() {
+        let result = jit_run_numeric("f x:n>n;+x 10", "f", &[5.0]);
+        assert_eq!(result, Some(15.0));
+    }
+
+    #[test]
+    fn arm64_subk_n() {
+        let result = jit_run_numeric("f x:n>n;-x 3", "f", &[10.0]);
+        assert_eq!(result, Some(7.0));
+    }
+
+    #[test]
+    fn arm64_mulk_n() {
+        let result = jit_run_numeric("f x:n>n;*x 4", "f", &[5.0]);
+        assert_eq!(result, Some(20.0));
+    }
+
+    #[test]
+    fn arm64_divk_n() {
+        let result = jit_run_numeric("f x:n>n;/x 4", "f", &[20.0]);
+        assert_eq!(result, Some(5.0));
+    }
+
+    #[test]
+    fn arm64_loadk_constant() {
+        let result = jit_run_numeric("f>n;42", "f", &[]);
+        assert_eq!(result, Some(42.0));
+    }
+
+    // ── Move and identity ──────────────────────────────────────────────
+
+    #[test]
+    fn arm64_move_passthrough() {
+        let result = jit_run_numeric("f x:n>n;x", "f", &[7.0]);
+        assert_eq!(result, Some(7.0));
+    }
+
+    #[test]
+    fn arm64_move_via_let_binding() {
+        let result = jit_run_numeric("f x:n>n;y=x;y", "f", &[7.0]);
+        assert_eq!(result, Some(7.0));
+    }
+
+    // ── Multi-arg functions (0-4 args) ─────────────────────────────────
+
+    #[test]
+    fn arm64_zero_args() {
+        let result = jit_run_numeric("f>n;99", "f", &[]);
+        assert_eq!(result, Some(99.0));
+    }
+
+    #[test]
+    fn arm64_one_arg() {
+        let result = jit_run_numeric("f x:n>n;+x 1", "f", &[41.0]);
+        assert_eq!(result, Some(42.0));
+    }
+
+    #[test]
+    fn arm64_two_args() {
+        let result = jit_run_numeric("f a:n b:n>n;+a b", "f", &[3.0, 4.0]);
+        assert_eq!(result, Some(7.0));
+    }
+
+    #[test]
+    fn arm64_three_args() {
+        let result = jit_run_numeric("f a:n b:n c:n>n;+a +b c", "f", &[1.0, 2.0, 3.0]);
+        assert_eq!(result, Some(6.0));
+    }
+
+    #[test]
+    fn arm64_four_args() {
+        let result = jit_run_numeric("f a:n b:n c:n d:n>n;+a +b +c d", "f", &[1.0, 2.0, 3.0, 4.0]);
+        assert_eq!(result, Some(10.0));
+    }
+
+    // ── Arg count mismatch ─────────────────────────────────────────────
+
+    #[test]
+    fn arm64_too_many_args_returns_none() {
+        // call() rejects > 8 args
+        let result = call_with_n_args(9);
+        assert_eq!(result, None);
+    }
+
+    /// Helper: build a trivial JIT function and call it with `n` args.
+    fn call_with_n_args(n: usize) -> Option<f64> {
+        // Compile a simple 0-arg function that returns 0
+        let result = jit_run_numeric("f>n;0", "f", &[]);
+        // That should succeed
+        assert!(result.is_some());
+
+        // Now test the call() function's arg-count guard directly
+        let tokens: Vec<crate::lexer::Token> = lexer::lex("f>n;0")
+            .unwrap()
+            .into_iter()
+            .map(|(t, _)| t)
+            .collect();
+        let prog = parser::parse_tokens(tokens).unwrap();
+        let compiled = crate::vm::compile(&prog).unwrap();
+        let idx = compiled.func_names.iter().position(|nm| nm == "f").unwrap();
+        let chunk = &compiled.chunks[idx];
+        let nan_consts = &compiled.nan_constants[idx];
+        let func = compile(chunk, nan_consts)?;
+        let args: Vec<f64> = (0..n).map(|i| i as f64).collect();
+        call(&func, &args)
+    }
+
+    // ── Drop impl (munmap) ─────────────────────────────────────────────
+
+    #[test]
+    fn arm64_drop_does_not_crash() {
+        // Compile a function, then drop it — verifies munmap works
+        let tokens: Vec<crate::lexer::Token> = lexer::lex("f>n;1")
+            .unwrap()
+            .into_iter()
+            .map(|(t, _)| t)
+            .collect();
+        let prog = parser::parse_tokens(tokens).unwrap();
+        let compiled = crate::vm::compile(&prog).unwrap();
+        let idx = compiled.func_names.iter().position(|n| n == "f").unwrap();
+        let chunk = &compiled.chunks[idx];
+        let nan_consts = &compiled.nan_constants[idx];
+        let func = compile(chunk, nan_consts).expect("should compile");
+        // Explicit drop — if munmap is buggy this would crash
+        drop(func);
+    }
+
+    // ── Eligibility checks ─────────────────────────────────────────────
+
+    #[test]
+    fn arm64_ineligible_function_returns_none() {
+        // A function with string ops isn't JIT-eligible
+        let tokens: Vec<crate::lexer::Token> = lexer::lex(r#"f a:t b:t>t;+a b"#)
+            .unwrap()
+            .into_iter()
+            .map(|(t, _)| t)
+            .collect();
+        let prog = parser::parse_tokens(tokens).unwrap();
+        let compiled = crate::vm::compile(&prog).unwrap();
+        let idx = compiled.func_names.iter().position(|n| n == "f").unwrap();
+        let chunk = &compiled.chunks[idx];
+        let nan_consts = &compiled.nan_constants[idx];
+        assert!(compile(chunk, nan_consts).is_none());
+    }
+
+    // ── Compound expressions ───────────────────────────────────────────
+
+    #[test]
+    fn arm64_compound_arithmetic() {
+        // (a + b) * (a - b)
+        let result = jit_run_numeric("f a:n b:n>n;* +a b -a b", "f", &[5.0, 3.0]);
+        assert_eq!(result, Some(16.0)); // 8 * 2
+    }
+
+    #[test]
+    fn arm64_nested_constants() {
+        // x * 2 + 10
+        let result = jit_run_numeric("f x:n>n;+ *x 2 10", "f", &[5.0]);
+        assert_eq!(result, Some(20.0));
+    }
+}
