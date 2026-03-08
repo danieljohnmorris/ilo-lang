@@ -27,16 +27,46 @@ AI agents pay three costs per program: generation tokens, error feedback, retrie
 
 ## Install
 
-```bash
-# macOS / Linux
-curl -fsSL https://raw.githubusercontent.com/ilo-lang/ilo/main/install.sh | sh
+<details open>
+<summary>macOS / Linux</summary>
 
-# npm (any platform with Node 20+)
+```bash
+curl -fsSL https://raw.githubusercontent.com/ilo-lang/ilo/main/install.sh | sh
+```
+
+</details>
+
+<details>
+<summary>npm (any platform with Node 20+)</summary>
+
+```bash
 npm i -g ilo-lang
 
-# Rust
+# or run without installing
+npx ilo-lang 'dbl x:n>n;*x 2' 5
+```
+
+> WASM mode: interpreter only. HTTP builtins (`get`, `$`, `post`) require the native binary.
+
+</details>
+
+<details>
+<summary>Windows (PowerShell)</summary>
+
+```powershell
+Invoke-WebRequest -Uri https://github.com/ilo-lang/ilo/releases/latest/download/ilo-x86_64-pc-windows-msvc.exe -OutFile ilo.exe
+```
+
+</details>
+
+<details>
+<summary>Rust</summary>
+
+```bash
 cargo install ilo
 ```
+
+</details>
 
 <details>
 <summary>Agent-specific install</summary>
@@ -47,9 +77,9 @@ cargo install ilo
 | **Claude Cowork** | Browse Plugins → Add marketplace → `ilo-lang/ilo` → install |
 | **Other agents** | Copy `skills/ilo/` into your agent's skills directory |
 
-> npm/WASM mode runs interpreter only. HTTP builtins (`get`, `$`, `post`) require the native binary.
-
 </details>
+
+**[All install methods →](https://ilo-lang.ai/docs/installation/)**
 
 ## Quick start
 
