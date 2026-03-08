@@ -1288,10 +1288,10 @@ pub(crate) fn call(func: &JitFunction, args: &[u64]) -> Option<u64> {
 
 /// Compile and call in one shot (convenience wrapper).
 pub(crate) fn compile_and_call(chunk: &Chunk, nan_consts: &[NanVal], args: &[u64], program: &CompiledProgram) -> Option<u64> {
-    // Set active registry for arena record field name resolution
-    ACTIVE_REGISTRY.with(|r| r.set(&program.type_registry as *const TypeRegistry));
-    let func = compile(chunk, nan_consts, program)?;
-    call(&func, args)
+    with_active_registry(program, || {
+        let func = compile(chunk, nan_consts, program)?;
+        call(&func, args)
+    })
 }
 
 #[cfg(test)]
