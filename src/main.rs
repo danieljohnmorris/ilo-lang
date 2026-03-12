@@ -1765,7 +1765,7 @@ fn main() {
             mode,
             explicit_json,
         );
-    } else if args.len() > m && (args[m] == "--run" || args[m] == "--run-tree" || args[m] == "--run-interp") {
+    } else if args.len() > m && (args[m] == "--run" || args[m] == "--run-tree") {
         // --run / --run-tree [func] [args...]
         let func_name = if args.len() > m + 1 { Some(args[m + 1].as_str()) } else { None };
         let run_args: Vec<interpreter::Value> = if args.len() > m + 2 {
