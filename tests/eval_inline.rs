@@ -305,7 +305,7 @@ fn help_shows_usage() {
     assert!(out.status.success());
     let stdout = String::from_utf8_lossy(&out.stdout);
     assert!(stdout.contains("Backends:"), "expected backends section, got: {}", stdout);
-    assert!(stdout.contains("--run-interp"), "expected --run-interp, got: {}", stdout);
+    assert!(stdout.contains("--run-tree"), "expected --run-tree, got: {}", stdout);
 }
 
 #[test]
@@ -324,7 +324,7 @@ fn help_lang_shows_spec() {
 #[test]
 fn inline_run_interp() {
     let out = ilo()
-        .args(["f x:n>n;*x 2", "--run-interp", "f", "5"])
+        .args(["f x:n>n;*x 2", "--run-tree", "f", "5"])
         .output()
         .expect("failed to run ilo");
     assert!(out.status.success(), "stderr: {}", String::from_utf8_lossy(&out.stderr));
@@ -1055,10 +1055,10 @@ fn run_vm_runtime_error() {
 
 #[test]
 fn run_interp_runtime_error() {
-    // --run-interp with a program that errors at runtime (division by zero)
-    // Exercises L379-381 in main.rs (error reporting for --run-interp)
+    // --run-tree with a program that errors at runtime (division by zero)
+    // Exercises L379-381 in main.rs (error reporting for --run-tree)
     let out = ilo()
-        .args(["f>n;/1 0", "--run-interp", "f"])
+        .args(["f>n;/1 0", "--run-tree", "f"])
         .output()
         .expect("failed to run ilo");
     assert!(!out.status.success(), "should exit with error");

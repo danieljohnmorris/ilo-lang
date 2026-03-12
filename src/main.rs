@@ -1424,7 +1424,7 @@ fn main() {
             println!("  Response: {{\"ok\": <value>, \"ms\": n}} | {{\"error\": {{\"phase\": \"...\", ...}}}}\n");
             println!("Backends:");
             println!("  (default)        Cranelift JIT → interpreter fallback");
-            println!("  --run-interp     Tree-walking interpreter");
+            println!("  --run-tree       Tree-walking interpreter");
             println!("  --run-vm         Register VM");
             println!("  --run-cranelift  Cranelift JIT");
             println!("  --run-jit        Custom ARM64 JIT (macOS Apple Silicon only)");
@@ -1765,8 +1765,8 @@ fn main() {
             mode,
             explicit_json,
         );
-    } else if args.len() > m && (args[m] == "--run" || args[m] == "--run-interp") {
-        // --run / --run-interp [func] [args...]
+    } else if args.len() > m && (args[m] == "--run" || args[m] == "--run-tree" || args[m] == "--run-interp") {
+        // --run / --run-tree [func] [args...]
         let func_name = if args.len() > m + 1 { Some(args[m + 1].as_str()) } else { None };
         let run_args: Vec<interpreter::Value> = if args.len() > m + 2 {
             args[m + 2..].iter().map(|a| parse_cli_arg(a)).collect()
@@ -1877,7 +1877,7 @@ fn run_vm_with_provider(
     }
 }
 
-/// Dispatch --run-interp, routing to MCP / HTTP / plain run based on available providers.
+/// Dispatch --run-tree, routing to MCP / HTTP / plain run based on available providers.
 #[allow(clippy::too_many_arguments)]
 fn run_interp_with_provider(
     program: &ast::Program,
