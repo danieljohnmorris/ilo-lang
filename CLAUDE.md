@@ -21,6 +21,7 @@ Prefix-notation, strongly-typed, AI-agent-first language. Programs are small, ve
 | `src/verify.rs` | Type verifier |
 | `src/interpreter/mod.rs` | Tree-walking interpreter |
 | `src/vm/mod.rs` | Register VM + bytecode compiler |
+| `src/vm/compile_cranelift.rs` | AOT compiler (Cranelift ObjectModule → native binary) |
 | `src/codegen/` | Python, explain, fmt, dense-wire emitters |
 | `src/tools/` | MCP client, HTTP tool provider |
 | `examples/` | Runnable example programs (also `cargo test` regression suite) |
