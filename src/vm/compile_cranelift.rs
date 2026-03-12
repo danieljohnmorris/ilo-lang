@@ -235,6 +235,7 @@ fn compile_function(
     }
 
     let mut block_terminated = false;
+    let mf = MemFlags::new();
 
     for (ip, &inst) in chunk.code.iter().enumerate() {
         if ip > 0 && block_map.contains_key(&ip) {
@@ -254,7 +255,6 @@ fn compile_function(
         let a_idx = ((inst >> 16) & 0xFF) as usize;
         let b_idx = ((inst >> 8) & 0xFF) as usize;
         let c_idx = (inst & 0xFF) as usize;
-        let mf = MemFlags::new();
 
         match op {
             OP_ADD_NN => {
