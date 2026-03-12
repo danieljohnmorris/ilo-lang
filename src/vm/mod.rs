@@ -55,6 +55,8 @@ pub enum CompileError {
 pub(crate) mod jit_arm64;
 #[cfg(feature = "cranelift")]
 pub(crate) mod jit_cranelift;
+#[cfg(feature = "cranelift")]
+pub(crate) mod compile_cranelift;
 #[cfg(feature = "llvm")]
 pub(crate) mod jit_llvm;
 
