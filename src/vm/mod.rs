@@ -5126,6 +5126,8 @@ pub(crate) extern "C" fn jit_recfld(rec: u64, field_idx: u64) -> u64 {
 #[cfg(feature = "cranelift")]
 #[unsafe(no_mangle)]
 pub extern "C" fn jit_recfld_name(rec: u64, field_name_ptr: u64, registry_ptr: u64) -> u64 {
+    // SAFETY: field_name_ptr is a null-terminated C string created by the JIT compiler
+    // (leaked CString) or AOT compiler (data section). It remains valid for the call duration.
     let field_name = unsafe {
         let cstr = std::ffi::CStr::from_ptr(field_name_ptr as *const std::ffi::c_char);
         cstr.to_str().unwrap_or("")
@@ -5133,6 +5135,8 @@ pub extern "C" fn jit_recfld_name(rec: u64, field_name_ptr: u64, registry_ptr: u
     let rv = NanVal(rec);
 
     if rv.is_arena_record() {
+        // SAFETY: is_arena_record() confirmed the NanVal tag. registry_ptr comes from
+        // ACTIVE_REGISTRY (JIT) or jit_get_registry_ptr (AOT) — valid for call duration.
         unsafe {
             let r = rv.as_arena_record();
             let registry = &*(registry_ptr as *const TypeRegistry);
@@ -5149,6 +5153,7 @@ pub extern "C" fn jit_recfld_name(rec: u64, field_name_ptr: u64, registry_ptr: u
     }
 
     if !rv.is_heap() { return TAG_NIL; }
+    // SAFETY: is_heap() confirmed the NanVal is a heap pointer.
     match unsafe { rv.as_heap_ref() } {
         HeapObj::Record { type_info, fields } => {
             if let Some(idx) = type_info.fields.iter().position(|f| f == field_name)
