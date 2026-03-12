@@ -25,6 +25,8 @@ jobs:
     - uses: actions/checkout@v4
     - name: Install cargo-llvm-cov
       uses: taiki-e/install-action@cargo-llvm-cov
+    - name: Build libilo.a (needed by AOT tests)
+      run: cargo build
     - name: Generate coverage
       run: cargo llvm-cov --workspace --lcov --output-path lcov.info
     - name: Upload to Codecov
