@@ -322,7 +322,7 @@ fn help_lang_shows_spec() {
 // --- Backend flags ---
 
 #[test]
-fn inline_run_interp() {
+fn inline_run_tree() {
     let out = ilo()
         .args(["f x:n>n;*x 2", "--run-tree", "f", "5"])
         .output()

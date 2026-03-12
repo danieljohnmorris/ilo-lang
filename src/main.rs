@@ -851,6 +851,156 @@ fn repl_cmd() {
     }
 }
 
+/// AOT compile an ilo program to a standalone native binary.
+#[cfg(feature = "cranelift")]
+fn compile_cmd(args: &[String]) {
+    if args.is_empty() {
+        eprintln!("Usage: ilo compile <file-or-code> [-o output] [func]");
+        std::process::exit(1);
+    }
+
+    let mut output_path: Option<String> = None;
+    let mut source_arg: Option<&str> = None;
+    let mut func_name: Option<&str> = None;
+    let mut i = 0;
+    while i < args.len() {
+        match args[i].as_str() {
+            "-o" => {
+                i += 1;
+                if i >= args.len() {
+                    eprintln!("Error: -o requires a path argument");
+                    std::process::exit(1);
+                }
+                output_path = Some(args[i].clone());
+            }
+            _ if source_arg.is_none() => {
+                source_arg = Some(&args[i]);
+            }
+            _ => {
+                func_name = Some(&args[i]);
+            }
+        }
+        i += 1;
+    }
+
+    let source_arg = source_arg.unwrap_or_else(|| {
+        eprintln!("Error: no source file or code provided");
+        std::process::exit(1);
+    });
+
+    // Read source from file or treat as inline code
+    let source = if std::path::Path::new(source_arg).is_file() {
+        std::fs::read_to_string(source_arg).unwrap_or_else(|e| {
+            eprintln!("Error reading {}: {}", source_arg, e);
+            std::process::exit(1);
+        })
+    } else {
+        source_arg.to_string()
+    };
+
+    // Default output path: strip .ilo extension or use "a.out"
+    let output = output_path.unwrap_or_else(|| {
+        if source_arg.ends_with(".ilo") {
+            source_arg.trim_end_matches(".ilo").to_string()
+        } else {
+            "a.out".to_string()
+        }
+    });
+
+    // Lex
+    let tokens = match lexer::lex(&source) {
+        Ok(t) => t,
+        Err(e) => {
+            eprint!("{}", AnsiRenderer { use_color: true }.render(
+                &Diagnostic::from(&e).with_source(source.clone()),
+            ));
+            std::process::exit(1);
+        }
+    };
+    let token_spans: Vec<(lexer::Token, ast::Span)> = tokens
+        .into_iter()
+        .map(|(t, r)| (t, ast::Span { start: r.start, end: r.end }))
+        .collect();
+
+    // Parse
+    let (mut program, parse_errors) = parser::parse(token_spans);
+    if !parse_errors.is_empty() {
+        for e in &parse_errors {
+            let d = Diagnostic::from(e).with_source(source.clone());
+            eprint!("{}", AnsiRenderer { use_color: true }.render(&d));
+        }
+        std::process::exit(1);
+    }
+
+    // Resolve imports
+    let base_dir: Option<std::path::PathBuf> = if std::path::Path::new(source_arg).is_file() {
+        std::path::Path::new(source_arg)
+            .canonicalize()
+            .ok()
+            .and_then(|p| p.parent().map(|p| p.to_path_buf()))
+    } else {
+        None
+    };
+    let mut visited = std::collections::HashSet::new();
+    let mut import_diagnostics: Vec<Diagnostic> = Vec::new();
+    program.declarations = resolve_imports(
+        program.declarations,
+        base_dir.as_deref(),
+        &mut visited,
+        &mut import_diagnostics,
+    );
+    if !import_diagnostics.is_empty() {
+        for d in &import_diagnostics {
+            eprint!("{}", AnsiRenderer { use_color: true }.render(d));
+        }
+        std::process::exit(1);
+    }
+
+    // Verify
+    let verify_result = verify::verify(&program);
+    for w in &verify_result.warnings {
+        eprint!("{}", AnsiRenderer { use_color: true }.render(
+            &Diagnostic::from(w).with_source(source.clone()),
+        ));
+    }
+    if !verify_result.errors.is_empty() {
+        for e in &verify_result.errors {
+            eprint!("{}", AnsiRenderer { use_color: true }.render(
+                &Diagnostic::from(e).with_source(source.clone()),
+            ));
+        }
+        std::process::exit(1);
+    }
+
+    // Compile to bytecode
+    let compiled = vm::compile(&program).unwrap_or_else(|e| {
+        eprintln!("Compile error: {}", e);
+        std::process::exit(1);
+    });
+
+    // Determine entry function
+    let entry = func_name.unwrap_or_else(|| {
+        compiled.func_names.first().map(|s| s.as_str()).unwrap_or("main")
+    });
+
+    // AOT compile
+    match vm::compile_cranelift::compile_to_binary(&compiled, entry, &output) {
+        Ok(()) => {
+            eprintln!("Compiled: {}", output);
+        }
+        Err(e) => {
+            eprintln!("AOT compile error: {}", e);
+            std::process::exit(1);
+        }
+    }
+}
+
+#[cfg(not(feature = "cranelift"))]
+fn compile_cmd(_args: &[String]) {
+    eprintln!("Error: AOT compilation requires the cranelift feature (--features cranelift)");
+    std::process::exit(1);
+}
+
 /// Stdio-based agent serve loop.
 /// Reads one JSON request per line from stdin, writes one JSON response per line to stdout.
 fn serv_cmd(args_slice: &[String]) {
@@ -1340,6 +1490,11 @@ fn main() {
         std::process::exit(0);
     }
 
+    if raw_args.get(1).map(|s| s.as_str()) == Some("compile") {
+        compile_cmd(&raw_args[2..]);
+        std::process::exit(0);
+    }
+
     let (mode, explicit_json, no_hints, args) = detect_output_mode(raw_args);
 
     if args.len() < 2 {
@@ -1349,6 +1504,7 @@ fn main() {
         eprintln!("       ilo help | -h     Show usage and examples");
         eprintln!("       ilo help lang     Show language specification");
         eprintln!("       ilo help ai | -ai Compact spec for LLM consumption");
+        eprintln!("       ilo compile <file> [-o out] [func]  AOT compile to standalone binary");
         std::process::exit(1);
     }
 
@@ -1422,6 +1578,8 @@ fn main() {
             println!("  ilo serv [-m <path>] [-t <path>]");
             println!("  Request:  {{\"program\": \"<ilo>\", \"args\": [...], \"func\": \"name\"}}");
             println!("  Response: {{\"ok\": <value>, \"ms\": n}} | {{\"error\": {{\"phase\": \"...\", ...}}}}\n");
+            println!("AOT compilation:");
+            println!("  ilo compile <file> [-o out] [func]  Compile to standalone binary\n");
             println!("Backends:");
             println!("  (default)        Cranelift JIT → interpreter fallback");
             println!("  --run-tree       Tree-walking interpreter");
