@@ -186,4 +186,4 @@ Per-call time (ns) across 8 micro-benchmarks. Lower is better. [Full results →
 3. **Verified** - types checked before execution, all errors reported at once
 4. **Language-agnostic** - structural tokens (`@`, `>`, `?`, `^`, `~`, `!`, `$`) over English words
 
-See [MANIFESTO.md](MANIFESTO.md) for full rationale.
+See the [manifesto](https://ilo-lang.ai/docs/manifesto/) for full rationale.
