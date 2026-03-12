@@ -5368,6 +5368,385 @@ pub(crate) extern "C" fn jit_call(program_ptr: *const CompiledProgram, func_idx:
     }
 }
 
+// ── JIT helpers: Type predicates ─────────────────────────────────────
+
+#[cfg(feature = "cranelift")]
+#[unsafe(no_mangle)]
+pub(crate) extern "C" fn jit_isnum(v: u64) -> u64 {
+    NanVal::boolean(NanVal(v).is_number()).0
+}
+
+#[cfg(feature = "cranelift")]
+#[unsafe(no_mangle)]
+pub(crate) extern "C" fn jit_istext(v: u64) -> u64 {
+    NanVal::boolean(NanVal(v).is_string()).0
+}
+
+#[cfg(feature = "cranelift")]
+#[unsafe(no_mangle)]
+pub(crate) extern "C" fn jit_isbool(v: u64) -> u64 {
+    NanVal::boolean(v == TAG_TRUE || v == TAG_FALSE).0
+}
+
+#[cfg(feature = "cranelift")]
+#[unsafe(no_mangle)]
+pub(crate) extern "C" fn jit_islist(v: u64) -> u64 {
+    NanVal::boolean((v & TAG_MASK) == TAG_LIST).0
+}
+
+// ── JIT helpers: Map operations ─────────────────────────────────────
+
+#[cfg(feature = "cranelift")]
+#[unsafe(no_mangle)]
+pub(crate) extern "C" fn jit_mapnew() -> u64 {
+    NanVal::heap_map(std::collections::HashMap::new()).0
+}
+
+#[cfg(feature = "cranelift")]
+#[unsafe(no_mangle)]
+pub(crate) extern "C" fn jit_mget(map: u64, key: u64) -> u64 {
+    let map_v = NanVal(map);
+    let key_v = NanVal(key);
+    if !map_v.is_heap() || !key_v.is_heap() { return TAG_NIL; }
+    unsafe {
+        match map_v.as_heap_ref() {
+            HeapObj::Map(m) => {
+                match key_v.as_heap_ref() {
+                    HeapObj::Str(k) => m.get(k.as_str())
+                        .map(|v| { v.clone_rc(); v.0 })
+                        .unwrap_or(TAG_NIL),
+                    _ => TAG_NIL,
+                }
+            }
+            _ => TAG_NIL,
+        }
+    }
+}
+
+#[cfg(feature = "cranelift")]
+#[unsafe(no_mangle)]
+pub(crate) extern "C" fn jit_mset(map: u64, key: u64, val: u64) -> u64 {
+    let map_v = NanVal(map);
+    let key_v = NanVal(key);
+    let val_v = NanVal(val);
+    if !map_v.is_heap() || !key_v.is_heap() { return TAG_NIL; }
+    unsafe {
+        match map_v.as_heap_ref() {
+            HeapObj::Map(m) => {
+                match key_v.as_heap_ref() {
+                    HeapObj::Str(k) => {
+                        let mut new_map = m.clone();
+                        val_v.clone_rc();
+                        new_map.insert(k.clone(), val_v);
+                        NanVal::heap_map(new_map).0
+                    }
+                    _ => TAG_NIL,
+                }
+            }
+            _ => TAG_NIL,
+        }
+    }
+}
+
+#[cfg(feature = "cranelift")]
+#[unsafe(no_mangle)]
+pub(crate) extern "C" fn jit_mhas(map: u64, key: u64) -> u64 {
+    let map_v = NanVal(map);
+    let key_v = NanVal(key);
+    if !map_v.is_heap() || !key_v.is_heap() { return TAG_FALSE; }
+    unsafe {
+        match map_v.as_heap_ref() {
+            HeapObj::Map(m) => {
+                match key_v.as_heap_ref() {
+                    HeapObj::Str(k) => NanVal::boolean(m.contains_key(k.as_str())).0,
+                    _ => TAG_FALSE,
+                }
+            }
+            _ => TAG_FALSE,
+        }
+    }
+}
+
+#[cfg(feature = "cranelift")]
+#[unsafe(no_mangle)]
+pub(crate) extern "C" fn jit_mkeys(map: u64) -> u64 {
+    let map_v = NanVal(map);
+    if !map_v.is_heap() { return TAG_NIL; }
+    unsafe {
+        match map_v.as_heap_ref() {
+            HeapObj::Map(m) => {
+                let mut keys: Vec<&String> = m.keys().collect();
+                keys.sort();
+                let nan_keys: Vec<NanVal> = keys.iter()
+                    .map(|k| NanVal::heap_string((*k).clone()))
+                    .collect();
+                NanVal::heap_list(nan_keys).0
+            }
+            _ => TAG_NIL,
+        }
+    }
+}
+
+#[cfg(feature = "cranelift")]
+#[unsafe(no_mangle)]
+pub(crate) extern "C" fn jit_mvals(map: u64) -> u64 {
+    let map_v = NanVal(map);
+    if !map_v.is_heap() { return TAG_NIL; }
+    unsafe {
+        match map_v.as_heap_ref() {
+            HeapObj::Map(m) => {
+                let mut pairs: Vec<(&String, &NanVal)> = m.iter().collect();
+                pairs.sort_by_key(|(k, _)| k.as_str());
+                let nan_vals: Vec<NanVal> = pairs.iter()
+                    .map(|(_, v)| { v.clone_rc(); **v })
+                    .collect();
+                NanVal::heap_list(nan_vals).0
+            }
+            _ => TAG_NIL,
+        }
+    }
+}
+
+#[cfg(feature = "cranelift")]
+#[unsafe(no_mangle)]
+pub(crate) extern "C" fn jit_mdel(map: u64, key: u64) -> u64 {
+    let map_v = NanVal(map);
+    let key_v = NanVal(key);
+    if !map_v.is_heap() || !key_v.is_heap() { return TAG_NIL; }
+    unsafe {
+        match map_v.as_heap_ref() {
+            HeapObj::Map(m) => {
+                match key_v.as_heap_ref() {
+                    HeapObj::Str(k) => {
+                        let mut new_map = m.clone();
+                        new_map.remove(k.as_str());
+                        NanVal::heap_map(new_map).0
+                    }
+                    _ => TAG_NIL,
+                }
+            }
+            _ => TAG_NIL,
+        }
+    }
+}
+
+// ── JIT helpers: Print, Trim, Uniq ──────────────────────────────────
+
+#[cfg(feature = "cranelift")]
+#[unsafe(no_mangle)]
+pub(crate) extern "C" fn jit_prt(v: u64) -> u64 {
+    let nv = NanVal(v);
+    println!("{}", nv.to_value());
+    // passthrough — clone_rc for heap values
+    nv.clone_rc();
+    v
+}
+
+#[cfg(feature = "cranelift")]
+#[unsafe(no_mangle)]
+pub(crate) extern "C" fn jit_trm(v: u64) -> u64 {
+    let nv = NanVal(v);
+    if !nv.is_string() { return TAG_NIL; }
+    let s = unsafe { match nv.as_heap_ref() { HeapObj::Str(s) => s.as_str().trim().to_owned(), _ => unreachable!() } };
+    NanVal::heap_string(s).0
+}
+
+#[cfg(feature = "cranelift")]
+#[unsafe(no_mangle)]
+pub(crate) extern "C" fn jit_unq(v: u64) -> u64 {
+    let nv = NanVal(v);
+    if nv.is_string() {
+        let s = unsafe { match nv.as_heap_ref() { HeapObj::Str(s) => s.as_str().to_owned(), _ => unreachable!() } };
+        let mut seen = std::collections::HashSet::new();
+        let deduped: String = s.chars().filter(|c| seen.insert(*c)).collect();
+        return NanVal::heap_string(deduped).0;
+    }
+    if (nv.0 & TAG_MASK) == TAG_LIST {
+        let items = unsafe { match nv.as_heap_ref() { HeapObj::List(l) => l.clone(), _ => unreachable!() } };
+        let mut out: Vec<NanVal> = Vec::new();
+        for item in items {
+            if !out.iter().any(|existing| nanval_equal(*existing, item)) {
+                item.clone_rc();
+                out.push(item);
+            }
+        }
+        return NanVal::heap_list(out).0;
+    }
+    TAG_NIL
+}
+
+// ── JIT helpers: File I/O ───────────────────────────────────────────
+
+#[cfg(feature = "cranelift")]
+#[unsafe(no_mangle)]
+pub(crate) extern "C" fn jit_rd(v: u64) -> u64 {
+    let nv = NanVal(v);
+    if !nv.is_string() { return TAG_NIL; }
+    let path = unsafe { match nv.as_heap_ref() { HeapObj::Str(s) => s.as_str().to_owned(), _ => unreachable!() } };
+    let fmt = std::path::Path::new(&path)
+        .extension()
+        .and_then(|e| e.to_str())
+        .unwrap_or("raw")
+        .to_lowercase();
+    match std::fs::read_to_string(&path) {
+        Ok(content) => match vm_parse_format(&fmt, &content) {
+            Ok(v) => NanVal::heap_ok(v).0,
+            Err(e) => NanVal::heap_err(e).0,
+        },
+        Err(e) => NanVal::heap_err(NanVal::heap_string(e.to_string())).0,
+    }
+}
+
+#[cfg(feature = "cranelift")]
+#[unsafe(no_mangle)]
+pub(crate) extern "C" fn jit_rdl(v: u64) -> u64 {
+    let nv = NanVal(v);
+    if !nv.is_string() { return TAG_NIL; }
+    let path = unsafe { match nv.as_heap_ref() { HeapObj::Str(s) => s.as_str().to_owned(), _ => unreachable!() } };
+    match std::fs::read_to_string(&path) {
+        Ok(content) => {
+            let lines: Vec<NanVal> = content
+                .lines()
+                .map(|l| NanVal::heap_string(l.to_string()))
+                .collect();
+            NanVal::heap_ok(NanVal::heap_list(lines)).0
+        }
+        Err(e) => NanVal::heap_err(NanVal::heap_string(e.to_string())).0,
+    }
+}
+
+#[cfg(feature = "cranelift")]
+#[unsafe(no_mangle)]
+pub(crate) extern "C" fn jit_wr(path_v: u64, content_v: u64) -> u64 {
+    let pv = NanVal(path_v);
+    let cv = NanVal(content_v);
+    if !pv.is_string() || !cv.is_string() { return TAG_NIL; }
+    let path = unsafe { match pv.as_heap_ref() { HeapObj::Str(s) => s.as_str().to_owned(), _ => unreachable!() } };
+    let content = unsafe { match cv.as_heap_ref() { HeapObj::Str(s) => s.as_str().to_owned(), _ => unreachable!() } };
+    match std::fs::write(&path, &content) {
+        Ok(()) => NanVal::heap_ok(NanVal::heap_string(path)).0,
+        Err(e) => NanVal::heap_err(NanVal::heap_string(e.to_string())).0,
+    }
+}
+
+#[cfg(feature = "cranelift")]
+#[unsafe(no_mangle)]
+pub(crate) extern "C" fn jit_wrl(path_v: u64, list_v: u64) -> u64 {
+    let pv = NanVal(path_v);
+    let lv = NanVal(list_v);
+    if !pv.is_string() { return TAG_NIL; }
+    let path = unsafe { match pv.as_heap_ref() { HeapObj::Str(s) => s.as_str().to_owned(), _ => unreachable!() } };
+    if (lv.0 & TAG_MASK) != TAG_LIST { return TAG_NIL; }
+    let lines = unsafe { match lv.as_heap_ref() { HeapObj::List(l) => l.clone(), _ => unreachable!() } };
+    let mut buf = String::new();
+    for line in &lines {
+        if !line.is_string() { return TAG_NIL; }
+        let s = unsafe { match line.as_heap_ref() { HeapObj::Str(s) => s.as_str().to_owned(), _ => unreachable!() } };
+        buf.push_str(&s);
+        buf.push('\n');
+    }
+    match std::fs::write(&path, &buf) {
+        Ok(()) => NanVal::heap_ok(NanVal::heap_string(path)).0,
+        Err(e) => NanVal::heap_err(NanVal::heap_string(e.to_string())).0,
+    }
+}
+
+// ── JIT helpers: HTTP ───────────────────────────────────────────────
+
+#[cfg(feature = "cranelift")]
+#[unsafe(no_mangle)]
+pub(crate) extern "C" fn jit_post(url_v: u64, body_v: u64) -> u64 {
+    let uv = NanVal(url_v);
+    let bv = NanVal(body_v);
+    if !uv.is_string() || !bv.is_string() { return TAG_NIL; }
+    #[cfg(feature = "http")]
+    {
+        let url = unsafe { match uv.as_heap_ref() { HeapObj::Str(s) => s, _ => unreachable!() } };
+        let body = unsafe { match bv.as_heap_ref() { HeapObj::Str(s) => s, _ => unreachable!() } };
+        match minreq::post(url.as_str()).with_body(body.as_str()).send() {
+            Ok(resp) => match resp.as_str() {
+                Ok(b) => NanVal::heap_ok(NanVal::heap_string(b.to_string())).0,
+                Err(e) => NanVal::heap_err(NanVal::heap_string(format!("response is not valid UTF-8: {e}"))).0,
+            },
+            Err(e) => NanVal::heap_err(NanVal::heap_string(e.to_string())).0,
+        }
+    }
+    #[cfg(not(feature = "http"))]
+    {
+        NanVal::heap_err(NanVal::heap_string("http feature not enabled".to_string())).0
+    }
+}
+
+#[cfg(feature = "cranelift")]
+#[unsafe(no_mangle)]
+pub(crate) extern "C" fn jit_geth(url_v: u64, headers_v: u64) -> u64 {
+    let uv = NanVal(url_v);
+    if !uv.is_string() { return TAG_NIL; }
+    #[cfg(feature = "http")]
+    {
+        let url = unsafe { match uv.as_heap_ref() { HeapObj::Str(s) => s.as_str().to_owned(), _ => unreachable!() } };
+        let hv = NanVal(headers_v);
+        let mut req = minreq::get(url.as_str());
+        if hv.is_heap() {
+            if let HeapObj::Map(m) = unsafe { hv.as_heap_ref() } {
+                for (k, v) in m.iter() {
+                    if v.is_string() {
+                        let vs = unsafe { match v.as_heap_ref() { HeapObj::Str(s) => s.as_str().to_owned(), _ => unreachable!() } };
+                        req = req.with_header(k.as_str(), &vs);
+                    }
+                }
+            }
+        }
+        match req.send() {
+            Ok(resp) => match resp.as_str() {
+                Ok(body) => NanVal::heap_ok(NanVal::heap_string(body.to_string())).0,
+                Err(e) => NanVal::heap_err(NanVal::heap_string(format!("response is not valid UTF-8: {e}"))).0,
+            },
+            Err(e) => NanVal::heap_err(NanVal::heap_string(e.to_string())).0,
+        }
+    }
+    #[cfg(not(feature = "http"))]
+    {
+        NanVal::heap_err(NanVal::heap_string("http feature not enabled".to_string())).0
+    }
+}
+
+#[cfg(feature = "cranelift")]
+#[unsafe(no_mangle)]
+pub(crate) extern "C" fn jit_posth(url_v: u64, body_v: u64, headers_v: u64) -> u64 {
+    let uv = NanVal(url_v);
+    let bv = NanVal(body_v);
+    if !uv.is_string() || !bv.is_string() { return TAG_NIL; }
+    #[cfg(feature = "http")]
+    {
+        let url = unsafe { match uv.as_heap_ref() { HeapObj::Str(s) => s.as_str().to_owned(), _ => unreachable!() } };
+        let body_str = unsafe { match bv.as_heap_ref() { HeapObj::Str(s) => s.as_str().to_owned(), _ => unreachable!() } };
+        let hv = NanVal(headers_v);
+        let mut req = minreq::post(url.as_str()).with_body(body_str.as_str());
+        if hv.is_heap() {
+            if let HeapObj::Map(m) = unsafe { hv.as_heap_ref() } {
+                for (k, v) in m.iter() {
+                    if v.is_string() {
+                        let vs = unsafe { match v.as_heap_ref() { HeapObj::Str(s) => s.as_str().to_owned(), _ => unreachable!() } };
+                        req = req.with_header(k.as_str(), &vs);
+                    }
+                }
+            }
+        }
+        match req.send() {
+            Ok(resp) => match resp.as_str() {
+                Ok(b) => NanVal::heap_ok(NanVal::heap_string(b.to_string())).0,
+                Err(e) => NanVal::heap_err(NanVal::heap_string(format!("response is not valid UTF-8: {e}"))).0,
+            },
+            Err(e) => NanVal::heap_err(NanVal::heap_string(e.to_string())).0,
+        }
+    }
+    #[cfg(not(feature = "http"))]
+    {
+        NanVal::heap_err(NanVal::heap_string("http feature not enabled".to_string())).0
+    }
+}
+
 // ── Block leader analysis (shared by JIT backends) ──────────────────
 
 /// Identify basic block leaders in bytecode. A leader is:

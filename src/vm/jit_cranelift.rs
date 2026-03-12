@@ -81,6 +81,32 @@ struct HelperFuncs {
     jdmp: FuncId,
     jpar: FuncId,
     call: FuncId,
+    // Type predicates
+    isnum: FuncId,
+    istext: FuncId,
+    isbool: FuncId,
+    islist: FuncId,
+    // Map operations
+    mapnew: FuncId,
+    mget: FuncId,
+    mset: FuncId,
+    mhas: FuncId,
+    mkeys: FuncId,
+    mvals: FuncId,
+    mdel: FuncId,
+    // Print, trim, uniq
+    prt: FuncId,
+    trm: FuncId,
+    unq: FuncId,
+    // File I/O
+    rd: FuncId,
+    rdl: FuncId,
+    wr: FuncId,
+    wrl: FuncId,
+    // HTTP
+    post: FuncId,
+    geth: FuncId,
+    posth: FuncId,
 }
 
 fn declare_helper(module: &mut JITModule, name: &str, n_params: usize, n_returns: usize) -> FuncId {
@@ -149,6 +175,32 @@ fn register_helpers(builder: &mut JITBuilder) {
         ("jit_jdmp", jit_jdmp as *const u8),
         ("jit_jpar", jit_jpar as *const u8),
         ("jit_call", jit_call as *const u8),
+        // Type predicates
+        ("jit_isnum", jit_isnum as *const u8),
+        ("jit_istext", jit_istext as *const u8),
+        ("jit_isbool", jit_isbool as *const u8),
+        ("jit_islist", jit_islist as *const u8),
+        // Map operations
+        ("jit_mapnew", jit_mapnew as *const u8),
+        ("jit_mget", jit_mget as *const u8),
+        ("jit_mset", jit_mset as *const u8),
+        ("jit_mhas", jit_mhas as *const u8),
+        ("jit_mkeys", jit_mkeys as *const u8),
+        ("jit_mvals", jit_mvals as *const u8),
+        ("jit_mdel", jit_mdel as *const u8),
+        // Print, trim, uniq
+        ("jit_prt", jit_prt as *const u8),
+        ("jit_trm", jit_trm as *const u8),
+        ("jit_unq", jit_unq as *const u8),
+        // File I/O
+        ("jit_rd", jit_rd as *const u8),
+        ("jit_rdl", jit_rdl as *const u8),
+        ("jit_wr", jit_wr as *const u8),
+        ("jit_wrl", jit_wrl as *const u8),
+        // HTTP
+        ("jit_post", jit_post as *const u8),
+        ("jit_geth", jit_geth as *const u8),
+        ("jit_posth", jit_posth as *const u8),
     ];
     for &(name, ptr) in helpers {
         builder.symbol(name, ptr);
@@ -210,6 +262,32 @@ fn declare_all_helpers(module: &mut JITModule) -> HelperFuncs {
         jdmp: declare_helper(module, "jit_jdmp", 1, 1),
         jpar: declare_helper(module, "jit_jpar", 1, 1),
         call: declare_helper(module, "jit_call", 4, 1),
+        // Type predicates
+        isnum: declare_helper(module, "jit_isnum", 1, 1),
+        istext: declare_helper(module, "jit_istext", 1, 1),
+        isbool: declare_helper(module, "jit_isbool", 1, 1),
+        islist: declare_helper(module, "jit_islist", 1, 1),
+        // Map operations
+        mapnew: declare_helper(module, "jit_mapnew", 0, 1),
+        mget: declare_helper(module, "jit_mget", 2, 1),
+        mset: declare_helper(module, "jit_mset", 3, 1),
+        mhas: declare_helper(module, "jit_mhas", 2, 1),
+        mkeys: declare_helper(module, "jit_mkeys", 1, 1),
+        mvals: declare_helper(module, "jit_mvals", 1, 1),
+        mdel: declare_helper(module, "jit_mdel", 2, 1),
+        // Print, trim, uniq
+        prt: declare_helper(module, "jit_prt", 1, 1),
+        trm: declare_helper(module, "jit_trm", 1, 1),
+        unq: declare_helper(module, "jit_unq", 1, 1),
+        // File I/O
+        rd: declare_helper(module, "jit_rd", 1, 1),
+        rdl: declare_helper(module, "jit_rdl", 1, 1),
+        wr: declare_helper(module, "jit_wr", 2, 1),
+        wrl: declare_helper(module, "jit_wrl", 2, 1),
+        // HTTP
+        post: declare_helper(module, "jit_post", 2, 1),
+        geth: declare_helper(module, "jit_geth", 2, 1),
+        posth: declare_helper(module, "jit_posth", 3, 1),
     }
 }
 
@@ -290,9 +368,15 @@ pub(crate) fn compile(chunk: &Chunk, nan_consts: &[NanVal], program: &CompiledPr
 
     // Track whether the current block has been terminated
     let mut block_terminated = false;
+    // Track whether to skip the next instruction (used by OP_POSTH data word)
+    let mut skip_next = false;
 
     // Translate bytecode instruction by instruction
     for (ip, &inst) in chunk.code.iter().enumerate() {
+        if skip_next {
+            skip_next = false;
+            continue;
+        }
         // Switch to new block if this is a leader (skip ip==0, already switched above)
         if ip > 0 && block_map.contains_key(&ip) {
             let block = block_map[&ip];
@@ -1179,6 +1263,172 @@ pub(crate) fn compile(chunk: &Chunk, nan_consts: &[NanVal], program: &CompiledPr
                 let bv = builder.use_var(vars[b_idx]);
                 let fref = get_func_ref(&mut builder, &mut module, helpers.jpar);
                 let call_inst = builder.ins().call(fref, &[bv]);
+                let result = builder.inst_results(call_inst)[0];
+                builder.def_var(vars[a_idx], result);
+            }
+            // ── Type predicates (1-arg → 1 return) ──
+            OP_ISNUM => {
+                let bv = builder.use_var(vars[b_idx]);
+                let fref = get_func_ref(&mut builder, &mut module, helpers.isnum);
+                let call_inst = builder.ins().call(fref, &[bv]);
+                let result = builder.inst_results(call_inst)[0];
+                builder.def_var(vars[a_idx], result);
+            }
+            OP_ISTEXT => {
+                let bv = builder.use_var(vars[b_idx]);
+                let fref = get_func_ref(&mut builder, &mut module, helpers.istext);
+                let call_inst = builder.ins().call(fref, &[bv]);
+                let result = builder.inst_results(call_inst)[0];
+                builder.def_var(vars[a_idx], result);
+            }
+            OP_ISBOOL => {
+                let bv = builder.use_var(vars[b_idx]);
+                let fref = get_func_ref(&mut builder, &mut module, helpers.isbool);
+                let call_inst = builder.ins().call(fref, &[bv]);
+                let result = builder.inst_results(call_inst)[0];
+                builder.def_var(vars[a_idx], result);
+            }
+            OP_ISLIST => {
+                let bv = builder.use_var(vars[b_idx]);
+                let fref = get_func_ref(&mut builder, &mut module, helpers.islist);
+                let call_inst = builder.ins().call(fref, &[bv]);
+                let result = builder.inst_results(call_inst)[0];
+                builder.def_var(vars[a_idx], result);
+            }
+            // ── Map operations ──
+            OP_MAPNEW => {
+                let fref = get_func_ref(&mut builder, &mut module, helpers.mapnew);
+                let call_inst = builder.ins().call(fref, &[]);
+                let result = builder.inst_results(call_inst)[0];
+                builder.def_var(vars[a_idx], result);
+            }
+            OP_MGET => {
+                let bv = builder.use_var(vars[b_idx]);
+                let cv = builder.use_var(vars[c_idx]);
+                let fref = get_func_ref(&mut builder, &mut module, helpers.mget);
+                let call_inst = builder.ins().call(fref, &[bv, cv]);
+                let result = builder.inst_results(call_inst)[0];
+                builder.def_var(vars[a_idx], result);
+            }
+            OP_MSET => {
+                let bv = builder.use_var(vars[b_idx]);
+                let cv = builder.use_var(vars[c_idx]);
+                let cv1 = builder.use_var(vars[c_idx + 1]);
+                let fref = get_func_ref(&mut builder, &mut module, helpers.mset);
+                let call_inst = builder.ins().call(fref, &[bv, cv, cv1]);
+                let result = builder.inst_results(call_inst)[0];
+                builder.def_var(vars[a_idx], result);
+            }
+            OP_MHAS => {
+                let bv = builder.use_var(vars[b_idx]);
+                let cv = builder.use_var(vars[c_idx]);
+                let fref = get_func_ref(&mut builder, &mut module, helpers.mhas);
+                let call_inst = builder.ins().call(fref, &[bv, cv]);
+                let result = builder.inst_results(call_inst)[0];
+                builder.def_var(vars[a_idx], result);
+            }
+            OP_MKEYS => {
+                let bv = builder.use_var(vars[b_idx]);
+                let fref = get_func_ref(&mut builder, &mut module, helpers.mkeys);
+                let call_inst = builder.ins().call(fref, &[bv]);
+                let result = builder.inst_results(call_inst)[0];
+                builder.def_var(vars[a_idx], result);
+            }
+            OP_MVALS => {
+                let bv = builder.use_var(vars[b_idx]);
+                let fref = get_func_ref(&mut builder, &mut module, helpers.mvals);
+                let call_inst = builder.ins().call(fref, &[bv]);
+                let result = builder.inst_results(call_inst)[0];
+                builder.def_var(vars[a_idx], result);
+            }
+            OP_MDEL => {
+                let bv = builder.use_var(vars[b_idx]);
+                let cv = builder.use_var(vars[c_idx]);
+                let fref = get_func_ref(&mut builder, &mut module, helpers.mdel);
+                let call_inst = builder.ins().call(fref, &[bv, cv]);
+                let result = builder.inst_results(call_inst)[0];
+                builder.def_var(vars[a_idx], result);
+            }
+            // ── Print, Trim, Uniq ──
+            OP_PRT => {
+                let bv = builder.use_var(vars[b_idx]);
+                let fref = get_func_ref(&mut builder, &mut module, helpers.prt);
+                let call_inst = builder.ins().call(fref, &[bv]);
+                let result = builder.inst_results(call_inst)[0];
+                builder.def_var(vars[a_idx], result);
+            }
+            OP_TRM => {
+                let bv = builder.use_var(vars[b_idx]);
+                let fref = get_func_ref(&mut builder, &mut module, helpers.trm);
+                let call_inst = builder.ins().call(fref, &[bv]);
+                let result = builder.inst_results(call_inst)[0];
+                builder.def_var(vars[a_idx], result);
+            }
+            OP_UNQ => {
+                let bv = builder.use_var(vars[b_idx]);
+                let fref = get_func_ref(&mut builder, &mut module, helpers.unq);
+                let call_inst = builder.ins().call(fref, &[bv]);
+                let result = builder.inst_results(call_inst)[0];
+                builder.def_var(vars[a_idx], result);
+            }
+            // ── File I/O ──
+            OP_RD => {
+                let bv = builder.use_var(vars[b_idx]);
+                let fref = get_func_ref(&mut builder, &mut module, helpers.rd);
+                let call_inst = builder.ins().call(fref, &[bv]);
+                let result = builder.inst_results(call_inst)[0];
+                builder.def_var(vars[a_idx], result);
+            }
+            OP_RDL => {
+                let bv = builder.use_var(vars[b_idx]);
+                let fref = get_func_ref(&mut builder, &mut module, helpers.rdl);
+                let call_inst = builder.ins().call(fref, &[bv]);
+                let result = builder.inst_results(call_inst)[0];
+                builder.def_var(vars[a_idx], result);
+            }
+            OP_WR => {
+                let bv = builder.use_var(vars[b_idx]);
+                let cv = builder.use_var(vars[c_idx]);
+                let fref = get_func_ref(&mut builder, &mut module, helpers.wr);
+                let call_inst = builder.ins().call(fref, &[bv, cv]);
+                let result = builder.inst_results(call_inst)[0];
+                builder.def_var(vars[a_idx], result);
+            }
+            OP_WRL => {
+                let bv = builder.use_var(vars[b_idx]);
+                let cv = builder.use_var(vars[c_idx]);
+                let fref = get_func_ref(&mut builder, &mut module, helpers.wrl);
+                let call_inst = builder.ins().call(fref, &[bv, cv]);
+                let result = builder.inst_results(call_inst)[0];
+                builder.def_var(vars[a_idx], result);
+            }
+            // ── HTTP ──
+            OP_POST => {
+                let bv = builder.use_var(vars[b_idx]);
+                let cv = builder.use_var(vars[c_idx]);
+                let fref = get_func_ref(&mut builder, &mut module, helpers.post);
+                let call_inst = builder.ins().call(fref, &[bv, cv]);
+                let result = builder.inst_results(call_inst)[0];
+                builder.def_var(vars[a_idx], result);
+            }
+            OP_GETH => {
+                let bv = builder.use_var(vars[b_idx]);
+                let cv = builder.use_var(vars[c_idx]);
+                let fref = get_func_ref(&mut builder, &mut module, helpers.geth);
+                let call_inst = builder.ins().call(fref, &[bv, cv]);
+                let result = builder.inst_results(call_inst)[0];
+                builder.def_var(vars[a_idx], result);
+            }
+            OP_POSTH => {
+                let bv = builder.use_var(vars[b_idx]);  // url
+                let cv = builder.use_var(vars[c_idx]);  // body
+                // Consume the next instruction (data word) at compile time
+                let data_inst = chunk.code[ip + 1];
+                skip_next = true;
+                let d_idx = ((data_inst >> 16) & 0xFF) as usize;  // headers register
+                let dv = builder.use_var(vars[d_idx]);
+                let fref = get_func_ref(&mut builder, &mut module, helpers.posth);
+                let call_inst = builder.ins().call(fref, &[bv, cv, dv]);
                 let result = builder.inst_results(call_inst)[0];
                 builder.def_var(vars[a_idx], result);
             }
