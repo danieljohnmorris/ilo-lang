@@ -5687,13 +5687,12 @@ pub(crate) extern "C" fn jit_geth(url_v: u64, headers_v: u64) -> u64 {
         let url = unsafe { match uv.as_heap_ref() { HeapObj::Str(s) => s.as_str().to_owned(), _ => unreachable!() } };
         let hv = NanVal(headers_v);
         let mut req = minreq::get(url.as_str());
-        if hv.is_heap() {
-            if let HeapObj::Map(m) = unsafe { hv.as_heap_ref() } {
-                for (k, v) in m.iter() {
-                    if v.is_string() {
-                        let vs = unsafe { match v.as_heap_ref() { HeapObj::Str(s) => s.as_str().to_owned(), _ => unreachable!() } };
-                        req = req.with_header(k.as_str(), &vs);
-                    }
+        if hv.is_heap()
+            && let HeapObj::Map(m) = unsafe { hv.as_heap_ref() } {
+            for (k, v) in m.iter() {
+                if v.is_string() {
+                    let vs = unsafe { match v.as_heap_ref() { HeapObj::Str(s) => s.as_str().to_owned(), _ => unreachable!() } };
+                    req = req.with_header(k.as_str(), &vs);
                 }
             }
         }
@@ -5723,13 +5722,12 @@ pub(crate) extern "C" fn jit_posth(url_v: u64, body_v: u64, headers_v: u64) -> u
         let body_str = unsafe { match bv.as_heap_ref() { HeapObj::Str(s) => s.as_str().to_owned(), _ => unreachable!() } };
         let hv = NanVal(headers_v);
         let mut req = minreq::post(url.as_str()).with_body(body_str.as_str());
-        if hv.is_heap() {
-            if let HeapObj::Map(m) = unsafe { hv.as_heap_ref() } {
-                for (k, v) in m.iter() {
-                    if v.is_string() {
-                        let vs = unsafe { match v.as_heap_ref() { HeapObj::Str(s) => s.as_str().to_owned(), _ => unreachable!() } };
-                        req = req.with_header(k.as_str(), &vs);
-                    }
+        if hv.is_heap()
+            && let HeapObj::Map(m) = unsafe { hv.as_heap_ref() } {
+            for (k, v) in m.iter() {
+                if v.is_string() {
+                    let vs = unsafe { match v.as_heap_ref() { HeapObj::Str(s) => s.as_str().to_owned(), _ => unreachable!() } };
+                    req = req.with_header(k.as_str(), &vs);
                 }
             }
         }
