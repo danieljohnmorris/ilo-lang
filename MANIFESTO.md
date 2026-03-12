@@ -137,3 +137,7 @@ ilo does the same for machine programmers. A minimal, verified vocabulary. Compl
 ## What ilo Is
 
 A **minimal, verified action space** — the smallest set of constructs an agent needs to express computational intent, with relationships made explicit and everything else stripped away.
+
+---
+
+Read this on the docs site: [ilo-lang.ai/docs/manifesto](https://ilo-lang.ai/docs/manifesto/)
