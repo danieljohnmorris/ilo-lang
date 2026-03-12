@@ -154,23 +154,23 @@ Per-call time (ns) across 7 micro-benchmarks. Lower is better. [Full results →
 
 | Language | numeric | string | record | mixed | guards | recurse | html |
 |----------|--------:|--------:|--------:|--------:|--------:|--------:|--------:|
-| Rust (native) | 295ns | 325ns | 2ns | 9.4us | 1.4us | 134ns | 24.1us |
-| Go | 847ns | 6.6us | 46ns | 16.3us | 1.0us | 165ns | 15.9us |
-| C# (.NET) | 8.7us | 3.3us | n/a | n/a | 7.6us | 288ns | 8.5us |
-| Kotlin (JVM) | 2.5us | 8.4us | 1.1us | 13.8us | 3.0us | 449ns | 18.8us |
-| LuaJIT | 389ns | 866ns | 70ns | 18.0us | 5.5us | 301ns | 11.7us |
-| Node/V8 | 1.2us | 1.1us | 1.0us | 6.3us | 1.6us | 697ns | 3.2us |
-| TypeScript | 838ns | 687ns | 812ns | 5.9us | 1.4us | 446ns | 2.4us |
-| ilo JIT | 4.1us | 3.3us | 632ns | 41.1us | 120.8us | 5.3us | 22.1us |
-| ilo VM | 13.3us | 4.9us | 3.2us | 41.5us | 50.5us | 5.1us | 28.0us |
-| ilo Interpreter | 92.4us | 15.7us | 54.8us | 1.6ms | 968.0us | 133.2us | 86.4us |
-| Lua | 6.0us | 5.1us | 9.5us | 47.5us | 30.9us | 3.2us | 39.9us |
-| Ruby | 19.9us | 5.6us | 9.0us | 19.1us | 37.8us | 3.1us | 30.7us |
-| PHP | 6.4us | 1.3us | 4.0us | 8.7us | 25.5us | 4.4us | 10.7us |
-| Python 3 | 29.0us | 2.2us | 8.7us | 28.8us | 64.5us | 5.9us | 21.5us |
-| PyPy 3 | 2.5us | 2.3us | 2.9us | 37.9us | 9.5us | 7.3us | 7.0us |
+| Rust (native) | 184ns | 267ns | 1ns | 9.3us | 1.6us | 288ns | 14.9us |
+| Go | 713ns | 4.5us | 68ns | 6.3us | 772ns | 469ns | 7.4us |
+| C# (.NET) | 5.4us | 2.2us | 415ns | 29.6us | 6.9us | 342ns | 6.6us |
+| Kotlin (JVM) | 507ns | 2.3us | 313ns | 7.8us | 1.0us | 197ns | 3.4us |
+| LuaJIT | 519ns | 997ns | 128ns | 9.9us | 2.9us | 802ns | 6.8us |
+| Node/V8 | 600ns | 430ns | 325ns | 5.5us | 1.1us | 545ns | 1.9us |
+| TypeScript | 442ns | 381ns | 241ns | 5.7us | 1.0us | 393ns | 1.9us |
+| ilo JIT | 4.1us | 3.2us | 641ns | 41.3us | 123.5us | 5.1us | 22.1us |
+| ilo VM | 13.4us | 4.9us | 3.3us | 42.3us | 50.4us | 5.1us | 27.3us |
+| ilo Interpreter | 92.9us | 16.4us | 55.8us | 1.3ms | 946.6us | 132.5us | 83.9us |
+| Lua | 6.0us | 4.9us | 9.5us | 46.5us | 31.0us | 3.1us | 41.3us |
+| Ruby | 20.9us | 5.3us | 8.7us | 18.5us | 39.8us | 3.0us | 30.9us |
+| PHP | 6.5us | 1.3us | 4.1us | 8.3us | 25.7us | 4.4us | 10.4us |
+| Python 3 | 28.4us | 2.2us | 8.7us | 28.4us | 63.0us | 5.7us | 21.8us |
+| PyPy 3 | 775ns | 768ns | 483ns | 21.0us | 4.2us | 1.0us | 4.3us |
 
-*1000 iterations, Darwin arm64, 2026-03-12*
+*10000 iterations, Darwin arm64, 2026-03-12*
 
 ## Community
 
