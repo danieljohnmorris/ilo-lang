@@ -1582,7 +1582,7 @@ fn main() {
             println!("  ilo compile <file> [-o out] [func]  Compile to standalone binary\n");
             println!("Backends:");
             println!("  (default)        Cranelift JIT → interpreter fallback");
-            println!("  --run-tree     Tree-walking interpreter");
+            println!("  --run-tree       Tree-walking interpreter");
             println!("  --run-vm         Register VM");
             println!("  --run-cranelift  Cranelift JIT");
             println!("  --run-jit        Custom ARM64 JIT (macOS Apple Silicon only)");

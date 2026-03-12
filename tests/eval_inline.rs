@@ -1055,10 +1055,10 @@ fn run_vm_runtime_error() {
 
 #[test]
 fn run_interp_runtime_error() {
-    // --run-interp with a program that errors at runtime (division by zero)
-    // Exercises L379-381 in main.rs (error reporting for --run-interp)
+    // --run-tree with a program that errors at runtime (division by zero)
+    // Exercises L379-381 in main.rs (error reporting for --run-tree)
     let out = ilo()
-        .args(["f>n;/1 0", "--run-interp", "f"])
+        .args(["f>n;/1 0", "--run-tree", "f"])
         .output()
         .expect("failed to run ilo");
     assert!(!out.status.success(), "should exit with error");
