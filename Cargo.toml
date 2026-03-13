@@ -39,6 +39,7 @@ inkwell = { version = "0.5", features = ["llvm18-0"], optional = true }
 minreq = { version = "2.14", default-features = false, features = ["https-rustls"], optional = true }
 tokio = { version = "1", features = ["rt", "macros", "process", "io-util", "sync"], optional = true }
 reqwest = { version = "0.12", default-features = false, features = ["rustls-tls", "json"], optional = true }
+clap = { version = "4", features = ["derive"] }
 fastrand = "2"
 regex = "1"
 
