@@ -619,18 +619,28 @@ fn type_to_ilo(ty: &ast::Type) -> String {
 fn brace_depth(s: &str) -> i32 {
     let mut depth: i32 = 0;
     let mut in_string = false;
+    let mut prev_backslash = false;
     let mut chars = s.chars().peekable();
     while let Some(c) = chars.next() {
         if c == '-' && chars.peek() == Some(&'-') && !in_string {
             break; // `--` comment runs to end of input
         }
         if c == '"' {
+            if in_string && prev_backslash {
+                // Escaped quote inside string — don't toggle
+                prev_backslash = false;
+                continue;
+            }
             in_string = !in_string;
+            prev_backslash = false;
             continue;
         }
         if in_string {
+            // Track backslashes: `\\` cancels out, so only odd runs count
+            prev_backslash = c == '\\' && !prev_backslash;
             continue;
         }
+        prev_backslash = false;
         if c == '{' {
             depth += 1;
         } else if c == '}' {
@@ -4525,6 +4535,27 @@ mod tests {
     #[test]
     fn brace_depth_no_braces() {
         assert_eq!(brace_depth("hello world"), 0);
+    }
+
+    #[test]
+    fn brace_depth_escaped_quote_in_string() {
+        // `"x\"}{\"y"` — the escaped quotes should NOT toggle in_string,
+        // so the braces are still inside the string and depth stays 0.
+        assert_eq!(brace_depth(r#""x\"}{\"y""#), 0);
+    }
+
+    #[test]
+    fn brace_depth_escaped_backslash_before_quote() {
+        // `"a\\"` — the `\\` is an escaped backslash, so the final `"` closes the string.
+        // The `{` after is real.
+        assert_eq!(brace_depth(r#""a\\"{""#), 1);
+    }
+
+    #[test]
+    fn brace_depth_triple_backslash_before_quote() {
+        // `"a\\\"{"` — `\\` is escaped backslash, then `\"` is escaped quote,
+        // so the string is NOT closed. The `{` is inside the string.
+        assert_eq!(brace_depth(r#""a\\\"{""#), 0);
     }
 
     // ── unit: load_env_file — line without '=' is skipped silently ───────────
