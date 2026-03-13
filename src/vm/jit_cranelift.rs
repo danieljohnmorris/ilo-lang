@@ -360,6 +360,77 @@ fn compile_function_body(
     // Store the program pointer as a constant for jit_call fallback
     let program_ptr_val = program as *const CompiledProgram as u64;
 
+    // Pre-pass: determine which registers are *always* written with numeric values.
+    // A register is "always numeric" if every instruction that writes it produces a
+    // floating-point number (i.e. can be safely bitcast to f64 without a QNAN check).
+    //
+    // We track two flags per register:
+    //   num_write[r]     — at least one write to r is definitely numeric
+    //   non_num_write[r] — at least one write to r may produce a non-number
+    //
+    // A register is "always numeric" iff num_write && !non_num_write.
+    let mut reg_always_num = vec![false; reg_count];
+    {
+        let mut non_num_write = vec![false; reg_count];
+        let mut num_write     = vec![false; reg_count];
+
+        // Function parameters: the VM compiler sets all_regs_numeric when it has
+        // proven every param is numeric (e.g. single-param numeric functions).
+        if chunk.all_regs_numeric {
+            for i in 0..chunk.param_count as usize {
+                if i < reg_count { num_write[i] = true; }
+            }
+        }
+
+        for &inst in &chunk.code {
+            let op = (inst >> 24) as u8;
+            let a  = ((inst >> 16) & 0xFF) as usize;
+            if a >= reg_count { continue; }
+            match op {
+                // Guaranteed numeric outputs.
+                OP_ADD_NN | OP_SUB_NN | OP_MUL_NN | OP_DIV_NN
+                | OP_ADDK_N | OP_SUBK_N | OP_MULK_N | OP_DIVK_N => {
+                    num_write[a] = true;
+                }
+                // LOADK: numeric only when the constant itself is a number.
+                OP_LOADK => {
+                    let bx = (inst & 0xFFFF) as usize;
+                    if bx < nan_consts.len() && nan_consts[bx].is_number() {
+                        num_write[a] = true;
+                    } else {
+                        non_num_write[a] = true;
+                    }
+                }
+                // Ops that write a non-numeric or unknown type to R[A].
+                // This list is conservative: an op not mentioned here simply leaves
+                // num_write[a] false, so the register won't qualify as always-numeric.
+                OP_LT | OP_GT | OP_LE | OP_GE | OP_EQ | OP_NE
+                | OP_NOT | OP_HAS | OP_ISNUM | OP_ISTEXT | OP_ISBOOL | OP_ISLIST
+                | OP_MHAS
+                | OP_MOVE
+                | OP_ADD | OP_SUB | OP_MUL | OP_DIV  // may be string concat etc.
+                | OP_WRAPOK | OP_WRAPERR | OP_ISOK | OP_ISERR | OP_UNWRAP
+                | OP_RECFLD | OP_RECFLD_NAME | OP_LISTGET | OP_INDEX
+                | OP_STR | OP_HD | OP_TL | OP_REV | OP_SRT | OP_SLC
+                | OP_SPL | OP_CAT | OP_GET | OP_POST | OP_GETH | OP_POSTH
+                | OP_ENV | OP_JPTH | OP_JDMP | OP_JPAR
+                | OP_MAPNEW | OP_MGET | OP_MSET | OP_MDEL | OP_MKEYS | OP_MVALS
+                | OP_LISTNEW | OP_LISTAPPEND
+                | OP_RECNEW | OP_RECWITH
+                | OP_PRT | OP_RD | OP_RDL | OP_WR | OP_WRL | OP_TRM | OP_UNQ => {
+                    non_num_write[a] = true;
+                }
+                // Numeric-output single-register ops left as conservative default
+                // (neither flag set → not always-numeric, which is safe).
+                _ => {}
+            }
+        }
+
+        for i in 0..reg_count {
+            reg_always_num[i] = num_write[i] && !non_num_write[i];
+        }
+    }
+
     // Track whether the current block has been terminated
     let mut block_terminated = false;
     // Track whether to skip the next instruction (used by OP_POSTH data word)
@@ -521,29 +592,6 @@ fn compile_function_body(
                 builder.def_var(vars[a_idx], result);
             }
             OP_LT | OP_GT | OP_LE | OP_GE | OP_EQ | OP_NE => {
-                // Inline numeric fast path for comparisons.
-                let bv = builder.use_var(vars[b_idx]);
-                let cv = builder.use_var(vars[c_idx]);
-
-                let qnan_val = builder.ins().iconst(I64, QNAN as i64);
-                let b_masked = builder.ins().band(bv, qnan_val);
-                let c_masked = builder.ins().band(cv, qnan_val);
-                let b_or_c = builder.ins().bor(b_masked, c_masked);
-                let both_num = builder.ins().icmp(
-                    cranelift_codegen::ir::condcodes::IntCC::NotEqual, b_or_c, qnan_val);
-
-                let num_block = builder.create_block();
-                let slow_block = builder.create_block();
-                let merge_block = builder.create_block();
-                builder.append_block_param(merge_block, I64);
-
-                builder.ins().brif(both_num, num_block, &[], slow_block, &[]);
-
-                // Fast path: inline float comparison → TAG_TRUE/TAG_FALSE
-                builder.switch_to_block(num_block);
-                let mf = cranelift_codegen::ir::MemFlags::new();
-                let bf = builder.ins().bitcast(F64, mf, bv);
-                let cf = builder.ins().bitcast(F64, mf, cv);
                 use cranelift_codegen::ir::condcodes::FloatCC;
                 let cc = match op {
                     OP_LT => FloatCC::LessThan,
@@ -554,31 +602,123 @@ fn compile_function_body(
                     OP_NE => FloatCC::NotEqual,
                     _ => unreachable!(),
                 };
-                let cmp = builder.ins().fcmp(cc, bf, cf);
-                let true_val = builder.ins().iconst(I64, TAG_TRUE as i64);
-                let false_val = builder.ins().iconst(I64, TAG_FALSE as i64);
-                let fast_result = builder.ins().select(cmp, true_val, false_val);
-                builder.ins().jump(merge_block, &[fast_result]);
+                let bv = builder.use_var(vars[b_idx]);
+                let cv = builder.use_var(vars[c_idx]);
 
-                // Slow path: call helper
-                builder.switch_to_block(slow_block);
-                let helper = match op {
-                    OP_LT => helpers.lt,
-                    OP_GT => helpers.gt,
-                    OP_LE => helpers.le,
-                    OP_GE => helpers.ge,
-                    OP_EQ => helpers.eq,
-                    OP_NE => helpers.ne,
-                    _ => unreachable!(),
-                };
-                let fref = get_func_ref(&mut builder, module, helper);
-                let call_inst = builder.ins().call(fref, &[bv, cv]);
-                let slow_result = builder.inst_results(call_inst)[0];
-                builder.ins().jump(merge_block, &[slow_result]);
+                // Pre-pass proved both operands are always numeric?
+                let both_always_num = b_idx < reg_always_num.len() && reg_always_num[b_idx]
+                    && c_idx < reg_always_num.len() && reg_always_num[c_idx];
 
-                builder.switch_to_block(merge_block);
-                let result = builder.block_params(merge_block)[0];
-                builder.def_var(vars[a_idx], result);
+                if both_always_num {
+                    // Check if the immediately following instruction is JMPF or JMPT on
+                    // the same destination register (a_idx). If so, fuse the comparison
+                    // and conditional branch into a single compare-and-branch, eliminating
+                    // the intermediate bool register write and the entire JMPF 3-block dispatch.
+                    let next_inst = chunk.code.get(ip + 1).copied();
+                    let fused = if let Some(next) = next_inst {
+                        let next_op  = (next >> 24) as u8;
+                        let next_a   = ((next >> 16) & 0xFF) as usize;
+                        (next_op == OP_JMPF || next_op == OP_JMPT) && next_a == a_idx
+                            && !block_map.contains_key(&(ip + 1))  // next instr is not a block leader
+                    } else {
+                        false
+                    };
+
+                    if fused {
+                        // Fused compare-and-branch: emit fcmp + brif, skip next JMPF/JMPT.
+                        let next = chunk.code[ip + 1];
+                        let next_op = (next >> 24) as u8;
+                        let sbx     = (next & 0xFFFF) as i16;
+                        let target      = (ip as isize + 2 + sbx as isize) as usize;
+                        let fallthrough = ip + 2;
+
+                        let mf = cranelift_codegen::ir::MemFlags::new();
+                        let bf = builder.ins().bitcast(F64, mf, bv);
+                        let cf = builder.ins().bitcast(F64, mf, cv);
+                        let cmp = builder.ins().fcmp(cc, bf, cf);
+
+                        // For JMPF: jump to target when cmp is FALSE (i.e. condition false → jump).
+                        // For JMPT: jump to target when cmp is TRUE.
+                        let (true_dest, false_dest) = if next_op == OP_JMPF {
+                            // JMPF: cmp-true → fallthrough, cmp-false → target
+                            (fallthrough, target)
+                        } else {
+                            // JMPT: cmp-true → target, cmp-false → fallthrough
+                            (target, fallthrough)
+                        };
+
+                        let true_block  = block_map.get(&true_dest).copied();
+                        let false_block = block_map.get(&false_dest).copied();
+
+                        if let (Some(tb), Some(fb)) = (true_block, false_block) {
+                            builder.ins().brif(cmp, tb, &[], fb, &[]);
+                            block_terminated = true;
+                            skip_next = true;
+                        } else {
+                            // Block targets not found — fall back to non-fused path.
+                            let true_val  = builder.ins().iconst(I64, TAG_TRUE  as i64);
+                            let false_val = builder.ins().iconst(I64, TAG_FALSE as i64);
+                            let result = builder.ins().select(cmp, true_val, false_val);
+                            builder.def_var(vars[a_idx], result);
+                        }
+                    } else {
+                        // No fusion opportunity — emit direct float comparison without QNAN check.
+                        let mf = cranelift_codegen::ir::MemFlags::new();
+                        let bf = builder.ins().bitcast(F64, mf, bv);
+                        let cf = builder.ins().bitcast(F64, mf, cv);
+                        let cmp = builder.ins().fcmp(cc, bf, cf);
+                        let true_val  = builder.ins().iconst(I64, TAG_TRUE  as i64);
+                        let false_val = builder.ins().iconst(I64, TAG_FALSE as i64);
+                        let result = builder.ins().select(cmp, true_val, false_val);
+                        builder.def_var(vars[a_idx], result);
+                    }
+                } else {
+                    // General case: check both are numeric at runtime before comparing.
+                    let qnan_val = builder.ins().iconst(I64, QNAN as i64);
+                    let b_masked = builder.ins().band(bv, qnan_val);
+                    let c_masked = builder.ins().band(cv, qnan_val);
+                    let b_or_c = builder.ins().bor(b_masked, c_masked);
+                    let both_num = builder.ins().icmp(
+                        cranelift_codegen::ir::condcodes::IntCC::NotEqual, b_or_c, qnan_val);
+
+                    let num_block   = builder.create_block();
+                    let slow_block  = builder.create_block();
+                    let merge_block = builder.create_block();
+                    builder.append_block_param(merge_block, I64);
+
+                    builder.ins().brif(both_num, num_block, &[], slow_block, &[]);
+
+                    // Fast path: inline float comparison → TAG_TRUE/TAG_FALSE
+                    builder.switch_to_block(num_block);
+                    let mf = cranelift_codegen::ir::MemFlags::new();
+                    let bf = builder.ins().bitcast(F64, mf, bv);
+                    let cf = builder.ins().bitcast(F64, mf, cv);
+                    let cmp = builder.ins().fcmp(cc, bf, cf);
+                    let true_val  = builder.ins().iconst(I64, TAG_TRUE  as i64);
+                    let false_val = builder.ins().iconst(I64, TAG_FALSE as i64);
+                    let fast_result = builder.ins().select(cmp, true_val, false_val);
+                    builder.ins().jump(merge_block, &[fast_result]);
+
+                    // Slow path: call helper
+                    builder.switch_to_block(slow_block);
+                    let helper = match op {
+                        OP_LT => helpers.lt,
+                        OP_GT => helpers.gt,
+                        OP_LE => helpers.le,
+                        OP_GE => helpers.ge,
+                        OP_EQ => helpers.eq,
+                        OP_NE => helpers.ne,
+                        _ => unreachable!(),
+                    };
+                    let fref = get_func_ref(&mut builder, module, helper);
+                    let call_inst = builder.ins().call(fref, &[bv, cv]);
+                    let slow_result = builder.inst_results(call_inst)[0];
+                    builder.ins().jump(merge_block, &[slow_result]);
+
+                    builder.switch_to_block(merge_block);
+                    let result = builder.block_params(merge_block)[0];
+                    builder.def_var(vars[a_idx], result);
+                }
             }
             OP_MOVE => {
                 if a_idx != b_idx {
