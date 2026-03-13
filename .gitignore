@@ -9,3 +9,6 @@ __pycache__/
 research/
 site/
 .DS_Store
+.astro/
+node_modules/
+rust_out
