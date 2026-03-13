@@ -797,6 +797,19 @@ fn compile_function_body(
                     non_num_write[a] = true;
                     non_bool_write[a] = true;
                 }
+                // OP_CALL: if callee is known all-numeric, result is numeric.
+                OP_CALL => {
+                    let bx = (inst & 0xFFFF) as usize;
+                    let func_idx = bx >> 8;
+                    if func_idx < program.chunks.len()
+                        && program.chunks[func_idx].all_regs_numeric
+                    {
+                        num_write[a] = true;
+                    } else {
+                        non_num_write[a] = true;
+                        non_bool_write[a] = true;
+                    }
+                }
                 // Unknown / non-writing ops (JMP, RET, CMPK_*, etc.): leave flags unset.
                 _ => {}
             }
