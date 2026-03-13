@@ -162,6 +162,21 @@ pub(crate) const OP_FOREACHPREP: u8 = 88;
 // ABC mode: A = bind_reg, B = coll_reg, C = idx_reg, followed by JMP exit + JMP body_top
 pub(crate) const OP_FOREACHNEXT: u8 = 89;
 
+// Fused compare-and-skip opcodes for numeric guard chains.
+// Encoding: ABC mode — A = register, B = unused (0), C = constant pool index (ki).
+// Semantics: evaluate R[A] <op> K[C] where both are f64 numbers.
+//   If condition is TRUE  → ip += 1 (skip the following OP_JMP, fall into guard body)
+//   If condition is FALSE → fall through to the following OP_JMP (skip the guard body)
+// This eliminates the intermediate bool register write + nanval_truthy dispatch from
+// the classic OP_GE / OP_JMPF two-instruction sequence.
+// The following instruction MUST be OP_JMP (emitted automatically by the compiler).
+pub(crate) const OP_CMPK_GE_N: u8 = 90;  // skip-if R[A] >= K[C]  (f64)
+pub(crate) const OP_CMPK_GT_N: u8 = 91;  // skip-if R[A] >  K[C]  (f64)
+pub(crate) const OP_CMPK_LT_N: u8 = 92;  // skip-if R[A] <  K[C]  (f64)
+pub(crate) const OP_CMPK_LE_N: u8 = 93;  // skip-if R[A] <= K[C]  (f64)
+pub(crate) const OP_CMPK_EQ_N: u8 = 94;  // skip-if R[A] == K[C]  (f64)
+pub(crate) const OP_CMPK_NE_N: u8 = 95;  // skip-if R[A] != K[C]  (f64)
+
 // ABx mode — register + 16-bit operand
 pub(crate) const OP_LOADK: u8 = 20;
 pub(crate) const OP_JMP: u8 = 21;
@@ -402,6 +417,64 @@ impl RegCompiler {
             "jump offset {offset_i32} exceeds i16 range — function body too large (max ~32K instructions)"
         );
         self.emit_abx(OP_JMP, 0, offset_i32 as i16 as u16);
+    }
+
+    /// Try to emit a fused CMPK guard for a non-negated guard whose condition is
+    /// `<binop> reg number_literal` where the register is known numeric.
+    ///
+    /// Emits: `OP_CMPK_*_N reg, 0, ki` followed by `OP_JMP 0` (placeholder).
+    /// Returns `Some(jump_pos)` — the position of the JMP placeholder to patch.
+    /// Returns `None` if the pattern does not match (caller falls back to normal form).
+    fn try_emit_fused_guard_cmpk(
+        &mut self,
+        condition: &Expr,
+        negated: bool,
+    ) -> Option<usize> {
+        // Fused form only applies to non-negated guards with a comparison BinOp.
+        if negated { return None; }
+
+        let Expr::BinOp { op, left, right } = condition else { return None; };
+
+        // Right-hand side must be a numeric literal.
+        let Expr::Literal(Literal::Number(k)) = right.as_ref() else { return None; };
+
+        // Map BinOp to the corresponding CMPK opcode.
+        let cmpk_op = match op {
+            BinOp::GreaterOrEqual => OP_CMPK_GE_N,
+            BinOp::GreaterThan    => OP_CMPK_GT_N,
+            BinOp::LessThan       => OP_CMPK_LT_N,
+            BinOp::LessOrEqual    => OP_CMPK_LE_N,
+            BinOp::Equals         => OP_CMPK_EQ_N,
+            BinOp::NotEquals      => OP_CMPK_NE_N,
+            _ => return None,
+        };
+
+        // Compile the left-hand side — must produce a known-numeric register.
+        let saved_next = self.next_reg;
+        let reg = self.compile_expr(left);
+        if !self.reg_is_num[reg as usize] {
+            // Not numeric — cannot use fused form; restore allocator state.
+            self.next_reg = saved_next;
+            return None;
+        }
+
+        // Add constant to pool; C field is 8 bits so ki must fit in 0..=255.
+        let ki = self.current.add_const(Value::Number(*k));
+        if ki > 255 {
+            self.next_reg = saved_next;
+            return None;
+        }
+
+        // Emit CMPK_*_N  reg, 0, ki
+        // (skip the next OP_JMP when condition holds → fall into guard body)
+        self.emit_abc(cmpk_op, reg, 0, ki as u8);
+        // Emit OP_JMP placeholder — taken when condition is false, skips body.
+        let jump_pos = self.emit_jmp_placeholder();
+
+        // Restore next_reg: the comparison consumed no result register.
+        self.next_reg = saved_next;
+
+        Some(jump_pos)
     }
 
     /// Resolve a Type to a type_id if it's a Named record type.
@@ -667,11 +740,27 @@ impl RegCompiler {
 
             Stmt::Guard { condition, negated, body, else_body } => {
                 let saved_next = self.next_reg;
-                let cond_reg = self.compile_expr(condition);
-                let jump = if *negated {
-                    self.emit_jmpt(cond_reg)
+
+                // Try the fused CMPK path first: non-negated plain guard with a
+                // numeric compare-vs-constant (most common in guard chains).
+                // Emits: CMPK_*_N reg, 0, ki  /  JMP <placeholder>
+                // Falls back to: compile_expr(condition) / JMPF|JMPT <placeholder>.
+                let fused_applicable = else_body.is_none() && !negated;
+                let jump = if fused_applicable {
+                    match self.try_emit_fused_guard_cmpk(condition, *negated) {
+                        Some(jpos) => jpos,
+                        None => {
+                            let cond_reg = self.compile_expr(condition);
+                            self.emit_jmpf(cond_reg)
+                        }
+                    }
                 } else {
-                    self.emit_jmpf(cond_reg)
+                    let cond_reg = self.compile_expr(condition);
+                    if *negated {
+                        self.emit_jmpt(cond_reg)
+                    } else {
+                        self.emit_jmpf(cond_reg)
+                    }
                 };
 
                 if let Some(else_b) = else_body {
@@ -720,6 +809,7 @@ impl RegCompiler {
                 }
             }
 
+  
             Stmt::Match { subject, arms } => {
                 let sub_reg = match subject {
                     Some(e) => self.compile_expr(e),
@@ -3605,6 +3695,54 @@ impl<'a> VM<'a> {
                         }
                     }
                 }
+                // ── Fused compare-and-skip for numeric guard chains ────────────────────
+                // ABC: A = reg, B = unused, C = constant pool index (ki).
+                // Compares R[A] <op> K[C] directly as f64.
+                // If condition TRUE  → ip += 1 (skip the following OP_JMP, enter body).
+                // If condition FALSE → fall through to the OP_JMP that skips the body.
+                OP_CMPK_GE_N => {
+                    let a = ((inst >> 16) & 0xFF) as usize + base;
+                    let ki = (inst & 0xFF) as usize;
+                    // SAFETY: ki < constants.len() guaranteed by compiler.
+                    let lhs = unsafe { self.stack.get_unchecked(a) }.as_number();
+                    let rhs = unsafe { nan_consts.get_unchecked(ki) }.as_number();
+                    if lhs >= rhs { ip += 1; }
+                }
+                OP_CMPK_GT_N => {
+                    let a = ((inst >> 16) & 0xFF) as usize + base;
+                    let ki = (inst & 0xFF) as usize;
+                    let lhs = unsafe { self.stack.get_unchecked(a) }.as_number();
+                    let rhs = unsafe { nan_consts.get_unchecked(ki) }.as_number();
+                    if lhs > rhs { ip += 1; }
+                }
+                OP_CMPK_LT_N => {
+                    let a = ((inst >> 16) & 0xFF) as usize + base;
+                    let ki = (inst & 0xFF) as usize;
+                    let lhs = unsafe { self.stack.get_unchecked(a) }.as_number();
+                    let rhs = unsafe { nan_consts.get_unchecked(ki) }.as_number();
+                    if lhs < rhs { ip += 1; }
+                }
+                OP_CMPK_LE_N => {
+                    let a = ((inst >> 16) & 0xFF) as usize + base;
+                    let ki = (inst & 0xFF) as usize;
+                    let lhs = unsafe { self.stack.get_unchecked(a) }.as_number();
+                    let rhs = unsafe { nan_consts.get_unchecked(ki) }.as_number();
+                    if lhs <= rhs { ip += 1; }
+                }
+                OP_CMPK_EQ_N => {
+                    let a = ((inst >> 16) & 0xFF) as usize + base;
+                    let ki = (inst & 0xFF) as usize;
+                    let lhs = unsafe { self.stack.get_unchecked(a) }.as_number();
+                    let rhs = unsafe { nan_consts.get_unchecked(ki) }.as_number();
+                    if lhs == rhs { ip += 1; }
+                }
+                OP_CMPK_NE_N => {
+                    let a = ((inst >> 16) & 0xFF) as usize + base;
+                    let ki = (inst & 0xFF) as usize;
+                    let lhs = unsafe { self.stack.get_unchecked(a) }.as_number();
+                    let rhs = unsafe { nan_consts.get_unchecked(ki) }.as_number();
+                    if lhs != rhs { ip += 1; }
+                }
                 OP_LOADK => {
                     let a = ((inst >> 16) & 0xFF) as usize + base;
                     let bx = (inst & 0xFFFF) as usize;
@@ -6289,6 +6427,13 @@ pub(crate) fn find_block_leaders(code: &[u32]) -> Vec<usize> {
                 leaders.insert(i + 2);
                 leaders.insert(i + 3);
             }
+            op if op == OP_CMPK_GE_N || op == OP_CMPK_GT_N || op == OP_CMPK_LT_N
+                || op == OP_CMPK_LE_N || op == OP_CMPK_EQ_N || op == OP_CMPK_NE_N => {
+                // CMPK_*_N may skip the following OP_JMP (i+1) when condition holds.
+                // i+1 (the JMP) and i+2 (the guard body / fall-through) are both leaders.
+                leaders.insert(i + 1);
+                leaders.insert(i + 2);
+            }
             _ => {}
         }
     }
@@ -7600,6 +7745,50 @@ mod tests {
         assert_eq!(vm_run(source, Some("f"), vec![Value::Number(10.0)]), Value::Number(10.0));
         // x=1: outer guard fires, inner guard doesn't fire → guard body returns Nil
         assert_eq!(vm_run(source, Some("f"), vec![Value::Number(1.0)]), Value::Nil);
+    }
+
+    #[test]
+    fn vm_fused_cmpk_guard_emission() {
+        // Verify that numeric guards emit CMPK_*_N (fused compare-and-skip) opcodes
+        // instead of the classic OP_GE + OP_JMPF pair.
+        // classify x:n>n;>=x 900{30};>=x 700{25};>=x 500{20};>=x 300{15};>=x 100{10};5
+        let source = "classify x:n>n;>=x 900{30};>=x 700{25};>=x 500{20};>=x 300{15};>=x 100{10};5";
+        let prog = parse_program(source);
+        let compiled = compile(&prog).unwrap();
+        let chunk = &compiled.chunks[0];
+        let has_cmpk = chunk.code.iter().any(|&inst| {
+            let op = (inst >> 24) as u8;
+            op == OP_CMPK_GE_N || op == OP_CMPK_GT_N || op == OP_CMPK_LT_N
+                || op == OP_CMPK_LE_N || op == OP_CMPK_EQ_N || op == OP_CMPK_NE_N
+        });
+        assert!(has_cmpk, "expected at least one CMPK_*_N opcode in guard chain bytecode");
+        // Also verify no intermediate bool register (OP_GE) is emitted for these guards
+        let has_ge = chunk.code.iter().any(|&inst| (inst >> 24) as u8 == OP_GE);
+        assert!(!has_ge, "expected OP_GE to be replaced by OP_CMPK_GE_N in numeric guard chain");
+        // Correctness: verify runtime results
+        assert_eq!(vm_run(source, Some("classify"), vec![Value::Number(950.0)]), Value::Number(30.0));
+        assert_eq!(vm_run(source, Some("classify"), vec![Value::Number(750.0)]), Value::Number(25.0));
+        assert_eq!(vm_run(source, Some("classify"), vec![Value::Number(550.0)]), Value::Number(20.0));
+        assert_eq!(vm_run(source, Some("classify"), vec![Value::Number(350.0)]), Value::Number(15.0));
+        assert_eq!(vm_run(source, Some("classify"), vec![Value::Number(150.0)]), Value::Number(10.0));
+        assert_eq!(vm_run(source, Some("classify"), vec![Value::Number(50.0)]),  Value::Number(5.0));
+    }
+
+    #[test]
+    fn vm_fused_cmpk_guard_all_ops() {
+        // Verify all 6 CMPK opcode variants work correctly
+        assert_eq!(vm_run("f x:n>n;>=x 10{1};0", Some("f"), vec![Value::Number(10.0)]), Value::Number(1.0));
+        assert_eq!(vm_run("f x:n>n;>=x 10{1};0", Some("f"), vec![Value::Number(9.0)]),  Value::Number(0.0));
+        assert_eq!(vm_run("f x:n>n;>x 10{1};0", Some("f"), vec![Value::Number(11.0)]),  Value::Number(1.0));
+        assert_eq!(vm_run("f x:n>n;>x 10{1};0", Some("f"), vec![Value::Number(10.0)]),  Value::Number(0.0));
+        assert_eq!(vm_run("f x:n>n;<x 10{1};0", Some("f"), vec![Value::Number(9.0)]),   Value::Number(1.0));
+        assert_eq!(vm_run("f x:n>n;<x 10{1};0", Some("f"), vec![Value::Number(10.0)]),  Value::Number(0.0));
+        assert_eq!(vm_run("f x:n>n;<=x 10{1};0", Some("f"), vec![Value::Number(10.0)]), Value::Number(1.0));
+        assert_eq!(vm_run("f x:n>n;<=x 10{1};0", Some("f"), vec![Value::Number(11.0)]), Value::Number(0.0));
+        assert_eq!(vm_run("f x:n>n;==x 10{1};0", Some("f"), vec![Value::Number(10.0)]), Value::Number(1.0));
+        assert_eq!(vm_run("f x:n>n;==x 10{1};0", Some("f"), vec![Value::Number(11.0)]), Value::Number(0.0));
+        assert_eq!(vm_run("f x:n>n;!=x 10{1};0", Some("f"), vec![Value::Number(11.0)]), Value::Number(1.0));
+        assert_eq!(vm_run("f x:n>n;!=x 10{1};0", Some("f"), vec![Value::Number(10.0)]), Value::Number(0.0));
     }
 
     #[test]

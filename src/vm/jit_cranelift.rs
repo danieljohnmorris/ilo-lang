@@ -1444,6 +1444,51 @@ fn compile_function_body(
                     builder.def_var(vars[a_idx], result);
                 }
             }
+            // ── Fused compare-and-skip for numeric guard chains ──────────────
+            // ABC: A = reg, B = unused, C = constant pool index (ki).
+            // If condition TRUE → skip next instruction (the OP_JMP), enter body.
+            // If condition FALSE → fall through to the OP_JMP that skips the body.
+            op if op == OP_CMPK_GE_N || op == OP_CMPK_GT_N || op == OP_CMPK_LT_N
+                || op == OP_CMPK_LE_N || op == OP_CMPK_EQ_N || op == OP_CMPK_NE_N => {
+                let ki = (inst & 0xFF) as usize;
+                let lhs = builder.use_var(vars[a_idx]);
+
+                // Both operands are guaranteed numeric by the compiler; bitcast to f64.
+                let mf = cranelift_codegen::ir::MemFlags::new();
+                let lhs_f64 = builder.ins().bitcast(F64, mf, lhs);
+                let rhs_f64 = if ki < nan_consts.len() {
+                    builder.ins().f64const(nan_consts[ki].as_number())
+                } else {
+                    builder.ins().f64const(0.0)
+                };
+
+                use cranelift_codegen::ir::condcodes::FloatCC;
+                let cc = if op == OP_CMPK_GE_N {
+                    FloatCC::GreaterThanOrEqual
+                } else if op == OP_CMPK_GT_N {
+                    FloatCC::GreaterThan
+                } else if op == OP_CMPK_LT_N {
+                    FloatCC::LessThan
+                } else if op == OP_CMPK_LE_N {
+                    FloatCC::LessThanOrEqual
+                } else if op == OP_CMPK_EQ_N {
+                    FloatCC::Equal
+                } else {
+                    FloatCC::NotEqual  // OP_CMPK_NE_N
+                };
+                let cmp = builder.ins().fcmp(cc, lhs_f64, rhs_f64);
+
+                // ip + 1 = the OP_JMP that skips the body (taken when condition FALSE)
+                // ip + 2 = first instruction of the guard body (taken when condition TRUE)
+                let jmp_block  = block_map.get(&(ip + 1)).copied();
+                let body_block = block_map.get(&(ip + 2)).copied();
+                if let (Some(jb), Some(bb)) = (jmp_block, body_block) {
+                    // condition TRUE → body (skip the JMP); condition FALSE → JMP block
+                    builder.ins().brif(cmp, bb, &[], jb, &[]);
+                    block_terminated = true;
+                }
+                // else: blocks not found → JIT bails (should not happen in practice)
+            }
             OP_CALL => {
                 let a = ((inst >> 16) & 0xFF) as u8;
                 let bx = (inst & 0xFFFF) as usize;
