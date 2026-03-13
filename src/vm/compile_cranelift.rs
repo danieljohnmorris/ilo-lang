@@ -108,6 +108,8 @@ struct HelperFuncs {
     get_registry_ptr: FuncId,
     aot_init: FuncId,
     aot_fini: FuncId,
+    aot_set_registry: FuncId,
+    aot_parse_arg: FuncId,
     string_const: FuncId,
 }
 
@@ -209,6 +211,8 @@ fn declare_all_helpers(module: &mut ObjectModule) -> HelperFuncs {
         get_registry_ptr: declare_helper(module, "jit_get_registry_ptr", 0, 1),
         aot_init: declare_helper(module, "ilo_aot_init", 0, 0),
         aot_fini: declare_helper(module, "ilo_aot_fini", 0, 0),
+        aot_set_registry: declare_helper(module, "ilo_aot_set_registry", 2, 0),
+        aot_parse_arg: declare_helper(module, "ilo_aot_parse_arg", 1, 1),
         string_const: declare_helper(module, "jit_string_const", 1, 1),
     }
 }
@@ -283,46 +287,13 @@ pub fn compile_to_binary(
     ).map_err(|e| e.to_string())?;
     let mut module = ObjectModule::new(obj_builder);
 
-    // Generate a C runtime helper file with ilo_atof wrapper.
-    // Variadic functions like printf have different ABI on ARM64,
-    // so we wrap atof in a regular C function.
-    let runtime_c_path = format!("{}_rt.c", output_path);
-    std::fs::write(&runtime_c_path, concat!(
-        "#include <stdlib.h>\n",
-        "double ilo_atof(const char* s) { return atof(s); }\n",
-    )).map_err(|e| format!("failed to write runtime C file: {}", e))?;
-
-    let runtime_o_path = format!("{}_rt.o", output_path);
-    let cc_status = std::process::Command::new("cc")
-        .arg("-c")
-        .arg("-O2")
-        .arg(&runtime_c_path)
-        .arg("-o")
-        .arg(&runtime_o_path)
-        .status()
-        .map_err(|e| format!("failed to compile runtime: {}", e))?;
-    let _ = std::fs::remove_file(&runtime_c_path);
-    if !cc_status.success() {
-        let _ = std::fs::remove_file(&runtime_o_path);
-        return Err("failed to compile C runtime helpers".to_string());
-    }
-
     // Helper to clean up temp files on any error path
-    let cleanup = |obj: &str, rt: &str| {
+    let cleanup = |obj: &str| {
         let _ = std::fs::remove_file(obj);
-        let _ = std::fs::remove_file(rt);
     };
 
     // Declare all runtime helpers as imports (resolved at link time from libilo.a)
     let helpers = declare_all_helpers(&mut module);
-
-    // Declare ilo_atof for CLI arg parsing
-    let ilo_atof = {
-        let mut sig = module.make_signature();
-        sig.params.push(AbiParam::new(I64));
-        sig.returns.push(AbiParam::new(F64));
-        module.declare_function("ilo_atof", Linkage::Import, &sig).map_err(|e| e.to_string())?
-    };
 
     // First pass: declare all functions to get FuncIds
     let mut func_ids: Vec<FuncId> = Vec::with_capacity(program.chunks.len());
@@ -343,40 +314,42 @@ pub fn compile_to_binary(
         let name = format!("ilo_{}", program.func_names[i]);
         compile_function_body(
             &mut module, chunk, nan_consts, &name, func_ids[i], &helpers, Some(&func_ids),
-        ).inspect_err(|_| { cleanup("", &runtime_o_path); })?;
+        )?;
     }
 
     let entry_func_id = func_ids[entry_idx];
     let entry_chunk = &program.chunks[entry_idx];
+
+    // Serialize the type registry for embedding in the binary
+    let registry_bytes = serialize_type_registry(&program.type_registry);
 
     // Generate main()
     generate_main(
         &mut module,
         entry_func_id,
         entry_chunk.param_count as usize,
-        ilo_atof,
         &helpers,
-    ).inspect_err(|_| { cleanup("", &runtime_o_path); })?;
+        &registry_bytes,
+    )?;
 
     // Emit object file
     let obj_product = module.finish();
-    let obj_bytes = obj_product.emit().map_err(|e| { cleanup("", &runtime_o_path); e.to_string() })?;
+    let obj_bytes = obj_product.emit().map_err(|e| e.to_string())?;
 
     let obj_path = format!("{}.o", output_path);
     std::fs::write(&obj_path, &obj_bytes)
-        .map_err(|e| { cleanup("", &runtime_o_path); format!("failed to write object file: {}", e) })?;
+        .map_err(|e| format!("failed to write object file: {}", e))?;
 
     // Find libilo.a
     let libilo_path = find_libilo_a()
-        .inspect_err(|_| { cleanup(&obj_path, &runtime_o_path); })?;
+        .inspect_err(|_| { cleanup(&obj_path); })?;
     let libilo_dir = std::path::Path::new(&libilo_path).parent()
         .ok_or_else(|| "invalid libilo.a path".to_string())?
         .to_string_lossy().to_string();
 
-    // Link: user.o + runtime.o + libilo.a + system libs
+    // Link: user.o + libilo.a + system libs
     let mut link_cmd = std::process::Command::new("cc");
     link_cmd.arg(&obj_path)
-        .arg(&runtime_o_path)
         .arg("-o")
         .arg(output_path)
         .arg(format!("-L{}", libilo_dir))
@@ -386,9 +359,9 @@ pub fn compile_to_binary(
     }
 
     let status = link_cmd.status()
-        .map_err(|e| { cleanup(&obj_path, &runtime_o_path); format!("failed to run cc: {}", e) })?;
+        .map_err(|e| { cleanup(&obj_path); format!("failed to run cc: {}", e) })?;
 
-    cleanup(&obj_path, &runtime_o_path);
+    cleanup(&obj_path);
 
     if !status.success() {
         return Err(format!("linker failed with exit code: {}", status));
@@ -1542,12 +1515,30 @@ fn compile_function_body(
 }
 
 /// Generate the `main(argc, argv)` entry point.
+/// Serialize a TypeRegistry to bytes for embedding in AOT binaries.
+/// Format: `type_name\0num_fields_bitmask\0field1\0field2\0...\0\n` per type.
+fn serialize_type_registry(registry: &super::TypeRegistry) -> Vec<u8> {
+    let mut buf = Vec::new();
+    for ti in &registry.types {
+        buf.extend_from_slice(ti.name.as_bytes());
+        buf.push(0);
+        buf.extend_from_slice(ti.num_fields.to_string().as_bytes());
+        buf.push(0);
+        for f in &ti.fields {
+            buf.extend_from_slice(f.as_bytes());
+            buf.push(0);
+        }
+        buf.push(b'\n');
+    }
+    buf
+}
+
 fn generate_main(
     module: &mut ObjectModule,
     user_func_id: FuncId,
     param_count: usize,
-    ilo_atof: FuncId,
     helpers: &HelperFuncs,
+    registry_bytes: &[u8],
 ) -> Result<(), String> {
     let mut sig = module.make_signature();
     sig.params.push(AbiParam::new(I32)); // argc
@@ -1576,18 +1567,25 @@ fn generate_main(
     let init_fref = module.declare_func_in_func(helpers.aot_init, builder.func);
     builder.ins().call(init_fref, &[]);
 
-    let user_fref = module.declare_func_in_func(user_func_id, builder.func);
-    let atof_fref = module.declare_func_in_func(ilo_atof, builder.func);
+    // Set up the type registry if there are any types
+    if !registry_bytes.is_empty() {
+        let reg_ptr = create_data_section(module, &mut builder, "ilo_type_registry", registry_bytes)?;
+        let reg_len = builder.ins().iconst(I64, registry_bytes.len() as i64);
+        let set_reg_fref = module.declare_func_in_func(helpers.aot_set_registry, builder.func);
+        builder.ins().call(set_reg_fref, &[reg_ptr, reg_len]);
+    }
 
-    // Convert CLI args to NanVal via atof
+    let user_fref = module.declare_func_in_func(user_func_id, builder.func);
+    let parse_arg_fref = module.declare_func_in_func(helpers.aot_parse_arg, builder.func);
+
+    // Convert CLI args to NanVal via ilo_aot_parse_arg (auto-detects number vs string)
     let mut call_args = Vec::with_capacity(param_count);
     for i in 0..param_count {
         let idx = builder.ins().iconst(I64, ((i + 1) * 8) as i64);
         let arg_ptr_ptr = builder.ins().iadd(argv, idx);
         let arg_ptr = builder.ins().load(I64, mf, arg_ptr_ptr, 0);
-        let call_inst = builder.ins().call(atof_fref, &[arg_ptr]);
-        let f64_val = builder.inst_results(call_inst)[0];
-        let nan_val = builder.ins().bitcast(I64, mf, f64_val);
+        let call_inst = builder.ins().call(parse_arg_fref, &[arg_ptr]);
+        let nan_val = builder.inst_results(call_inst)[0];
         call_args.push(nan_val);
     }
 
@@ -1687,6 +1685,12 @@ pub fn compile_to_bench_binary(
     let param_count = entry_chunk.param_count as usize;
     let func_name = format!("ilo_{}", entry_func);
     let bench_c_path = format!("{}_bench.c", output_path);
+    // Serialize registry for embedding in C harness
+    let registry_bytes = serialize_type_registry(&program.type_registry);
+    let registry_c_literal = registry_bytes.iter()
+        .map(|b| format!("\\x{:02x}", b))
+        .collect::<String>();
+
     let mut c_code = String::from(
         "#include <stdio.h>\n\
          #include <stdlib.h>\n\
@@ -1695,14 +1699,17 @@ pub fn compile_to_bench_binary(
          #include <time.h>\n\n\
          extern void ilo_aot_init(void);\n\
          extern void ilo_aot_fini(void);\n\
-         extern void ilo_aot_arena_reset(void);\n\n\
-         static int64_t encode_arg(const char* s) {\n\
-         \tdouble d = atof(s);\n\
-         \tint64_t r;\n\
-         \tmemcpy(&r, &d, 8);\n\
-         \treturn r;\n\
-         }\n\n"
+         extern void ilo_aot_arena_reset(void);\n\
+         extern void ilo_aot_set_registry(int64_t ptr, int64_t len);\n\
+         extern int64_t ilo_aot_parse_arg(int64_t ptr);\n\n"
     );
+    // Embed the serialized type registry as a C byte array
+    if !registry_bytes.is_empty() {
+        c_code.push_str(&format!(
+            "static const char ilo_registry_data[] = \"{}\";\n\n",
+            registry_c_literal
+        ));
+    }
 
     // Declare the exported function
     c_code.push_str(&format!("extern int64_t {}(", func_name));
@@ -1721,7 +1728,7 @@ pub fn compile_to_bench_binary(
     c_code.push_str("\tint iters = atoi(argv[1]);\n");
 
     for i in 0..param_count {
-        c_code.push_str(&format!("\tint64_t a{} = encode_arg(argv[{}]);\n", i, i + 2));
+        c_code.push_str(&format!("\tint64_t a{} = ilo_aot_parse_arg((int64_t)argv[{}]);\n", i, i + 2));
     }
 
     let call_args: String = (0..param_count)
@@ -1731,6 +1738,12 @@ pub fn compile_to_bench_binary(
 
     // Init + warmup
     c_code.push_str("\tilo_aot_init();\n");
+    if !registry_bytes.is_empty() {
+        c_code.push_str(&format!(
+            "\tilo_aot_set_registry((int64_t)ilo_registry_data, {});\n",
+            registry_bytes.len()
+        ));
+    }
     c_code.push_str(&format!("\t{}({});\n", func_name, call_args));
     c_code.push_str("\tilo_aot_arena_reset();\n");
 

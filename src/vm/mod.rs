@@ -5802,6 +5802,32 @@ pub extern "C" fn ilo_aot_init() {
     jit_arena_reset();
 }
 
+/// Set the active TypeRegistry from serialized bytes (for AOT binaries).
+/// Format: repeated entries of `type_name\0num_fields_bitmask_hex\0field1\0field2\0...\0\n`
+#[cfg(feature = "cranelift")]
+#[unsafe(no_mangle)]
+pub extern "C" fn ilo_aot_set_registry(ptr: u64, len: u64) {
+    let bytes = unsafe { std::slice::from_raw_parts(ptr as *const u8, len as usize) };
+    let text = std::str::from_utf8(bytes).unwrap_or("");
+    let mut registry = TypeRegistry::default();
+    for line in text.lines() {
+        if line.is_empty() { continue; }
+        let parts: Vec<&str> = line.split('\0').collect();
+        if parts.len() < 2 { continue; }
+        let name = parts[0].to_string();
+        let num_fields: u64 = parts[1].parse().unwrap_or(0);
+        let fields: Vec<String> = parts[2..].iter()
+            .filter(|s| !s.is_empty())
+            .map(|s| s.to_string())
+            .collect();
+        registry.register(name, fields, num_fields);
+    }
+    // Leak the registry so the pointer stays valid for the program's lifetime
+    let boxed = Box::new(registry);
+    let ptr = Box::into_raw(boxed);
+    ACTIVE_REGISTRY.with(|r| r.set(ptr as *const TypeRegistry));
+}
+
 #[cfg(feature = "cranelift")]
 #[unsafe(no_mangle)]
 pub extern "C" fn ilo_aot_arena_reset() {
@@ -5834,6 +5860,26 @@ pub extern "C" fn jit_string_const(ptr: u64) -> u64 {
     let cstr = unsafe { std::ffi::CStr::from_ptr(ptr as *const std::ffi::c_char) };
     let s = cstr.to_str().unwrap_or("").to_string();
     NanVal::heap_string(s).0
+}
+
+/// Parse a CLI arg: if it looks like a number, return NanVal number; otherwise NanVal string.
+#[cfg(feature = "cranelift")]
+#[unsafe(no_mangle)]
+pub extern "C" fn ilo_aot_parse_arg(ptr: u64) -> u64 {
+    let cstr = unsafe { std::ffi::CStr::from_ptr(ptr as *const std::ffi::c_char) };
+    let s = cstr.to_str().unwrap_or("");
+    match s {
+        "true" => TAG_TRUE,
+        "false" => TAG_FALSE,
+        "nil" => TAG_NIL,
+        _ => {
+            if let Ok(n) = s.parse::<f64>() {
+                NanVal::number(n).0
+            } else {
+                NanVal::heap_string(s.to_string()).0
+            }
+        }
+    }
 }
 
 // ── Block leader analysis (shared by JIT backends) ──────────────────
