@@ -1,0 +1,28 @@
+-- Result matching: match ~v (ok arm) and ^e (err arm) on R ok err values.
+-- ~ wraps a value in Ok, ^ wraps in Err.
+-- Auto-unwrap with ! propagates Err to the calling function.
+
+-- Parse a text literal and match the result
+parse-ok>t;r=num "3.14";?r{~v:str v;^e:"err"}
+
+parse-bad>t;r=num "oops";?r{~v:"ok";^e:"err: "+e}
+
+-- Safe division returning R n t, matched at call site
+safe-div a:n b:n>R n t;=b 0 ^"zero";~/a b
+
+div-msg a:n b:n>t;r=safe-div a b;?r{~v:str v;^e:"fail: "+e}
+
+-- Auto-unwrap: inner returns R; outer propagates Err automatically
+inner x:n>R n t;~*x 2
+outer x:n>R n t;r=inner! x;~+r 1
+
+-- run: parse-ok
+-- out: 3.14
+-- run: parse-bad
+-- out: err: oops
+-- run: div-msg 10 2
+-- out: 5
+-- run: div-msg 10 0
+-- out: fail: zero
+-- run: outer 5
+-- out: ~11

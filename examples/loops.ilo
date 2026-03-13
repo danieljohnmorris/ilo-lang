@@ -1,0 +1,29 @@
+-- Loops: wh (while), @i a..b (range), brk (break), cnt (continue).
+-- Loop control flow: brk exits, cnt skips to next iteration.
+-- Use ternary form cond{brk/cnt}{body} inside loops to avoid guard-as-return ambiguity.
+
+-- While loop: sum 1 through 5
+wh-sum>n;i=0;s=0;wh <i 5{i=+i 1;s=+s i};+s 0
+
+-- Range iteration: sum 0+1+2+3+4
+range-sum>n;s=0;@i 0..5{s=+s i};+s 0
+
+-- Range: collect indices into a list
+range-list>L n;xs=[];@i 0..4{xs=+=xs i};xs
+
+-- Break: exit loop when i reaches 3
+brk-at-3>n;i=0;wh true{i=+i 1;>=i 3{brk}{i=i}};+i 0
+
+-- Continue: sum only even numbers 0..6 (skip odd)
+cnt-evens>n;s=0;@i 0..7{r=mod i 2;!=r 0{cnt}{s=+s i}};+s 0
+
+-- run: wh-sum
+-- out: 15
+-- run: range-sum
+-- out: 10
+-- run: range-list
+-- out: [0, 1, 2, 3]
+-- run: brk-at-3
+-- out: 3
+-- run: cnt-evens
+-- out: 12

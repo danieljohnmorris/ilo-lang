@@ -1,0 +1,29 @@
+-- Type conversions: str (number to text), num (text to number R n t).
+-- str: converts any number to text; integers format without .0.
+-- num: parses text to number, returns R n t (Ok or Err).
+
+-- Number to text
+n-to-t>t;str 42
+
+-- Float to text
+f-to-t>t;str 3.14
+
+-- Negative to text
+neg-to-t>t;str -7
+
+-- Text to number: ok case
+t-to-n>t;r=num "42";?r{~v:str v;^e:"err"}
+
+-- Text to number: error case
+bad-parse>t;r=num "abc";?r{~v:"ok";^e:+"bad: " e}
+
+-- run: n-to-t
+-- out: 42
+-- run: f-to-t
+-- out: 3.14
+-- run: neg-to-t
+-- out: -7
+-- run: t-to-n
+-- out: 42
+-- run: bad-parse
+-- out: bad: abc

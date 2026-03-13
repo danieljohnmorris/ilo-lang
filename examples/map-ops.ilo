@@ -1,0 +1,13 @@
+-- Map operations: mvals, mdel, and chained mset.
+-- Extends maps.ilo with mvals (values sorted by key).
+
+-- Get all values from a map (sorted by key order)
+vals>L n;m=mset mmap "b" 2;m=mset m "a" 1;mvals m
+
+-- Delete a key and check remaining keys
+del-key>L t;m=mset mmap "a" 1;m=mset m "b" 2;m=mdel m "a";mkeys m
+
+-- run: vals
+-- out: [1, 2]
+-- run: del-key
+-- out: [b]

@@ -1,0 +1,24 @@
+-- Optional types: O T accepts nil or a value of type T.
+-- ?? (nil-coalesce): returns left side if non-nil, else right side.
+-- .? (safe field access): returns nil if object is nil, else the field value.
+
+-- Unwrap optional or use default: x??default
+unwrap x:O n>n;x??0
+
+-- Return nil (valid O n)
+nothing>O n;nil
+
+-- Return a value (valid O n)
+something>O n;42
+
+-- Chain with ?? for default
+chain>t;v=nil;r=v??"default";+r ""
+
+-- run: unwrap 99
+-- out: 99
+-- run: nothing
+-- out: nil
+-- run: something
+-- out: 42
+-- run: chain
+-- out: default
