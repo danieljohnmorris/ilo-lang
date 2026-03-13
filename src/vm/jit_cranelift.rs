@@ -76,6 +76,7 @@ struct HelperFuncs {
     recfld_name: FuncId,
     recnew: FuncId,
     recwith: FuncId,
+    recwith_arena: FuncId,
     listnew: FuncId,
     listget: FuncId,
     jpth: FuncId,
@@ -171,6 +172,7 @@ fn register_helpers(builder: &mut JITBuilder) {
         ("jit_recfld_name", jit_recfld_name as *const u8),
         ("jit_recnew", jit_recnew as *const u8),
         ("jit_recwith", jit_recwith as *const u8),
+        ("jit_recwith_arena", jit_recwith_arena as *const u8),
         ("jit_listnew", jit_listnew as *const u8),
         ("jit_listget", jit_listget as *const u8),
         ("jit_jpth", jit_jpth as *const u8),
@@ -259,6 +261,7 @@ fn declare_all_helpers(module: &mut JITModule) -> HelperFuncs {
         recfld_name: declare_helper(module, "jit_recfld_name", 3, 1),
         recnew: declare_helper(module, "jit_recnew", 4, 1),
         recwith: declare_helper(module, "jit_recwith", 4, 1),
+        recwith_arena: declare_helper(module, "jit_recwith_arena", 5, 1),
         listnew: declare_helper(module, "jit_listnew", 2, 1),
         listget: declare_helper(module, "jit_listget", 2, 1),
         jpth: declare_helper(module, "jit_jpth", 2, 1),
@@ -294,6 +297,233 @@ fn declare_all_helpers(module: &mut JITModule) -> HelperFuncs {
     }
 }
 
+/// Check whether a callee chunk can be safely inlined at a JIT call site.
+///
+/// A chunk is inlinable when every opcode is from the "pure numeric guard chain"
+/// set (CMPK_*_N, JMP, LOADK with numeric constants only, RET, and the fused
+/// arithmetic ops), all registers are numeric, and the register file is <= 16.
+fn is_inlinable(chunk: &Chunk, nan_consts: &[NanVal]) -> bool {
+    if !chunk.all_regs_numeric { return false; }
+    if chunk.reg_count as usize > 16 { return false; }
+    if chunk.code.is_empty() { return false; }
+
+    let mut has_ret = false;
+    for &inst in &chunk.code {
+        let op = (inst >> 24) as u8;
+        match op {
+            op if op == OP_CMPK_GE_N || op == OP_CMPK_GT_N || op == OP_CMPK_LT_N
+                || op == OP_CMPK_LE_N || op == OP_CMPK_EQ_N || op == OP_CMPK_NE_N => {}
+            OP_JMP => {}
+            OP_RET => { has_ret = true; }
+            OP_LOADK => {
+                let bx = (inst & 0xFFFF) as usize;
+                if bx >= nan_consts.len() || !nan_consts[bx].is_number() {
+                    return false;
+                }
+            }
+            OP_ADD_NN | OP_SUB_NN | OP_MUL_NN | OP_DIV_NN
+            | OP_ADDK_N | OP_SUBK_N | OP_MULK_N | OP_DIVK_N => {}
+            _ => return false,
+        }
+    }
+    has_ret
+}
+
+/// Inline a callee chunk directly into the caller's Cranelift IR stream.
+///
+/// `arg_vars`     — caller `Variable`s for callee params (indices 0..n_params)
+/// `result_var`   — caller `Variable` that receives the inlined return value
+/// `extra_vars`   — caller `Variable`s for callee non-param regs
+/// `f64_arg_vars` — F64 shadow `Variable`s corresponding to `arg_vars`
+/// `merge_block`  — block to jump to after the inlined return
+///
+/// Returns `true` on success, `false` if inlining should be abandoned.
+#[allow(clippy::too_many_arguments)]
+fn inline_chunk(
+    builder: &mut FunctionBuilder<'_>,
+    callee_chunk: &Chunk,
+    callee_consts: &[NanVal],
+    arg_vars: &[Variable],
+    result_var: Variable,
+    extra_vars: &[Variable],
+    f64_arg_vars: &[Variable],
+    merge_block: cranelift_codegen::ir::Block,
+) -> bool {
+    let n_params = callee_chunk.param_count as usize;
+    let mf = cranelift_codegen::ir::MemFlags::new();
+
+    let reg_var = |r: usize| -> Variable {
+        if r < n_params { arg_vars[r] } else { extra_vars[r - n_params] }
+    };
+
+    // Retrieve the f64 Value for callee register `r`.
+    // Uses the pre-computed shadow for param registers; bitcasts for others.
+    // NOTE: always uses two separate statements to avoid double-borrow of builder.
+    let f64_val_for = |r: usize, builder: &mut FunctionBuilder<'_>| -> cranelift_codegen::ir::Value {
+        if r < n_params {
+            builder.use_var(f64_arg_vars[r])
+        } else {
+            let iv = builder.use_var(extra_vars[r - n_params]);
+            builder.ins().bitcast(F64, mf, iv)
+        }
+    };
+
+    let leaders = find_block_leaders(&callee_chunk.code);
+    let mut imap: HashMap<usize, cranelift_codegen::ir::Block> = HashMap::new();
+    for &l in &leaders {
+        imap.insert(l, builder.create_block());
+    }
+
+    builder.ins().jump(imap[&0], &[]);
+    // Outer block is now terminated; mark it so the loop doesn't re-emit
+    // a jump when ip=0 is recognised as a block leader.
+    let mut terminated = true;
+
+    for (ip, &inst) in callee_chunk.code.iter().enumerate() {
+        if let Some(&blk) = imap.get(&ip) {
+            if !terminated { builder.ins().jump(blk, &[]); }
+            builder.switch_to_block(blk);
+            terminated = false;
+        }
+        if terminated { continue; }
+
+        let op    = (inst >> 24) as u8;
+        let a_raw = ((inst >> 16) & 0xFF) as usize;
+
+        match op {
+            OP_RET => {
+                let rv = builder.use_var(reg_var(a_raw));
+                builder.def_var(result_var, rv);
+                builder.ins().jump(merge_block, &[]);
+                terminated = true;
+            }
+            OP_JMP => {
+                let sbx = (inst & 0xFFFF) as i16;
+                let t   = (ip as isize + 1 + sbx as isize) as usize;
+                if let Some(&tb) = imap.get(&t) {
+                    builder.ins().jump(tb, &[]);
+                    terminated = true;
+                } else { return false; }
+            }
+            OP_LOADK => {
+                let bx   = (inst & 0xFFFF) as usize;
+                let bits = callee_consts[bx].0;
+                let kval = builder.ins().iconst(I64, bits as i64);
+                builder.def_var(reg_var(a_raw), kval);
+            }
+            op if op == OP_CMPK_GE_N || op == OP_CMPK_GT_N || op == OP_CMPK_LT_N
+                || op == OP_CMPK_LE_N || op == OP_CMPK_EQ_N || op == OP_CMPK_NE_N => {
+                let ki      = (inst & 0xFF) as usize;
+                let lhs_f64 = f64_val_for(a_raw, builder);
+                let rhs_k   = if ki < callee_consts.len() { callee_consts[ki].as_number() } else { 0.0 };
+                let rhs_f64 = builder.ins().f64const(rhs_k);
+
+                use cranelift_codegen::ir::condcodes::FloatCC;
+                let cc = match op {
+                    op if op == OP_CMPK_GE_N => FloatCC::GreaterThanOrEqual,
+                    op if op == OP_CMPK_GT_N => FloatCC::GreaterThan,
+                    op if op == OP_CMPK_LT_N => FloatCC::LessThan,
+                    op if op == OP_CMPK_LE_N => FloatCC::LessThanOrEqual,
+                    op if op == OP_CMPK_EQ_N => FloatCC::Equal,
+                    _                        => FloatCC::NotEqual,
+                };
+                let cmp  = builder.ins().fcmp(cc, lhs_f64, rhs_f64);
+                let body = imap.get(&(ip + 2)).copied();
+                let miss = callee_chunk.code.get(ip + 1).and_then(|&j| {
+                    if (j >> 24) as u8 == OP_JMP {
+                        let sbx = (j & 0xFFFF) as i16;
+                        imap.get(&((ip as isize + 2 + sbx as isize) as usize)).copied()
+                    } else { None }
+                }).or_else(|| imap.get(&(ip + 1)).copied());
+
+                match (miss, body) {
+                    (Some(fb), Some(bb)) => { builder.ins().brif(cmp, bb, &[], fb, &[]); terminated = true; }
+                    _ => return false,
+                }
+            }
+            OP_ADD_NN => {
+                let b = ((inst >> 8) & 0xFF) as usize;
+                let c = (inst & 0xFF) as usize;
+                let bv = f64_val_for(b, builder);
+                let cv = f64_val_for(c, builder);
+                let rf = builder.ins().fadd(bv, cv);
+                let ri = builder.ins().bitcast(I64, mf, rf);
+                builder.def_var(reg_var(a_raw), ri);
+            }
+            OP_SUB_NN => {
+                let b = ((inst >> 8) & 0xFF) as usize;
+                let c = (inst & 0xFF) as usize;
+                let bv = f64_val_for(b, builder);
+                let cv = f64_val_for(c, builder);
+                let rf = builder.ins().fsub(bv, cv);
+                let ri = builder.ins().bitcast(I64, mf, rf);
+                builder.def_var(reg_var(a_raw), ri);
+            }
+            OP_MUL_NN => {
+                let b = ((inst >> 8) & 0xFF) as usize;
+                let c = (inst & 0xFF) as usize;
+                let bv = f64_val_for(b, builder);
+                let cv = f64_val_for(c, builder);
+                let rf = builder.ins().fmul(bv, cv);
+                let ri = builder.ins().bitcast(I64, mf, rf);
+                builder.def_var(reg_var(a_raw), ri);
+            }
+            OP_DIV_NN => {
+                let b = ((inst >> 8) & 0xFF) as usize;
+                let c = (inst & 0xFF) as usize;
+                let bv = f64_val_for(b, builder);
+                let cv = f64_val_for(c, builder);
+                let rf = builder.ins().fdiv(bv, cv);
+                let ri = builder.ins().bitcast(I64, mf, rf);
+                builder.def_var(reg_var(a_raw), ri);
+            }
+            OP_ADDK_N => {
+                let b  = ((inst >> 8) & 0xFF) as usize;
+                let ki = (inst & 0xFF) as usize;
+                let bv = f64_val_for(b, builder);
+                let kv = builder.ins().f64const(callee_consts.get(ki).map(|c| c.as_number()).unwrap_or(0.0));
+                let rf = builder.ins().fadd(bv, kv);
+                let ri = builder.ins().bitcast(I64, mf, rf);
+                builder.def_var(reg_var(a_raw), ri);
+            }
+            OP_SUBK_N => {
+                let b  = ((inst >> 8) & 0xFF) as usize;
+                let ki = (inst & 0xFF) as usize;
+                let bv = f64_val_for(b, builder);
+                let kv = builder.ins().f64const(callee_consts.get(ki).map(|c| c.as_number()).unwrap_or(0.0));
+                let rf = builder.ins().fsub(bv, kv);
+                let ri = builder.ins().bitcast(I64, mf, rf);
+                builder.def_var(reg_var(a_raw), ri);
+            }
+            OP_MULK_N => {
+                let b  = ((inst >> 8) & 0xFF) as usize;
+                let ki = (inst & 0xFF) as usize;
+                let bv = f64_val_for(b, builder);
+                let kv = builder.ins().f64const(callee_consts.get(ki).map(|c| c.as_number()).unwrap_or(0.0));
+                let rf = builder.ins().fmul(bv, kv);
+                let ri = builder.ins().bitcast(I64, mf, rf);
+                builder.def_var(reg_var(a_raw), ri);
+            }
+            OP_DIVK_N => {
+                let b  = ((inst >> 8) & 0xFF) as usize;
+                let ki = (inst & 0xFF) as usize;
+                let bv = f64_val_for(b, builder);
+                let kv = builder.ins().f64const(callee_consts.get(ki).map(|c| c.as_number()).unwrap_or(0.0));
+                let rf = builder.ins().fdiv(bv, kv);
+                let ri = builder.ins().bitcast(I64, mf, rf);
+                builder.def_var(reg_var(a_raw), ri);
+            }
+            _ => return false,
+        }
+    }
+    if !terminated {
+        let nil = builder.ins().iconst(I64, TAG_NIL as i64);
+        builder.def_var(result_var, nil);
+        builder.ins().jump(merge_block, &[]);
+    }
+    true
+}
+
 /// Compile a single function body into the JIT module.
 fn compile_function_body(
     module: &mut JITModule,
@@ -324,6 +554,125 @@ fn compile_function_body(
         let var = Variable::from_u32(i as u32);
         builder.declare_var(var, I64);
         vars.push(var);
+    }
+
+    // Declare extra F64 shadow variables for registers that will be proven always-numeric.
+    // These allow guard chains to reuse a single bitcast across multiple CMPK instructions
+    // without redundant i64→f64 conversions on every comparison.
+    // Variable indices [reg_count .. reg_count*2) are the F64 shadows.
+    let f64_var_offset = reg_count;
+    let mut f64_vars: Vec<Variable> = Vec::with_capacity(reg_count);
+    for i in 0..reg_count {
+        let var = Variable::from_u32((f64_var_offset + i) as u32);
+        builder.declare_var(var, F64);
+        f64_vars.push(var);
+    }
+
+    // ── Foreach loop cache variables ─────────────────────────────────────────
+    // For each FOREACHPREP instruction we allocate 4 extra I64 Cranelift variables:
+    //   [foreach_var_base + loop_idx*4 + 0]  ptr      — HeapObj pointer (bv & PTR_MASK)
+    //   [foreach_var_base + loop_idx*4 + 1]  data_ptr — Vec backing-store pointer (*ptr+16)
+    //   [foreach_var_base + loop_idx*4 + 2]  vec_len  — Vec length (*ptr+8)
+    //   [foreach_var_base + loop_idx*4 + 3]  int_idx  — current index as raw i64
+    //
+    // FOREACHPREP writes all four; FOREACHNEXT reads them to avoid re-extracting the
+    // pointer, re-loading two memory fields, and doing fcvt_to_uint_sat each iteration.
+    // Matching is done by (b_idx, c_idx) register pair — each foreach loop uses a
+    // dedicated (coll_reg, idx_reg) pair assigned by the bytecode compiler.
+    //
+    // Variable layout:
+    //   [0 .. reg_count)            I64  VM register vars
+    //   [reg_count .. 2*reg_count)  F64  shadow vars
+    //   [2*reg_count .. )           I64  foreach cache vars (4 per loop)
+    let foreach_var_base = 2 * reg_count;
+
+    // Pre-scan: collect unique (b_idx, c_idx) pairs from FOREACHPREP instructions
+    // and assign each a loop index.
+    let mut foreach_loop_map: HashMap<(usize, usize), usize> = HashMap::new();
+    for &inst in &chunk.code {
+        let op = (inst >> 24) as u8;
+        if op == OP_FOREACHPREP {
+            let b = ((inst >> 8) & 0xFF) as usize;
+            let c = (inst & 0xFF) as usize;
+            let next_idx = foreach_loop_map.len();
+            foreach_loop_map.entry((b, c)).or_insert(next_idx);
+        }
+    }
+    let num_foreach_loops = foreach_loop_map.len();
+
+    // Declare the 4 × num_foreach_loops extra I64 variables.
+    for i in 0..(num_foreach_loops * 4) {
+        let var = Variable::from_u32((foreach_var_base + i) as u32);
+        builder.declare_var(var, I64);
+    }
+
+    // Helper closures to get the Variable for each foreach cache slot.
+    // `loop_idx` comes from `foreach_loop_map.get(&(b, c))`.
+    let fe_ptr_var = |loop_idx: usize| Variable::from_u32((foreach_var_base + loop_idx * 4) as u32);
+    let fe_data_ptr_var = |loop_idx: usize| Variable::from_u32((foreach_var_base + loop_idx * 4 + 1) as u32);
+    let fe_len_var = |loop_idx: usize| Variable::from_u32((foreach_var_base + loop_idx * 4 + 2) as u32);
+    let fe_idx_var = |loop_idx: usize| Variable::from_u32((foreach_var_base + loop_idx * 4 + 3) as u32);
+
+    // ── Inline callee variable pool ───────────────────────────────────────────
+    // For each OP_CALL that targets an inlinable callee we need variables for the
+    // callee's non-parameter registers.  We pre-scan OP_CALL instructions and
+    // allocate a variable block per unique (call-site-ip, callee-reg-index) pair.
+    //
+    // Variable layout continues at:
+    //   [foreach_var_base + num_foreach_loops*4 ..)  I64  inline callee vars
+    //
+    // Map: call-site ip → Vec<Variable> of length (callee.reg_count - callee.param_count)
+    let inline_var_base = foreach_var_base + num_foreach_loops * 4;
+    let mut inline_var_map: HashMap<usize, Vec<Variable>> = HashMap::new();
+    {
+        let mut next_var_idx = inline_var_base;
+        for (ip, &inst) in chunk.code.iter().enumerate() {
+            let op = (inst >> 24) as u8;
+            if op != OP_CALL { continue; }
+            let bx       = (inst & 0xFFFF) as usize;
+            let func_idx = bx >> 8;
+            if func_idx >= program.chunks.len() { continue; }
+            let callee_chunk  = &program.chunks[func_idx];
+            let callee_consts = &program.nan_constants[func_idx];
+            if !is_inlinable(callee_chunk, callee_consts) { continue; }
+            let n_extra = (callee_chunk.reg_count as usize)
+                .saturating_sub(callee_chunk.param_count as usize);
+            let mut slot_vars = Vec::with_capacity(n_extra);
+            for _ in 0..n_extra {
+                let v = Variable::from_u32(next_var_idx as u32);
+                builder.declare_var(v, I64);
+                slot_vars.push(v);
+                next_var_idx += 1;
+            }
+            inline_var_map.insert(ip, slot_vars);
+        }
+    }
+
+    // Pre-allocate one extra F64 shadow variable per inline arg register we'll use.
+    // Indexed as [inline_f64_var_base + ip_slot * MAX_ARGS + arg_idx].
+    // We use a simpler scheme: one F64 var per (call-site-ip, arg-position).
+    // For the common case of 1-arg inlinable functions this is just one var per call.
+    // Layout: [foreach_var_base + num_foreach_loops*4 + total_inline_i64_vars ..)  F64
+    let total_inline_i64 = inline_var_map.values().map(|v| v.len()).sum::<usize>();
+    let inline_f64_var_base = foreach_var_base + num_foreach_loops * 4 + total_inline_i64;
+    // For each inlinable call site we allocate n_params F64 shadow variables.
+    let mut inline_f64_var_map: HashMap<usize, Vec<Variable>> = HashMap::new();
+    {
+        let mut next_f64_idx = inline_f64_var_base;
+        for (&ip, _) in &inline_var_map {
+            let bx       = (chunk.code[ip] & 0xFFFF) as usize;
+            let func_idx = bx >> 8;
+            let callee   = &program.chunks[func_idx];
+            let np = callee.param_count as usize;
+            let mut fvs = Vec::with_capacity(np);
+            for _ in 0..np {
+                let v = Variable::from_u32(next_f64_idx as u32);
+                builder.declare_var(v, F64);
+                fvs.push(v);
+                next_f64_idx += 1;
+            }
+            inline_f64_var_map.insert(ip, fvs);
+        }
     }
 
     // Find block leaders for control flow
@@ -360,28 +709,43 @@ fn compile_function_body(
     // Store the program pointer as a constant for jit_call fallback
     let program_ptr_val = program as *const CompiledProgram as u64;
 
-    // Pre-pass: determine which registers are *always* written with numeric values.
-    // A register is "always numeric" if every instruction that writes it produces a
-    // floating-point number (i.e. can be safely bitcast to f64 without a QNAN check).
+    // Pre-pass: determine which registers are *always* written with numeric values,
+    // and which are *always* written with boolean values (TAG_TRUE / TAG_FALSE).
     //
-    // We track two flags per register:
+    // Numeric analysis (reg_always_num):
     //   num_write[r]     — at least one write to r is definitely numeric
     //   non_num_write[r] — at least one write to r may produce a non-number
+    //   A register is "always numeric" iff num_write && !non_num_write.
     //
-    // A register is "always numeric" iff num_write && !non_num_write.
-    let mut reg_always_num = vec![false; reg_count];
+    //   MOVE is handled with a fixpoint loop: MOVE a, b propagates b's numeric
+    //   status to a.  This is critical for range-loop counters which are
+    //   initialised with MOVE counter, start_const before ADDK_N takes over.
+    //
+    // Boolean analysis (reg_always_bool):
+    //   bool_write[r]     — every write to r produces TAG_TRUE or TAG_FALSE
+    //   non_bool_write[r] — at least one write to r may produce a non-bool
+    //   A register is "always boolean" iff bool_write && !non_bool_write.
+    //
+    //   This lets JMPF/JMPT on comparison results be compiled as a single
+    //   `icmp ne val, TAG_FALSE` + `brif` instead of a 3-block diamond that
+    //   first checks whether the value is a number (it never is for booleans).
+    let mut reg_always_num  = vec![false; reg_count];
+    let mut reg_always_bool = vec![false; reg_count];
     {
-        let mut non_num_write = vec![false; reg_count];
-        let mut num_write     = vec![false; reg_count];
+        let mut non_num_write  = vec![false; reg_count];
+        let mut num_write      = vec![false; reg_count];
+        let mut bool_write     = vec![false; reg_count];
+        let mut non_bool_write = vec![false; reg_count];
 
         // Function parameters: the VM compiler sets all_regs_numeric when it has
         // proven every param is numeric (e.g. single-param numeric functions).
         if chunk.all_regs_numeric {
-            for (i, slot) in num_write.iter_mut().enumerate().take(chunk.param_count as usize) {
-                if i < reg_count { *slot = true; }
+            for i in 0..chunk.param_count as usize {
+                if i < reg_count { num_write[i] = true; }
             }
         }
 
+        // First pass: classify all non-MOVE instructions.
         for &inst in &chunk.code {
             let op = (inst >> 24) as u8;
             let a  = ((inst >> 16) & 0xFF) as usize;
@@ -389,7 +753,10 @@ fn compile_function_body(
             match op {
                 // Guaranteed numeric outputs.
                 OP_ADD_NN | OP_SUB_NN | OP_MUL_NN | OP_DIV_NN
-                | OP_ADDK_N | OP_SUBK_N | OP_MULK_N | OP_DIVK_N => {
+                | OP_ADDK_N | OP_SUBK_N | OP_MULK_N | OP_DIVK_N
+                | OP_LEN | OP_ABS | OP_MIN | OP_MAX
+                | OP_FLR | OP_CEL | OP_ROU | OP_RND0 | OP_RND2 | OP_NOW
+                | OP_MOD => {
                     num_write[a] = true;
                 }
                 // LOADK: numeric only when the constant itself is a number.
@@ -401,15 +768,20 @@ fn compile_function_body(
                         non_num_write[a] = true;
                     }
                 }
-                // Ops that write a non-numeric or unknown type to R[A].
-                // This list is conservative: an op not mentioned here simply leaves
-                // num_write[a] false, so the register won't qualify as always-numeric.
+                // Boolean outputs: comparison and type-test ops.
+                // These always produce TAG_TRUE or TAG_FALSE.
                 OP_LT | OP_GT | OP_LE | OP_GE | OP_EQ | OP_NE
                 | OP_NOT | OP_HAS | OP_ISNUM | OP_ISTEXT | OP_ISBOOL | OP_ISLIST
-                | OP_MHAS
-                | OP_MOVE
-                | OP_ADD | OP_SUB | OP_MUL | OP_DIV  // may be string concat etc.
-                | OP_WRAPOK | OP_WRAPERR | OP_ISOK | OP_ISERR | OP_UNWRAP
+                | OP_MHAS | OP_ISOK | OP_ISERR => {
+                    bool_write[a] = true;
+                    non_num_write[a] = true;
+                }
+                // MOVE: skip here, handled by fixpoint below.
+                OP_MOVE => {}
+                // Ops that write a non-numeric or unknown type to R[A].
+                OP_ADD | OP_SUB | OP_MUL | OP_DIV  // may be string concat etc.
+                | OP_NEG
+                | OP_WRAPOK | OP_WRAPERR | OP_UNWRAP
                 | OP_RECFLD | OP_RECFLD_NAME | OP_LISTGET | OP_INDEX
                 | OP_STR | OP_HD | OP_TL | OP_REV | OP_SRT | OP_SLC
                 | OP_SPL | OP_CAT | OP_GET | OP_POST | OP_GETH | OP_POSTH
@@ -417,17 +789,73 @@ fn compile_function_body(
                 | OP_MAPNEW | OP_MGET | OP_MSET | OP_MDEL | OP_MKEYS | OP_MVALS
                 | OP_LISTNEW | OP_LISTAPPEND
                 | OP_RECNEW | OP_RECWITH
-                | OP_PRT | OP_RD | OP_RDL | OP_WR | OP_WRL | OP_TRM | OP_UNQ => {
+                | OP_PRT | OP_RD | OP_RDL | OP_WR | OP_WRL | OP_TRM | OP_UNQ
+                | OP_NUM => {
                     non_num_write[a] = true;
+                    non_bool_write[a] = true;
                 }
-                // Numeric-output single-register ops left as conservative default
-                // (neither flag set → not always-numeric, which is safe).
+                // Unknown / non-writing ops (JMP, RET, CMPK_*, etc.): leave flags unset.
                 _ => {}
             }
         }
 
+        // Fixpoint: propagate MOVE a, b by copying b's proven type to a.
+        // Typically converges in 1–2 iterations for simple loop counter patterns.
+        loop {
+            let mut changed = false;
+            for &inst in &chunk.code {
+                let op = (inst >> 24) as u8;
+                if op != OP_MOVE { continue; }
+                let a = ((inst >> 16) & 0xFF) as usize;
+                let b = ((inst >> 8)  & 0xFF) as usize;
+                if a >= reg_count || b >= reg_count { continue; }
+
+                let b_always_num  = num_write[b]  && !non_num_write[b];
+                let b_always_bool = bool_write[b] && !non_bool_write[b];
+
+                // Numeric propagation through MOVE.
+                if b_always_num {
+                    if !num_write[a]     { num_write[a]     = true; changed = true; }
+                } else {
+                    if !non_num_write[a] { non_num_write[a] = true; changed = true; }
+                }
+                // Boolean propagation through MOVE.
+                if b_always_bool {
+                    if !bool_write[a]     { bool_write[a]     = true; changed = true; }
+                } else {
+                    if !non_bool_write[a] { non_bool_write[a] = true; changed = true; }
+                }
+            }
+            if !changed { break; }
+        }
+
         for i in 0..reg_count {
-            reg_always_num[i] = num_write[i] && !non_num_write[i];
+            reg_always_num[i]  = num_write[i]  && !non_num_write[i];
+            reg_always_bool[i] = bool_write[i] && !non_bool_write[i];
+        }
+    }
+
+    // Initialise F64 shadow variables for always-numeric registers.
+    // For registers that are never written by non-numeric instructions (e.g. a
+    // numeric-only function parameter), we emit a single bitcast at function
+    // entry and store it in the F64 shadow variable.  All CMPK_*_N guards on
+    // the same register then use that shadow directly instead of re-emitting a
+    // bitcast on each comparison.  This cuts the per-guard overhead to a plain
+    // `fcmp` + `brif` with no extra conversion instructions.
+    //
+    // We only initialise shadows for *parameter* registers here; for registers
+    // that are written inside the function body (e.g. OP_ADD_NN results) the
+    // shadow is written at the point of the assignment (see OP_ADD_NN etc. below).
+    // Non-always-numeric registers leave the shadow at its default (undef) — the
+    // CMPK handler checks `reg_always_num` before using it.
+    {
+        let mf = cranelift_codegen::ir::MemFlags::new();
+        for i in 0..(chunk.param_count as usize) {
+            if i < reg_count && reg_always_num[i] {
+                let iv = builder.use_var(vars[i]);
+                let fv = builder.ins().bitcast(F64, mf, iv);
+                builder.def_var(f64_vars[i], fv);
+            }
         }
     }
 
@@ -465,77 +893,158 @@ fn compile_function_body(
 
         match op {
             OP_ADD_NN => {
-                // Both known numeric — inline bitcast+fadd+bitcast
-                let bv = builder.use_var(vars[b_idx]);
-                let cv = builder.use_var(vars[c_idx]);
-                let bf = builder.ins().bitcast(F64, cranelift_codegen::ir::MemFlags::new(), bv);
-                let cf = builder.ins().bitcast(F64, cranelift_codegen::ir::MemFlags::new(), cv);
+                // Both known numeric — inline fadd.
+                // Use F64 shadow vars for inputs (avoids bitcast when shadow is fresh).
+                let mf = cranelift_codegen::ir::MemFlags::new();
+                let bf = if b_idx < reg_count && reg_always_num[b_idx] {
+                    builder.use_var(f64_vars[b_idx])
+                } else {
+                    let bv = builder.use_var(vars[b_idx]);
+                    builder.ins().bitcast(F64, mf, bv)
+                };
+                let cf = if c_idx < reg_count && reg_always_num[c_idx] {
+                    builder.use_var(f64_vars[c_idx])
+                } else {
+                    let cv = builder.use_var(vars[c_idx]);
+                    builder.ins().bitcast(F64, mf, cv)
+                };
                 let result_f = builder.ins().fadd(bf, cf);
-                let result = builder.ins().bitcast(I64, cranelift_codegen::ir::MemFlags::new(), result_f);
+                let result = builder.ins().bitcast(I64, mf, result_f);
                 builder.def_var(vars[a_idx], result);
+                if a_idx < reg_count && reg_always_num[a_idx] {
+                    builder.def_var(f64_vars[a_idx], result_f);
+                }
             }
             OP_SUB_NN => {
-                let bv = builder.use_var(vars[b_idx]);
-                let cv = builder.use_var(vars[c_idx]);
-                let bf = builder.ins().bitcast(F64, cranelift_codegen::ir::MemFlags::new(), bv);
-                let cf = builder.ins().bitcast(F64, cranelift_codegen::ir::MemFlags::new(), cv);
+                let mf = cranelift_codegen::ir::MemFlags::new();
+                let bf = if b_idx < reg_count && reg_always_num[b_idx] {
+                    builder.use_var(f64_vars[b_idx])
+                } else {
+                    let bv = builder.use_var(vars[b_idx]);
+                    builder.ins().bitcast(F64, mf, bv)
+                };
+                let cf = if c_idx < reg_count && reg_always_num[c_idx] {
+                    builder.use_var(f64_vars[c_idx])
+                } else {
+                    let cv = builder.use_var(vars[c_idx]);
+                    builder.ins().bitcast(F64, mf, cv)
+                };
                 let result_f = builder.ins().fsub(bf, cf);
-                let result = builder.ins().bitcast(I64, cranelift_codegen::ir::MemFlags::new(), result_f);
+                let result = builder.ins().bitcast(I64, mf, result_f);
                 builder.def_var(vars[a_idx], result);
+                if a_idx < reg_count && reg_always_num[a_idx] {
+                    builder.def_var(f64_vars[a_idx], result_f);
+                }
             }
             OP_MUL_NN => {
-                let bv = builder.use_var(vars[b_idx]);
-                let cv = builder.use_var(vars[c_idx]);
-                let bf = builder.ins().bitcast(F64, cranelift_codegen::ir::MemFlags::new(), bv);
-                let cf = builder.ins().bitcast(F64, cranelift_codegen::ir::MemFlags::new(), cv);
+                let mf = cranelift_codegen::ir::MemFlags::new();
+                let bf = if b_idx < reg_count && reg_always_num[b_idx] {
+                    builder.use_var(f64_vars[b_idx])
+                } else {
+                    let bv = builder.use_var(vars[b_idx]);
+                    builder.ins().bitcast(F64, mf, bv)
+                };
+                let cf = if c_idx < reg_count && reg_always_num[c_idx] {
+                    builder.use_var(f64_vars[c_idx])
+                } else {
+                    let cv = builder.use_var(vars[c_idx]);
+                    builder.ins().bitcast(F64, mf, cv)
+                };
                 let result_f = builder.ins().fmul(bf, cf);
-                let result = builder.ins().bitcast(I64, cranelift_codegen::ir::MemFlags::new(), result_f);
+                let result = builder.ins().bitcast(I64, mf, result_f);
                 builder.def_var(vars[a_idx], result);
+                if a_idx < reg_count && reg_always_num[a_idx] {
+                    builder.def_var(f64_vars[a_idx], result_f);
+                }
             }
             OP_DIV_NN => {
-                let bv = builder.use_var(vars[b_idx]);
-                let cv = builder.use_var(vars[c_idx]);
-                let bf = builder.ins().bitcast(F64, cranelift_codegen::ir::MemFlags::new(), bv);
-                let cf = builder.ins().bitcast(F64, cranelift_codegen::ir::MemFlags::new(), cv);
+                let mf = cranelift_codegen::ir::MemFlags::new();
+                let bf = if b_idx < reg_count && reg_always_num[b_idx] {
+                    builder.use_var(f64_vars[b_idx])
+                } else {
+                    let bv = builder.use_var(vars[b_idx]);
+                    builder.ins().bitcast(F64, mf, bv)
+                };
+                let cf = if c_idx < reg_count && reg_always_num[c_idx] {
+                    builder.use_var(f64_vars[c_idx])
+                } else {
+                    let cv = builder.use_var(vars[c_idx]);
+                    builder.ins().bitcast(F64, mf, cv)
+                };
                 let result_f = builder.ins().fdiv(bf, cf);
-                let result = builder.ins().bitcast(I64, cranelift_codegen::ir::MemFlags::new(), result_f);
+                let result = builder.ins().bitcast(I64, mf, result_f);
                 builder.def_var(vars[a_idx], result);
+                if a_idx < reg_count && reg_always_num[a_idx] {
+                    builder.def_var(f64_vars[a_idx], result_f);
+                }
             }
             OP_ADDK_N => {
-                let bv = builder.use_var(vars[b_idx]);
                 let kv = nan_consts.get(c_idx)?.as_number();
-                let bf = builder.ins().bitcast(F64, cranelift_codegen::ir::MemFlags::new(), bv);
+                let mf = cranelift_codegen::ir::MemFlags::new();
+                let bf = if b_idx < reg_count && reg_always_num[b_idx] {
+                    builder.use_var(f64_vars[b_idx])
+                } else {
+                    let bv = builder.use_var(vars[b_idx]);
+                    builder.ins().bitcast(F64, mf, bv)
+                };
                 let kval = builder.ins().f64const(kv);
                 let result_f = builder.ins().fadd(bf, kval);
-                let result = builder.ins().bitcast(I64, cranelift_codegen::ir::MemFlags::new(), result_f);
+                let result = builder.ins().bitcast(I64, mf, result_f);
                 builder.def_var(vars[a_idx], result);
+                if a_idx < reg_count && reg_always_num[a_idx] {
+                    builder.def_var(f64_vars[a_idx], result_f);
+                }
             }
             OP_SUBK_N => {
-                let bv = builder.use_var(vars[b_idx]);
                 let kv = nan_consts.get(c_idx)?.as_number();
-                let bf = builder.ins().bitcast(F64, cranelift_codegen::ir::MemFlags::new(), bv);
+                let mf = cranelift_codegen::ir::MemFlags::new();
+                let bf = if b_idx < reg_count && reg_always_num[b_idx] {
+                    builder.use_var(f64_vars[b_idx])
+                } else {
+                    let bv = builder.use_var(vars[b_idx]);
+                    builder.ins().bitcast(F64, mf, bv)
+                };
                 let kval = builder.ins().f64const(kv);
                 let result_f = builder.ins().fsub(bf, kval);
-                let result = builder.ins().bitcast(I64, cranelift_codegen::ir::MemFlags::new(), result_f);
+                let result = builder.ins().bitcast(I64, mf, result_f);
                 builder.def_var(vars[a_idx], result);
+                if a_idx < reg_count && reg_always_num[a_idx] {
+                    builder.def_var(f64_vars[a_idx], result_f);
+                }
             }
             OP_MULK_N => {
-                let bv = builder.use_var(vars[b_idx]);
                 let kv = nan_consts.get(c_idx)?.as_number();
-                let bf = builder.ins().bitcast(F64, cranelift_codegen::ir::MemFlags::new(), bv);
+                let mf = cranelift_codegen::ir::MemFlags::new();
+                let bf = if b_idx < reg_count && reg_always_num[b_idx] {
+                    builder.use_var(f64_vars[b_idx])
+                } else {
+                    let bv = builder.use_var(vars[b_idx]);
+                    builder.ins().bitcast(F64, mf, bv)
+                };
                 let kval = builder.ins().f64const(kv);
                 let result_f = builder.ins().fmul(bf, kval);
-                let result = builder.ins().bitcast(I64, cranelift_codegen::ir::MemFlags::new(), result_f);
+                let result = builder.ins().bitcast(I64, mf, result_f);
                 builder.def_var(vars[a_idx], result);
+                if a_idx < reg_count && reg_always_num[a_idx] {
+                    builder.def_var(f64_vars[a_idx], result_f);
+                }
             }
             OP_DIVK_N => {
-                let bv = builder.use_var(vars[b_idx]);
                 let kv = nan_consts.get(c_idx)?.as_number();
-                let bf = builder.ins().bitcast(F64, cranelift_codegen::ir::MemFlags::new(), bv);
+                let mf = cranelift_codegen::ir::MemFlags::new();
+                let bf = if b_idx < reg_count && reg_always_num[b_idx] {
+                    builder.use_var(f64_vars[b_idx])
+                } else {
+                    let bv = builder.use_var(vars[b_idx]);
+                    builder.ins().bitcast(F64, mf, bv)
+                };
                 let kval = builder.ins().f64const(kv);
                 let result_f = builder.ins().fdiv(bf, kval);
-                let result = builder.ins().bitcast(I64, cranelift_codegen::ir::MemFlags::new(), result_f);
+                let result = builder.ins().bitcast(I64, mf, result_f);
                 builder.def_var(vars[a_idx], result);
+                if a_idx < reg_count && reg_always_num[a_idx] {
+                    builder.def_var(f64_vars[a_idx], result_f);
+                }
             }
             OP_ADD | OP_SUB | OP_MUL | OP_DIV => {
                 // Inline numeric fast path: check both are numbers, do float op,
@@ -610,6 +1119,19 @@ fn compile_function_body(
                     && c_idx < reg_always_num.len() && reg_always_num[c_idx];
 
                 if both_always_num {
+                    // Use F64 shadow vars for inputs to skip bitcasts.
+                    let mf = cranelift_codegen::ir::MemFlags::new();
+                    let bf = if b_idx < reg_count && reg_always_num[b_idx] {
+                        builder.use_var(f64_vars[b_idx])
+                    } else {
+                        builder.ins().bitcast(F64, mf, bv)
+                    };
+                    let cf = if c_idx < reg_count && reg_always_num[c_idx] {
+                        builder.use_var(f64_vars[c_idx])
+                    } else {
+                        builder.ins().bitcast(F64, mf, cv)
+                    };
+
                     // Check if the immediately following instruction is JMPF or JMPT on
                     // the same destination register (a_idx). If so, fuse the comparison
                     // and conditional branch into a single compare-and-branch, eliminating
@@ -632,9 +1154,6 @@ fn compile_function_body(
                         let target      = (ip as isize + 2 + sbx as isize) as usize;
                         let fallthrough = ip + 2;
 
-                        let mf = cranelift_codegen::ir::MemFlags::new();
-                        let bf = builder.ins().bitcast(F64, mf, bv);
-                        let cf = builder.ins().bitcast(F64, mf, cv);
                         let cmp = builder.ins().fcmp(cc, bf, cf);
 
                         // For JMPF: jump to target when cmp is FALSE (i.e. condition false → jump).
@@ -663,9 +1182,6 @@ fn compile_function_body(
                         }
                     } else {
                         // No fusion opportunity — emit direct float comparison without QNAN check.
-                        let mf = cranelift_codegen::ir::MemFlags::new();
-                        let bf = builder.ins().bitcast(F64, mf, bv);
-                        let cf = builder.ins().bitcast(F64, mf, cv);
                         let cmp = builder.ins().fcmp(cc, bf, cf);
                         let true_val  = builder.ins().iconst(I64, TAG_TRUE  as i64);
                         let false_val = builder.ins().iconst(I64, TAG_FALSE as i64);
@@ -723,22 +1239,38 @@ fn compile_function_body(
             OP_MOVE => {
                 if a_idx != b_idx {
                     let bv = builder.use_var(vars[b_idx]);
-                    // Inline is_heap check: skip clone_rc for numbers (hot path)
-                    let qnan_val = builder.ins().iconst(I64, QNAN as i64);
-                    let masked = builder.ins().band(bv, qnan_val);
-                    let is_heap = builder.ins().icmp(
-                        cranelift_codegen::ir::condcodes::IntCC::Equal, masked, qnan_val);
-                    let clone_block = builder.create_block();
-                    let after_block = builder.create_block();
-                    builder.ins().brif(is_heap, clone_block, &[], after_block, &[]);
+                    // Fast path: if source is always numeric or always boolean, no RC
+                    // management is needed (numbers/booleans are not heap-allocated).
+                    let src_always_num  = b_idx < reg_always_num.len()  && reg_always_num[b_idx];
+                    let src_always_bool = b_idx < reg_always_bool.len() && reg_always_bool[b_idx];
+                    if src_always_num || src_always_bool {
+                        // No QNAN check, no clone_rc — just copy the bits.
+                        builder.def_var(vars[a_idx], bv);
+                        // Propagate f64 shadow so that destination can skip bitcasts too.
+                        if src_always_num
+                            && a_idx < reg_always_num.len() && reg_always_num[a_idx]
+                        {
+                            let bf = builder.use_var(f64_vars[b_idx]);
+                            builder.def_var(f64_vars[a_idx], bf);
+                        }
+                    } else {
+                        // General path: inline is_heap check; clone_rc only for heap values.
+                        let qnan_val = builder.ins().iconst(I64, QNAN as i64);
+                        let masked = builder.ins().band(bv, qnan_val);
+                        let is_heap = builder.ins().icmp(
+                            cranelift_codegen::ir::condcodes::IntCC::Equal, masked, qnan_val);
+                        let clone_block = builder.create_block();
+                        let after_block = builder.create_block();
+                        builder.ins().brif(is_heap, clone_block, &[], after_block, &[]);
 
-                    builder.switch_to_block(clone_block);
-                    let fref = get_func_ref(&mut builder, module, helpers.jit_move);
-                    builder.ins().call(fref, &[bv]);
-                    builder.ins().jump(after_block, &[]);
+                        builder.switch_to_block(clone_block);
+                        let fref = get_func_ref(&mut builder, module, helpers.jit_move);
+                        builder.ins().call(fref, &[bv]);
+                        builder.ins().jump(after_block, &[]);
 
-                    builder.switch_to_block(after_block);
-                    builder.def_var(vars[a_idx], bv);
+                        builder.switch_to_block(after_block);
+                        builder.def_var(vars[a_idx], bv);
+                    }
                 }
             }
             OP_NOT => {
@@ -749,11 +1281,23 @@ fn compile_function_body(
                 builder.def_var(vars[a_idx], result);
             }
             OP_NEG => {
-                let bv = builder.use_var(vars[b_idx]);
-                let fref = get_func_ref(&mut builder, module, helpers.neg);
-                let call_inst = builder.ins().call(fref, &[bv]);
-                let result = builder.inst_results(call_inst)[0];
-                builder.def_var(vars[a_idx], result);
+                // Inline fneg for always-numeric operands; call helper otherwise.
+                if b_idx < reg_always_num.len() && reg_always_num[b_idx] {
+                    let mf = cranelift_codegen::ir::MemFlags::new();
+                    let bf = builder.use_var(f64_vars[b_idx]);
+                    let result_f = builder.ins().fneg(bf);
+                    let result = builder.ins().bitcast(I64, mf, result_f);
+                    builder.def_var(vars[a_idx], result);
+                    if a_idx < reg_count && reg_always_num[a_idx] {
+                        builder.def_var(f64_vars[a_idx], result_f);
+                    }
+                } else {
+                    let bv = builder.use_var(vars[b_idx]);
+                    let fref = get_func_ref(&mut builder, module, helpers.neg);
+                    let call_inst = builder.ins().call(fref, &[bv]);
+                    let result = builder.inst_results(call_inst)[0];
+                    builder.def_var(vars[a_idx], result);
+                }
             }
             OP_WRAPOK => {
                 let bv = builder.use_var(vars[b_idx]);
@@ -803,6 +1347,13 @@ fn compile_function_body(
                     builder.def_var(vars[a_idx], result);
                 } else {
                     builder.def_var(vars[a_idx], kval);
+                    // Initialise F64 shadow for numeric constants so arithmetic ops
+                    // can skip the bitcast when reading this register.
+                    if nv.is_number() && a_idx < reg_count && reg_always_num[a_idx] {
+                        let mf = cranelift_codegen::ir::MemFlags::new();
+                        let fv = builder.ins().bitcast(F64, mf, kval);
+                        builder.def_var(f64_vars[a_idx], fv);
+                    }
                 }
             }
             OP_JMP => {
@@ -819,54 +1370,70 @@ fn compile_function_body(
                 let fallthrough = ip + 1;
                 let av = builder.use_var(vars[a_idx]);
 
-                // Inline truthy: false if val==TAG_NIL or val==TAG_FALSE, true otherwise.
-                // This covers numbers (truthy when != 0.0, but 0.0 bits != TAG_NIL/TAG_FALSE),
-                // booleans, and all heap values. For number 0.0 (bits=0), it's truthy=true here
-                // but should be falsy — so we need a number check too.
-                // Full inline: is_number ? (f64 != 0.0) : (val != TAG_NIL && val != TAG_FALSE)
-                let qnan_val = builder.ins().iconst(I64, QNAN as i64);
-                let masked = builder.ins().band(av, qnan_val);
-                let is_num = builder.ins().icmp(
-                    cranelift_codegen::ir::condcodes::IntCC::NotEqual, masked, qnan_val);
-
-                let num_truthy_block = builder.create_block();
-                let tag_truthy_block = builder.create_block();
-                let merge_truthy = builder.create_block();
-                builder.append_block_param(merge_truthy, I64);
-
-                builder.ins().brif(is_num, num_truthy_block, &[], tag_truthy_block, &[]);
-
-                // Number path: truthy if f64 != 0.0
-                builder.switch_to_block(num_truthy_block);
-                let mf = cranelift_codegen::ir::MemFlags::new();
-                let af = builder.ins().bitcast(F64, mf, av);
-                let zero = builder.ins().f64const(0.0);
-                let cmp = builder.ins().fcmp(cranelift_codegen::ir::condcodes::FloatCC::NotEqual, af, zero);
-                let num_result = builder.ins().uextend(I64, cmp);
-                builder.ins().jump(merge_truthy, &[num_result]);
-
-                // Tag path: truthy if val != TAG_NIL && val != TAG_FALSE
-                builder.switch_to_block(tag_truthy_block);
-                let nil_val = builder.ins().iconst(I64, TAG_NIL as i64);
-                let false_val = builder.ins().iconst(I64, TAG_FALSE as i64);
-                let not_nil = builder.ins().icmp(
-                    cranelift_codegen::ir::condcodes::IntCC::NotEqual, av, nil_val);
-                let not_false = builder.ins().icmp(
-                    cranelift_codegen::ir::condcodes::IntCC::NotEqual, av, false_val);
-                let tag_truthy = builder.ins().band(not_nil, not_false);
-                let tag_result = builder.ins().uextend(I64, tag_truthy);
-                builder.ins().jump(merge_truthy, &[tag_result]);
-
-                builder.switch_to_block(merge_truthy);
-                let truthy_val = builder.block_params(merge_truthy)[0];
-
                 if let (Some(&target_block), Some(&fall_block)) = (block_map.get(&target), block_map.get(&fallthrough)) {
-                    if op == OP_JMPF {
-                        builder.ins().brif(truthy_val, fall_block, &[], target_block, &[]);
+                    // Fast path: register is always a boolean (TAG_TRUE or TAG_FALSE).
+                    // Comparison results (LT/GT/EQ/...) always fall here, so this is
+                    // the common case for loop conditions and guards.
+                    // TAG_FALSE = QNAN|2, TAG_TRUE = QNAN|1 — just compare to TAG_FALSE.
+                    if a_idx < reg_always_bool.len() && reg_always_bool[a_idx] {
+                        let false_val = builder.ins().iconst(I64, TAG_FALSE as i64);
+                        let is_false = builder.ins().icmp(
+                            cranelift_codegen::ir::condcodes::IntCC::Equal, av, false_val);
+                        // JMPF: jump (to target) when false; else fall through.
+                        // JMPT: jump (to target) when true; else fall through.
+                        if op == OP_JMPF {
+                            builder.ins().brif(is_false, target_block, &[], fall_block, &[]);
+                        } else {
+                            builder.ins().brif(is_false, fall_block, &[], target_block, &[]);
+                        }
+                        block_terminated = true;
                     } else {
-                        builder.ins().brif(truthy_val, target_block, &[], fall_block, &[]);
+                        // General case: full truthy check.
+                        // false if val==TAG_NIL or val==TAG_FALSE, true otherwise.
+                        // Numbers: truthy if f64 != 0.0 (0.0 bits are 0, not TAG_FALSE/NIL).
+                        let qnan_val = builder.ins().iconst(I64, QNAN as i64);
+                        let masked = builder.ins().band(av, qnan_val);
+                        let is_num = builder.ins().icmp(
+                            cranelift_codegen::ir::condcodes::IntCC::NotEqual, masked, qnan_val);
+
+                        let num_truthy_block = builder.create_block();
+                        let tag_truthy_block = builder.create_block();
+                        let merge_truthy = builder.create_block();
+                        builder.append_block_param(merge_truthy, I64);
+
+                        builder.ins().brif(is_num, num_truthy_block, &[], tag_truthy_block, &[]);
+
+                        // Number path: truthy if f64 != 0.0
+                        builder.switch_to_block(num_truthy_block);
+                        let mf = cranelift_codegen::ir::MemFlags::new();
+                        let af = builder.ins().bitcast(F64, mf, av);
+                        let zero = builder.ins().f64const(0.0);
+                        let cmp = builder.ins().fcmp(cranelift_codegen::ir::condcodes::FloatCC::NotEqual, af, zero);
+                        let num_result = builder.ins().uextend(I64, cmp);
+                        builder.ins().jump(merge_truthy, &[num_result]);
+
+                        // Tag path: truthy if val != TAG_NIL && val != TAG_FALSE
+                        builder.switch_to_block(tag_truthy_block);
+                        let nil_val = builder.ins().iconst(I64, TAG_NIL as i64);
+                        let false_val2 = builder.ins().iconst(I64, TAG_FALSE as i64);
+                        let not_nil = builder.ins().icmp(
+                            cranelift_codegen::ir::condcodes::IntCC::NotEqual, av, nil_val);
+                        let not_false = builder.ins().icmp(
+                            cranelift_codegen::ir::condcodes::IntCC::NotEqual, av, false_val2);
+                        let tag_truthy = builder.ins().band(not_nil, not_false);
+                        let tag_result = builder.ins().uextend(I64, tag_truthy);
+                        builder.ins().jump(merge_truthy, &[tag_result]);
+
+                        builder.switch_to_block(merge_truthy);
+                        let truthy_val = builder.block_params(merge_truthy)[0];
+
+                        if op == OP_JMPF {
+                            builder.ins().brif(truthy_val, fall_block, &[], target_block, &[]);
+                        } else {
+                            builder.ins().brif(truthy_val, target_block, &[], fall_block, &[]);
+                        }
+                        block_terminated = true;
                     }
-                    block_terminated = true;
                 }
             }
             OP_JMPNN => {
@@ -1264,33 +1831,292 @@ fn compile_function_body(
                 let indices_idx = bx >> 8;
                 let n_updates = bx & 0xFF;
 
-                // Extract field indices from the constant pool
-                let update_indices: Vec<u8> = match &chunk.constants[indices_idx] {
-                    Value::List(items) => items.iter().map(|v| match v {
-                        Value::Number(n) => *n as u8,
-                        _ => 0,
-                    }).collect(),
+                // Extract field indices from the constant pool.
+                // Detect whether they are all numeric (resolved indices vs. string names).
+                let (update_indices, all_resolved) = match &chunk.constants[indices_idx] {
+                    Value::List(items) => {
+                        let resolved = items.iter().all(|v| matches!(v, Value::Number(_)));
+                        let indices: Vec<u8> = items.iter().map(|v| match v {
+                            Value::Number(n) => *n as u8,
+                            _ => 0,
+                        }).collect();
+                        (indices, resolved)
+                    }
                     _ => return None,
                 };
-                let indices_bytes: &'static [u8] = Box::leak(update_indices.into_boxed_slice());
 
                 let old_rec = builder.use_var(vars[a_idx]);
-                let slot = builder.create_sized_stack_slot(cranelift_codegen::ir::StackSlotData::new(
-                    cranelift_codegen::ir::StackSlotKind::ExplicitSlot,
-                    (n_updates * 8) as u32,
-                    0,
-                ));
-                for i in 0..n_updates {
-                    let v = builder.use_var(vars[a_idx + 1 + i]);
-                    builder.ins().stack_store(v, slot, (i * 8) as i32);
+
+                if all_resolved {
+                    // ── Fully inlined arena path ───────────────────────────────────────────
+                    //
+                    // For arena records with all-resolved field indices we inline the entire
+                    // copy+update without any C-ABI call, eliminating:
+                    //   • jit_recwith_arena call overhead (save/restore caller-saved regs)
+                    //   • all clone_rc/drop_rc calls for numeric fields (no-ops for f64)
+                    //
+                    // The copy loop uses Cranelift block parameters to carry the loop
+                    // counter, avoiding the need for an extra Cranelift Variable.
+                    //
+                    // BumpArena #[repr(C)]: buf_ptr(0), buf_cap(8), offset(16).
+                    // ArenaRecord header: ((n_fields << 16) | type_id) as u64 at offset 0.
+                    // Fields: 8 bytes each starting at offset 8.
+                    let arena_ptr_rw = jit_arena_ptr();
+                    let arena_ptr_rw_val = builder.ins().iconst(I64, arena_ptr_rw as i64);
+                    let mf_t = cranelift_codegen::ir::MemFlags::trusted();
+
+                    // Branch on arena tag
+                    let tag_mask_rw = builder.ins().iconst(I64, TAG_MASK as i64);
+                    let tag_rw = builder.ins().band(old_rec, tag_mask_rw);
+                    let arena_tag_rw = builder.ins().iconst(I64, TAG_ARENA_REC as i64);
+                    let is_arena_rw = builder.ins().icmp(
+                        cranelift_codegen::ir::condcodes::IntCC::Equal, tag_rw, arena_tag_rw);
+
+                    let arena_inline_block = builder.create_block();
+                    let fallback_rw_block = builder.create_block();
+                    let merge_rw_block = builder.create_block();
+                    builder.append_block_param(merge_rw_block, I64);
+
+                    builder.ins().brif(is_arena_rw, arena_inline_block, &[], fallback_rw_block, &[]);
+
+                    // ── Arena inline path ──────────────────────────────────────────────────
+                    builder.switch_to_block(arena_inline_block);
+                    builder.seal_block(arena_inline_block);
+
+                    // Decode old record pointer and header
+                    let ptr_mask_rw = builder.ins().iconst(I64, PTR_MASK as i64);
+                    let old_ptr_rw = builder.ins().band(old_rec, ptr_mask_rw);
+                    let header_rw = builder.ins().load(I64, mf_t, old_ptr_rw, 0);
+                    // n_fields = (header >> 16) & 0xFFFF
+                    let n_fields_rt = {
+                        let shifted = builder.ins().ushr_imm(header_rw, 16);
+                        let mask16 = builder.ins().iconst(I64, 0xFFFFi64);
+                        builder.ins().band(shifted, mask16)
+                    };
+
+                    // Compute record_size = 8 + n_fields * 8, then inline bump-alloc
+                    let eight_rw = builder.ins().iconst(I64, 8i64);
+                    let fields_bytes_rw = builder.ins().imul(n_fields_rt, eight_rw);
+                    let record_size_rw = builder.ins().iadd(fields_bytes_rw, eight_rw);
+
+                    let cur_off_rw = builder.ins().load(I64, mf_t, arena_ptr_rw_val, 16);
+                    let seven_rw = builder.ins().iconst(I64, 7i64);
+                    let neg8_rw = builder.ins().iconst(I64, !7i64);
+                    let off_plus_7_rw = builder.ins().iadd(cur_off_rw, seven_rw);
+                    let aligned_rw = builder.ins().band(off_plus_7_rw, neg8_rw);
+                    let new_off_rw = builder.ins().iadd(aligned_rw, record_size_rw);
+                    let buf_cap_rw = builder.ins().load(I64, mf_t, arena_ptr_rw_val, 8);
+                    let has_space_rw = builder.ins().icmp(
+                        cranelift_codegen::ir::condcodes::IntCC::UnsignedLessThanOrEqual,
+                        new_off_rw, buf_cap_rw);
+
+                    let alloc_rw_block = builder.create_block();
+                    let alloc_fallback_rw_block = builder.create_block();
+                    builder.ins().brif(has_space_rw, alloc_rw_block, &[], alloc_fallback_rw_block, &[]);
+
+                    // ── Alloc success: inline copy + update ───────────────────────────────
+                    builder.switch_to_block(alloc_rw_block);
+                    builder.seal_block(alloc_rw_block);
+
+                    let buf_ptr_rw = builder.ins().load(I64, mf_t, arena_ptr_rw_val, 0);
+                    let new_ptr_rw = builder.ins().iadd(buf_ptr_rw, aligned_rw);
+
+                    // Copy header from old record → new record
+                    builder.ins().store(mf_t, header_rw, new_ptr_rw, 0);
+
+                    // ── Field copy loop using block parameters ─────────────────────────
+                    // The loop counter `i` is threaded as a Cranelift block parameter so
+                    // Cranelift's SSA construction can handle it without needing an extra
+                    // Variable declaration. All blocks that carry `i` declare it as a param.
+                    //
+                    //   loop_copy_hdr(i)  → if i >= n_fields: copy_done
+                    //                     → else: copy_body(i)
+                    //   copy_body(i)      → copy field, check is_heap
+                    //                     → if heap: clone_rw_block(i)
+                    //                     → else: after_clone_rw(i)
+                    //   clone_rw_block(i) → call jit_move, jump after_clone_rw(i)
+                    //   after_clone_rw(i) → i++, jump loop_copy_hdr(i+1)
+                    //   copy_done         → (no params)
+                    let loop_copy_hdr = builder.create_block();
+                    builder.append_block_param(loop_copy_hdr, I64); // param 0: i
+                    let copy_body = builder.create_block();
+                    builder.append_block_param(copy_body, I64);     // param 0: i
+                    let clone_rw_block = builder.create_block();
+                    builder.append_block_param(clone_rw_block, I64); // param 0: i (carry)
+                    let after_clone_rw = builder.create_block();
+                    builder.append_block_param(after_clone_rw, I64); // param 0: i (carry)
+                    let copy_done = builder.create_block();
+
+                    let zero_rw = builder.ins().iconst(I64, 0i64);
+                    builder.ins().jump(loop_copy_hdr, &[zero_rw]);
+
+                    // ── Loop header ──
+                    builder.switch_to_block(loop_copy_hdr);
+                    let ci_hdr = builder.block_params(loop_copy_hdr)[0];
+                    let loop_done_rw = builder.ins().icmp(
+                        cranelift_codegen::ir::condcodes::IntCC::UnsignedGreaterThanOrEqual,
+                        ci_hdr, n_fields_rt);
+                    builder.ins().brif(loop_done_rw, copy_done, &[], copy_body, &[ci_hdr]);
+
+                    // ── Loop body ──
+                    builder.switch_to_block(copy_body);
+                    builder.seal_block(copy_body);
+                    let ci = builder.block_params(copy_body)[0];
+                    let ci_bytes_rw = builder.ins().imul(ci, eight_rw);
+                    let ci_off_rw = builder.ins().iadd(ci_bytes_rw, eight_rw);
+                    let src_addr_rw = builder.ins().iadd(old_ptr_rw, ci_off_rw);
+                    let fv_rw = builder.ins().load(I64, mf_t, src_addr_rw, 0);
+                    let dst_addr_rw = builder.ins().iadd(new_ptr_rw, ci_off_rw);
+                    builder.ins().store(mf_t, fv_rw, dst_addr_rw, 0);
+                    let qnan_rw = builder.ins().iconst(I64, QNAN as i64);
+                    let fv_masked_rw = builder.ins().band(fv_rw, qnan_rw);
+                    let fv_is_heap_rw = builder.ins().icmp(
+                        cranelift_codegen::ir::condcodes::IntCC::Equal, fv_masked_rw, qnan_rw);
+                    // Thread `ci` to both branches via block parameters
+                    builder.ins().brif(fv_is_heap_rw, clone_rw_block, &[ci], after_clone_rw, &[ci]);
+
+                    // ── Clone path: increment RC ──
+                    builder.switch_to_block(clone_rw_block);
+                    builder.seal_block(clone_rw_block);
+                    let ci_in_clone = builder.block_params(clone_rw_block)[0];
+                    let fref_move_rw = get_func_ref(&mut builder, module, helpers.jit_move);
+                    builder.ins().call(fref_move_rw, &[fv_rw]);
+                    builder.ins().jump(after_clone_rw, &[ci_in_clone]);
+
+                    // ── After clone: i++ and loop back ──
+                    builder.switch_to_block(after_clone_rw);
+                    builder.seal_block(after_clone_rw);
+                    let ci_cont = builder.block_params(after_clone_rw)[0];
+                    let ci_next_rw = builder.ins().iadd_imm(ci_cont, 1);
+                    builder.ins().jump(loop_copy_hdr, &[ci_next_rw]);
+
+                    builder.seal_block(loop_copy_hdr);
+                    builder.switch_to_block(copy_done);
+                    builder.seal_block(copy_done);
+
+                    // ── Overwrite updated fields (compile-time unrolled) ───────────────
+                    // For each update: drop RC of old slot, write new value, clone RC of new value.
+                    // For numeric fields (hot path), all RC operations are no-ops and
+                    // Cranelift will eliminate the dead branches.
+                    let qnan_upd = builder.ins().iconst(I64, QNAN as i64);
+                    for (upd_i, &field_slot) in update_indices.iter().enumerate() {
+                        let new_val_rw = builder.use_var(vars[a_idx + 1 + upd_i]);
+                        let slot_off = (8 + field_slot as i64 * 8) as i32;
+
+                        // Load old slot value from new record (already copied above)
+                        let old_fv = builder.ins().load(I64, mf_t, new_ptr_rw, slot_off);
+                        // Drop RC on old slot if it's heap
+                        let old_masked_rw = builder.ins().band(old_fv, qnan_upd);
+                        let old_is_heap_rw = builder.ins().icmp(
+                            cranelift_codegen::ir::condcodes::IntCC::Equal, old_masked_rw, qnan_upd);
+                        let drop_rw_block = builder.create_block();
+                        let after_drop_rw = builder.create_block();
+                        builder.ins().brif(old_is_heap_rw, drop_rw_block, &[], after_drop_rw, &[]);
+                        builder.switch_to_block(drop_rw_block);
+                        builder.seal_block(drop_rw_block);
+                        let fref_drop_rw = get_func_ref(&mut builder, module, helpers.drop_rc);
+                        builder.ins().call(fref_drop_rw, &[old_fv]);
+                        builder.ins().jump(after_drop_rw, &[]);
+                        builder.switch_to_block(after_drop_rw);
+                        builder.seal_block(after_drop_rw);
+
+                        // Write new value
+                        builder.ins().store(mf_t, new_val_rw, new_ptr_rw, slot_off);
+                        // Clone RC on new value if it's heap
+                        let nv_masked_rw = builder.ins().band(new_val_rw, qnan_upd);
+                        let nv_is_heap_rw = builder.ins().icmp(
+                            cranelift_codegen::ir::condcodes::IntCC::Equal, nv_masked_rw, qnan_upd);
+                        let clone_nv_block = builder.create_block();
+                        let after_nv_clone = builder.create_block();
+                        builder.ins().brif(nv_is_heap_rw, clone_nv_block, &[], after_nv_clone, &[]);
+                        builder.switch_to_block(clone_nv_block);
+                        builder.seal_block(clone_nv_block);
+                        let fref_move_nv = get_func_ref(&mut builder, module, helpers.jit_move);
+                        builder.ins().call(fref_move_nv, &[new_val_rw]);
+                        builder.ins().jump(after_nv_clone, &[]);
+                        builder.switch_to_block(after_nv_clone);
+                        builder.seal_block(after_nv_clone);
+                    }
+
+                    // Update arena.offset and return arena-tagged pointer
+                    builder.ins().store(mf_t, new_off_rw, arena_ptr_rw_val, 16);
+                    let tag_arena_rw = builder.ins().iconst(I64, TAG_ARENA_REC as i64);
+                    let result_rw = builder.ins().bor(new_ptr_rw, tag_arena_rw);
+                    builder.ins().jump(merge_rw_block, &[result_rw]);
+
+                    // ── Arena-full fallback → jit_recwith_arena ────────────────────────
+                    builder.switch_to_block(alloc_fallback_rw_block);
+                    builder.seal_block(alloc_fallback_rw_block);
+                    {
+                        let indices_bytes_fb: &'static [u8] = Box::leak(update_indices.clone().into_boxed_slice());
+                        let slot_fb = builder.create_sized_stack_slot(cranelift_codegen::ir::StackSlotData::new(
+                            cranelift_codegen::ir::StackSlotKind::ExplicitSlot,
+                            (n_updates * 8) as u32,
+                            0,
+                        ));
+                        for i in 0..n_updates {
+                            let v = builder.use_var(vars[a_idx + 1 + i]);
+                            builder.ins().stack_store(v, slot_fb, (i * 8) as i32);
+                        }
+                        let regs_ptr_fb = builder.ins().stack_addr(I64, slot_fb, 0);
+                        let indices_ptr_fb = builder.ins().iconst(I64, indices_bytes_fb.as_ptr() as i64);
+                        let n_upd_fb = builder.ins().iconst(I64, n_updates as i64);
+                        let fref_fb = get_func_ref(&mut builder, module, helpers.recwith_arena);
+                        let call_fb = builder.ins().call(fref_fb, &[old_rec, arena_ptr_rw_val, indices_ptr_fb, n_upd_fb, regs_ptr_fb]);
+                        let fb_res = builder.inst_results(call_fb)[0];
+                        builder.ins().jump(merge_rw_block, &[fb_res]);
+                    }
+
+                    // ── Heap fallback → jit_recwith ────────────────────────────────────
+                    builder.switch_to_block(fallback_rw_block);
+                    builder.seal_block(fallback_rw_block);
+                    {
+                        let indices_bytes_hp: &'static [u8] = Box::leak(update_indices.into_boxed_slice());
+                        let slot_hp = builder.create_sized_stack_slot(cranelift_codegen::ir::StackSlotData::new(
+                            cranelift_codegen::ir::StackSlotKind::ExplicitSlot,
+                            (n_updates * 8) as u32,
+                            0,
+                        ));
+                        for i in 0..n_updates {
+                            let v = builder.use_var(vars[a_idx + 1 + i]);
+                            builder.ins().stack_store(v, slot_hp, (i * 8) as i32);
+                        }
+                        let regs_ptr_hp = builder.ins().stack_addr(I64, slot_hp, 0);
+                        let indices_ptr_hp = builder.ins().iconst(I64, indices_bytes_hp.as_ptr() as i64);
+                        let n_upd_hp = builder.ins().iconst(I64, n_updates as i64);
+                        let fref_hp = get_func_ref(&mut builder, module, helpers.recwith);
+                        let call_hp = builder.ins().call(fref_hp, &[old_rec, indices_ptr_hp, n_upd_hp, regs_ptr_hp]);
+                        let hp_res = builder.inst_results(call_hp)[0];
+                        builder.ins().jump(merge_rw_block, &[hp_res]);
+                    }
+
+                    // ── Merge ──────────────────────────────────────────────────────────
+                    builder.switch_to_block(merge_rw_block);
+                    builder.seal_block(merge_rw_block);
+                    let result_rw_final = builder.block_params(merge_rw_block)[0];
+                    builder.def_var(vars[a_idx], result_rw_final);
+                } else {
+                    // Unresolved (string) field names: general path
+                    let indices_bytes: &'static [u8] = Box::leak(
+                        update_indices.into_boxed_slice()
+                    );
+                    let slot = builder.create_sized_stack_slot(cranelift_codegen::ir::StackSlotData::new(
+                        cranelift_codegen::ir::StackSlotKind::ExplicitSlot,
+                        (n_updates * 8) as u32,
+                        0,
+                    ));
+                    for i in 0..n_updates {
+                        let v = builder.use_var(vars[a_idx + 1 + i]);
+                        builder.ins().stack_store(v, slot, (i * 8) as i32);
+                    }
+                    let regs_ptr = builder.ins().stack_addr(I64, slot, 0);
+                    let indices_ptr_val = builder.ins().iconst(I64, indices_bytes.as_ptr() as i64);
+                    let n_updates_val = builder.ins().iconst(I64, n_updates as i64);
+                    let fref = get_func_ref(&mut builder, module, helpers.recwith);
+                    let call_inst = builder.ins().call(fref, &[old_rec, indices_ptr_val, n_updates_val, regs_ptr]);
+                    let result = builder.inst_results(call_inst)[0];
+                    builder.def_var(vars[a_idx], result);
                 }
-                let regs_ptr = builder.ins().stack_addr(I64, slot, 0);
-                let indices_ptr_val = builder.ins().iconst(I64, indices_bytes.as_ptr() as i64);
-                let n_updates_val = builder.ins().iconst(I64, n_updates as i64);
-                let fref = get_func_ref(&mut builder, module, helpers.recwith);
-                let call_inst = builder.ins().call(fref, &[old_rec, indices_ptr_val, n_updates_val, regs_ptr]);
-                let result = builder.inst_results(call_inst)[0];
-                builder.def_var(vars[a_idx], result);
             }
             OP_LISTNEW => {
                 let n = (inst & 0xFFFF) as usize;
@@ -1447,10 +2273,20 @@ fn compile_function_body(
             OP_FOREACHPREP => {
                 // FOREACHPREP: validate list and load item[0] into R[A].
                 // R[C] (idx_reg) is 0.0 on entry (set by preceding LOADK).
-                // Inlined: same direct memory access as OP_LISTGET above.
+                //
+                // Inlined fast path with loop-invariant caching:
+                //   HeapObj::List layout (ptr = bv & PTR_MASK):
+                //     [ptr +  0]  enum discriminant  (8 bytes)
+                //     [ptr +  8]  Vec.len   (usize)  ← bounds check
+                //     [ptr + 16]  Vec.data_ptr
+                //     [ptr + 24]  Vec.cap   (usize)
+                //   (Runtime-probed on aarch64: Rust Vec<T> word order is [len,ptr,cap].)
+                //   Previous code read +24 as "len" — that was reading cap.
+                //
+                // ptr, data_ptr, vec_len, and int_idx=0 are stored in per-loop
+                // Cranelift vars (see foreach_loop_map) so FOREACHNEXT can reuse them.
                 let bv = builder.use_var(vars[b_idx]);
                 let cv = builder.use_var(vars[c_idx]);
-                let mf_plain = cranelift_codegen::ir::MemFlags::new();
                 let mf_trusted = cranelift_codegen::ir::MemFlags::trusted();
                 let ic_eq = cranelift_codegen::ir::condcodes::IntCC::Equal;
                 let ic_ult = cranelift_codegen::ir::condcodes::IntCC::UnsignedLessThan;
@@ -1479,13 +2315,9 @@ fn compile_function_body(
                     builder.seal_block(load_block);
                     let ptr_mask_c = builder.ins().iconst(I64, PTR_MASK as i64);
                     let ptr = builder.ins().band(bv, ptr_mask_c);
-                    // HeapObj layout (with 8-byte discriminant prefix):
-                    //   ptr+ 8 = Vec.cap   (capacity)
-                    //   ptr+16 = Vec.data_ptr
-                    //   ptr+24 = Vec.len   (length — use this for bounds check)
-                    let vec_len = builder.ins().load(I64, mf_trusted, ptr, 24);
-                    let cv_f = builder.ins().bitcast(F64, mf_plain, cv);
-                    let idx_u = builder.ins().fcvt_to_uint_sat(I64, cv_f);
+                    // Vec.len at ptr+8.  SAFETY: TAG_LIST guarantees a live HeapObj::List.
+                    let vec_len = builder.ins().load(I64, mf_trusted, ptr, 8);
+                    let idx_u = builder.ins().iconst(I64, 0i64);
                     let in_bounds = builder.ins().icmp(ic_ult, idx_u, vec_len);
 
                     let in_bounds_block = builder.create_block();
@@ -1494,10 +2326,16 @@ fn compile_function_body(
                     builder.switch_to_block(in_bounds_block);
                     builder.seal_block(in_bounds_block);
                     let data_ptr = builder.ins().load(I64, mf_trusted, ptr, 16);
-                    let eight = builder.ins().iconst(I64, 8i64);
-                    let byte_off = builder.ins().imul(idx_u, eight);
-                    let elem_addr = builder.ins().iadd(data_ptr, byte_off);
-                    let elem = builder.ins().load(I64, mf_trusted, elem_addr, 0);
+
+                    // Cache loop invariants for FOREACHNEXT fast path.
+                    if let Some(&loop_idx) = foreach_loop_map.get(&(b_idx, c_idx)) {
+                        builder.def_var(fe_ptr_var(loop_idx), ptr);
+                        builder.def_var(fe_data_ptr_var(loop_idx), data_ptr);
+                        builder.def_var(fe_len_var(loop_idx), vec_len);
+                        builder.def_var(fe_idx_var(loop_idx), idx_u);
+                    }
+
+                    let elem = builder.ins().load(I64, mf_trusted, data_ptr, 0);
 
                     let elem_masked = builder.ins().band(elem, qnan_c);
                     let elem_is_heap = builder.ins().icmp(ic_eq, elem_masked, qnan_c);
@@ -1525,64 +2363,121 @@ fn compile_function_body(
             }
             OP_FOREACHNEXT => {
                 // FOREACHNEXT: R[C] += 1; load R[B][R[C]] into R[A] if in-bounds.
-                // Inlined: increment index as f64, then direct memory access.
-                let cv = builder.use_var(vars[c_idx]);
+                //
+                // FAST PATH (using cached vars from FOREACHPREP):
+                //   - Integer index increment (iadd), no f64 round-trip per iteration
+                //   - No ptr re-extraction (no mask per iteration)
+                //   - No vec_len or data_ptr memory reloads (both cached)
+                //   - Hot loop: bounds-check + element load + optional RC clone only
+                //
+                // R[C] (NanVal f64 index) kept consistent via fcvt_from_uint.
                 let mf_plain = cranelift_codegen::ir::MemFlags::new();
                 let mf_trusted = cranelift_codegen::ir::MemFlags::trusted();
                 let ic_eq = cranelift_codegen::ir::condcodes::IntCC::Equal;
                 let ic_ult = cranelift_codegen::ir::condcodes::IntCC::UnsignedLessThan;
 
-                // Increment idx: bitcast i64→f64, add 1.0, bitcast f64→i64
-                let cv_f64 = builder.ins().bitcast(F64, mf_plain, cv);
-                let one_f64 = builder.ins().f64const(1.0);
-                let new_idx_f64 = builder.ins().fadd(cv_f64, one_f64);
-                let new_idx = builder.ins().bitcast(I64, mf_plain, new_idx_f64);
-                builder.def_var(vars[c_idx], new_idx);
-
-                let bv = builder.use_var(vars[b_idx]);
-
                 let jmp_block = block_map.get(&(ip + 1)).copied();
                 let body_block = block_map.get(&(ip + 2)).copied();
+
                 if let (Some(jb), Some(bb)) = (jmp_block, body_block) {
-                    // Extract ptr from list NanVal (already validated in FOREACHPREP)
-                    let ptr_mask_c = builder.ins().iconst(I64, PTR_MASK as i64);
-                    let ptr = builder.ins().band(bv, ptr_mask_c);
-                    // ptr+24 = Vec.len (length); ptr+8 = Vec.cap (capacity)
-                    let vec_len = builder.ins().load(I64, mf_trusted, ptr, 24);
+                    if let Some(&loop_idx) = foreach_loop_map.get(&(b_idx, c_idx)) {
+                        // ── Fast path: cached loop invariants ──
+                        let int_idx = builder.use_var(fe_idx_var(loop_idx));
+                        let one_i = builder.ins().iconst(I64, 1i64);
+                        let new_int_idx = builder.ins().iadd(int_idx, one_i);
+                        builder.def_var(fe_idx_var(loop_idx), new_int_idx);
 
-                    let idx_u = builder.ins().fcvt_to_uint_sat(I64, new_idx_f64);
-                    let in_bounds = builder.ins().icmp(ic_ult, idx_u, vec_len);
+                        let new_idx_f64 = builder.ins().fcvt_from_uint(F64, new_int_idx);
+                        let new_idx_nanval = builder.ins().bitcast(I64, mf_plain, new_idx_f64);
+                        builder.def_var(vars[c_idx], new_idx_nanval);
 
-                    let in_bounds_block = builder.create_block();
-                    builder.ins().brif(in_bounds, in_bounds_block, &[], jb, &[]);
+                        let vec_len = builder.use_var(fe_len_var(loop_idx));
+                        let in_bounds = builder.ins().icmp(ic_ult, new_int_idx, vec_len);
 
-                    builder.switch_to_block(in_bounds_block);
-                    builder.seal_block(in_bounds_block);
-                    let data_ptr = builder.ins().load(I64, mf_trusted, ptr, 16);
-                    let eight = builder.ins().iconst(I64, 8i64);
-                    let byte_off = builder.ins().imul(idx_u, eight);
-                    let elem_addr = builder.ins().iadd(data_ptr, byte_off);
-                    let elem = builder.ins().load(I64, mf_trusted, elem_addr, 0);
+                        let in_bounds_block = builder.create_block();
+                        builder.ins().brif(in_bounds, in_bounds_block, &[], jb, &[]);
 
-                    let qnan_c = builder.ins().iconst(I64, QNAN as i64);
-                    let elem_masked = builder.ins().band(elem, qnan_c);
-                    let elem_is_heap = builder.ins().icmp(ic_eq, elem_masked, qnan_c);
-                    let clone_block = builder.create_block();
-                    let after_clone_block = builder.create_block();
-                    builder.ins().brif(elem_is_heap, clone_block, &[], after_clone_block, &[]);
+                        builder.switch_to_block(in_bounds_block);
+                        builder.seal_block(in_bounds_block);
 
-                    builder.switch_to_block(clone_block);
-                    builder.seal_block(clone_block);
-                    let fref_move = get_func_ref(&mut builder, module, helpers.jit_move);
-                    builder.ins().call(fref_move, &[elem]);
-                    builder.ins().jump(after_clone_block, &[]);
+                        let data_ptr = builder.use_var(fe_data_ptr_var(loop_idx));
+                        let eight = builder.ins().iconst(I64, 8i64);
+                        let byte_off = builder.ins().imul(new_int_idx, eight);
+                        let elem_addr = builder.ins().iadd(data_ptr, byte_off);
+                        let elem = builder.ins().load(I64, mf_trusted, elem_addr, 0);
 
-                    builder.switch_to_block(after_clone_block);
-                    builder.seal_block(after_clone_block);
-                    builder.def_var(vars[a_idx], elem);
-                    builder.ins().jump(bb, &[]);
-                    block_terminated = true;
+                        let qnan_c = builder.ins().iconst(I64, QNAN as i64);
+                        let elem_masked = builder.ins().band(elem, qnan_c);
+                        let elem_is_heap = builder.ins().icmp(ic_eq, elem_masked, qnan_c);
+                        let clone_block = builder.create_block();
+                        let after_clone_block = builder.create_block();
+                        builder.ins().brif(elem_is_heap, clone_block, &[], after_clone_block, &[]);
+
+                        builder.switch_to_block(clone_block);
+                        builder.seal_block(clone_block);
+                        let fref_move = get_func_ref(&mut builder, module, helpers.jit_move);
+                        builder.ins().call(fref_move, &[elem]);
+                        builder.ins().jump(after_clone_block, &[]);
+
+                        builder.switch_to_block(after_clone_block);
+                        builder.seal_block(after_clone_block);
+                        builder.def_var(vars[a_idx], elem);
+                        builder.ins().jump(bb, &[]);
+                        block_terminated = true;
+                    } else {
+                        // ── Slow path: no cached loop data (should not occur normally)
+                        let cv = builder.use_var(vars[c_idx]);
+                        let cv_f64 = builder.ins().bitcast(F64, mf_plain, cv);
+                        let one_f64 = builder.ins().f64const(1.0);
+                        let new_idx_f64 = builder.ins().fadd(cv_f64, one_f64);
+                        let new_idx = builder.ins().bitcast(I64, mf_plain, new_idx_f64);
+                        builder.def_var(vars[c_idx], new_idx);
+
+                        let bv = builder.use_var(vars[b_idx]);
+                        let ptr_mask_c = builder.ins().iconst(I64, PTR_MASK as i64);
+                        let ptr = builder.ins().band(bv, ptr_mask_c);
+                        let vec_len = builder.ins().load(I64, mf_trusted, ptr, 8);
+                        let idx_u = builder.ins().fcvt_to_uint_sat(I64, new_idx_f64);
+                        let in_bounds = builder.ins().icmp(ic_ult, idx_u, vec_len);
+
+                        let in_bounds_block = builder.create_block();
+                        builder.ins().brif(in_bounds, in_bounds_block, &[], jb, &[]);
+
+                        builder.switch_to_block(in_bounds_block);
+                        builder.seal_block(in_bounds_block);
+                        let data_ptr = builder.ins().load(I64, mf_trusted, ptr, 16);
+                        let eight = builder.ins().iconst(I64, 8i64);
+                        let byte_off = builder.ins().imul(idx_u, eight);
+                        let elem_addr = builder.ins().iadd(data_ptr, byte_off);
+                        let elem = builder.ins().load(I64, mf_trusted, elem_addr, 0);
+
+                        let qnan_c = builder.ins().iconst(I64, QNAN as i64);
+                        let elem_masked = builder.ins().band(elem, qnan_c);
+                        let elem_is_heap = builder.ins().icmp(ic_eq, elem_masked, qnan_c);
+                        let clone_block = builder.create_block();
+                        let after_clone_block = builder.create_block();
+                        builder.ins().brif(elem_is_heap, clone_block, &[], after_clone_block, &[]);
+
+                        builder.switch_to_block(clone_block);
+                        builder.seal_block(clone_block);
+                        let fref_move = get_func_ref(&mut builder, module, helpers.jit_move);
+                        builder.ins().call(fref_move, &[elem]);
+                        builder.ins().jump(after_clone_block, &[]);
+
+                        builder.switch_to_block(after_clone_block);
+                        builder.seal_block(after_clone_block);
+                        builder.def_var(vars[a_idx], elem);
+                        builder.ins().jump(bb, &[]);
+                        block_terminated = true;
+                    }
                 } else {
+                    let cv = builder.use_var(vars[c_idx]);
+                    let cv_f64 = builder.ins().bitcast(F64, mf_plain, cv);
+                    let one_f64 = builder.ins().f64const(1.0);
+                    let new_idx_f64 = builder.ins().fadd(cv_f64, one_f64);
+                    let new_idx = builder.ins().bitcast(I64, mf_plain, new_idx_f64);
+                    builder.def_var(vars[c_idx], new_idx);
+                    let bv = builder.use_var(vars[b_idx]);
                     let fref = get_func_ref(&mut builder, module, helpers.listget);
                     let call_inst = builder.ins().call(fref, &[bv, new_idx]);
                     let result = builder.inst_results(call_inst)[0];
@@ -1593,14 +2488,31 @@ fn compile_function_body(
             // ABC: A = reg, B = unused, C = constant pool index (ki).
             // If condition TRUE → skip next instruction (the OP_JMP), enter body.
             // If condition FALSE → fall through to the OP_JMP that skips the body.
+            //
+            // Two optimisations applied here:
+            //
+            // 1. F64 shadow variables: if R[A] is always numeric we pre-converted it
+            //    to F64 at function entry (or at the write site for non-parameter
+            //    numeric registers).  Reuse that F64 value directly, skipping the
+            //    redundant i64→f64 bitcast that would otherwise appear on every guard.
+            //
+            // 2. Jump threading: ip+1 is always OP_JMP (the body-skip jump). Instead
+            //    of branching to the JMP block and then immediately jumping again, we
+            //    decode the JMP target here and use it directly as the false branch
+            //    destination.  This eliminates one unconditional jump per failed guard.
             op if op == OP_CMPK_GE_N || op == OP_CMPK_GT_N || op == OP_CMPK_LT_N
                 || op == OP_CMPK_LE_N || op == OP_CMPK_EQ_N || op == OP_CMPK_NE_N => {
                 let ki = (inst & 0xFF) as usize;
-                let lhs = builder.use_var(vars[a_idx]);
 
-                // Both operands are guaranteed numeric by the compiler; bitcast to f64.
-                let mf = cranelift_codegen::ir::MemFlags::new();
-                let lhs_f64 = builder.ins().bitcast(F64, mf, lhs);
+                // Optimisation 1: use the pre-converted F64 shadow when available.
+                let lhs_f64 = if a_idx < reg_count && reg_always_num[a_idx] {
+                    builder.use_var(f64_vars[a_idx])
+                } else {
+                    let lhs = builder.use_var(vars[a_idx]);
+                    let mf = cranelift_codegen::ir::MemFlags::new();
+                    builder.ins().bitcast(F64, mf, lhs)
+                };
+
                 let rhs_f64 = if ki < nan_consts.len() {
                     builder.ins().f64const(nan_consts[ki].as_number())
                 } else {
@@ -1608,28 +2520,39 @@ fn compile_function_body(
                 };
 
                 use cranelift_codegen::ir::condcodes::FloatCC;
-                let cc = if op == OP_CMPK_GE_N {
-                    FloatCC::GreaterThanOrEqual
-                } else if op == OP_CMPK_GT_N {
-                    FloatCC::GreaterThan
-                } else if op == OP_CMPK_LT_N {
-                    FloatCC::LessThan
-                } else if op == OP_CMPK_LE_N {
-                    FloatCC::LessThanOrEqual
-                } else if op == OP_CMPK_EQ_N {
-                    FloatCC::Equal
-                } else {
-                    FloatCC::NotEqual  // OP_CMPK_NE_N
+                let cc = match op {
+                    op if op == OP_CMPK_GE_N => FloatCC::GreaterThanOrEqual,
+                    op if op == OP_CMPK_GT_N => FloatCC::GreaterThan,
+                    op if op == OP_CMPK_LT_N => FloatCC::LessThan,
+                    op if op == OP_CMPK_LE_N => FloatCC::LessThanOrEqual,
+                    op if op == OP_CMPK_EQ_N => FloatCC::Equal,
+                    _                        => FloatCC::NotEqual, // OP_CMPK_NE_N
                 };
                 let cmp = builder.ins().fcmp(cc, lhs_f64, rhs_f64);
 
                 // ip + 1 = the OP_JMP that skips the body (taken when condition FALSE)
                 // ip + 2 = first instruction of the guard body (taken when condition TRUE)
-                let jmp_block  = block_map.get(&(ip + 1)).copied();
                 let body_block = block_map.get(&(ip + 2)).copied();
-                if let (Some(jb), Some(bb)) = (jmp_block, body_block) {
-                    // condition TRUE → body (skip the JMP); condition FALSE → JMP block
-                    builder.ins().brif(cmp, bb, &[], jb, &[]);
+
+                // Optimisation 2: jump threading.
+                // The instruction at ip+1 is always OP_JMP.  Decode its target now so
+                // that the false branch goes directly there, skipping the intermediate
+                // JMP block entirely.  If the look-ahead fails for any reason, fall
+                // back to the original behaviour (branch to the JMP block).
+                let false_dest_block = chunk.code.get(ip + 1).and_then(|&jmp_inst| {
+                    let jmp_op = (jmp_inst >> 24) as u8;
+                    if jmp_op == OP_JMP {
+                        let sbx = (jmp_inst & 0xFFFF) as i16;
+                        let jmp_target = (ip as isize + 2 + sbx as isize) as usize;
+                        block_map.get(&jmp_target).copied()
+                    } else {
+                        None
+                    }
+                }).or_else(|| block_map.get(&(ip + 1)).copied());
+
+                if let (Some(false_block), Some(bb)) = (false_dest_block, body_block) {
+                    // condition TRUE → body; condition FALSE → threaded miss target
+                    builder.ins().brif(cmp, bb, &[], false_block, &[]);
                     block_terminated = true;
                 }
                 // else: blocks not found → JIT bails (should not happen in practice)
@@ -1641,6 +2564,75 @@ fn compile_function_body(
                 let n_args = bx & 0xFF;
 
                 if func_idx < all_func_ids.len() {
+                    // Check if the target function is inlinable (pure numeric guard chain).
+                    // If so, emit its IR directly here instead of a real call — this avoids
+                    // all function-call overhead (ABI setup, call/ret instructions, register
+                    // saves) which is the dominant cost for tight guard-chain loops.
+                    let can_inline = func_idx < program.chunks.len()
+                        && is_inlinable(&program.chunks[func_idx], &program.nan_constants[func_idx])
+                        && n_args == program.chunks[func_idx].param_count as usize
+                        && inline_var_map.contains_key(&ip);
+
+                    if can_inline {
+                        let callee_chunk  = &program.chunks[func_idx];
+                        let callee_consts = &program.nan_constants[func_idx];
+                        let result_var    = vars[a as usize];
+
+                        // Collect arg Variables and build F64 shadows for them.
+                        let arg_var_list: Vec<Variable> = (0..n_args)
+                            .map(|i| vars[a as usize + 1 + i])
+                            .collect();
+                        let f64_arg_list: Vec<Variable> = {
+                            let mf = cranelift_codegen::ir::MemFlags::new();
+                            let f64_slots = inline_f64_var_map.get(&ip).map(|v| v.as_slice()).unwrap_or(&[]);
+                            for (i, &av) in arg_var_list.iter().enumerate() {
+                                if i < f64_slots.len() {
+                                    let iv = builder.use_var(av);
+                                    let fv = builder.ins().bitcast(F64, mf, iv);
+                                    builder.def_var(f64_slots[i], fv);
+                                }
+                            }
+                            f64_slots.to_vec()
+                        };
+
+                        let extra_var_list = inline_var_map.get(&ip)
+                            .map(|v| v.as_slice()).unwrap_or(&[]).to_vec();
+
+                        // Create a merge block where inline code converges after each RET.
+                        let merge_blk = builder.create_block();
+
+                        let ok = inline_chunk(
+                            &mut builder,
+                            callee_chunk,
+                            callee_consts,
+                            &arg_var_list,
+                            result_var,
+                            &extra_var_list,
+                            &f64_arg_list,
+                            merge_blk,
+                        );
+
+                        if ok {
+                            // Switch to merge block so subsequent code continues there.
+                            builder.switch_to_block(merge_blk);
+                            // result_var already holds the inlined return value.
+                            block_terminated = false;
+                        } else {
+                            // Inlining failed mid-way; fall back to a real call.
+                            // We need to terminate whatever block we're in and fall through.
+                            builder.ins().jump(merge_blk, &[]);
+                            builder.switch_to_block(merge_blk);
+
+                            let target_fid  = all_func_ids[func_idx];
+                            let target_fref = get_func_ref(&mut builder, module, target_fid);
+                            let call_args: Vec<_> = (0..n_args)
+                                .map(|i| builder.use_var(vars[a as usize + 1 + i]))
+                                .collect();
+                            let call_inst = builder.ins().call(target_fref, &call_args);
+                            let result = builder.inst_results(call_inst)[0];
+                            builder.def_var(result_var, result);
+                        }
+                    } else {
                     // Direct call: the target function is compiled in this module
                     let target_fid = all_func_ids[func_idx];
                     let target_fref = get_func_ref(&mut builder, module, target_fid);
@@ -1651,6 +2643,7 @@ fn compile_function_body(
                     let call_inst = builder.ins().call(target_fref, &call_args);
                     let result = builder.inst_results(call_inst)[0];
                     builder.def_var(vars[a as usize], result);
+                    } // end else (not inlined)
                 } else {
                     // Fallback: use jit_call helper for out-of-range func indices
                     if n_args > 0 {
