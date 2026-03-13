@@ -326,6 +326,50 @@ fn compile_function_body(
         vars.push(var);
     }
 
+    // ── Foreach loop cache variables ─────────────────────────────────────────
+    // For each FOREACHPREP instruction we allocate 4 extra I64 Cranelift variables:
+    //   [foreach_var_base + loop_idx*4 + 0]  ptr      — HeapObj pointer (bv & PTR_MASK)
+    //   [foreach_var_base + loop_idx*4 + 1]  data_ptr — Vec backing-store pointer (*ptr+16)
+    //   [foreach_var_base + loop_idx*4 + 2]  vec_len  — Vec length (*ptr+8)
+    //   [foreach_var_base + loop_idx*4 + 3]  int_idx  — current index as raw i64
+    //
+    // FOREACHPREP writes all four; FOREACHNEXT reads them to avoid re-extracting the
+    // pointer, re-loading two memory fields, and doing fcvt_to_uint_sat each iteration.
+    // Matching is done by (b_idx, c_idx) register pair — each foreach loop uses a
+    // dedicated (coll_reg, idx_reg) pair assigned by the bytecode compiler.
+    //
+    // Variable layout:
+    //   [0 .. reg_count)  I64  VM register vars
+    //   [reg_count .. )   I64  foreach cache vars (4 per loop)
+    let foreach_var_base = reg_count;
+
+    // Pre-scan: collect unique (b_idx, c_idx) pairs from FOREACHPREP instructions
+    // and assign each a loop index.
+    let mut foreach_loop_map: HashMap<(usize, usize), usize> = HashMap::new();
+    for &inst in &chunk.code {
+        let op = (inst >> 24) as u8;
+        if op == OP_FOREACHPREP {
+            let b = ((inst >> 8) & 0xFF) as usize;
+            let c = (inst & 0xFF) as usize;
+            let next_idx = foreach_loop_map.len();
+            foreach_loop_map.entry((b, c)).or_insert(next_idx);
+        }
+    }
+    let num_foreach_loops = foreach_loop_map.len();
+
+    // Declare the 4 × num_foreach_loops extra I64 variables.
+    for i in 0..(num_foreach_loops * 4) {
+        let var = Variable::from_u32((foreach_var_base + i) as u32);
+        builder.declare_var(var, I64);
+    }
+
+    // Helper closures to get the Variable for each foreach cache slot.
+    // `loop_idx` comes from `foreach_loop_map.get(&(b, c))`.
+    let fe_ptr_var = |loop_idx: usize| Variable::from_u32((foreach_var_base + loop_idx * 4) as u32);
+    let fe_data_ptr_var = |loop_idx: usize| Variable::from_u32((foreach_var_base + loop_idx * 4 + 1) as u32);
+    let fe_len_var = |loop_idx: usize| Variable::from_u32((foreach_var_base + loop_idx * 4 + 2) as u32);
+    let fe_idx_var = |loop_idx: usize| Variable::from_u32((foreach_var_base + loop_idx * 4 + 3) as u32);
+
     // Find block leaders for control flow
     let leaders = find_block_leaders(&chunk.code);
     let mut block_map: HashMap<usize, cranelift_codegen::ir::Block> = HashMap::new();
@@ -1447,10 +1491,20 @@ fn compile_function_body(
             OP_FOREACHPREP => {
                 // FOREACHPREP: validate list and load item[0] into R[A].
                 // R[C] (idx_reg) is 0.0 on entry (set by preceding LOADK).
-                // Inlined: same direct memory access as OP_LISTGET above.
+                //
+                // Inlined fast path with loop-invariant caching:
+                //   HeapObj::List layout (ptr = bv & PTR_MASK):
+                //     [ptr +  0]  enum discriminant  (8 bytes)
+                //     [ptr +  8]  Vec.len   (usize)  ← bounds check
+                //     [ptr + 16]  Vec.data_ptr
+                //     [ptr + 24]  Vec.cap   (usize)
+                //   (Runtime-probed on aarch64: Rust Vec<T> word order is [len,ptr,cap].)
+                //   Previous code read +24 as "len" — that was reading cap.
+                //
+                // ptr, data_ptr, vec_len, and int_idx=0 are stored in per-loop
+                // Cranelift vars (see foreach_loop_map) so FOREACHNEXT can reuse them.
                 let bv = builder.use_var(vars[b_idx]);
                 let cv = builder.use_var(vars[c_idx]);
-                let mf_plain = cranelift_codegen::ir::MemFlags::new();
                 let mf_trusted = cranelift_codegen::ir::MemFlags::trusted();
                 let ic_eq = cranelift_codegen::ir::condcodes::IntCC::Equal;
                 let ic_ult = cranelift_codegen::ir::condcodes::IntCC::UnsignedLessThan;
@@ -1479,13 +1533,9 @@ fn compile_function_body(
                     builder.seal_block(load_block);
                     let ptr_mask_c = builder.ins().iconst(I64, PTR_MASK as i64);
                     let ptr = builder.ins().band(bv, ptr_mask_c);
-                    // HeapObj layout (with 8-byte discriminant prefix):
-                    //   ptr+ 8 = Vec.cap   (capacity)
-                    //   ptr+16 = Vec.data_ptr
-                    //   ptr+24 = Vec.len   (length — use this for bounds check)
-                    let vec_len = builder.ins().load(I64, mf_trusted, ptr, 24);
-                    let cv_f = builder.ins().bitcast(F64, mf_plain, cv);
-                    let idx_u = builder.ins().fcvt_to_uint_sat(I64, cv_f);
+                    // Vec.len at ptr+8.  SAFETY: TAG_LIST guarantees a live HeapObj::List.
+                    let vec_len = builder.ins().load(I64, mf_trusted, ptr, 8);
+                    let idx_u = builder.ins().iconst(I64, 0i64);
                     let in_bounds = builder.ins().icmp(ic_ult, idx_u, vec_len);
 
                     let in_bounds_block = builder.create_block();
@@ -1494,10 +1544,16 @@ fn compile_function_body(
                     builder.switch_to_block(in_bounds_block);
                     builder.seal_block(in_bounds_block);
                     let data_ptr = builder.ins().load(I64, mf_trusted, ptr, 16);
-                    let eight = builder.ins().iconst(I64, 8i64);
-                    let byte_off = builder.ins().imul(idx_u, eight);
-                    let elem_addr = builder.ins().iadd(data_ptr, byte_off);
-                    let elem = builder.ins().load(I64, mf_trusted, elem_addr, 0);
+
+                    // Cache loop invariants for FOREACHNEXT fast path.
+                    if let Some(&loop_idx) = foreach_loop_map.get(&(b_idx, c_idx)) {
+                        builder.def_var(fe_ptr_var(loop_idx), ptr);
+                        builder.def_var(fe_data_ptr_var(loop_idx), data_ptr);
+                        builder.def_var(fe_len_var(loop_idx), vec_len);
+                        builder.def_var(fe_idx_var(loop_idx), idx_u);
+                    }
+
+                    let elem = builder.ins().load(I64, mf_trusted, data_ptr, 0);
 
                     let elem_masked = builder.ins().band(elem, qnan_c);
                     let elem_is_heap = builder.ins().icmp(ic_eq, elem_masked, qnan_c);
@@ -1525,64 +1581,123 @@ fn compile_function_body(
             }
             OP_FOREACHNEXT => {
                 // FOREACHNEXT: R[C] += 1; load R[B][R[C]] into R[A] if in-bounds.
-                // Inlined: increment index as f64, then direct memory access.
-                let cv = builder.use_var(vars[c_idx]);
+                //
+                // FAST PATH (using cached vars from FOREACHPREP):
+                //   - Integer index increment (iadd), no f64 round-trip per iteration
+                //   - No ptr re-extraction (no mask per iteration)
+                //   - No vec_len or data_ptr memory reloads (both cached)
+                //   - Hot loop: bounds-check + element load + optional RC clone only
+                //
+                // R[C] (NanVal f64 index) kept consistent via fcvt_from_uint.
                 let mf_plain = cranelift_codegen::ir::MemFlags::new();
                 let mf_trusted = cranelift_codegen::ir::MemFlags::trusted();
                 let ic_eq = cranelift_codegen::ir::condcodes::IntCC::Equal;
                 let ic_ult = cranelift_codegen::ir::condcodes::IntCC::UnsignedLessThan;
 
-                // Increment idx: bitcast i64→f64, add 1.0, bitcast f64→i64
-                let cv_f64 = builder.ins().bitcast(F64, mf_plain, cv);
-                let one_f64 = builder.ins().f64const(1.0);
-                let new_idx_f64 = builder.ins().fadd(cv_f64, one_f64);
-                let new_idx = builder.ins().bitcast(I64, mf_plain, new_idx_f64);
-                builder.def_var(vars[c_idx], new_idx);
-
-                let bv = builder.use_var(vars[b_idx]);
-
                 let jmp_block = block_map.get(&(ip + 1)).copied();
                 let body_block = block_map.get(&(ip + 2)).copied();
+
                 if let (Some(jb), Some(bb)) = (jmp_block, body_block) {
-                    // Extract ptr from list NanVal (already validated in FOREACHPREP)
-                    let ptr_mask_c = builder.ins().iconst(I64, PTR_MASK as i64);
-                    let ptr = builder.ins().band(bv, ptr_mask_c);
-                    // ptr+24 = Vec.len (length); ptr+8 = Vec.cap (capacity)
-                    let vec_len = builder.ins().load(I64, mf_trusted, ptr, 24);
+                    if let Some(&loop_idx) = foreach_loop_map.get(&(b_idx, c_idx)) {
+                        // ── Fast path: cached loop invariants ──
+                        let int_idx = builder.use_var(fe_idx_var(loop_idx));
+                        let one_i = builder.ins().iconst(I64, 1i64);
+                        let new_int_idx = builder.ins().iadd(int_idx, one_i);
+                        builder.def_var(fe_idx_var(loop_idx), new_int_idx);
 
-                    let idx_u = builder.ins().fcvt_to_uint_sat(I64, new_idx_f64);
-                    let in_bounds = builder.ins().icmp(ic_ult, idx_u, vec_len);
+                        let new_idx_f64 = builder.ins().fcvt_from_uint(F64, new_int_idx);
+                        let new_idx_nanval = builder.ins().bitcast(I64, mf_plain, new_idx_f64);
+                        builder.def_var(vars[c_idx], new_idx_nanval);
 
-                    let in_bounds_block = builder.create_block();
-                    builder.ins().brif(in_bounds, in_bounds_block, &[], jb, &[]);
+                        let vec_len = builder.use_var(fe_len_var(loop_idx));
+                        let in_bounds = builder.ins().icmp(ic_ult, new_int_idx, vec_len);
 
-                    builder.switch_to_block(in_bounds_block);
-                    builder.seal_block(in_bounds_block);
-                    let data_ptr = builder.ins().load(I64, mf_trusted, ptr, 16);
-                    let eight = builder.ins().iconst(I64, 8i64);
-                    let byte_off = builder.ins().imul(idx_u, eight);
-                    let elem_addr = builder.ins().iadd(data_ptr, byte_off);
-                    let elem = builder.ins().load(I64, mf_trusted, elem_addr, 0);
+                        let in_bounds_block = builder.create_block();
+                        builder.ins().brif(in_bounds, in_bounds_block, &[], jb, &[]);
 
-                    let qnan_c = builder.ins().iconst(I64, QNAN as i64);
-                    let elem_masked = builder.ins().band(elem, qnan_c);
-                    let elem_is_heap = builder.ins().icmp(ic_eq, elem_masked, qnan_c);
-                    let clone_block = builder.create_block();
-                    let after_clone_block = builder.create_block();
-                    builder.ins().brif(elem_is_heap, clone_block, &[], after_clone_block, &[]);
+                        builder.switch_to_block(in_bounds_block);
+                        builder.seal_block(in_bounds_block);
 
-                    builder.switch_to_block(clone_block);
-                    builder.seal_block(clone_block);
-                    let fref_move = get_func_ref(&mut builder, module, helpers.jit_move);
-                    builder.ins().call(fref_move, &[elem]);
-                    builder.ins().jump(after_clone_block, &[]);
+                        let data_ptr = builder.use_var(fe_data_ptr_var(loop_idx));
+                        let eight = builder.ins().iconst(I64, 8i64);
+                        let byte_off = builder.ins().imul(new_int_idx, eight);
+                        let elem_addr = builder.ins().iadd(data_ptr, byte_off);
+                        let elem = builder.ins().load(I64, mf_trusted, elem_addr, 0);
 
-                    builder.switch_to_block(after_clone_block);
-                    builder.seal_block(after_clone_block);
-                    builder.def_var(vars[a_idx], elem);
-                    builder.ins().jump(bb, &[]);
-                    block_terminated = true;
+                        let qnan_c = builder.ins().iconst(I64, QNAN as i64);
+                        let elem_masked = builder.ins().band(elem, qnan_c);
+                        let elem_is_heap = builder.ins().icmp(ic_eq, elem_masked, qnan_c);
+                        let clone_block = builder.create_block();
+                        let after_clone_block = builder.create_block();
+                        builder.ins().brif(elem_is_heap, clone_block, &[], after_clone_block, &[]);
+
+                        builder.switch_to_block(clone_block);
+                        builder.seal_block(clone_block);
+                        let fref_move = get_func_ref(&mut builder, module, helpers.jit_move);
+                        builder.ins().call(fref_move, &[elem]);
+                        builder.ins().jump(after_clone_block, &[]);
+
+                        builder.switch_to_block(after_clone_block);
+                        builder.seal_block(after_clone_block);
+                        builder.def_var(vars[a_idx], elem);
+                        builder.ins().jump(bb, &[]);
+                        block_terminated = true;
+                    } else {
+                        // ── Slow path: no cached loop data (should not occur normally)
+                        let cv = builder.use_var(vars[c_idx]);
+                        let cv_f64 = builder.ins().bitcast(F64, mf_plain, cv);
+                        let one_f64 = builder.ins().f64const(1.0);
+                        let new_idx_f64 = builder.ins().fadd(cv_f64, one_f64);
+                        let new_idx = builder.ins().bitcast(I64, mf_plain, new_idx_f64);
+                        builder.def_var(vars[c_idx], new_idx);
+
+                        let bv = builder.use_var(vars[b_idx]);
+                        let ptr_mask_c = builder.ins().iconst(I64, PTR_MASK as i64);
+                        let ptr = builder.ins().band(bv, ptr_mask_c);
+                        // Vec.len at ptr+8 (aarch64: [len, ptr, cap] layout).
+                        let vec_len = builder.ins().load(I64, mf_trusted, ptr, 8);
+                        let idx_u = builder.ins().fcvt_to_uint_sat(I64, new_idx_f64);
+                        let in_bounds = builder.ins().icmp(ic_ult, idx_u, vec_len);
+
+                        let in_bounds_block = builder.create_block();
+                        builder.ins().brif(in_bounds, in_bounds_block, &[], jb, &[]);
+
+                        builder.switch_to_block(in_bounds_block);
+                        builder.seal_block(in_bounds_block);
+                        let data_ptr = builder.ins().load(I64, mf_trusted, ptr, 16);
+                        let eight = builder.ins().iconst(I64, 8i64);
+                        let byte_off = builder.ins().imul(idx_u, eight);
+                        let elem_addr = builder.ins().iadd(data_ptr, byte_off);
+                        let elem = builder.ins().load(I64, mf_trusted, elem_addr, 0);
+
+                        let qnan_c = builder.ins().iconst(I64, QNAN as i64);
+                        let elem_masked = builder.ins().band(elem, qnan_c);
+                        let elem_is_heap = builder.ins().icmp(ic_eq, elem_masked, qnan_c);
+                        let clone_block = builder.create_block();
+                        let after_clone_block = builder.create_block();
+                        builder.ins().brif(elem_is_heap, clone_block, &[], after_clone_block, &[]);
+
+                        builder.switch_to_block(clone_block);
+                        builder.seal_block(clone_block);
+                        let fref_move = get_func_ref(&mut builder, module, helpers.jit_move);
+                        builder.ins().call(fref_move, &[elem]);
+                        builder.ins().jump(after_clone_block, &[]);
+
+                        builder.switch_to_block(after_clone_block);
+                        builder.seal_block(after_clone_block);
+                        builder.def_var(vars[a_idx], elem);
+                        builder.ins().jump(bb, &[]);
+                        block_terminated = true;
+                    }
                 } else {
+                    let cv = builder.use_var(vars[c_idx]);
+                    let mf = cranelift_codegen::ir::MemFlags::new();
+                    let cv_f64 = builder.ins().bitcast(F64, mf, cv);
+                    let one_f64 = builder.ins().f64const(1.0);
+                    let new_idx_f64 = builder.ins().fadd(cv_f64, one_f64);
+                    let new_idx = builder.ins().bitcast(I64, mf, new_idx_f64);
+                    builder.def_var(vars[c_idx], new_idx);
+                    let bv = builder.use_var(vars[b_idx]);
                     let fref = get_func_ref(&mut builder, module, helpers.listget);
                     let call_inst = builder.ins().call(fref, &[bv, new_idx]);
                     let result = builder.inst_results(call_inst)[0];
