@@ -907,11 +907,9 @@ fn compile_function_body(
                         num_write[a] = true;
                         changed = true;
                     }
-                } else {
-                    if !non_num_write[a] {
-                        non_num_write[a] = true;
-                        changed = true;
-                    }
+                } else if !non_num_write[a] {
+                    non_num_write[a] = true;
+                    changed = true;
                 }
                 // Boolean propagation through MOVE.
                 if b_always_bool {
@@ -919,11 +917,9 @@ fn compile_function_body(
                         bool_write[a] = true;
                         changed = true;
                     }
-                } else {
-                    if !non_bool_write[a] {
-                        non_bool_write[a] = true;
-                        changed = true;
-                    }
+                } else if !non_bool_write[a] {
+                    non_bool_write[a] = true;
+                    changed = true;
                 }
             }
             if !changed {
