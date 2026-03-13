@@ -4303,6 +4303,81 @@ mod tests {
         assert!(matches!(&body[0].node, Stmt::Expr(Expr::Literal(Literal::Nil))));
     }
 
+    // ── Equality vs assignment disambiguation ──────────────────────────────────
+
+    #[test]
+    fn eq_prefix_is_equality_check() {
+        // `=x y` in expression context is prefix equality: BinOp(Equals, x, y)
+        let prog = parse_str("f x:n y:n>b;=x y");
+        let Decl::Function { body, .. } = &prog.declarations[0] else { panic!("expected fn") };
+        let Stmt::Expr(Expr::BinOp { op, .. }) = &body[0].node else {
+            panic!("expected equality binop, got {:?}", body[0].node)
+        };
+        assert_eq!(*op, BinOp::Equals);
+    }
+
+    #[test]
+    fn eq_after_ident_is_let_binding() {
+        // `x=1` inside a function body is a let binding
+        let prog = parse_str("f>n;x=1;x");
+        let Decl::Function { body, .. } = &prog.declarations[0] else { panic!("expected fn") };
+        let Stmt::Let { name, .. } = &body[0].node else {
+            panic!("expected let binding, got {:?}", body[0].node)
+        };
+        assert_eq!(name, "x");
+    }
+
+    #[test]
+    fn eq_double_equals_is_equality() {
+        // `==` lexes the same as `=` (both Token::Eq) — used in prefix as equality
+        let prog = parse_str("f x:n>b;==x 1");
+        let Decl::Function { body, .. } = &prog.declarations[0] else { panic!("expected fn") };
+        let Stmt::Expr(Expr::BinOp { op, .. }) = &body[0].node else {
+            panic!("expected equality binop, got {:?}", body[0].node)
+        };
+        assert_eq!(*op, BinOp::Equals);
+    }
+
+    #[test]
+    fn eq_infix_is_equality() {
+        // Infix `=` after a non-ident expression is equality, not assignment.
+        // `(+1 0)=0` — the parenthesised expr followed by `=` can't be let-binding.
+        let prog = parse_str("f x:n>b;r=+x 0;=r 0");
+        let Decl::Function { body, .. } = &prog.declarations[0] else { panic!("expected fn") };
+        // Second statement: `=r 0` is prefix equality
+        let Stmt::Expr(Expr::BinOp { op: BinOp::Equals, .. }) = &body[1].node else {
+            panic!("expected equality, got {:?}", body[1].node)
+        };
+    }
+
+    #[test]
+    fn eq_prefix_ternary_uses_equality() {
+        // `?=x 0 "zero" "nonzero"` — the `=` after `?` is prefix equality in a ternary
+        let prog = parse_str(r#"f x:n>t;?=x 0 "zero" "nonzero""#);
+        let Decl::Function { body, .. } = &prog.declarations[0] else { panic!("expected fn") };
+        let Stmt::Expr(Expr::Ternary { condition, .. }) = &body[0].node else {
+            panic!("expected ternary, got {:?}", body[0].node)
+        };
+        let Expr::BinOp { op, .. } = condition.as_ref() else {
+            panic!("expected equality condition, got {:?}", condition)
+        };
+        assert_eq!(*op, BinOp::Equals);
+    }
+
+    #[test]
+    fn eq_guard_with_equality_condition() {
+        // `=x 1{...}` — equality check as guard condition, not assignment
+        let prog = parse_str(r#"f x:n>t;=x 1{"one"};"other""#);
+        let Decl::Function { body, .. } = &prog.declarations[0] else { panic!("expected fn") };
+        let Stmt::Guard { condition, .. } = &body[0].node else {
+            panic!("expected guard, got {:?}", body[0].node)
+        };
+        let Expr::BinOp { op, .. } = condition else {
+            panic!("expected equality condition, got {:?}", condition)
+        };
+        assert_eq!(*op, BinOp::Equals);
+    }
+
     // ── Coverage: L813 — TypeIs pattern lookahead bounds check ─────────────────
 
     #[test]
