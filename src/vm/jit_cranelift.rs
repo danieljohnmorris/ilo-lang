@@ -77,6 +77,7 @@ struct HelperFuncs {
     recfld_name: FuncId,
     recnew: FuncId,
     recwith: FuncId,
+    recwith_arena: FuncId,
     listnew: FuncId,
     listget: FuncId,
     jpth: FuncId,
@@ -173,6 +174,7 @@ fn register_helpers(builder: &mut JITBuilder) {
         ("jit_recfld_name", jit_recfld_name as *const u8),
         ("jit_recnew", jit_recnew as *const u8),
         ("jit_recwith", jit_recwith as *const u8),
+        ("jit_recwith_arena", jit_recwith_arena as *const u8),
         ("jit_listnew", jit_listnew as *const u8),
         ("jit_listget", jit_listget as *const u8),
         ("jit_jpth", jit_jpth as *const u8),
@@ -262,6 +264,7 @@ fn declare_all_helpers(module: &mut JITModule) -> HelperFuncs {
         recfld_name: declare_helper(module, "jit_recfld_name", 3, 1),
         recnew: declare_helper(module, "jit_recnew", 4, 1),
         recwith: declare_helper(module, "jit_recwith", 4, 1),
+        recwith_arena: declare_helper(module, "jit_recwith_arena", 5, 1),
         listnew: declare_helper(module, "jit_listnew", 2, 1),
         listget: declare_helper(module, "jit_listget", 2, 1),
         jpth: declare_helper(module, "jit_jpth", 2, 1),
@@ -295,6 +298,233 @@ fn declare_all_helpers(module: &mut JITModule) -> HelperFuncs {
         geth: declare_helper(module, "jit_geth", 2, 1),
         posth: declare_helper(module, "jit_posth", 3, 1),
     }
+}
+
+/// Check whether a callee chunk can be safely inlined at a JIT call site.
+///
+/// A chunk is inlinable when every opcode is from the "pure numeric guard chain"
+/// set (CMPK_*_N, JMP, LOADK with numeric constants only, RET, and the fused
+/// arithmetic ops), all registers are numeric, and the register file is <= 16.
+fn is_inlinable(chunk: &Chunk, nan_consts: &[NanVal]) -> bool {
+    if !chunk.all_regs_numeric { return false; }
+    if chunk.reg_count as usize > 16 { return false; }
+    if chunk.code.is_empty() { return false; }
+
+    let mut has_ret = false;
+    for &inst in &chunk.code {
+        let op = (inst >> 24) as u8;
+        match op {
+            op if op == OP_CMPK_GE_N || op == OP_CMPK_GT_N || op == OP_CMPK_LT_N
+                || op == OP_CMPK_LE_N || op == OP_CMPK_EQ_N || op == OP_CMPK_NE_N => {}
+            OP_JMP => {}
+            OP_RET => { has_ret = true; }
+            OP_LOADK => {
+                let bx = (inst & 0xFFFF) as usize;
+                if bx >= nan_consts.len() || !nan_consts[bx].is_number() {
+                    return false;
+                }
+            }
+            OP_ADD_NN | OP_SUB_NN | OP_MUL_NN | OP_DIV_NN
+            | OP_ADDK_N | OP_SUBK_N | OP_MULK_N | OP_DIVK_N => {}
+            _ => return false,
+        }
+    }
+    has_ret
+}
+
+/// Inline a callee chunk directly into the caller's Cranelift IR stream.
+///
+/// `arg_vars`     — caller `Variable`s for callee params (indices 0..n_params)
+/// `result_var`   — caller `Variable` that receives the inlined return value
+/// `extra_vars`   — caller `Variable`s for callee non-param regs
+/// `f64_arg_vars` — F64 shadow `Variable`s corresponding to `arg_vars`
+/// `merge_block`  — block to jump to after the inlined return
+///
+/// Returns `true` on success, `false` if inlining should be abandoned.
+#[allow(clippy::too_many_arguments)]
+fn inline_chunk(
+    builder: &mut FunctionBuilder<'_>,
+    callee_chunk: &Chunk,
+    callee_consts: &[NanVal],
+    arg_vars: &[Variable],
+    result_var: Variable,
+    extra_vars: &[Variable],
+    f64_arg_vars: &[Variable],
+    merge_block: cranelift_codegen::ir::Block,
+) -> bool {
+    let n_params = callee_chunk.param_count as usize;
+    let mf = cranelift_codegen::ir::MemFlags::new();
+
+    let reg_var = |r: usize| -> Variable {
+        if r < n_params { arg_vars[r] } else { extra_vars[r - n_params] }
+    };
+
+    // Retrieve the f64 Value for callee register `r`.
+    // Uses the pre-computed shadow for param registers; bitcasts for others.
+    // NOTE: always uses two separate statements to avoid double-borrow of builder.
+    let f64_val_for = |r: usize, builder: &mut FunctionBuilder<'_>| -> cranelift_codegen::ir::Value {
+        if r < n_params {
+            builder.use_var(f64_arg_vars[r])
+        } else {
+            let iv = builder.use_var(extra_vars[r - n_params]);
+            builder.ins().bitcast(F64, mf, iv)
+        }
+    };
+
+    let leaders = find_block_leaders(&callee_chunk.code);
+    let mut imap: HashMap<usize, cranelift_codegen::ir::Block> = HashMap::new();
+    for &l in &leaders {
+        imap.insert(l, builder.create_block());
+    }
+
+    builder.ins().jump(imap[&0], &[]);
+    // Outer block is now terminated; mark it so the loop doesn't re-emit
+    // a jump when ip=0 is recognised as a block leader.
+    let mut terminated = true;
+
+    for (ip, &inst) in callee_chunk.code.iter().enumerate() {
+        if let Some(&blk) = imap.get(&ip) {
+            if !terminated { builder.ins().jump(blk, &[]); }
+            builder.switch_to_block(blk);
+            terminated = false;
+        }
+        if terminated { continue; }
+
+        let op    = (inst >> 24) as u8;
+        let a_raw = ((inst >> 16) & 0xFF) as usize;
+
+        match op {
+            OP_RET => {
+                let rv = builder.use_var(reg_var(a_raw));
+                builder.def_var(result_var, rv);
+                builder.ins().jump(merge_block, &[]);
+                terminated = true;
+            }
+            OP_JMP => {
+                let sbx = (inst & 0xFFFF) as i16;
+                let t   = (ip as isize + 1 + sbx as isize) as usize;
+                if let Some(&tb) = imap.get(&t) {
+                    builder.ins().jump(tb, &[]);
+                    terminated = true;
+                } else { return false; }
+            }
+            OP_LOADK => {
+                let bx   = (inst & 0xFFFF) as usize;
+                let bits = callee_consts[bx].0;
+                let kval = builder.ins().iconst(I64, bits as i64);
+                builder.def_var(reg_var(a_raw), kval);
+            }
+            op if op == OP_CMPK_GE_N || op == OP_CMPK_GT_N || op == OP_CMPK_LT_N
+                || op == OP_CMPK_LE_N || op == OP_CMPK_EQ_N || op == OP_CMPK_NE_N => {
+                let ki      = (inst & 0xFF) as usize;
+                let lhs_f64 = f64_val_for(a_raw, builder);
+                let rhs_k   = if ki < callee_consts.len() { callee_consts[ki].as_number() } else { 0.0 };
+                let rhs_f64 = builder.ins().f64const(rhs_k);
+
+                use cranelift_codegen::ir::condcodes::FloatCC;
+                let cc = match op {
+                    op if op == OP_CMPK_GE_N => FloatCC::GreaterThanOrEqual,
+                    op if op == OP_CMPK_GT_N => FloatCC::GreaterThan,
+                    op if op == OP_CMPK_LT_N => FloatCC::LessThan,
+                    op if op == OP_CMPK_LE_N => FloatCC::LessThanOrEqual,
+                    op if op == OP_CMPK_EQ_N => FloatCC::Equal,
+                    _                        => FloatCC::NotEqual,
+                };
+                let cmp  = builder.ins().fcmp(cc, lhs_f64, rhs_f64);
+                let body = imap.get(&(ip + 2)).copied();
+                let miss = callee_chunk.code.get(ip + 1).and_then(|&j| {
+                    if (j >> 24) as u8 == OP_JMP {
+                        let sbx = (j & 0xFFFF) as i16;
+                        imap.get(&((ip as isize + 2 + sbx as isize) as usize)).copied()
+                    } else { None }
+                }).or_else(|| imap.get(&(ip + 1)).copied());
+
+                match (miss, body) {
+                    (Some(fb), Some(bb)) => { builder.ins().brif(cmp, bb, &[], fb, &[]); terminated = true; }
+                    _ => return false,
+                }
+            }
+            OP_ADD_NN => {
+                let b = ((inst >> 8) & 0xFF) as usize;
+                let c = (inst & 0xFF) as usize;
+                let bv = f64_val_for(b, builder);
+                let cv = f64_val_for(c, builder);
+                let rf = builder.ins().fadd(bv, cv);
+                let ri = builder.ins().bitcast(I64, mf, rf);
+                builder.def_var(reg_var(a_raw), ri);
+            }
+            OP_SUB_NN => {
+                let b = ((inst >> 8) & 0xFF) as usize;
+                let c = (inst & 0xFF) as usize;
+                let bv = f64_val_for(b, builder);
+                let cv = f64_val_for(c, builder);
+                let rf = builder.ins().fsub(bv, cv);
+                let ri = builder.ins().bitcast(I64, mf, rf);
+                builder.def_var(reg_var(a_raw), ri);
+            }
+            OP_MUL_NN => {
+                let b = ((inst >> 8) & 0xFF) as usize;
+                let c = (inst & 0xFF) as usize;
+                let bv = f64_val_for(b, builder);
+                let cv = f64_val_for(c, builder);
+                let rf = builder.ins().fmul(bv, cv);
+                let ri = builder.ins().bitcast(I64, mf, rf);
+                builder.def_var(reg_var(a_raw), ri);
+            }
+            OP_DIV_NN => {
+                let b = ((inst >> 8) & 0xFF) as usize;
+                let c = (inst & 0xFF) as usize;
+                let bv = f64_val_for(b, builder);
+                let cv = f64_val_for(c, builder);
+                let rf = builder.ins().fdiv(bv, cv);
+                let ri = builder.ins().bitcast(I64, mf, rf);
+                builder.def_var(reg_var(a_raw), ri);
+            }
+            OP_ADDK_N => {
+                let b  = ((inst >> 8) & 0xFF) as usize;
+                let ki = (inst & 0xFF) as usize;
+                let bv = f64_val_for(b, builder);
+                let kv = builder.ins().f64const(callee_consts.get(ki).map(|c| c.as_number()).unwrap_or(0.0));
+                let rf = builder.ins().fadd(bv, kv);
+                let ri = builder.ins().bitcast(I64, mf, rf);
+                builder.def_var(reg_var(a_raw), ri);
+            }
+            OP_SUBK_N => {
+                let b  = ((inst >> 8) & 0xFF) as usize;
+                let ki = (inst & 0xFF) as usize;
+                let bv = f64_val_for(b, builder);
+                let kv = builder.ins().f64const(callee_consts.get(ki).map(|c| c.as_number()).unwrap_or(0.0));
+                let rf = builder.ins().fsub(bv, kv);
+                let ri = builder.ins().bitcast(I64, mf, rf);
+                builder.def_var(reg_var(a_raw), ri);
+            }
+            OP_MULK_N => {
+                let b  = ((inst >> 8) & 0xFF) as usize;
+                let ki = (inst & 0xFF) as usize;
+                let bv = f64_val_for(b, builder);
+                let kv = builder.ins().f64const(callee_consts.get(ki).map(|c| c.as_number()).unwrap_or(0.0));
+                let rf = builder.ins().fmul(bv, kv);
+                let ri = builder.ins().bitcast(I64, mf, rf);
+                builder.def_var(reg_var(a_raw), ri);
+            }
+            OP_DIVK_N => {
+                let b  = ((inst >> 8) & 0xFF) as usize;
+                let ki = (inst & 0xFF) as usize;
+                let bv = f64_val_for(b, builder);
+                let kv = builder.ins().f64const(callee_consts.get(ki).map(|c| c.as_number()).unwrap_or(0.0));
+                let rf = builder.ins().fdiv(bv, kv);
+                let ri = builder.ins().bitcast(I64, mf, rf);
+                builder.def_var(reg_var(a_raw), ri);
+            }
+            _ => return false,
+        }
+    }
+    if !terminated {
+        let nil = builder.ins().iconst(I64, TAG_NIL as i64);
+        builder.def_var(result_var, nil);
+        builder.ins().jump(merge_block, &[]);
+    }
+    true
 }
 
 /// Compile a single function body into the JIT module.
@@ -385,6 +615,68 @@ fn compile_function_body(
     let fe_data_ptr_var = |loop_idx: usize| Variable::from_u32((foreach_var_base + loop_idx * 4 + 1) as u32);
     let fe_len_var = |loop_idx: usize| Variable::from_u32((foreach_var_base + loop_idx * 4 + 2) as u32);
     let fe_idx_var = |loop_idx: usize| Variable::from_u32((foreach_var_base + loop_idx * 4 + 3) as u32);
+
+    // ── Inline callee variable pool ───────────────────────────────────────────
+    // For each OP_CALL that targets an inlinable callee we need variables for the
+    // callee's non-parameter registers.  We pre-scan OP_CALL instructions and
+    // allocate a variable block per unique (call-site-ip, callee-reg-index) pair.
+    //
+    // Variable layout continues at:
+    //   [foreach_var_base + num_foreach_loops*4 ..)  I64  inline callee vars
+    //
+    // Map: call-site ip → Vec<Variable> of length (callee.reg_count - callee.param_count)
+    let inline_var_base = foreach_var_base + num_foreach_loops * 4;
+    let mut inline_var_map: HashMap<usize, Vec<Variable>> = HashMap::new();
+    {
+        let mut next_var_idx = inline_var_base;
+        for (ip, &inst) in chunk.code.iter().enumerate() {
+            let op = (inst >> 24) as u8;
+            if op != OP_CALL { continue; }
+            let bx       = (inst & 0xFFFF) as usize;
+            let func_idx = bx >> 8;
+            if func_idx >= program.chunks.len() { continue; }
+            let callee_chunk  = &program.chunks[func_idx];
+            let callee_consts = &program.nan_constants[func_idx];
+            if !is_inlinable(callee_chunk, callee_consts) { continue; }
+            let n_extra = (callee_chunk.reg_count as usize)
+                .saturating_sub(callee_chunk.param_count as usize);
+            let mut slot_vars = Vec::with_capacity(n_extra);
+            for _ in 0..n_extra {
+                let v = Variable::from_u32(next_var_idx as u32);
+                builder.declare_var(v, I64);
+                slot_vars.push(v);
+                next_var_idx += 1;
+            }
+            inline_var_map.insert(ip, slot_vars);
+        }
+    }
+
+    // Pre-allocate one extra F64 shadow variable per inline arg register we'll use.
+    // Indexed as [inline_f64_var_base + ip_slot * MAX_ARGS + arg_idx].
+    // We use a simpler scheme: one F64 var per (call-site-ip, arg-position).
+    // For the common case of 1-arg inlinable functions this is just one var per call.
+    // Layout: [foreach_var_base + num_foreach_loops*4 + total_inline_i64_vars ..)  F64
+    let total_inline_i64 = inline_var_map.values().map(|v| v.len()).sum::<usize>();
+    let inline_f64_var_base = foreach_var_base + num_foreach_loops * 4 + total_inline_i64;
+    // For each inlinable call site we allocate n_params F64 shadow variables.
+    let mut inline_f64_var_map: HashMap<usize, Vec<Variable>> = HashMap::new();
+    {
+        let mut next_f64_idx = inline_f64_var_base;
+        for (&ip, _) in &inline_var_map {
+            let bx       = (chunk.code[ip] & 0xFFFF) as usize;
+            let func_idx = bx >> 8;
+            let callee   = &program.chunks[func_idx];
+            let np = callee.param_count as usize;
+            let mut fvs = Vec::with_capacity(np);
+            for _ in 0..np {
+                let v = Variable::from_u32(next_f64_idx as u32);
+                builder.declare_var(v, F64);
+                fvs.push(v);
+                next_f64_idx += 1;
+            }
+            inline_f64_var_map.insert(ip, fvs);
+        }
+    }
 
     // Find block leaders for control flow
     let leaders = find_block_leaders(&chunk.code);
@@ -1605,33 +1897,292 @@ fn compile_function_body(
                 let indices_idx = bx >> 8;
                 let n_updates = bx & 0xFF;
 
-                // Extract field indices from the constant pool
-                let update_indices: Vec<u8> = match &chunk.constants[indices_idx] {
-                    Value::List(items) => items.iter().map(|v| match v {
-                        Value::Number(n) => *n as u8,
-                        _ => 0,
-                    }).collect(),
+                // Extract field indices from the constant pool.
+                // Detect whether they are all numeric (resolved indices vs. string names).
+                let (update_indices, all_resolved) = match &chunk.constants[indices_idx] {
+                    Value::List(items) => {
+                        let resolved = items.iter().all(|v| matches!(v, Value::Number(_)));
+                        let indices: Vec<u8> = items.iter().map(|v| match v {
+                            Value::Number(n) => *n as u8,
+                            _ => 0,
+                        }).collect();
+                        (indices, resolved)
+                    }
                     _ => return None,
                 };
-                let indices_bytes: &'static [u8] = Box::leak(update_indices.into_boxed_slice());
 
                 let old_rec = builder.use_var(vars[a_idx]);
-                let slot = builder.create_sized_stack_slot(cranelift_codegen::ir::StackSlotData::new(
-                    cranelift_codegen::ir::StackSlotKind::ExplicitSlot,
-                    (n_updates * 8) as u32,
-                    0,
-                ));
-                for i in 0..n_updates {
-                    let v = builder.use_var(vars[a_idx + 1 + i]);
-                    builder.ins().stack_store(v, slot, (i * 8) as i32);
+
+                if all_resolved {
+                    // ── Fully inlined arena path ───────────────────────────────────────────
+                    //
+                    // For arena records with all-resolved field indices we inline the entire
+                    // copy+update without any C-ABI call, eliminating:
+                    //   • jit_recwith_arena call overhead (save/restore caller-saved regs)
+                    //   • all clone_rc/drop_rc calls for numeric fields (no-ops for f64)
+                    //
+                    // The copy loop uses Cranelift block parameters to carry the loop
+                    // counter, avoiding the need for an extra Cranelift Variable.
+                    //
+                    // BumpArena #[repr(C)]: buf_ptr(0), buf_cap(8), offset(16).
+                    // ArenaRecord header: ((n_fields << 16) | type_id) as u64 at offset 0.
+                    // Fields: 8 bytes each starting at offset 8.
+                    let arena_ptr_rw = jit_arena_ptr();
+                    let arena_ptr_rw_val = builder.ins().iconst(I64, arena_ptr_rw as i64);
+                    let mf_t = cranelift_codegen::ir::MemFlags::trusted();
+
+                    // Branch on arena tag
+                    let tag_mask_rw = builder.ins().iconst(I64, TAG_MASK as i64);
+                    let tag_rw = builder.ins().band(old_rec, tag_mask_rw);
+                    let arena_tag_rw = builder.ins().iconst(I64, TAG_ARENA_REC as i64);
+                    let is_arena_rw = builder.ins().icmp(
+                        cranelift_codegen::ir::condcodes::IntCC::Equal, tag_rw, arena_tag_rw);
+
+                    let arena_inline_block = builder.create_block();
+                    let fallback_rw_block = builder.create_block();
+                    let merge_rw_block = builder.create_block();
+                    builder.append_block_param(merge_rw_block, I64);
+
+                    builder.ins().brif(is_arena_rw, arena_inline_block, &[], fallback_rw_block, &[]);
+
+                    // ── Arena inline path ──────────────────────────────────────────────────
+                    builder.switch_to_block(arena_inline_block);
+                    builder.seal_block(arena_inline_block);
+
+                    // Decode old record pointer and header
+                    let ptr_mask_rw = builder.ins().iconst(I64, PTR_MASK as i64);
+                    let old_ptr_rw = builder.ins().band(old_rec, ptr_mask_rw);
+                    let header_rw = builder.ins().load(I64, mf_t, old_ptr_rw, 0);
+                    // n_fields = (header >> 16) & 0xFFFF
+                    let n_fields_rt = {
+                        let shifted = builder.ins().ushr_imm(header_rw, 16);
+                        let mask16 = builder.ins().iconst(I64, 0xFFFFi64);
+                        builder.ins().band(shifted, mask16)
+                    };
+
+                    // Compute record_size = 8 + n_fields * 8, then inline bump-alloc
+                    let eight_rw = builder.ins().iconst(I64, 8i64);
+                    let fields_bytes_rw = builder.ins().imul(n_fields_rt, eight_rw);
+                    let record_size_rw = builder.ins().iadd(fields_bytes_rw, eight_rw);
+
+                    let cur_off_rw = builder.ins().load(I64, mf_t, arena_ptr_rw_val, 16);
+                    let seven_rw = builder.ins().iconst(I64, 7i64);
+                    let neg8_rw = builder.ins().iconst(I64, !7i64);
+                    let off_plus_7_rw = builder.ins().iadd(cur_off_rw, seven_rw);
+                    let aligned_rw = builder.ins().band(off_plus_7_rw, neg8_rw);
+                    let new_off_rw = builder.ins().iadd(aligned_rw, record_size_rw);
+                    let buf_cap_rw = builder.ins().load(I64, mf_t, arena_ptr_rw_val, 8);
+                    let has_space_rw = builder.ins().icmp(
+                        cranelift_codegen::ir::condcodes::IntCC::UnsignedLessThanOrEqual,
+                        new_off_rw, buf_cap_rw);
+
+                    let alloc_rw_block = builder.create_block();
+                    let alloc_fallback_rw_block = builder.create_block();
+                    builder.ins().brif(has_space_rw, alloc_rw_block, &[], alloc_fallback_rw_block, &[]);
+
+                    // ── Alloc success: inline copy + update ───────────────────────────────
+                    builder.switch_to_block(alloc_rw_block);
+                    builder.seal_block(alloc_rw_block);
+
+                    let buf_ptr_rw = builder.ins().load(I64, mf_t, arena_ptr_rw_val, 0);
+                    let new_ptr_rw = builder.ins().iadd(buf_ptr_rw, aligned_rw);
+
+                    // Copy header from old record → new record
+                    builder.ins().store(mf_t, header_rw, new_ptr_rw, 0);
+
+                    // ── Field copy loop using block parameters ─────────────────────────
+                    // The loop counter `i` is threaded as a Cranelift block parameter so
+                    // Cranelift's SSA construction can handle it without needing an extra
+                    // Variable declaration. All blocks that carry `i` declare it as a param.
+                    //
+                    //   loop_copy_hdr(i)  → if i >= n_fields: copy_done
+                    //                     → else: copy_body(i)
+                    //   copy_body(i)      → copy field, check is_heap
+                    //                     → if heap: clone_rw_block(i)
+                    //                     → else: after_clone_rw(i)
+                    //   clone_rw_block(i) → call jit_move, jump after_clone_rw(i)
+                    //   after_clone_rw(i) → i++, jump loop_copy_hdr(i+1)
+                    //   copy_done         → (no params)
+                    let loop_copy_hdr = builder.create_block();
+                    builder.append_block_param(loop_copy_hdr, I64); // param 0: i
+                    let copy_body = builder.create_block();
+                    builder.append_block_param(copy_body, I64);     // param 0: i
+                    let clone_rw_block = builder.create_block();
+                    builder.append_block_param(clone_rw_block, I64); // param 0: i (carry)
+                    let after_clone_rw = builder.create_block();
+                    builder.append_block_param(after_clone_rw, I64); // param 0: i (carry)
+                    let copy_done = builder.create_block();
+
+                    let zero_rw = builder.ins().iconst(I64, 0i64);
+                    builder.ins().jump(loop_copy_hdr, &[zero_rw]);
+
+                    // ── Loop header ──
+                    builder.switch_to_block(loop_copy_hdr);
+                    let ci_hdr = builder.block_params(loop_copy_hdr)[0];
+                    let loop_done_rw = builder.ins().icmp(
+                        cranelift_codegen::ir::condcodes::IntCC::UnsignedGreaterThanOrEqual,
+                        ci_hdr, n_fields_rt);
+                    builder.ins().brif(loop_done_rw, copy_done, &[], copy_body, &[ci_hdr]);
+
+                    // ── Loop body ──
+                    builder.switch_to_block(copy_body);
+                    builder.seal_block(copy_body);
+                    let ci = builder.block_params(copy_body)[0];
+                    let ci_bytes_rw = builder.ins().imul(ci, eight_rw);
+                    let ci_off_rw = builder.ins().iadd(ci_bytes_rw, eight_rw);
+                    let src_addr_rw = builder.ins().iadd(old_ptr_rw, ci_off_rw);
+                    let fv_rw = builder.ins().load(I64, mf_t, src_addr_rw, 0);
+                    let dst_addr_rw = builder.ins().iadd(new_ptr_rw, ci_off_rw);
+                    builder.ins().store(mf_t, fv_rw, dst_addr_rw, 0);
+                    let qnan_rw = builder.ins().iconst(I64, QNAN as i64);
+                    let fv_masked_rw = builder.ins().band(fv_rw, qnan_rw);
+                    let fv_is_heap_rw = builder.ins().icmp(
+                        cranelift_codegen::ir::condcodes::IntCC::Equal, fv_masked_rw, qnan_rw);
+                    // Thread `ci` to both branches via block parameters
+                    builder.ins().brif(fv_is_heap_rw, clone_rw_block, &[ci], after_clone_rw, &[ci]);
+
+                    // ── Clone path: increment RC ──
+                    builder.switch_to_block(clone_rw_block);
+                    builder.seal_block(clone_rw_block);
+                    let ci_in_clone = builder.block_params(clone_rw_block)[0];
+                    let fref_move_rw = get_func_ref(&mut builder, module, helpers.jit_move);
+                    builder.ins().call(fref_move_rw, &[fv_rw]);
+                    builder.ins().jump(after_clone_rw, &[ci_in_clone]);
+
+                    // ── After clone: i++ and loop back ──
+                    builder.switch_to_block(after_clone_rw);
+                    builder.seal_block(after_clone_rw);
+                    let ci_cont = builder.block_params(after_clone_rw)[0];
+                    let ci_next_rw = builder.ins().iadd_imm(ci_cont, 1);
+                    builder.ins().jump(loop_copy_hdr, &[ci_next_rw]);
+
+                    builder.seal_block(loop_copy_hdr);
+                    builder.switch_to_block(copy_done);
+                    builder.seal_block(copy_done);
+
+                    // ── Overwrite updated fields (compile-time unrolled) ───────────────
+                    // For each update: drop RC of old slot, write new value, clone RC of new value.
+                    // For numeric fields (hot path), all RC operations are no-ops and
+                    // Cranelift will eliminate the dead branches.
+                    let qnan_upd = builder.ins().iconst(I64, QNAN as i64);
+                    for (upd_i, &field_slot) in update_indices.iter().enumerate() {
+                        let new_val_rw = builder.use_var(vars[a_idx + 1 + upd_i]);
+                        let slot_off = (8 + field_slot as i64 * 8) as i32;
+
+                        // Load old slot value from new record (already copied above)
+                        let old_fv = builder.ins().load(I64, mf_t, new_ptr_rw, slot_off);
+                        // Drop RC on old slot if it's heap
+                        let old_masked_rw = builder.ins().band(old_fv, qnan_upd);
+                        let old_is_heap_rw = builder.ins().icmp(
+                            cranelift_codegen::ir::condcodes::IntCC::Equal, old_masked_rw, qnan_upd);
+                        let drop_rw_block = builder.create_block();
+                        let after_drop_rw = builder.create_block();
+                        builder.ins().brif(old_is_heap_rw, drop_rw_block, &[], after_drop_rw, &[]);
+                        builder.switch_to_block(drop_rw_block);
+                        builder.seal_block(drop_rw_block);
+                        let fref_drop_rw = get_func_ref(&mut builder, module, helpers.drop_rc);
+                        builder.ins().call(fref_drop_rw, &[old_fv]);
+                        builder.ins().jump(after_drop_rw, &[]);
+                        builder.switch_to_block(after_drop_rw);
+                        builder.seal_block(after_drop_rw);
+
+                        // Write new value
+                        builder.ins().store(mf_t, new_val_rw, new_ptr_rw, slot_off);
+                        // Clone RC on new value if it's heap
+                        let nv_masked_rw = builder.ins().band(new_val_rw, qnan_upd);
+                        let nv_is_heap_rw = builder.ins().icmp(
+                            cranelift_codegen::ir::condcodes::IntCC::Equal, nv_masked_rw, qnan_upd);
+                        let clone_nv_block = builder.create_block();
+                        let after_nv_clone = builder.create_block();
+                        builder.ins().brif(nv_is_heap_rw, clone_nv_block, &[], after_nv_clone, &[]);
+                        builder.switch_to_block(clone_nv_block);
+                        builder.seal_block(clone_nv_block);
+                        let fref_move_nv = get_func_ref(&mut builder, module, helpers.jit_move);
+                        builder.ins().call(fref_move_nv, &[new_val_rw]);
+                        builder.ins().jump(after_nv_clone, &[]);
+                        builder.switch_to_block(after_nv_clone);
+                        builder.seal_block(after_nv_clone);
+                    }
+
+                    // Update arena.offset and return arena-tagged pointer
+                    builder.ins().store(mf_t, new_off_rw, arena_ptr_rw_val, 16);
+                    let tag_arena_rw = builder.ins().iconst(I64, TAG_ARENA_REC as i64);
+                    let result_rw = builder.ins().bor(new_ptr_rw, tag_arena_rw);
+                    builder.ins().jump(merge_rw_block, &[result_rw]);
+
+                    // ── Arena-full fallback → jit_recwith_arena ────────────────────────
+                    builder.switch_to_block(alloc_fallback_rw_block);
+                    builder.seal_block(alloc_fallback_rw_block);
+                    {
+                        let indices_bytes_fb: &'static [u8] = Box::leak(update_indices.clone().into_boxed_slice());
+                        let slot_fb = builder.create_sized_stack_slot(cranelift_codegen::ir::StackSlotData::new(
+                            cranelift_codegen::ir::StackSlotKind::ExplicitSlot,
+                            (n_updates * 8) as u32,
+                            0,
+                        ));
+                        for i in 0..n_updates {
+                            let v = builder.use_var(vars[a_idx + 1 + i]);
+                            builder.ins().stack_store(v, slot_fb, (i * 8) as i32);
+                        }
+                        let regs_ptr_fb = builder.ins().stack_addr(I64, slot_fb, 0);
+                        let indices_ptr_fb = builder.ins().iconst(I64, indices_bytes_fb.as_ptr() as i64);
+                        let n_upd_fb = builder.ins().iconst(I64, n_updates as i64);
+                        let fref_fb = get_func_ref(&mut builder, module, helpers.recwith_arena);
+                        let call_fb = builder.ins().call(fref_fb, &[old_rec, arena_ptr_rw_val, indices_ptr_fb, n_upd_fb, regs_ptr_fb]);
+                        let fb_res = builder.inst_results(call_fb)[0];
+                        builder.ins().jump(merge_rw_block, &[fb_res]);
+                    }
+
+                    // ── Heap fallback → jit_recwith ────────────────────────────────────
+                    builder.switch_to_block(fallback_rw_block);
+                    builder.seal_block(fallback_rw_block);
+                    {
+                        let indices_bytes_hp: &'static [u8] = Box::leak(update_indices.into_boxed_slice());
+                        let slot_hp = builder.create_sized_stack_slot(cranelift_codegen::ir::StackSlotData::new(
+                            cranelift_codegen::ir::StackSlotKind::ExplicitSlot,
+                            (n_updates * 8) as u32,
+                            0,
+                        ));
+                        for i in 0..n_updates {
+                            let v = builder.use_var(vars[a_idx + 1 + i]);
+                            builder.ins().stack_store(v, slot_hp, (i * 8) as i32);
+                        }
+                        let regs_ptr_hp = builder.ins().stack_addr(I64, slot_hp, 0);
+                        let indices_ptr_hp = builder.ins().iconst(I64, indices_bytes_hp.as_ptr() as i64);
+                        let n_upd_hp = builder.ins().iconst(I64, n_updates as i64);
+                        let fref_hp = get_func_ref(&mut builder, module, helpers.recwith);
+                        let call_hp = builder.ins().call(fref_hp, &[old_rec, indices_ptr_hp, n_upd_hp, regs_ptr_hp]);
+                        let hp_res = builder.inst_results(call_hp)[0];
+                        builder.ins().jump(merge_rw_block, &[hp_res]);
+                    }
+
+                    // ── Merge ──────────────────────────────────────────────────────────
+                    builder.switch_to_block(merge_rw_block);
+                    builder.seal_block(merge_rw_block);
+                    let result_rw_final = builder.block_params(merge_rw_block)[0];
+                    builder.def_var(vars[a_idx], result_rw_final);
+                } else {
+                    // Unresolved (string) field names: general path
+                    let indices_bytes: &'static [u8] = Box::leak(
+                        update_indices.into_boxed_slice()
+                    );
+                    let slot = builder.create_sized_stack_slot(cranelift_codegen::ir::StackSlotData::new(
+                        cranelift_codegen::ir::StackSlotKind::ExplicitSlot,
+                        (n_updates * 8) as u32,
+                        0,
+                    ));
+                    for i in 0..n_updates {
+                        let v = builder.use_var(vars[a_idx + 1 + i]);
+                        builder.ins().stack_store(v, slot, (i * 8) as i32);
+                    }
+                    let regs_ptr = builder.ins().stack_addr(I64, slot, 0);
+                    let indices_ptr_val = builder.ins().iconst(I64, indices_bytes.as_ptr() as i64);
+                    let n_updates_val = builder.ins().iconst(I64, n_updates as i64);
+                    let fref = get_func_ref(&mut builder, module, helpers.recwith);
+                    let call_inst = builder.ins().call(fref, &[old_rec, indices_ptr_val, n_updates_val, regs_ptr]);
+                    let result = builder.inst_results(call_inst)[0];
+                    builder.def_var(vars[a_idx], result);
                 }
-                let regs_ptr = builder.ins().stack_addr(I64, slot, 0);
-                let indices_ptr_val = builder.ins().iconst(I64, indices_bytes.as_ptr() as i64);
-                let n_updates_val = builder.ins().iconst(I64, n_updates as i64);
-                let fref = get_func_ref(&mut builder, module, helpers.recwith);
-                let call_inst = builder.ins().call(fref, &[old_rec, indices_ptr_val, n_updates_val, regs_ptr]);
-                let result = builder.inst_results(call_inst)[0];
-                builder.def_var(vars[a_idx], result);
             }
             OP_LISTNEW => {
                 let n = (inst & 0xFFFF) as usize;
@@ -2082,6 +2633,75 @@ fn compile_function_body(
                 let a_idx_call = a as usize;
                 let call_result: cranelift_codegen::ir::Value;
                 if func_idx < all_func_ids.len() {
+                    // Check if the target function is inlinable (pure numeric guard chain).
+                    // If so, emit its IR directly here instead of a real call — this avoids
+                    // all function-call overhead (ABI setup, call/ret instructions, register
+                    // saves) which is the dominant cost for tight guard-chain loops.
+                    let can_inline = func_idx < program.chunks.len()
+                        && is_inlinable(&program.chunks[func_idx], &program.nan_constants[func_idx])
+                        && n_args == program.chunks[func_idx].param_count as usize
+                        && inline_var_map.contains_key(&ip);
+
+                    if can_inline {
+                        let callee_chunk  = &program.chunks[func_idx];
+                        let callee_consts = &program.nan_constants[func_idx];
+                        let result_var    = vars[a as usize];
+
+                        // Collect arg Variables and build F64 shadows for them.
+                        let arg_var_list: Vec<Variable> = (0..n_args)
+                            .map(|i| vars[a as usize + 1 + i])
+                            .collect();
+                        let f64_arg_list: Vec<Variable> = {
+                            let mf = cranelift_codegen::ir::MemFlags::new();
+                            let f64_slots = inline_f64_var_map.get(&ip).map(|v| v.as_slice()).unwrap_or(&[]);
+                            for (i, &av) in arg_var_list.iter().enumerate() {
+                                if i < f64_slots.len() {
+                                    let iv = builder.use_var(av);
+                                    let fv = builder.ins().bitcast(F64, mf, iv);
+                                    builder.def_var(f64_slots[i], fv);
+                                }
+                            }
+                            f64_slots.to_vec()
+                        };
+
+                        let extra_var_list = inline_var_map.get(&ip)
+                            .map(|v| v.as_slice()).unwrap_or(&[]).to_vec();
+
+                        // Create a merge block where inline code converges after each RET.
+                        let merge_blk = builder.create_block();
+
+                        let ok = inline_chunk(
+                            &mut builder,
+                            callee_chunk,
+                            callee_consts,
+                            &arg_var_list,
+                            result_var,
+                            &extra_var_list,
+                            &f64_arg_list,
+                            merge_blk,
+                        );
+
+                        if ok {
+                            // Switch to merge block so subsequent code continues there.
+                            builder.switch_to_block(merge_blk);
+                            // result_var already holds the inlined return value.
+                            block_terminated = false;
+                        } else {
+                            // Inlining failed mid-way; fall back to a real call.
+                            // We need to terminate whatever block we're in and fall through.
+                            builder.ins().jump(merge_blk, &[]);
+                            builder.switch_to_block(merge_blk);
+
+                            let target_fid  = all_func_ids[func_idx];
+                            let target_fref = get_func_ref(&mut builder, module, target_fid);
+                            let call_args: Vec<_> = (0..n_args)
+                                .map(|i| builder.use_var(vars[a as usize + 1 + i]))
+                                .collect();
+                            let call_inst = builder.ins().call(target_fref, &call_args);
+                            let result = builder.inst_results(call_inst)[0];
+                            builder.def_var(result_var, result);
+                        }
+                    } else {
                     // Direct call: the target function is compiled in this module
                     let target_fid = all_func_ids[func_idx];
                     let target_fref = get_func_ref(&mut builder, module, target_fid);
@@ -2092,6 +2712,7 @@ fn compile_function_body(
                     let call_inst = builder.ins().call(target_fref, &call_args);
                     call_result = builder.inst_results(call_inst)[0];
                     builder.def_var(vars[a_idx_call], call_result);
+                    } // end else (not inlined)
                 } else {
                     // Fallback: use jit_call helper for out-of-range func indices
                     if n_args > 0 {
@@ -2127,7 +2748,8 @@ fn compile_function_body(
                 // register as input.
                 if a_idx_call < reg_count && reg_always_num[a_idx_call] {
                     let mf = cranelift_codegen::ir::MemFlags::new();
-                    let rf = builder.ins().bitcast(F64, mf, call_result);
+                    let rv = builder.use_var(vars[a_idx_call]);
+                    let rf = builder.ins().bitcast(F64, mf, rv);
                     builder.def_var(f64_vars[a_idx_call], rf);
                 }
             }
