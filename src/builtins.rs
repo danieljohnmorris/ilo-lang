@@ -206,12 +206,11 @@ mod tests {
     #[test]
     fn round_trip_all_builtins() {
         let all = [
-            "str", "num", "abs", "flr", "cel", "rou", "min", "max", "mod",
-            "sum", "avg", "len", "hd", "tl", "rev", "srt", "slc", "unq",
-            "flat", "has", "spl", "cat", "map", "flt", "fld", "grp", "rnd",
-            "now", "rd", "rdl", "rdb", "wr", "wrl", "prnt", "env", "trm",
-            "fmt", "rgx", "jpth", "jdmp", "jpar", "get", "post", "mmap",
-            "mget", "mset", "mhas", "mkeys", "mvals", "mdel",
+            "str", "num", "abs", "flr", "cel", "rou", "min", "max", "mod", "sum", "avg", "len",
+            "hd", "tl", "rev", "srt", "slc", "unq", "flat", "has", "spl", "cat", "map", "flt",
+            "fld", "grp", "rnd", "now", "rd", "rdl", "rdb", "wr", "wrl", "prnt", "env", "trm",
+            "fmt", "rgx", "jpth", "jdmp", "jpar", "get", "post", "mmap", "mget", "mset", "mhas",
+            "mkeys", "mvals", "mdel",
         ];
         for name in &all {
             let b = Builtin::from_name(name).unwrap_or_else(|| panic!("missing builtin: {name}"));

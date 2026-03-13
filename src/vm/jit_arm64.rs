@@ -11,14 +11,17 @@ pub(crate) fn is_jit_eligible(chunk: &Chunk) -> bool {
     for &inst in &chunk.code {
         let op = (inst >> 24) as u8;
         match op {
-            OP_ADD_NN | OP_SUB_NN | OP_MUL_NN | OP_DIV_NN |
-            OP_ADDK_N | OP_SUBK_N | OP_MULK_N | OP_DIVK_N |
-            OP_MOVE | OP_NEG | OP_RET => {}
+            OP_ADD_NN | OP_SUB_NN | OP_MUL_NN | OP_DIV_NN | OP_ADDK_N | OP_SUBK_N | OP_MULK_N
+            | OP_DIVK_N | OP_MOVE | OP_NEG | OP_RET => {}
             OP_LOADK => {
                 // Only number constants are eligible
                 let bx = (inst & 0xFFFF) as usize;
-                if bx >= chunk.constants.len() { return false; }
-                if !matches!(chunk.constants[bx], Value::Number(_)) { return false; }
+                if bx >= chunk.constants.len() {
+                    return false;
+                }
+                if !matches!(chunk.constants[bx], Value::Number(_)) {
+                    return false;
+                }
             }
             _ => return false,
         }
@@ -29,7 +32,9 @@ pub(crate) fn is_jit_eligible(chunk: &Chunk) -> bool {
 /// Compile a numeric chunk into native ARM64 code.
 /// Returns None if the chunk isn't eligible or compilation fails.
 pub fn compile(chunk: &Chunk, nan_consts: &[NanVal]) -> Option<JitFunction> {
-    if !is_jit_eligible(chunk) { return None; }
+    if !is_jit_eligible(chunk) {
+        return None;
+    }
     let mut emitter = Arm64Emitter::new();
     emitter.compile(chunk, nan_consts)?;
     emitter.finalize()
@@ -37,7 +42,9 @@ pub fn compile(chunk: &Chunk, nan_consts: &[NanVal]) -> Option<JitFunction> {
 
 /// Call a JIT-compiled function with the given f64 args.
 pub fn call(func: &JitFunction, args: &[f64]) -> Option<f64> {
-    if args.len() > 8 { return None; }
+    if args.len() > 8 {
+        return None;
+    }
     Some(match args.len() {
         0 => func.call_0(),
         1 => func.call_1(args[0]),
@@ -46,8 +53,12 @@ pub fn call(func: &JitFunction, args: &[f64]) -> Option<f64> {
         4 => func.call_4(args[0], args[1], args[2], args[3]),
         5 => func.call_5(args[0], args[1], args[2], args[3], args[4]),
         6 => func.call_6(args[0], args[1], args[2], args[3], args[4], args[5]),
-        7 => func.call_7(args[0], args[1], args[2], args[3], args[4], args[5], args[6]),
-        8 => func.call_8(args[0], args[1], args[2], args[3], args[4], args[5], args[6], args[7]),
+        7 => func.call_7(
+            args[0], args[1], args[2], args[3], args[4], args[5], args[6],
+        ),
+        8 => func.call_8(
+            args[0], args[1], args[2], args[3], args[4], args[5], args[6], args[7],
+        ),
         _ => return None,
     })
 }
@@ -126,7 +137,9 @@ impl Arm64Emitter {
 
     fn add_const(&mut self, val: f64) -> usize {
         for (i, &c) in self.const_pool.iter().enumerate() {
-            if c.to_bits() == val.to_bits() { return i; }
+            if c.to_bits() == val.to_bits() {
+                return i;
+            }
         }
         let idx = self.const_pool.len();
         self.const_pool.push(val);
@@ -147,10 +160,18 @@ impl Arm64Emitter {
             let c = (inst & 0xFF) as u8;
 
             match op {
-                OP_ADD_NN => { self.emit(arm64_fadd(a, b, c)); }
-                OP_SUB_NN => { self.emit(arm64_fsub(a, b, c)); }
-                OP_MUL_NN => { self.emit(arm64_fmul(a, b, c)); }
-                OP_DIV_NN => { self.emit(arm64_fdiv(a, b, c)); }
+                OP_ADD_NN => {
+                    self.emit(arm64_fadd(a, b, c));
+                }
+                OP_SUB_NN => {
+                    self.emit(arm64_fsub(a, b, c));
+                }
+                OP_MUL_NN => {
+                    self.emit(arm64_fmul(a, b, c));
+                }
+                OP_DIV_NN => {
+                    self.emit(arm64_fdiv(a, b, c));
+                }
 
                 OP_ADDK_N => {
                     let kv = nan_consts.get(c as usize)?.as_number();
@@ -258,7 +279,9 @@ impl Arm64Emitter {
                 -1,
                 0,
             );
-            if ptr == libc::MAP_FAILED { return None; }
+            if ptr == libc::MAP_FAILED {
+                return None;
+            }
 
             // macOS: allow writing to JIT memory
             pthread_jit_write_protect_np(0);
@@ -289,7 +312,10 @@ impl Arm64Emitter {
             // Flush instruction cache
             sys_icache_invalidate(ptr, alloc_size);
 
-            Some(JitFunction { ptr, size: alloc_size })
+            Some(JitFunction {
+                ptr,
+                size: alloc_size,
+            })
         }
     }
 }
@@ -333,28 +359,44 @@ impl JitFunction {
         f(a0, a1, a2, a3)
     }
     fn call_5(&self, a0: f64, a1: f64, a2: f64, a3: f64, a4: f64) -> f64 {
-        let f: extern "C" fn(f64, f64, f64, f64, f64) -> f64 = unsafe { std::mem::transmute(self.ptr) };
+        let f: extern "C" fn(f64, f64, f64, f64, f64) -> f64 =
+            unsafe { std::mem::transmute(self.ptr) };
         f(a0, a1, a2, a3, a4)
     }
     fn call_6(&self, a0: f64, a1: f64, a2: f64, a3: f64, a4: f64, a5: f64) -> f64 {
-        let f: extern "C" fn(f64, f64, f64, f64, f64, f64) -> f64 = unsafe { std::mem::transmute(self.ptr) };
+        let f: extern "C" fn(f64, f64, f64, f64, f64, f64) -> f64 =
+            unsafe { std::mem::transmute(self.ptr) };
         f(a0, a1, a2, a3, a4, a5)
     }
     #[allow(clippy::too_many_arguments)]
     fn call_7(&self, a0: f64, a1: f64, a2: f64, a3: f64, a4: f64, a5: f64, a6: f64) -> f64 {
-        let f: extern "C" fn(f64, f64, f64, f64, f64, f64, f64) -> f64 = unsafe { std::mem::transmute(self.ptr) };
+        let f: extern "C" fn(f64, f64, f64, f64, f64, f64, f64) -> f64 =
+            unsafe { std::mem::transmute(self.ptr) };
         f(a0, a1, a2, a3, a4, a5, a6)
     }
     #[allow(clippy::too_many_arguments)]
-    fn call_8(&self, a0: f64, a1: f64, a2: f64, a3: f64, a4: f64, a5: f64, a6: f64, a7: f64) -> f64 {
-        let f: extern "C" fn(f64, f64, f64, f64, f64, f64, f64, f64) -> f64 = unsafe { std::mem::transmute(self.ptr) };
+    fn call_8(
+        &self,
+        a0: f64,
+        a1: f64,
+        a2: f64,
+        a3: f64,
+        a4: f64,
+        a5: f64,
+        a6: f64,
+        a7: f64,
+    ) -> f64 {
+        let f: extern "C" fn(f64, f64, f64, f64, f64, f64, f64, f64) -> f64 =
+            unsafe { std::mem::transmute(self.ptr) };
         f(a0, a1, a2, a3, a4, a5, a6, a7)
     }
 }
 
 impl Drop for JitFunction {
     fn drop(&mut self) {
-        unsafe { libc::munmap(self.ptr, self.size); }
+        unsafe {
+            libc::munmap(self.ptr, self.size);
+        }
     }
 }
 

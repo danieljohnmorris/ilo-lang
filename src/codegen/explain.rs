@@ -29,20 +29,39 @@ pub fn explain(program: &Program, filename: Option<&str>) -> String {
             // Resolved before codegen / poison nodes — skip silently
             Decl::Use { .. } | Decl::Error { .. } => None,
 
-            Decl::Function { name, params, return_type, body, .. } => {
+            Decl::Function {
+                name,
+                params,
+                return_type,
+                body,
+                ..
+            } => {
                 let sig = if params.is_empty() {
                     format!("{}>{}", name, fmt_type(return_type))
                 } else {
-                    format!("{} {}>{}", name, fmt_params_sig(params), fmt_type(return_type))
+                    format!(
+                        "{} {}>{}",
+                        name,
+                        fmt_params_sig(params),
+                        fmt_type(return_type)
+                    )
                 };
 
                 // Collect all (code, role, indent) lines so we can compute a shared column
                 let mut lines: Vec<(String, String, usize)> = Vec::new();
                 lines.push((sig, "fn start".into(), 0));
                 for p in params {
-                    lines.push((format!("{}:{}", p.name, fmt_type(&p.ty)), format!("param → {}", fmt_type_long(&p.ty)), 3));
+                    lines.push((
+                        format!("{}:{}", p.name, fmt_type(&p.ty)),
+                        format!("param → {}", fmt_type_long(&p.ty)),
+                        3,
+                    ));
                 }
-                lines.push((format!(">{}", fmt_type(return_type)), format!("returns {}", fmt_type_long(return_type)), 3));
+                lines.push((
+                    format!(">{}", fmt_type(return_type)),
+                    format!("returns {}", fmt_type_long(return_type)),
+                    3,
+                ));
                 let n = body.len();
                 for (i, spanned) in body.iter().enumerate() {
                     let is_last = i == n - 1;
@@ -52,11 +71,13 @@ pub fn explain(program: &Program, filename: Option<&str>) -> String {
                 }
 
                 // Comment column = max(indent + code_len) + 2 gap, minimum 22
-                let col = lines.iter()
+                let col = lines
+                    .iter()
                     .map(|(code, _, indent)| indent + code.chars().count())
                     .max()
                     .unwrap_or(0)
-                    .max(20) + 2;
+                    .max(20)
+                    + 2;
 
                 let mut s = String::new();
                 for (code, role, indent) in &lines {
@@ -66,25 +87,44 @@ pub fn explain(program: &Program, filename: Option<&str>) -> String {
             }
 
             Decl::TypeDef { name, fields, .. } => {
-                let fields_str = fields.iter()
+                let fields_str = fields
+                    .iter()
                     .map(|f| format!("{}:{}", f.name, fmt_type(&f.ty)))
                     .collect::<Vec<_>>()
                     .join("; ");
-                Some(annotate_line(&format!("type {name} {{{fields_str}}}"), "type def", 0))
+                Some(annotate_line(
+                    &format!("type {name} {{{fields_str}}}"),
+                    "type def",
+                    0,
+                ))
             }
 
-            Decl::Tool { name, params, return_type, .. } => {
-                let sig = format!("@{} {}>{}", name, fmt_params_sig(params), fmt_type(return_type));
+            Decl::Tool {
+                name,
+                params,
+                return_type,
+                ..
+            } => {
+                let sig = format!(
+                    "@{} {}>{}",
+                    name,
+                    fmt_params_sig(params),
+                    fmt_type(return_type)
+                );
                 Some(annotate_line(&sig, "tool", 0))
             }
 
-            Decl::Alias { name, target, .. } => {
-                Some(annotate_line(&format!("alias {name}={}", fmt_type(target)), "alias", 0))
-            }
+            Decl::Alias { name, target, .. } => Some(annotate_line(
+                &format!("alias {name}={}", fmt_type(target)),
+                "alias",
+                0,
+            )),
         };
 
         if let Some(s) = snippet {
-            if !first { out.push('\n'); }
+            if !first {
+                out.push('\n');
+            }
             first = false;
             out.push_str(&s);
         }
@@ -97,7 +137,13 @@ pub fn explain(program: &Program, filename: Option<&str>) -> String {
 fn annotate_line_col(code: &str, role: &str, indent: usize, col: usize) -> String {
     let used = indent + code.chars().count();
     let pad = if used < col { col - used } else { 1 };
-    format!("{}{}{}-- {}\n", " ".repeat(indent), code, " ".repeat(pad), role)
+    format!(
+        "{}{}{}-- {}\n",
+        " ".repeat(indent),
+        code,
+        " ".repeat(pad),
+        role
+    )
 }
 
 /// Format a single-line decl with auto column.
@@ -108,29 +154,44 @@ fn annotate_line(code: &str, role: &str, indent: usize) -> String {
 
 fn role_of(stmt: &Stmt, is_last: bool) -> String {
     match stmt {
-        Stmt::Let { name, .. }        => format!("bind → {name}"),
-        Stmt::Guard { negated, else_body, .. } => {
+        Stmt::Let { name, .. } => format!("bind → {name}"),
+        Stmt::Guard {
+            negated, else_body, ..
+        } => {
             if else_body.is_some() {
-                if *negated { "ternary !".into() } else { "ternary".into() }
-            } else if *negated { "guard !".into() } else { "guard".into() }
+                if *negated {
+                    "ternary !".into()
+                } else {
+                    "ternary".into()
+                }
+            } else if *negated {
+                "guard !".into()
+            } else {
+                "guard".into()
+            }
         }
-        Stmt::Match { .. }            => "match".into(),
+        Stmt::Match { .. } => "match".into(),
         Stmt::ForEach { binding, .. } => format!("foreach → {binding}"),
-        Stmt::ForRange { binding, .. }=> format!("for range → {binding}"),
-        Stmt::While { .. }            => "while".into(),
-        Stmt::Return(_)               => "ret".into(),
-        Stmt::Break(Some(_))          => "break (value)".into(),
-        Stmt::Break(None)             => "break".into(),
-        Stmt::Continue                => "continue".into(),
+        Stmt::ForRange { binding, .. } => format!("for range → {binding}"),
+        Stmt::While { .. } => "while".into(),
+        Stmt::Return(_) => "ret".into(),
+        Stmt::Break(Some(_)) => "break (value)".into(),
+        Stmt::Break(None) => "break".into(),
+        Stmt::Continue => "continue".into(),
         Stmt::Destructure { bindings, .. } => format!("destructure → {}", bindings.join(", ")),
         Stmt::Expr(_) => {
-            if is_last { "return".into() } else { "expr".into() }
+            if is_last {
+                "return".into()
+            } else {
+                "expr".into()
+            }
         }
     }
 }
 
 fn fmt_params_sig(params: &[Param]) -> String {
-    params.iter()
+    params
+        .iter()
         .map(|p| format!("{}:{}", p.name, fmt_type(&p.ty)))
         .collect::<Vec<_>>()
         .join(" ")
@@ -138,41 +199,47 @@ fn fmt_params_sig(params: &[Param]) -> String {
 
 fn fmt_type_long(ty: &Type) -> String {
     match ty {
-        Type::Number          => "number".into(),
-        Type::Text            => "text".into(),
-        Type::Bool            => "bool".into(),
-        Type::Any             => "any".into(),
+        Type::Number => "number".into(),
+        Type::Text => "text".into(),
+        Type::Bool => "bool".into(),
+        Type::Any => "any".into(),
         Type::Optional(inner) => format!("optional {}", fmt_type_long(inner)),
-        Type::List(inner)     => format!("list of {}", fmt_type_long(inner)),
-        Type::Map(k, v)       => format!("map of {} to {}", fmt_type_long(k), fmt_type_long(v)),
-        Type::Sum(vs)         => format!("one of: {}", vs.join(", ")),
-        Type::Result(ok, err) => format!("Result ok={} err={}", fmt_type_long(ok), fmt_type_long(err)),
+        Type::List(inner) => format!("list of {}", fmt_type_long(inner)),
+        Type::Map(k, v) => format!("map of {} to {}", fmt_type_long(k), fmt_type_long(v)),
+        Type::Sum(vs) => format!("one of: {}", vs.join(", ")),
+        Type::Result(ok, err) => {
+            format!("Result ok={} err={}", fmt_type_long(ok), fmt_type_long(err))
+        }
         Type::Fn(params, ret) => {
             let ps: Vec<_> = params.iter().map(fmt_type_long).collect();
             format!("fn({}) → {}", ps.join(", "), fmt_type_long(ret))
         }
-        Type::Named(name)     => name.clone(),
+        Type::Named(name) => name.clone(),
     }
 }
 
 fn fmt_type(ty: &Type) -> String {
     match ty {
-        Type::Number          => "n".into(),
-        Type::Text            => "t".into(),
-        Type::Bool            => "b".into(),
-        Type::Any             => "_".into(),
+        Type::Number => "n".into(),
+        Type::Text => "t".into(),
+        Type::Bool => "b".into(),
+        Type::Any => "_".into(),
         Type::Optional(inner) => format!("O {}", fmt_type(inner)),
-        Type::List(inner)     => format!("L {}", fmt_type(inner)),
-        Type::Map(k, v)       => format!("M {} {}", fmt_type(k), fmt_type(v)),
-        Type::Sum(vs)         => format!("S {}", vs.join(" ")),
+        Type::List(inner) => format!("L {}", fmt_type(inner)),
+        Type::Map(k, v) => format!("M {} {}", fmt_type(k), fmt_type(v)),
+        Type::Sum(vs) => format!("S {}", vs.join(" ")),
         Type::Result(ok, err) => format!("R {} {}", fmt_type(ok), fmt_type(err)),
         Type::Fn(params, ret) => {
             let mut s = "F".to_string();
-            for p in params { s.push(' '); s.push_str(&fmt_type(p)); }
-            s.push(' '); s.push_str(&fmt_type(ret));
+            for p in params {
+                s.push(' ');
+                s.push_str(&fmt_type(p));
+            }
+            s.push(' ');
+            s.push_str(&fmt_type(ret));
             s
         }
-        Type::Named(name)     => name.clone(),
+        Type::Named(name) => name.clone(),
     }
 }
 
@@ -186,8 +253,18 @@ mod tests {
 
     fn parse_prog(src: &str) -> Program {
         let tokens = crate::lexer::lex(src).unwrap();
-        let token_spans: Vec<(crate::lexer::Token, crate::ast::Span)> =
-            tokens.into_iter().map(|(t, r)| (t, crate::ast::Span { start: r.start, end: r.end })).collect();
+        let token_spans: Vec<(crate::lexer::Token, crate::ast::Span)> = tokens
+            .into_iter()
+            .map(|(t, r)| {
+                (
+                    t,
+                    crate::ast::Span {
+                        start: r.start,
+                        end: r.end,
+                    },
+                )
+            })
+            .collect();
         let (mut prog, _) = crate::parser::parse(token_spans);
         prog.source = Some(src.to_string());
         prog
@@ -218,7 +295,10 @@ mod tests {
     fn explain_last_stmt_is_return() {
         let prog = parse_prog("f x:n>n;+x 1");
         let out = explain(&prog, None);
-        assert!(out.contains("-- return"), "last stmt should be 'return': {out}");
+        assert!(
+            out.contains("-- return"),
+            "last stmt should be 'return': {out}"
+        );
     }
 
     #[test]
@@ -239,14 +319,20 @@ mod tests {
     fn explain_with_filename_prefix() {
         let prog = parse_prog("f x:n>n;x");
         let out = explain(&prog, Some("my.ilo"));
-        assert!(out.starts_with("file: my.ilo\n"), "missing filename prefix: {out}");
+        assert!(
+            out.starts_with("file: my.ilo\n"),
+            "missing filename prefix: {out}"
+        );
     }
 
     #[test]
     fn explain_no_filename_no_prefix() {
         let prog = parse_prog("f x:n>n;x");
         let out = explain(&prog, None);
-        assert!(!out.starts_with("file:"), "unexpected filename prefix: {out}");
+        assert!(
+            !out.starts_with("file:"),
+            "unexpected filename prefix: {out}"
+        );
     }
 
     #[test]
@@ -268,7 +354,11 @@ mod tests {
         let prog = parse_prog("f x:n>n;+x 1 g x:n>n;*x 2");
         let out = explain(&prog, None);
         // Two fn start lines
-        assert_eq!(out.matches("fn start").count(), 2, "expected 2 'fn start' annotations: {out}");
+        assert_eq!(
+            out.matches("fn start").count(),
+            2,
+            "expected 2 'fn start' annotations: {out}"
+        );
     }
 
     #[test]
@@ -276,7 +366,10 @@ mod tests {
         let prog = parse_prog("f>n;42");
         let out = explain(&prog, None);
         assert!(out.contains("fn start"), "missing 'fn start': {out}");
-        assert!(!out.contains("param →"), "unexpected param for 0-param fn: {out}");
+        assert!(
+            !out.contains("param →"),
+            "unexpected param for 0-param fn: {out}"
+        );
     }
 
     #[test]
@@ -319,8 +412,14 @@ mod tests {
         // Two expr stmts — first is "expr", last is "return"
         let prog = parse_prog("f x:n>n;prnt x;+x 1");
         let out = explain(&prog, None);
-        assert!(out.contains("-- expr"), "expected '-- expr' for non-last stmt: {out}");
-        assert!(out.contains("-- return"), "expected '-- return' for last stmt: {out}");
+        assert!(
+            out.contains("-- expr"),
+            "expected '-- expr' for non-last stmt: {out}"
+        );
+        assert!(
+            out.contains("-- return"),
+            "expected '-- return' for last stmt: {out}"
+        );
     }
 
     #[test]
@@ -343,7 +442,10 @@ mod tests {
         // brk with value as top-level stmt
         let prog = parse_prog("f x:n>n;brk x");
         let out = explain(&prog, None);
-        assert!(out.contains("break (value)"), "missing 'break (value)': {out}");
+        assert!(
+            out.contains("break (value)"),
+            "missing 'break (value)': {out}"
+        );
     }
 
     #[test]
@@ -358,7 +460,10 @@ mod tests {
     fn explain_destructure_annotation() {
         let prog = parse_prog("type pt{x:n;y:n} f p:pt>n;{x;y}=p;+x y");
         let out = explain(&prog, None);
-        assert!(out.contains("destructure →"), "missing 'destructure →': {out}");
+        assert!(
+            out.contains("destructure →"),
+            "missing 'destructure →': {out}"
+        );
     }
 
     #[test]
@@ -382,7 +487,10 @@ mod tests {
         let prog = parse_prog("f x:O n>O n;x");
         let out = explain(&prog, None);
         assert!(out.contains("O n"), "expected 'O n' in output: {out}");
-        assert!(out.contains("optional number"), "expected 'optional number' in output: {out}");
+        assert!(
+            out.contains("optional number"),
+            "expected 'optional number' in output: {out}"
+        );
     }
 
     #[test]
@@ -390,7 +498,10 @@ mod tests {
         let prog = parse_prog("f x:R t t>R t t;x");
         let out = explain(&prog, None);
         assert!(out.contains("R t t"), "expected 'R t t' in output: {out}");
-        assert!(out.contains("Result ok=text err=text"), "expected 'Result ok=text err=text': {out}");
+        assert!(
+            out.contains("Result ok=text err=text"),
+            "expected 'Result ok=text err=text': {out}"
+        );
     }
 
     #[test]
@@ -398,7 +509,10 @@ mod tests {
         let prog = parse_prog("f m:M t n>M t n;m");
         let out = explain(&prog, None);
         assert!(out.contains("M t n"), "expected 'M t n' in output: {out}");
-        assert!(out.contains("map of text to number"), "expected 'map of text to number': {out}");
+        assert!(
+            out.contains("map of text to number"),
+            "expected 'map of text to number': {out}"
+        );
     }
 
     #[test]
@@ -406,7 +520,10 @@ mod tests {
         let prog = parse_prog("f x:S a b>S a b;x");
         let out = explain(&prog, None);
         assert!(out.contains("S a b"), "expected 'S a b' in output: {out}");
-        assert!(out.contains("one of: a, b"), "expected 'one of: a, b': {out}");
+        assert!(
+            out.contains("one of: a, b"),
+            "expected 'one of: a, b': {out}"
+        );
     }
 
     #[test]
@@ -430,8 +547,14 @@ mod tests {
         // Inject Use and Error decls directly — explain() must skip them silently
         use crate::ast::{Decl, Span};
         let mut prog = parse_prog("f>n;42");
-        prog.declarations.push(Decl::Use { path: "x.ilo".into(), only: None, span: Span::UNKNOWN });
-        prog.declarations.push(Decl::Error { span: Span::UNKNOWN });
+        prog.declarations.push(Decl::Use {
+            path: "x.ilo".into(),
+            only: None,
+            span: Span::UNKNOWN,
+        });
+        prog.declarations.push(Decl::Error {
+            span: Span::UNKNOWN,
+        });
         // Should not panic, and shouldn't add any output for those nodes
         let out = explain(&prog, None);
         assert!(out.contains("fn start"), "expected function output: {out}");

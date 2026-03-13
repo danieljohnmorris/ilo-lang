@@ -9,12 +9,12 @@
 //! via `Linkage::Import` declarations.
 
 use super::*;
-use cranelift_codegen::ir::{AbiParam, InstBuilder, MemFlags};
-use cranelift_codegen::ir::types::{I32, I64, F64};
-use cranelift_codegen::settings::{self, Configurable};
 use cranelift_codegen::Context;
+use cranelift_codegen::ir::types::{F64, I32, I64};
+use cranelift_codegen::ir::{AbiParam, InstBuilder, MemFlags};
+use cranelift_codegen::settings::{self, Configurable};
 use cranelift_frontend::{FunctionBuilder, FunctionBuilderContext, Variable};
-use cranelift_module::{default_libcall_names, Module, Linkage, FuncId};
+use cranelift_module::{FuncId, Linkage, Module, default_libcall_names};
 use cranelift_object::{ObjectBuilder, ObjectModule};
 use std::collections::HashMap;
 
@@ -113,7 +113,12 @@ struct HelperFuncs {
     string_const: FuncId,
 }
 
-fn declare_helper(module: &mut ObjectModule, name: &str, n_params: usize, n_returns: usize) -> FuncId {
+fn declare_helper(
+    module: &mut ObjectModule,
+    name: &str,
+    n_params: usize,
+    n_returns: usize,
+) -> FuncId {
     let mut sig = module.make_signature();
     for _ in 0..n_params {
         sig.params.push(AbiParam::new(I64));
@@ -121,7 +126,9 @@ fn declare_helper(module: &mut ObjectModule, name: &str, n_params: usize, n_retu
     for _ in 0..n_returns {
         sig.returns.push(AbiParam::new(I64));
     }
-    module.declare_function(name, Linkage::Import, &sig).unwrap()
+    module
+        .declare_function(name, Linkage::Import, &sig)
+        .unwrap()
 }
 
 fn declare_all_helpers(module: &mut ObjectModule) -> HelperFuncs {
@@ -232,7 +239,8 @@ fn find_libilo_a() -> Result<String, String> {
         return Ok(debug_path);
     }
     // Also try parent directory (workspace root)
-    let parent = std::path::Path::new(manifest_dir).parent()
+    let parent = std::path::Path::new(manifest_dir)
+        .parent()
         .map(|p| p.to_string_lossy().to_string())
         .unwrap_or_default();
     if !parent.is_empty() {
@@ -255,8 +263,16 @@ fn find_libilo_a() -> Result<String, String> {
 /// Platform-specific linker flags for linking the static library.
 fn platform_linker_flags() -> Vec<&'static str> {
     if cfg!(target_os = "macos") {
-        vec!["-lm", "-liconv", "-framework", "CoreFoundation",
-             "-framework", "Security", "-framework", "SystemConfiguration"]
+        vec![
+            "-lm",
+            "-liconv",
+            "-framework",
+            "CoreFoundation",
+            "-framework",
+            "Security",
+            "-framework",
+            "SystemConfiguration",
+        ]
     } else {
         vec!["-lm", "-ldl", "-lpthread"]
     }
@@ -270,21 +286,27 @@ pub fn compile_to_binary(
     entry_func: &str,
     output_path: &str,
 ) -> Result<(), String> {
-    let entry_idx = program.func_names.iter().position(|n| n == entry_func)
+    let entry_idx = program
+        .func_names
+        .iter()
+        .position(|n| n == entry_func)
         .ok_or_else(|| format!("undefined function: {}", entry_func))?;
 
     // Set up Cranelift for the host target
     let mut flag_builder = settings::builder();
-    flag_builder.set("opt_level", "speed").map_err(|e| e.to_string())?;
-    flag_builder.set("is_pic", "true").map_err(|e| e.to_string())?;
+    flag_builder
+        .set("opt_level", "speed")
+        .map_err(|e| e.to_string())?;
+    flag_builder
+        .set("is_pic", "true")
+        .map_err(|e| e.to_string())?;
     let isa_builder = cranelift_native::builder().map_err(|e| e.to_string())?;
-    let isa = isa_builder.finish(settings::Flags::new(flag_builder)).map_err(|e| e.to_string())?;
+    let isa = isa_builder
+        .finish(settings::Flags::new(flag_builder))
+        .map_err(|e| e.to_string())?;
 
-    let obj_builder = ObjectBuilder::new(
-        isa.clone(),
-        "ilo_aot",
-        default_libcall_names(),
-    ).map_err(|e| e.to_string())?;
+    let obj_builder = ObjectBuilder::new(isa.clone(), "ilo_aot", default_libcall_names())
+        .map_err(|e| e.to_string())?;
     let mut module = ObjectModule::new(obj_builder);
 
     // Helper to clean up temp files on any error path
@@ -304,16 +326,28 @@ pub fn compile_to_binary(
             sig.params.push(AbiParam::new(I64));
         }
         sig.returns.push(AbiParam::new(I64));
-        let fid = module.declare_function(&name, Linkage::Local, &sig)
+        let fid = module
+            .declare_function(&name, Linkage::Local, &sig)
             .map_err(|e| e.to_string())?;
         func_ids.push(fid);
     }
 
     // Second pass: compile all functions with func_ids available
-    for (i, (chunk, nan_consts)) in program.chunks.iter().zip(program.nan_constants.iter()).enumerate() {
+    for (i, (chunk, nan_consts)) in program
+        .chunks
+        .iter()
+        .zip(program.nan_constants.iter())
+        .enumerate()
+    {
         let name = format!("ilo_{}", program.func_names[i]);
         compile_function_body(
-            &mut module, chunk, nan_consts, &name, func_ids[i], &helpers, Some(&func_ids),
+            &mut module,
+            chunk,
+            nan_consts,
+            &name,
+            func_ids[i],
+            &helpers,
+            Some(&func_ids),
         )?;
     }
 
@@ -341,15 +375,19 @@ pub fn compile_to_binary(
         .map_err(|e| format!("failed to write object file: {}", e))?;
 
     // Find libilo.a
-    let libilo_path = find_libilo_a()
-        .inspect_err(|_| { cleanup(&obj_path); })?;
-    let libilo_dir = std::path::Path::new(&libilo_path).parent()
+    let libilo_path = find_libilo_a().inspect_err(|_| {
+        cleanup(&obj_path);
+    })?;
+    let libilo_dir = std::path::Path::new(&libilo_path)
+        .parent()
         .ok_or_else(|| "invalid libilo.a path".to_string())?
-        .to_string_lossy().to_string();
+        .to_string_lossy()
+        .to_string();
 
     // Link: user.o + libilo.a + system libs
     let mut link_cmd = std::process::Command::new("cc");
-    link_cmd.arg(&obj_path)
+    link_cmd
+        .arg(&obj_path)
         .arg("-o")
         .arg(output_path)
         .arg(format!("-L{}", libilo_dir))
@@ -358,8 +396,10 @@ pub fn compile_to_binary(
         link_cmd.arg(flag);
     }
 
-    let status = link_cmd.status()
-        .map_err(|e| { cleanup(&obj_path); format!("failed to run cc: {}", e) })?;
+    let status = link_cmd.status().map_err(|e| {
+        cleanup(&obj_path);
+        format!("failed to run cc: {}", e)
+    })?;
 
     cleanup(&obj_path);
 
@@ -424,8 +464,13 @@ fn compile_function_body(
 
     // Import helper function references (cached)
     let mut func_refs: HashMap<FuncId, cranelift_codegen::ir::FuncRef> = HashMap::new();
-    let mut get_func_ref = |builder: &mut FunctionBuilder<'_>, module: &mut ObjectModule, id: FuncId| -> cranelift_codegen::ir::FuncRef {
-        *func_refs.entry(id).or_insert_with(|| module.declare_func_in_func(id, builder.func))
+    let mut get_func_ref = |builder: &mut FunctionBuilder<'_>,
+                            module: &mut ObjectModule,
+                            id: FuncId|
+     -> cranelift_codegen::ir::FuncRef {
+        *func_refs
+            .entry(id)
+            .or_insert_with(|| module.declare_func_in_func(id, builder.func))
     };
 
     let mut block_terminated = false;
@@ -521,14 +566,19 @@ fn compile_function_body(
                 let c_masked = builder.ins().band(cv, qnan_val);
                 let b_or_c = builder.ins().bor(b_masked, c_masked);
                 let both_num = builder.ins().icmp(
-                    cranelift_codegen::ir::condcodes::IntCC::NotEqual, b_or_c, qnan_val);
+                    cranelift_codegen::ir::condcodes::IntCC::NotEqual,
+                    b_or_c,
+                    qnan_val,
+                );
 
                 let num_block = builder.create_block();
                 let slow_block = builder.create_block();
                 let merge_block = builder.create_block();
                 builder.append_block_param(merge_block, I64);
 
-                builder.ins().brif(both_num, num_block, &[], slow_block, &[]);
+                builder
+                    .ins()
+                    .brif(both_num, num_block, &[], slow_block, &[]);
 
                 // Fast path: inline float arithmetic
                 builder.switch_to_block(num_block);
@@ -572,14 +622,19 @@ fn compile_function_body(
                 let c_masked = builder.ins().band(cv, qnan_val);
                 let b_or_c = builder.ins().bor(b_masked, c_masked);
                 let both_num = builder.ins().icmp(
-                    cranelift_codegen::ir::condcodes::IntCC::NotEqual, b_or_c, qnan_val);
+                    cranelift_codegen::ir::condcodes::IntCC::NotEqual,
+                    b_or_c,
+                    qnan_val,
+                );
 
                 let num_block = builder.create_block();
                 let slow_block = builder.create_block();
                 let merge_block = builder.create_block();
                 builder.append_block_param(merge_block, I64);
 
-                builder.ins().brif(both_num, num_block, &[], slow_block, &[]);
+                builder
+                    .ins()
+                    .brif(both_num, num_block, &[], slow_block, &[]);
 
                 // Fast path: inline float comparison
                 builder.switch_to_block(num_block);
@@ -628,10 +683,15 @@ fn compile_function_body(
                     let qnan_val = builder.ins().iconst(I64, QNAN as i64);
                     let masked = builder.ins().band(bv, qnan_val);
                     let is_heap = builder.ins().icmp(
-                        cranelift_codegen::ir::condcodes::IntCC::Equal, masked, qnan_val);
+                        cranelift_codegen::ir::condcodes::IntCC::Equal,
+                        masked,
+                        qnan_val,
+                    );
                     let clone_block = builder.create_block();
                     let after_block = builder.create_block();
-                    builder.ins().brif(is_heap, clone_block, &[], after_block, &[]);
+                    builder
+                        .ins()
+                        .brif(is_heap, clone_block, &[], after_block, &[]);
 
                     builder.switch_to_block(clone_block);
                     let fref = get_func_ref(&mut builder, module, helpers.jit_move);
@@ -719,11 +779,12 @@ fn compile_function_body(
                             bytes.push(0); // null-terminate
                             bytes
                         }
-                        _ => { b"\0".to_vec() }
+                        _ => b"\0".to_vec(),
                     };
                     data_section_counter += 1;
                     let ds_name = format!("ilo_strconst_{}", data_section_counter);
-                    let str_ptr = create_data_section(module, &mut builder, &ds_name, &string_bytes)?;
+                    let str_ptr =
+                        create_data_section(module, &mut builder, &ds_name, &string_bytes)?;
                     let fref = get_func_ref(&mut builder, module, helpers.string_const);
                     let call_inst = builder.ins().call(fref, &[str_ptr]);
                     let result = builder.inst_results(call_inst)[0];
@@ -744,8 +805,9 @@ fn compile_function_body(
             OP_JMP => {
                 let sbx = (inst & 0xFFFF) as i16;
                 let target = (ip as isize + 1 + sbx as isize) as usize;
-                let tb = block_map.get(&target)
-                    .ok_or_else(|| format!("JMP target {} at ip {} has no block leader", target, ip))?;
+                let tb = block_map.get(&target).ok_or_else(|| {
+                    format!("JMP target {} at ip {} has no block leader", target, ip)
+                })?;
                 builder.ins().jump(*tb, &[]);
                 block_terminated = true;
             }
@@ -758,19 +820,28 @@ fn compile_function_body(
                 let qnan_val = builder.ins().iconst(I64, QNAN as i64);
                 let masked = builder.ins().band(av, qnan_val);
                 let is_num = builder.ins().icmp(
-                    cranelift_codegen::ir::condcodes::IntCC::NotEqual, masked, qnan_val);
+                    cranelift_codegen::ir::condcodes::IntCC::NotEqual,
+                    masked,
+                    qnan_val,
+                );
 
                 let num_truthy_block = builder.create_block();
                 let tag_truthy_block = builder.create_block();
                 let merge_truthy = builder.create_block();
                 builder.append_block_param(merge_truthy, I64);
 
-                builder.ins().brif(is_num, num_truthy_block, &[], tag_truthy_block, &[]);
+                builder
+                    .ins()
+                    .brif(is_num, num_truthy_block, &[], tag_truthy_block, &[]);
 
                 builder.switch_to_block(num_truthy_block);
                 let af = builder.ins().bitcast(F64, mf, av);
                 let zero = builder.ins().f64const(0.0);
-                let cmp = builder.ins().fcmp(cranelift_codegen::ir::condcodes::FloatCC::NotEqual, af, zero);
+                let cmp = builder.ins().fcmp(
+                    cranelift_codegen::ir::condcodes::FloatCC::NotEqual,
+                    af,
+                    zero,
+                );
                 let num_result = builder.ins().uextend(I64, cmp);
                 builder.ins().jump(merge_truthy, &[num_result]);
 
@@ -778,9 +849,15 @@ fn compile_function_body(
                 let nil_val = builder.ins().iconst(I64, TAG_NIL as i64);
                 let false_val = builder.ins().iconst(I64, TAG_FALSE as i64);
                 let not_nil = builder.ins().icmp(
-                    cranelift_codegen::ir::condcodes::IntCC::NotEqual, av, nil_val);
+                    cranelift_codegen::ir::condcodes::IntCC::NotEqual,
+                    av,
+                    nil_val,
+                );
                 let not_false = builder.ins().icmp(
-                    cranelift_codegen::ir::condcodes::IntCC::NotEqual, av, false_val);
+                    cranelift_codegen::ir::condcodes::IntCC::NotEqual,
+                    av,
+                    false_val,
+                );
                 let tag_truthy = builder.ins().band(not_nil, not_false);
                 let tag_result = builder.ins().uextend(I64, tag_truthy);
                 builder.ins().jump(merge_truthy, &[tag_result]);
@@ -788,14 +865,26 @@ fn compile_function_body(
                 builder.switch_to_block(merge_truthy);
                 let truthy_val = builder.block_params(merge_truthy)[0];
 
-                let target_block = block_map.get(&target)
-                    .ok_or_else(|| format!("JMPF/JMPT target {} at ip {} has no block leader", target, ip))?;
-                let fall_block = block_map.get(&fallthrough)
-                    .ok_or_else(|| format!("JMPF/JMPT fallthrough {} at ip {} has no block leader", fallthrough, ip))?;
+                let target_block = block_map.get(&target).ok_or_else(|| {
+                    format!(
+                        "JMPF/JMPT target {} at ip {} has no block leader",
+                        target, ip
+                    )
+                })?;
+                let fall_block = block_map.get(&fallthrough).ok_or_else(|| {
+                    format!(
+                        "JMPF/JMPT fallthrough {} at ip {} has no block leader",
+                        fallthrough, ip
+                    )
+                })?;
                 if op == OP_JMPF {
-                    builder.ins().brif(truthy_val, *fall_block, &[], *target_block, &[]);
+                    builder
+                        .ins()
+                        .brif(truthy_val, *fall_block, &[], *target_block, &[]);
                 } else {
-                    builder.ins().brif(truthy_val, *target_block, &[], *fall_block, &[]);
+                    builder
+                        .ins()
+                        .brif(truthy_val, *target_block, &[], *fall_block, &[]);
                 }
                 block_terminated = true;
             }
@@ -805,11 +894,20 @@ fn compile_function_body(
                 let fallthrough = ip + 1;
                 let av = builder.use_var(vars[a_idx]);
                 let nil_const = builder.ins().iconst(I64, TAG_NIL as i64);
-                let is_nil = builder.ins().icmp(cranelift_codegen::ir::condcodes::IntCC::Equal, av, nil_const);
-                let tb = block_map.get(&target)
-                    .ok_or_else(|| format!("JMPNN target {} at ip {} has no block leader", target, ip))?;
-                let fb = block_map.get(&fallthrough)
-                    .ok_or_else(|| format!("JMPNN fallthrough {} at ip {} has no block leader", fallthrough, ip))?;
+                let is_nil = builder.ins().icmp(
+                    cranelift_codegen::ir::condcodes::IntCC::Equal,
+                    av,
+                    nil_const,
+                );
+                let tb = block_map.get(&target).ok_or_else(|| {
+                    format!("JMPNN target {} at ip {} has no block leader", target, ip)
+                })?;
+                let fb = block_map.get(&fallthrough).ok_or_else(|| {
+                    format!(
+                        "JMPNN fallthrough {} at ip {} has no block leader",
+                        fallthrough, ip
+                    )
+                })?;
                 builder.ins().brif(is_nil, *fb, &[], *tb, &[]);
                 block_terminated = true;
             }
@@ -1003,14 +1101,19 @@ fn compile_function_body(
                 let tag = builder.ins().band(bv, tag_mask_val);
                 let arena_tag_val = builder.ins().iconst(I64, TAG_ARENA_REC as i64);
                 let is_arena = builder.ins().icmp(
-                    cranelift_codegen::ir::condcodes::IntCC::Equal, tag, arena_tag_val);
+                    cranelift_codegen::ir::condcodes::IntCC::Equal,
+                    tag,
+                    arena_tag_val,
+                );
 
                 let arena_block = builder.create_block();
                 let heap_block = builder.create_block();
                 let merge_block = builder.create_block();
                 builder.append_block_param(merge_block, I64);
 
-                builder.ins().brif(is_arena, arena_block, &[], heap_block, &[]);
+                builder
+                    .ins()
+                    .brif(is_arena, arena_block, &[], heap_block, &[]);
 
                 // Arena path: inline pointer math
                 builder.switch_to_block(arena_block);
@@ -1023,10 +1126,15 @@ fn compile_function_body(
                 let qnan_val = builder.ins().iconst(I64, QNAN as i64);
                 let masked = builder.ins().band(field_val, qnan_val);
                 let is_nan_tagged = builder.ins().icmp(
-                    cranelift_codegen::ir::condcodes::IntCC::Equal, masked, qnan_val);
+                    cranelift_codegen::ir::condcodes::IntCC::Equal,
+                    masked,
+                    qnan_val,
+                );
                 let clone_block = builder.create_block();
                 let skip_clone_block = builder.create_block();
-                builder.ins().brif(is_nan_tagged, clone_block, &[], skip_clone_block, &[]);
+                builder
+                    .ins()
+                    .brif(is_nan_tagged, clone_block, &[], skip_clone_block, &[]);
 
                 builder.switch_to_block(clone_block);
                 let fref_move = get_func_ref(&mut builder, module, helpers.jit_move);
@@ -1084,40 +1192,57 @@ fn compile_function_body(
                 let arena_ptr_val = builder.inst_results(arena_call)[0];
 
                 // Load arena.offset
-                let cur_offset = builder.ins().load(I64, MemFlags::trusted(), arena_ptr_val, 16);
+                let cur_offset = builder
+                    .ins()
+                    .load(I64, MemFlags::trusted(), arena_ptr_val, 16);
                 let seven = builder.ins().iconst(I64, 7);
                 let off_plus_7 = builder.ins().iadd(cur_offset, seven);
                 let neg8 = builder.ins().iconst(I64, !7i64);
                 let aligned = builder.ins().band(off_plus_7, neg8);
                 let size_val = builder.ins().iconst(I64, record_size as i64);
                 let new_offset = builder.ins().iadd(aligned, size_val);
-                let buf_cap = builder.ins().load(I64, MemFlags::trusted(), arena_ptr_val, 8);
+                let buf_cap = builder
+                    .ins()
+                    .load(I64, MemFlags::trusted(), arena_ptr_val, 8);
                 let has_space = builder.ins().icmp(
                     cranelift_codegen::ir::condcodes::IntCC::UnsignedLessThanOrEqual,
-                    new_offset, buf_cap);
+                    new_offset,
+                    buf_cap,
+                );
 
                 let alloc_block = builder.create_block();
                 let fallback_block = builder.create_block();
                 let merge_block = builder.create_block();
                 builder.append_block_param(merge_block, I64);
 
-                builder.ins().brif(has_space, alloc_block, &[], fallback_block, &[]);
+                builder
+                    .ins()
+                    .brif(has_space, alloc_block, &[], fallback_block, &[]);
 
                 // Inline alloc path
                 builder.switch_to_block(alloc_block);
-                let buf_ptr = builder.ins().load(I64, MemFlags::trusted(), arena_ptr_val, 0);
+                let buf_ptr = builder
+                    .ins()
+                    .load(I64, MemFlags::trusted(), arena_ptr_val, 0);
                 let rec_ptr = builder.ins().iadd(buf_ptr, aligned);
                 let header = ((n_fields as u64) << 16) | (type_id as u64);
                 let header_val = builder.ins().iconst(I64, header as i64);
-                builder.ins().store(MemFlags::trusted(), header_val, rec_ptr, 0);
+                builder
+                    .ins()
+                    .store(MemFlags::trusted(), header_val, rec_ptr, 0);
                 for i in 0..n_fields {
                     let field_v = builder.use_var(vars[a_idx + 1 + i]);
                     let field_off = (8 + i * 8) as i32;
-                    builder.ins().store(MemFlags::trusted(), field_v, rec_ptr, field_off);
+                    builder
+                        .ins()
+                        .store(MemFlags::trusted(), field_v, rec_ptr, field_off);
                     let qnan_val = builder.ins().iconst(I64, QNAN as i64);
                     let masked = builder.ins().band(field_v, qnan_val);
                     let is_heap = builder.ins().icmp(
-                        cranelift_codegen::ir::condcodes::IntCC::Equal, masked, qnan_val);
+                        cranelift_codegen::ir::condcodes::IntCC::Equal,
+                        masked,
+                        qnan_val,
+                    );
                     let do_clone = builder.create_block();
                     let after_clone = builder.create_block();
                     builder.ins().brif(is_heap, do_clone, &[], after_clone, &[]);
@@ -1129,18 +1254,21 @@ fn compile_function_body(
 
                     builder.switch_to_block(after_clone);
                 }
-                builder.ins().store(MemFlags::trusted(), new_offset, arena_ptr_val, 16);
+                builder
+                    .ins()
+                    .store(MemFlags::trusted(), new_offset, arena_ptr_val, 16);
                 let tag_val = builder.ins().iconst(I64, TAG_ARENA_REC as i64);
                 let result_val = builder.ins().bor(rec_ptr, tag_val);
                 builder.ins().jump(merge_block, &[result_val]);
 
                 // Fallback: call jit_recnew helper
                 builder.switch_to_block(fallback_block);
-                let slot = builder.create_sized_stack_slot(cranelift_codegen::ir::StackSlotData::new(
-                    cranelift_codegen::ir::StackSlotKind::ExplicitSlot,
-                    (n_fields * 8) as u32,
-                    0,
-                ));
+                let slot =
+                    builder.create_sized_stack_slot(cranelift_codegen::ir::StackSlotData::new(
+                        cranelift_codegen::ir::StackSlotKind::ExplicitSlot,
+                        (n_fields * 8) as u32,
+                        0,
+                    ));
                 for i in 0..n_fields {
                     let v = builder.use_var(vars[a_idx + 1 + i]);
                     builder.ins().stack_store(v, slot, (i * 8) as i32);
@@ -1153,7 +1281,15 @@ fn compile_function_body(
                 let reg_call = builder.ins().call(fref_reg, &[]);
                 let registry_ptr_val = builder.inst_results(reg_call)[0];
                 let fref = get_func_ref(&mut builder, module, helpers.recnew);
-                let call_inst = builder.ins().call(fref, &[arena_ptr_val, type_id_nfields_val, regs_ptr, registry_ptr_val]);
+                let call_inst = builder.ins().call(
+                    fref,
+                    &[
+                        arena_ptr_val,
+                        type_id_nfields_val,
+                        regs_ptr,
+                        registry_ptr_val,
+                    ],
+                );
                 let fb_result = builder.inst_results(call_inst)[0];
                 builder.ins().jump(merge_block, &[fb_result]);
 
@@ -1169,24 +1305,34 @@ fn compile_function_body(
 
                 // Extract field indices from the constant pool and store in a data section
                 let update_indices: Vec<u8> = match &chunk.constants[indices_idx] {
-                    Value::List(items) => items.iter().map(|v| match v {
-                        Value::Number(n) => *n as u8,
-                        _ => 0,
-                    }).collect(),
-                    _ => return Err(format!("OP_RECWITH: expected list constant at index {}", indices_idx)),
+                    Value::List(items) => items
+                        .iter()
+                        .map(|v| match v {
+                            Value::Number(n) => *n as u8,
+                            _ => 0,
+                        })
+                        .collect(),
+                    _ => {
+                        return Err(format!(
+                            "OP_RECWITH: expected list constant at index {}",
+                            indices_idx
+                        ));
+                    }
                 };
 
                 // Use a data section instead of leaking a Box
                 let ds_name = format!("ilo_recwith_indices_{}", data_section_counter);
                 data_section_counter += 1;
-                let indices_gv = create_data_section(module, &mut builder, &ds_name, &update_indices)?;
+                let indices_gv =
+                    create_data_section(module, &mut builder, &ds_name, &update_indices)?;
 
                 let old_rec = builder.use_var(vars[a_idx]);
-                let slot = builder.create_sized_stack_slot(cranelift_codegen::ir::StackSlotData::new(
-                    cranelift_codegen::ir::StackSlotKind::ExplicitSlot,
-                    (n_updates * 8) as u32,
-                    0,
-                ));
+                let slot =
+                    builder.create_sized_stack_slot(cranelift_codegen::ir::StackSlotData::new(
+                        cranelift_codegen::ir::StackSlotKind::ExplicitSlot,
+                        (n_updates * 8) as u32,
+                        0,
+                    ));
                 for i in 0..n_updates {
                     let v = builder.use_var(vars[a_idx + 1 + i]);
                     builder.ins().stack_store(v, slot, (i * 8) as i32);
@@ -1194,7 +1340,9 @@ fn compile_function_body(
                 let regs_ptr = builder.ins().stack_addr(I64, slot, 0);
                 let n_updates_val = builder.ins().iconst(I64, n_updates as i64);
                 let fref = get_func_ref(&mut builder, module, helpers.recwith);
-                let call_inst = builder.ins().call(fref, &[old_rec, indices_gv, n_updates_val, regs_ptr]);
+                let call_inst = builder
+                    .ins()
+                    .call(fref, &[old_rec, indices_gv, n_updates_val, regs_ptr]);
                 let result = builder.inst_results(call_inst)[0];
                 builder.def_var(vars[a_idx], result);
             }
@@ -1209,11 +1357,12 @@ fn compile_function_body(
                     let result = builder.inst_results(call_inst)[0];
                     builder.def_var(vars[a_idx], result);
                 } else {
-                    let slot = builder.create_sized_stack_slot(cranelift_codegen::ir::StackSlotData::new(
-                        cranelift_codegen::ir::StackSlotKind::ExplicitSlot,
-                        (n * 8) as u32,
-                        0,
-                    ));
+                    let slot =
+                        builder.create_sized_stack_slot(cranelift_codegen::ir::StackSlotData::new(
+                            cranelift_codegen::ir::StackSlotKind::ExplicitSlot,
+                            (n * 8) as u32,
+                            0,
+                        ));
                     for i in 0..n {
                         let v = builder.use_var(vars[a_idx + 1 + i]);
                         builder.ins().stack_store(v, slot, (i * 8) as i32);
@@ -1309,7 +1458,9 @@ fn compile_function_body(
 
                     let clone_block = builder.create_block();
                     let after_clone_block = builder.create_block();
-                    builder.ins().brif(elem_is_heap, clone_block, &[], after_clone_block, &[]);
+                    builder
+                        .ins()
+                        .brif(elem_is_heap, clone_block, &[], after_clone_block, &[]);
 
                     builder.switch_to_block(clone_block);
                     builder.seal_block(clone_block);
@@ -1402,7 +1553,9 @@ fn compile_function_body(
                     let elem_is_heap = builder.ins().icmp(ic_eq, elem_masked, qnan_c);
                     let clone_block = builder.create_block();
                     let after_clone_block = builder.create_block();
-                    builder.ins().brif(elem_is_heap, clone_block, &[], after_clone_block, &[]);
+                    builder
+                        .ins()
+                        .brif(elem_is_heap, clone_block, &[], after_clone_block, &[]);
 
                     builder.switch_to_block(clone_block);
                     builder.seal_block(clone_block);
@@ -1475,7 +1628,9 @@ fn compile_function_body(
                     let elem_is_heap = builder.ins().icmp(ic_eq, elem_masked, qnan_c);
                     let clone_block = builder.create_block();
                     let after_clone_block = builder.create_block();
-                    builder.ins().brif(elem_is_heap, clone_block, &[], after_clone_block, &[]);
+                    builder
+                        .ins()
+                        .brif(elem_is_heap, clone_block, &[], after_clone_block, &[]);
 
                     builder.switch_to_block(clone_block);
                     builder.seal_block(clone_block);
@@ -1500,8 +1655,13 @@ fn compile_function_body(
             // ABC: A = reg, B = unused, C = constant pool index (ki).
             // If condition TRUE → skip next instruction (the OP_JMP), enter body.
             // If condition FALSE → fall through to the OP_JMP that skips the body.
-            op if op == OP_CMPK_GE_N || op == OP_CMPK_GT_N || op == OP_CMPK_LT_N
-                || op == OP_CMPK_LE_N || op == OP_CMPK_EQ_N || op == OP_CMPK_NE_N => {
+            op if op == OP_CMPK_GE_N
+                || op == OP_CMPK_GT_N
+                || op == OP_CMPK_LT_N
+                || op == OP_CMPK_LE_N
+                || op == OP_CMPK_EQ_N
+                || op == OP_CMPK_NE_N =>
+            {
                 let ki = (inst & 0xFF) as usize;
                 let lhs = builder.use_var(vars[a_idx]);
 
@@ -1526,13 +1686,13 @@ fn compile_function_body(
                 } else if op == OP_CMPK_EQ_N {
                     FloatCC::Equal
                 } else {
-                    FloatCC::NotEqual  // OP_CMPK_NE_N
+                    FloatCC::NotEqual // OP_CMPK_NE_N
                 };
                 let cmp = builder.ins().fcmp(cc, lhs_f64, rhs_f64);
 
                 // ip + 1 = the OP_JMP that skips the body (taken when condition FALSE)
                 // ip + 2 = first instruction of the guard body (taken when condition TRUE)
-                let jmp_block  = block_map.get(&(ip + 1)).copied();
+                let jmp_block = block_map.get(&(ip + 1)).copied();
                 let body_block = block_map.get(&(ip + 2)).copied();
                 if let (Some(jb), Some(bb)) = (jmp_block, body_block) {
                     // condition TRUE → body (skip the JMP); condition FALSE → JMP block
@@ -1561,11 +1721,13 @@ fn compile_function_body(
                 } else {
                     // Fallback: use jit_call helper (should not happen if all_func_ids is provided)
                     if n_args > 0 {
-                        let slot = builder.create_sized_stack_slot(cranelift_codegen::ir::StackSlotData::new(
-                            cranelift_codegen::ir::StackSlotKind::ExplicitSlot,
-                            (n_args * 8) as u32,
-                            0,
-                        ));
+                        let slot = builder.create_sized_stack_slot(
+                            cranelift_codegen::ir::StackSlotData::new(
+                                cranelift_codegen::ir::StackSlotKind::ExplicitSlot,
+                                (n_args * 8) as u32,
+                                0,
+                            ),
+                        );
                         for i in 0..n_args {
                             let v = builder.use_var(vars[a as usize + 1 + i]);
                             builder.ins().stack_store(v, slot, (i * 8) as i32);
@@ -1575,7 +1737,9 @@ fn compile_function_body(
                         let func_idx_val = builder.ins().iconst(I64, func_idx as i64);
                         let n_args_val = builder.ins().iconst(I64, n_args as i64);
                         let fref = get_func_ref(&mut builder, module, helpers.call);
-                        let call_inst = builder.ins().call(fref, &[prog_ptr, func_idx_val, args_ptr, n_args_val]);
+                        let call_inst = builder
+                            .ins()
+                            .call(fref, &[prog_ptr, func_idx_val, args_ptr, n_args_val]);
                         let result = builder.inst_results(call_inst)[0];
                         builder.def_var(vars[a as usize], result);
                     } else {
@@ -1584,7 +1748,9 @@ fn compile_function_body(
                         let func_idx_val = builder.ins().iconst(I64, func_idx as i64);
                         let n_args_val = builder.ins().iconst(I64, 0i64);
                         let fref = get_func_ref(&mut builder, module, helpers.call);
-                        let call_inst = builder.ins().call(fref, &[prog_ptr, func_idx_val, null_ptr, n_args_val]);
+                        let call_inst = builder
+                            .ins()
+                            .call(fref, &[prog_ptr, func_idx_val, null_ptr, n_args_val]);
                         let result = builder.inst_results(call_inst)[0];
                         builder.def_var(vars[a as usize], result);
                     }
@@ -1767,12 +1933,12 @@ fn compile_function_body(
                 builder.def_var(vars[a_idx], result);
             }
             OP_POSTH => {
-                let bv = builder.use_var(vars[b_idx]);  // url
-                let cv = builder.use_var(vars[c_idx]);  // body
+                let bv = builder.use_var(vars[b_idx]); // url
+                let cv = builder.use_var(vars[c_idx]); // body
                 // Consume the next instruction (data word) at compile time
                 let data_inst = chunk.code[ip + 1];
                 skip_next = true;
-                let d_idx = ((data_inst >> 16) & 0xFF) as usize;  // headers register
+                let d_idx = ((data_inst >> 16) & 0xFF) as usize; // headers register
                 let dv = builder.use_var(vars[d_idx]);
                 let fref = get_func_ref(&mut builder, module, helpers.posth);
                 let call_inst = builder.ins().call(fref, &[bv, cv, dv]);
@@ -1793,7 +1959,9 @@ fn compile_function_body(
     builder.seal_all_blocks();
     builder.finalize();
 
-    module.define_function(func_id, &mut ctx).map_err(|e| e.to_string())?;
+    module
+        .define_function(func_id, &mut ctx)
+        .map_err(|e| e.to_string())?;
     Ok(())
 }
 
@@ -1828,7 +1996,8 @@ fn generate_main(
     sig.params.push(AbiParam::new(I64)); // argv
     sig.returns.push(AbiParam::new(I32)); // exit code
 
-    let main_id = module.declare_function("main", Linkage::Export, &sig)
+    let main_id = module
+        .declare_function("main", Linkage::Export, &sig)
         .map_err(|e| e.to_string())?;
 
     let mut ctx = Context::new();
@@ -1852,7 +2021,8 @@ fn generate_main(
 
     // Set up the type registry if there are any types
     if !registry_bytes.is_empty() {
-        let reg_ptr = create_data_section(module, &mut builder, "ilo_type_registry", registry_bytes)?;
+        let reg_ptr =
+            create_data_section(module, &mut builder, "ilo_type_registry", registry_bytes)?;
         let reg_len = builder.ins().iconst(I64, registry_bytes.len() as i64);
         let set_reg_fref = module.declare_func_in_func(helpers.aot_set_registry, builder.func);
         builder.ins().call(set_reg_fref, &[reg_ptr, reg_len]);
@@ -1888,7 +2058,9 @@ fn generate_main(
 
     builder.finalize();
 
-    module.define_function(main_id, &mut ctx).map_err(|e| e.to_string())?;
+    module
+        .define_function(main_id, &mut ctx)
+        .map_err(|e| e.to_string())?;
     Ok(())
 }
 
@@ -1900,11 +2072,14 @@ fn create_data_section(
     bytes: &[u8],
 ) -> Result<cranelift_codegen::ir::Value, String> {
     use cranelift_module::DataDescription;
-    let data_id = module.declare_data(name, Linkage::Local, false, false)
+    let data_id = module
+        .declare_data(name, Linkage::Local, false, false)
         .map_err(|e| e.to_string())?;
     let mut desc = DataDescription::new();
     desc.define(bytes.to_vec().into_boxed_slice());
-    module.define_data(data_id, &desc).map_err(|e| e.to_string())?;
+    module
+        .define_data(data_id, &desc)
+        .map_err(|e| e.to_string())?;
     let gv = module.declare_data_in_func(data_id, builder.func);
     Ok(builder.ins().global_value(I64, gv))
 }
@@ -1915,20 +2090,26 @@ pub fn compile_to_bench_binary(
     entry_func: &str,
     output_path: &str,
 ) -> Result<(), String> {
-    let entry_idx = program.func_names.iter().position(|n| n == entry_func)
+    let entry_idx = program
+        .func_names
+        .iter()
+        .position(|n| n == entry_func)
         .ok_or_else(|| format!("undefined function: {}", entry_func))?;
 
     let mut flag_builder = settings::builder();
-    flag_builder.set("opt_level", "speed").map_err(|e| e.to_string())?;
-    flag_builder.set("is_pic", "true").map_err(|e| e.to_string())?;
+    flag_builder
+        .set("opt_level", "speed")
+        .map_err(|e| e.to_string())?;
+    flag_builder
+        .set("is_pic", "true")
+        .map_err(|e| e.to_string())?;
     let isa_builder = cranelift_native::builder().map_err(|e| e.to_string())?;
-    let isa = isa_builder.finish(settings::Flags::new(flag_builder)).map_err(|e| e.to_string())?;
+    let isa = isa_builder
+        .finish(settings::Flags::new(flag_builder))
+        .map_err(|e| e.to_string())?;
 
-    let obj_builder = ObjectBuilder::new(
-        isa.clone(),
-        "ilo_aot_bench",
-        default_libcall_names(),
-    ).map_err(|e| e.to_string())?;
+    let obj_builder = ObjectBuilder::new(isa.clone(), "ilo_aot_bench", default_libcall_names())
+        .map_err(|e| e.to_string())?;
     let mut module = ObjectModule::new(obj_builder);
 
     let helpers = declare_all_helpers(&mut module);
@@ -1937,22 +2118,38 @@ pub fn compile_to_bench_binary(
     let mut func_ids: Vec<FuncId> = Vec::with_capacity(program.chunks.len());
     for (i, chunk) in program.chunks.iter().enumerate() {
         let name = format!("ilo_{}", program.func_names[i]);
-        let linkage = if i == entry_idx { Linkage::Export } else { Linkage::Local };
+        let linkage = if i == entry_idx {
+            Linkage::Export
+        } else {
+            Linkage::Local
+        };
         let mut sig = module.make_signature();
         for _ in 0..chunk.param_count {
             sig.params.push(AbiParam::new(I64));
         }
         sig.returns.push(AbiParam::new(I64));
-        let fid = module.declare_function(&name, linkage, &sig)
+        let fid = module
+            .declare_function(&name, linkage, &sig)
             .map_err(|e| e.to_string())?;
         func_ids.push(fid);
     }
 
     // Second pass: compile all functions with func_ids available
-    for (i, (chunk, nan_consts)) in program.chunks.iter().zip(program.nan_constants.iter()).enumerate() {
+    for (i, (chunk, nan_consts)) in program
+        .chunks
+        .iter()
+        .zip(program.nan_constants.iter())
+        .enumerate()
+    {
         let name = format!("ilo_{}", program.func_names[i]);
         compile_function_body(
-            &mut module, chunk, nan_consts, &name, func_ids[i], &helpers, Some(&func_ids),
+            &mut module,
+            chunk,
+            nan_consts,
+            &name,
+            func_ids[i],
+            &helpers,
+            Some(&func_ids),
         )?;
     }
 
@@ -1970,7 +2167,8 @@ pub fn compile_to_bench_binary(
     let bench_c_path = format!("{}_bench.c", output_path);
     // Serialize registry for embedding in C harness
     let registry_bytes = serialize_type_registry(&program.type_registry);
-    let registry_c_literal = registry_bytes.iter()
+    let registry_c_literal = registry_bytes
+        .iter()
         .map(|b| format!("\\x{:02x}", b))
         .collect::<String>();
 
@@ -1984,7 +2182,7 @@ pub fn compile_to_bench_binary(
          extern void ilo_aot_fini(void);\n\
          extern void ilo_aot_arena_reset(void);\n\
          extern void ilo_aot_set_registry(int64_t ptr, int64_t len);\n\
-         extern int64_t ilo_aot_parse_arg(int64_t ptr);\n\n"
+         extern int64_t ilo_aot_parse_arg(int64_t ptr);\n\n",
     );
     // Embed the serialized type registry as a C byte array
     if !registry_bytes.is_empty() {
@@ -1997,7 +2195,9 @@ pub fn compile_to_bench_binary(
     // Declare the exported function
     c_code.push_str(&format!("extern int64_t {}(", func_name));
     for i in 0..param_count {
-        if i > 0 { c_code.push_str(", "); }
+        if i > 0 {
+            c_code.push_str(", ");
+        }
         c_code.push_str("int64_t");
     }
     c_code.push_str(");\n\n");
@@ -2011,7 +2211,11 @@ pub fn compile_to_bench_binary(
     c_code.push_str("\tint iters = atoi(argv[1]);\n");
 
     for i in 0..param_count {
-        c_code.push_str(&format!("\tint64_t a{} = ilo_aot_parse_arg((int64_t)argv[{}]);\n", i, i + 2));
+        c_code.push_str(&format!(
+            "\tint64_t a{} = ilo_aot_parse_arg((int64_t)argv[{}]);\n",
+            i,
+            i + 2
+        ));
     }
 
     let call_args: String = (0..param_count)
@@ -2035,10 +2239,13 @@ pub fn compile_to_bench_binary(
     c_code.push_str("\tclock_gettime(CLOCK_MONOTONIC, &start);\n");
     c_code.push_str("\tvolatile int64_t r;\n");
     c_code.push_str(&format!(
-        "\tfor (int i = 0; i < iters; i++) {{ r = {}({}); ilo_aot_arena_reset(); }}\n", func_name, call_args
+        "\tfor (int i = 0; i < iters; i++) {{ r = {}({}); ilo_aot_arena_reset(); }}\n",
+        func_name, call_args
     ));
     c_code.push_str("\tclock_gettime(CLOCK_MONOTONIC, &end);\n");
-    c_code.push_str("\tlong ns = (end.tv_sec - start.tv_sec) * 1000000000L + (end.tv_nsec - start.tv_nsec);\n");
+    c_code.push_str(
+        "\tlong ns = (end.tv_sec - start.tv_sec) * 1000000000L + (end.tv_nsec - start.tv_nsec);\n",
+    );
     c_code.push_str("\tprintf(\"%ld\\n\", ns / iters);\n");
     c_code.push_str("\tilo_aot_fini();\n");
     c_code.push_str("\treturn 0;\n}\n");
@@ -2061,12 +2268,15 @@ pub fn compile_to_bench_binary(
 
     // Find libilo.a and link
     let libilo_path = find_libilo_a()?;
-    let libilo_dir = std::path::Path::new(&libilo_path).parent()
+    let libilo_dir = std::path::Path::new(&libilo_path)
+        .parent()
         .ok_or_else(|| "invalid libilo.a path".to_string())?
-        .to_string_lossy().to_string();
+        .to_string_lossy()
+        .to_string();
 
     let mut link_cmd = std::process::Command::new("cc");
-    link_cmd.arg(&obj_path)
+    link_cmd
+        .arg(&obj_path)
         .arg(&bench_o_path)
         .arg("-o")
         .arg(output_path)
@@ -2076,12 +2286,11 @@ pub fn compile_to_bench_binary(
         link_cmd.arg(flag);
     }
 
-    let status = link_cmd.status()
-        .map_err(|e| {
-            let _ = std::fs::remove_file(&obj_path);
-            let _ = std::fs::remove_file(&bench_o_path);
-            format!("failed to link: {}", e)
-        })?;
+    let status = link_cmd.status().map_err(|e| {
+        let _ = std::fs::remove_file(&obj_path);
+        let _ = std::fs::remove_file(&bench_o_path);
+        format!("failed to link: {}", e)
+    })?;
 
     let _ = std::fs::remove_file(&obj_path);
     let _ = std::fs::remove_file(&bench_o_path);
@@ -2093,7 +2302,6 @@ pub fn compile_to_bench_binary(
     Ok(())
 }
 
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -2104,7 +2312,15 @@ mod tests {
         let tokens = lexer::lex(source).unwrap();
         let token_spans: Vec<(crate::lexer::Token, crate::ast::Span)> = tokens
             .into_iter()
-            .map(|(t, r)| (t, crate::ast::Span { start: r.start, end: r.end }))
+            .map(|(t, r)| {
+                (
+                    t,
+                    crate::ast::Span {
+                        start: r.start,
+                        end: r.end,
+                    },
+                )
+            })
             .collect();
         let (prog, errors) = parser::parse(token_spans);
         assert!(errors.is_empty(), "parse errors: {:?}", errors);
@@ -2202,7 +2418,8 @@ mod tests {
     #[test]
     fn aot_sequential_cross_function_calls() {
         // Two sequential calls: a=dbl(n), then triple(a)
-        let compiled = compile_program("dbl x:n>n;*x 2\ntriple x:n>n;*x 3\nf n:n>n;a=dbl n;triple a");
+        let compiled =
+            compile_program("dbl x:n>n;*x 2\ntriple x:n>n;*x 3\nf n:n>n;a=dbl n;triple a");
         let tmp = std::env::temp_dir().join("ilo_test_aot_seq_calls");
         let out = tmp.to_str().unwrap();
         compile_to_binary(&compiled, "f", out).unwrap();
@@ -2219,9 +2436,8 @@ mod tests {
     #[test]
     fn aot_pipe_chain() {
         // Pipe chain: i>>dbl>>inc>>dbl>>inc = inc(dbl(inc(dbl(i)))) = 4i+3
-        let compiled = compile_program(
-            "dbl x:n>n;*x 2\ninc x:n>n;+x 1\nf n:n>n;n>>dbl>>inc>>dbl>>inc"
-        );
+        let compiled =
+            compile_program("dbl x:n>n;*x 2\ninc x:n>n;+x 1\nf n:n>n;n>>dbl>>inc>>dbl>>inc");
         let tmp = std::env::temp_dir().join("ilo_test_aot_pipe");
         let out = tmp.to_str().unwrap();
         compile_to_binary(&compiled, "f", out).unwrap();
@@ -2242,7 +2458,9 @@ mod tests {
         flag_builder.set("opt_level", "speed").unwrap();
         flag_builder.set("is_pic", "true").unwrap();
         let isa_builder = cranelift_native::builder().unwrap();
-        let isa = isa_builder.finish(settings::Flags::new(flag_builder)).unwrap();
+        let isa = isa_builder
+            .finish(settings::Flags::new(flag_builder))
+            .unwrap();
         let obj_builder = ObjectBuilder::new(isa, "ilo_aot_test", default_libcall_names()).unwrap();
         ObjectModule::new(obj_builder)
     }
@@ -2261,19 +2479,35 @@ mod tests {
             let name = format!("ilo_{}", compiled.func_names[i]);
             let mut sig = module.make_signature();
             for _ in 0..chunk.param_count {
-                sig.params.push(cranelift_codegen::ir::AbiParam::new(cranelift_codegen::ir::types::I64));
+                sig.params.push(cranelift_codegen::ir::AbiParam::new(
+                    cranelift_codegen::ir::types::I64,
+                ));
             }
-            sig.returns.push(cranelift_codegen::ir::AbiParam::new(cranelift_codegen::ir::types::I64));
-            let fid = module.declare_function(&name, cranelift_module::Linkage::Local, &sig)
+            sig.returns.push(cranelift_codegen::ir::AbiParam::new(
+                cranelift_codegen::ir::types::I64,
+            ));
+            let fid = module
+                .declare_function(&name, cranelift_module::Linkage::Local, &sig)
                 .map_err(|e| e.to_string())?;
             func_ids.push(fid);
         }
 
         // Second pass: compile each function body
-        for (i, (chunk, nan_consts)) in compiled.chunks.iter().zip(compiled.nan_constants.iter()).enumerate() {
+        for (i, (chunk, nan_consts)) in compiled
+            .chunks
+            .iter()
+            .zip(compiled.nan_constants.iter())
+            .enumerate()
+        {
             let name = format!("ilo_{}", compiled.func_names[i]);
             compile_function_body(
-                &mut module, chunk, nan_consts, &name, func_ids[i], &helpers, Some(&func_ids),
+                &mut module,
+                chunk,
+                nan_consts,
+                &name,
+                func_ids[i],
+                &helpers,
+                Some(&func_ids),
             )?;
         }
 
@@ -2319,7 +2553,7 @@ mod tests {
     #[test]
     fn block_leaders_cmpk_creates_leaders_at_ip_plus_1_and_2() {
         // CMPK_GE_N at ip=0: leaders at 0, 1, 2.
-        let cmpk_inst = ((OP_CMPK_GE_N as u32) << 24) | 0u32;
+        let cmpk_inst = (OP_CMPK_GE_N as u32) << 24;
         let code: Vec<u32> = vec![
             cmpk_inst,
             make_inst_abc(OP_JMP, 0, 0, 0),
@@ -2382,7 +2616,11 @@ mod tests {
     #[test]
     fn serialize_registry_single_type() {
         let mut registry = TypeRegistry::default();
-        registry.register("pt".to_string(), vec!["x".to_string(), "y".to_string()], 0b11);
+        registry.register(
+            "pt".to_string(),
+            vec!["x".to_string(), "y".to_string()],
+            0b11,
+        );
         let bytes = serialize_type_registry(&registry);
         let s = String::from_utf8(bytes.clone()).unwrap();
         // Should contain type name, field count bitmask, field names
@@ -2396,8 +2634,16 @@ mod tests {
     #[test]
     fn serialize_registry_multiple_types() {
         let mut registry = TypeRegistry::default();
-        registry.register("pt".to_string(), vec!["x".to_string(), "y".to_string()], 0b11);
-        registry.register("person".to_string(), vec!["name".to_string(), "age".to_string()], 0b10);
+        registry.register(
+            "pt".to_string(),
+            vec!["x".to_string(), "y".to_string()],
+            0b11,
+        );
+        registry.register(
+            "person".to_string(),
+            vec!["name".to_string(), "age".to_string()],
+            0b10,
+        );
         let bytes = serialize_type_registry(&registry);
         let s = String::from_utf8(bytes).unwrap();
         assert!(s.contains("pt"));
@@ -2619,7 +2865,11 @@ mod tests {
         let result = compile_to_binary(&compiled, "does_not_exist", out);
         assert!(result.is_err());
         let err = result.unwrap_err();
-        assert!(err.contains("undefined function"), "expected 'undefined function' in error, got: {}", err);
+        assert!(
+            err.contains("undefined function"),
+            "expected 'undefined function' in error, got: {}",
+            err
+        );
     }
 
     #[test]
@@ -2639,8 +2889,12 @@ mod tests {
             }
             Err(e) => {
                 // Must fail at linking, not at codegen
-                let is_link_error = e.contains("libilo") || e.contains("linker") || e.contains("cc")
-                    || e.contains("cannot find") || e.contains("lilo") || e.contains("ld");
+                let is_link_error = e.contains("libilo")
+                    || e.contains("linker")
+                    || e.contains("cc")
+                    || e.contains("cannot find")
+                    || e.contains("lilo")
+                    || e.contains("ld");
                 assert!(
                     is_link_error,
                     "expected a linker/libilo error but got codegen error: {}",
@@ -2661,8 +2915,12 @@ mod tests {
         match result {
             Ok(()) => {}
             Err(e) => {
-                let is_link_error = e.contains("libilo") || e.contains("linker") || e.contains("cc")
-                    || e.contains("cannot find") || e.contains("lilo") || e.contains("ld");
+                let is_link_error = e.contains("libilo")
+                    || e.contains("linker")
+                    || e.contains("cc")
+                    || e.contains("cannot find")
+                    || e.contains("lilo")
+                    || e.contains("ld");
                 assert!(is_link_error, "codegen error (not link): {}", e);
             }
         }
@@ -2679,8 +2937,12 @@ mod tests {
         match result {
             Ok(()) => {}
             Err(e) => {
-                let is_link_error = e.contains("libilo") || e.contains("linker") || e.contains("cc")
-                    || e.contains("cannot find") || e.contains("lilo") || e.contains("ld");
+                let is_link_error = e.contains("libilo")
+                    || e.contains("linker")
+                    || e.contains("cc")
+                    || e.contains("cannot find")
+                    || e.contains("lilo")
+                    || e.contains("ld");
                 assert!(is_link_error, "codegen error (not link): {}", e);
             }
         }
@@ -2697,8 +2959,12 @@ mod tests {
         match result {
             Ok(()) => {}
             Err(e) => {
-                let is_link_error = e.contains("libilo") || e.contains("linker") || e.contains("cc")
-                    || e.contains("cannot find") || e.contains("lilo") || e.contains("ld");
+                let is_link_error = e.contains("libilo")
+                    || e.contains("linker")
+                    || e.contains("cc")
+                    || e.contains("cannot find")
+                    || e.contains("lilo")
+                    || e.contains("ld");
                 assert!(is_link_error, "codegen error (not link): {}", e);
             }
         }
@@ -2715,8 +2981,12 @@ mod tests {
         match result {
             Ok(()) => {}
             Err(e) => {
-                let is_link_error = e.contains("libilo") || e.contains("linker") || e.contains("cc")
-                    || e.contains("cannot find") || e.contains("lilo") || e.contains("ld");
+                let is_link_error = e.contains("libilo")
+                    || e.contains("linker")
+                    || e.contains("cc")
+                    || e.contains("cannot find")
+                    || e.contains("lilo")
+                    || e.contains("ld");
                 assert!(is_link_error, "codegen error (not link): {}", e);
             }
         }

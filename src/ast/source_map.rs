@@ -58,10 +58,10 @@ mod tests {
     fn multi_line() {
         let src = "line one\nline two\nline three";
         let sm = SourceMap::new(src);
-        assert_eq!(sm.lookup(0), (1, 1));   // 'l' of "line one"
-        assert_eq!(sm.lookup(8), (1, 9));   // '\n' after "line one"
-        assert_eq!(sm.lookup(9), (2, 1));   // 'l' of "line two"
-        assert_eq!(sm.lookup(18), (3, 1));  // 'l' of "line three"
+        assert_eq!(sm.lookup(0), (1, 1)); // 'l' of "line one"
+        assert_eq!(sm.lookup(8), (1, 9)); // '\n' after "line one"
+        assert_eq!(sm.lookup(9), (2, 1)); // 'l' of "line two"
+        assert_eq!(sm.lookup(18), (3, 1)); // 'l' of "line three"
     }
 
     #[test]

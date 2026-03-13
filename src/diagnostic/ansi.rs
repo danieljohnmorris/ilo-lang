@@ -1,5 +1,5 @@
-use crate::ast::SourceMap;
 use super::{Diagnostic, Severity};
+use crate::ast::SourceMap;
 
 pub struct AnsiRenderer {
     pub use_color: bool,
@@ -7,19 +7,35 @@ pub struct AnsiRenderer {
 
 impl AnsiRenderer {
     fn bold(&self, s: &str) -> String {
-        if self.use_color { format!("\x1b[1m{s}\x1b[0m") } else { s.to_string() }
+        if self.use_color {
+            format!("\x1b[1m{s}\x1b[0m")
+        } else {
+            s.to_string()
+        }
     }
 
     fn bold_red(&self, s: &str) -> String {
-        if self.use_color { format!("\x1b[1;31m{s}\x1b[0m") } else { s.to_string() }
+        if self.use_color {
+            format!("\x1b[1;31m{s}\x1b[0m")
+        } else {
+            s.to_string()
+        }
     }
 
     fn cyan(&self, s: &str) -> String {
-        if self.use_color { format!("\x1b[36m{s}\x1b[0m") } else { s.to_string() }
+        if self.use_color {
+            format!("\x1b[36m{s}\x1b[0m")
+        } else {
+            s.to_string()
+        }
     }
 
     fn dim(&self, s: &str) -> String {
-        if self.use_color { format!("\x1b[2m{s}\x1b[0m") } else { s.to_string() }
+        if self.use_color {
+            format!("\x1b[2m{s}\x1b[0m")
+        } else {
+            s.to_string()
+        }
     }
 
     pub fn render(&self, d: &Diagnostic) -> String {
@@ -34,7 +50,12 @@ impl AnsiRenderer {
             Some(code) => self.bold(&format!("[{code}]")),
             None => String::new(),
         };
-        out.push_str(&format!("{}{}: {}\n", severity_label, code_part, self.bold(&d.message)));
+        out.push_str(&format!(
+            "{}{}: {}\n",
+            severity_label,
+            code_part,
+            self.bold(&d.message)
+        ));
 
         // Render primary label with source snippet
         let primary = d.labels.iter().find(|l| l.is_primary);
@@ -66,8 +87,10 @@ impl AnsiRenderer {
             if label.message.is_empty() {
                 out.push_str(&format!("{pad} {pipe} {indent}{carets}\n"));
             } else {
-                out.push_str(&format!("{pad} {pipe} {indent}{carets} {}\n",
-                    self.bold_red(&label.message)));
+                out.push_str(&format!(
+                    "{pad} {pipe} {indent}{carets} {}\n",
+                    self.bold_red(&label.message)
+                ));
             }
 
             // Empty gutter line after
@@ -149,7 +172,10 @@ mod tests {
         let out = r.render(&d);
         assert!(out.contains("note:"), "missing note in:\n{out}");
         assert!(out.contains("suggestion:"), "missing suggestion in:\n{out}");
-        assert!(out.contains("in function 'f'"), "missing note text in:\n{out}");
+        assert!(
+            out.contains("in function 'f'"),
+            "missing note text in:\n{out}"
+        );
     }
 
     #[test]
@@ -167,7 +193,10 @@ mod tests {
         let r = AnsiRenderer { use_color: true };
         let d = make_diag("f x:n>n;x", 2, 3);
         let out = r.render(&d);
-        assert!(out.contains("\x1b["), "expected ANSI codes when use_color=true");
+        assert!(
+            out.contains("\x1b["),
+            "expected ANSI codes when use_color=true"
+        );
     }
 
     #[test]
@@ -175,7 +204,10 @@ mod tests {
         let r = AnsiRenderer { use_color: false };
         let d = make_diag("f x:n>n;x", 2, 3);
         let out = r.render(&d);
-        assert!(!out.contains("\x1b["), "unexpected ANSI codes when use_color=false");
+        assert!(
+            !out.contains("\x1b["),
+            "unexpected ANSI codes when use_color=false"
+        );
     }
 
     #[test]
@@ -220,7 +252,10 @@ mod tests {
         let out = r.render(&d);
         assert!(out.contains("warning"), "missing 'warning' in:\n{out}");
         // With color, ANSI codes should be present
-        assert!(out.contains("\x1b["), "expected ANSI codes for warning with color");
+        assert!(
+            out.contains("\x1b["),
+            "expected ANSI codes for warning with color"
+        );
     }
 
     #[test]
@@ -229,14 +264,17 @@ mod tests {
         let d = Diagnostic::error("type mismatch")
             .with_secondary_span(Span { start: 5, end: 8 }, "defined here");
         let out = r.render(&d);
-        assert!(out.contains("defined here"), "missing secondary label message in:\n{out}");
+        assert!(
+            out.contains("defined here"),
+            "missing secondary label message in:\n{out}"
+        );
     }
 
     #[test]
     fn render_secondary_label_empty_message_skipped() {
         let r = AnsiRenderer { use_color: false };
-        let d = Diagnostic::error("type mismatch")
-            .with_secondary_span(Span { start: 5, end: 8 }, "");
+        let d =
+            Diagnostic::error("type mismatch").with_secondary_span(Span { start: 5, end: 8 }, "");
         let out = r.render(&d);
         // Empty secondary label should not emit extra lines for it
         // The output should still be valid
@@ -250,6 +288,9 @@ mod tests {
             .with_span(Span { start: 2, end: 5 }, "this is the problem")
             .with_source("f x:n>n;x".to_string());
         let out = r.render(&d);
-        assert!(out.contains("this is the problem"), "missing label message in:\n{out}");
+        assert!(
+            out.contains("this is the problem"),
+            "missing label message in:\n{out}"
+        );
     }
 }

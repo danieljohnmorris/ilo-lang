@@ -25,9 +25,16 @@ async fn get_ok_returns_body() {
         .args([r#"f url:t>R t t;get url"#, &url])
         .output()
         .expect("failed to run ilo");
-    assert!(out.status.success(), "stderr: {}", String::from_utf8_lossy(&out.stderr));
+    assert!(
+        out.status.success(),
+        "stderr: {}",
+        String::from_utf8_lossy(&out.stderr)
+    );
     let stdout = String::from_utf8_lossy(&out.stdout);
-    assert!(stdout.contains("world"), "expected 'world' in output, got: {stdout}");
+    assert!(
+        stdout.contains("world"),
+        "expected 'world' in output, got: {stdout}"
+    );
 }
 
 #[tokio::test]
@@ -45,9 +52,16 @@ async fn get_server_error_returns_err_value() {
         .args([r#"f url:t>R t t;get url"#, &url])
         .output()
         .expect("failed to run ilo");
-    assert!(out.status.success(), "stderr: {}", String::from_utf8_lossy(&out.stderr));
+    assert!(
+        out.status.success(),
+        "stderr: {}",
+        String::from_utf8_lossy(&out.stderr)
+    );
     let stdout = String::from_utf8_lossy(&out.stdout);
-    assert!(stdout.contains("oops"), "expected 'oops' in output, got: {stdout}");
+    assert!(
+        stdout.contains("oops"),
+        "expected 'oops' in output, got: {stdout}"
+    );
 }
 
 #[tokio::test]
@@ -57,7 +71,10 @@ async fn get_bad_host_returns_err() {
         .args([r#"f url:t>R t t;get url"#, "http://127.0.0.1:1"])
         .output()
         .expect("failed to run ilo");
-    assert!(out.status.success(), "process should not crash on connection failure");
+    assert!(
+        out.status.success(),
+        "process should not crash on connection failure"
+    );
     let stdout = String::from_utf8_lossy(&out.stdout);
     // Should print Err(...) — the exact message varies by OS
     assert!(
@@ -82,9 +99,16 @@ async fn post_ok_returns_body() {
         .args([r#"f url:t body:t>R t t;post url body"#, &url, "hello"])
         .output()
         .expect("failed to run ilo");
-    assert!(out.status.success(), "stderr: {}", String::from_utf8_lossy(&out.stderr));
+    assert!(
+        out.status.success(),
+        "stderr: {}",
+        String::from_utf8_lossy(&out.stderr)
+    );
     let stdout = String::from_utf8_lossy(&out.stdout);
-    assert!(stdout.contains("echoed"), "expected 'echoed' in output, got: {stdout}");
+    assert!(
+        stdout.contains("echoed"),
+        "expected 'echoed' in output, got: {stdout}"
+    );
 }
 
 #[tokio::test]
@@ -102,9 +126,16 @@ async fn post_sends_body() {
         .args([r#"f url:t body:t>R t t;post url body"#, &url, "payload"])
         .output()
         .expect("failed to run ilo");
-    assert!(out.status.success(), "stderr: {}", String::from_utf8_lossy(&out.stderr));
+    assert!(
+        out.status.success(),
+        "stderr: {}",
+        String::from_utf8_lossy(&out.stderr)
+    );
     let stdout = String::from_utf8_lossy(&out.stdout);
-    assert!(stdout.contains("ok"), "expected 'ok' in output, got: {stdout}");
+    assert!(
+        stdout.contains("ok"),
+        "expected 'ok' in output, got: {stdout}"
+    );
 }
 
 #[tokio::test]
@@ -119,10 +150,18 @@ async fn post_ok_and_match_result() {
     let url = format!("{}/data", server.uri());
     // Match on the R t t result to extract the body
     let out = ilo()
-        .args([r#"f url:t body:t>t;r=post url body;?r{~v:v;^_:"err"}"#, &url, "input"])
+        .args([
+            r#"f url:t body:t>t;r=post url body;?r{~v:v;^_:"err"}"#,
+            &url,
+            "input",
+        ])
         .output()
         .expect("failed to run ilo");
-    assert!(out.status.success(), "stderr: {}", String::from_utf8_lossy(&out.stderr));
+    assert!(
+        out.status.success(),
+        "stderr: {}",
+        String::from_utf8_lossy(&out.stderr)
+    );
     let stdout = String::from_utf8_lossy(&out.stdout);
     assert_eq!(stdout.trim(), "result");
 }
@@ -130,10 +169,17 @@ async fn post_ok_and_match_result() {
 #[tokio::test]
 async fn post_bad_host_returns_err() {
     let out = ilo()
-        .args([r#"f url:t body:t>R t t;post url body"#, "http://127.0.0.1:1", "body"])
+        .args([
+            r#"f url:t body:t>R t t;post url body"#,
+            "http://127.0.0.1:1",
+            "body",
+        ])
         .output()
         .expect("failed to run ilo");
-    assert!(out.status.success(), "process should not crash on connection failure");
+    assert!(
+        out.status.success(),
+        "process should not crash on connection failure"
+    );
     let stdout = String::from_utf8_lossy(&out.stdout);
     assert!(
         stdout.contains("Err") || stdout.contains("err"),
@@ -160,9 +206,16 @@ async fn get_with_header_sent() {
         .args([code, &url])
         .output()
         .expect("failed to run ilo");
-    assert!(out.status.success(), "stderr: {}", String::from_utf8_lossy(&out.stderr));
+    assert!(
+        out.status.success(),
+        "stderr: {}",
+        String::from_utf8_lossy(&out.stderr)
+    );
     let stdout = String::from_utf8_lossy(&out.stdout);
-    assert!(stdout.contains("authorized"), "expected 'authorized' in output, got: {stdout}");
+    assert!(
+        stdout.contains("authorized"),
+        "expected 'authorized' in output, got: {stdout}"
+    );
 }
 
 #[tokio::test]
@@ -182,7 +235,14 @@ async fn post_with_header_sent() {
         .args([code, &url])
         .output()
         .expect("failed to run ilo");
-    assert!(out.status.success(), "stderr: {}", String::from_utf8_lossy(&out.stderr));
+    assert!(
+        out.status.success(),
+        "stderr: {}",
+        String::from_utf8_lossy(&out.stderr)
+    );
     let stdout = String::from_utf8_lossy(&out.stdout);
-    assert!(stdout.contains("accepted"), "expected 'accepted' in output, got: {stdout}");
+    assert!(
+        stdout.contains("accepted"),
+        "expected 'accepted' in output, got: {stdout}"
+    );
 }

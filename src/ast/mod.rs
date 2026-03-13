@@ -37,7 +37,10 @@ impl<T> Spanned<T> {
     }
 
     pub fn unknown(node: T) -> Self {
-        Spanned { node, span: Span::UNKNOWN }
+        Spanned {
+            node,
+            span: Span::UNKNOWN,
+        }
     }
 }
 
@@ -56,7 +59,10 @@ impl<T: Serialize> Serialize for Spanned<T> {
 
 impl<'de, T: Deserialize<'de>> Deserialize<'de> for Spanned<T> {
     fn deserialize<D: serde::Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
-        T::deserialize(deserializer).map(|node| Spanned { node, span: Span::UNKNOWN })
+        T::deserialize(deserializer).map(|node| Spanned {
+            node,
+            span: Span::UNKNOWN,
+        })
     }
 }
 
@@ -65,10 +71,10 @@ impl<'de, T: Deserialize<'de>> Deserialize<'de> for Spanned<T> {
 /// Types in idea9 — single-char base types, composable
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub enum Type {
-    Number,  // n
-    Text,    // t
-    Bool,    // b
-    Any,     // _  — "don't care" / unknown type
+    Number,                       // n
+    Text,                         // t
+    Bool,                         // b
+    Any,                          // _  — "don't care" / unknown type
     Optional(Box<Type>),          // O type  — nullable (nil or the inner type)
     List(Box<Type>),              // L type
     Map(Box<Type>, Box<Type>),    // M key value  — dynamic key-value collection
@@ -199,10 +205,7 @@ pub enum Stmt {
     Continue,
 
     /// `{a;b;c}=expr` — destructure record fields into local bindings
-    Destructure {
-        bindings: Vec<String>,
-        value: Expr,
-    },
+    Destructure { bindings: Vec<String>, value: Expr },
 
     /// Expression as statement (last expr is return value)
     Expr(Expr),
@@ -237,10 +240,18 @@ pub enum Expr {
     Ref(String),
 
     /// Field access: `obj.field` or safe `obj.?field`
-    Field { object: Box<Expr>, field: String, safe: bool },
+    Field {
+        object: Box<Expr>,
+        field: String,
+        safe: bool,
+    },
 
     /// Index access: `list.0`, `list.1` or safe `list.?0`
-    Index { object: Box<Expr>, index: usize, safe: bool },
+    Index {
+        object: Box<Expr>,
+        index: usize,
+        safe: bool,
+    },
 
     /// Function call with positional args: `func arg1 arg2`
     /// When `unwrap` is true, `func! args` auto-unwraps Result:
@@ -340,7 +351,10 @@ pub enum UnaryOp {
 fn serialize_decls<S: serde::Serializer>(decls: &[Decl], s: S) -> Result<S::Ok, S::Error> {
     use serde::ser::SerializeSeq;
     let mut seq = s.serialize_seq(None)?;
-    for d in decls.iter().filter(|d| !matches!(d, Decl::Error { .. } | Decl::Use { .. })) {
+    for d in decls
+        .iter()
+        .filter(|d| !matches!(d, Decl::Error { .. } | Decl::Use { .. }))
+    {
         seq.serialize_element(d)?;
     }
     seq.end()
@@ -417,29 +431,54 @@ pub fn resolve_aliases(program: &mut Program) {
 fn resolve_aliases_stmt(stmt: &mut Stmt) {
     match stmt {
         Stmt::Expr(expr) | Stmt::Let { value: expr, .. } => resolve_aliases_expr(expr),
-        Stmt::Guard { condition, body, else_body, .. } => {
+        Stmt::Guard {
+            condition,
+            body,
+            else_body,
+            ..
+        } => {
             resolve_aliases_expr(condition);
-            for s in body { resolve_aliases_stmt(&mut s.node); }
-            if let Some(eb) = else_body { for s in eb { resolve_aliases_stmt(&mut s.node); } }
-        }
-        Stmt::Match { subject, arms } => {
-            if let Some(expr) = subject { resolve_aliases_expr(expr); }
-            for arm in arms {
-                for s in &mut arm.body { resolve_aliases_stmt(&mut s.node); }
+            for s in body {
+                resolve_aliases_stmt(&mut s.node);
+            }
+            if let Some(eb) = else_body {
+                for s in eb {
+                    resolve_aliases_stmt(&mut s.node);
+                }
             }
         }
-        Stmt::ForEach { collection, body, .. } => {
-            resolve_aliases_expr(collection);
-            for s in body { resolve_aliases_stmt(&mut s.node); }
+        Stmt::Match { subject, arms } => {
+            if let Some(expr) = subject {
+                resolve_aliases_expr(expr);
+            }
+            for arm in arms {
+                for s in &mut arm.body {
+                    resolve_aliases_stmt(&mut s.node);
+                }
+            }
         }
-        Stmt::ForRange { start, end, body, .. } => {
+        Stmt::ForEach {
+            collection, body, ..
+        } => {
+            resolve_aliases_expr(collection);
+            for s in body {
+                resolve_aliases_stmt(&mut s.node);
+            }
+        }
+        Stmt::ForRange {
+            start, end, body, ..
+        } => {
             resolve_aliases_expr(start);
             resolve_aliases_expr(end);
-            for s in body { resolve_aliases_stmt(&mut s.node); }
+            for s in body {
+                resolve_aliases_stmt(&mut s.node);
+            }
         }
         Stmt::While { condition, body } => {
             resolve_aliases_expr(condition);
-            for s in body { resolve_aliases_stmt(&mut s.node); }
+            for s in body {
+                resolve_aliases_stmt(&mut s.node);
+            }
         }
         Stmt::Return(expr) => resolve_aliases_expr(expr),
         Stmt::Destructure { value, .. } => resolve_aliases_expr(value),
@@ -454,7 +493,9 @@ fn resolve_aliases_expr(expr: &mut Expr) {
             if let Some(canonical) = resolve_alias(function) {
                 *function = canonical.to_string();
             }
-            for arg in args { resolve_aliases_expr(arg); }
+            for arg in args {
+                resolve_aliases_expr(arg);
+            }
         }
         Expr::BinOp { left, right, .. } => {
             resolve_aliases_expr(left);
@@ -467,22 +508,36 @@ fn resolve_aliases_expr(expr: &mut Expr) {
             resolve_aliases_expr(default);
         }
         Expr::List(items) => {
-            for item in items { resolve_aliases_expr(item); }
+            for item in items {
+                resolve_aliases_expr(item);
+            }
         }
         Expr::Record { fields, .. } => {
-            for (_, val) in fields { resolve_aliases_expr(val); }
+            for (_, val) in fields {
+                resolve_aliases_expr(val);
+            }
         }
         Expr::Match { subject, arms } => {
-            if let Some(s) = subject { resolve_aliases_expr(s); }
+            if let Some(s) = subject {
+                resolve_aliases_expr(s);
+            }
             for arm in arms {
-                for s in &mut arm.body { resolve_aliases_stmt(&mut s.node); }
+                for s in &mut arm.body {
+                    resolve_aliases_stmt(&mut s.node);
+                }
             }
         }
         Expr::With { object, updates } => {
             resolve_aliases_expr(object);
-            for (_, val) in updates { resolve_aliases_expr(val); }
+            for (_, val) in updates {
+                resolve_aliases_expr(val);
+            }
         }
-        Expr::Ternary { condition, then_expr, else_expr } => {
+        Expr::Ternary {
+            condition,
+            then_expr,
+            else_expr,
+        } => {
             resolve_aliases_expr(condition);
             resolve_aliases_expr(then_expr);
             resolve_aliases_expr(else_expr);
@@ -573,7 +628,9 @@ mod tests {
             name: "f".to_string(),
             params: vec![],
             return_type: Type::Number,
-            body: vec![Spanned::unknown(Stmt::Expr(Expr::Literal(Literal::Number(1.0))))],
+            body: vec![Spanned::unknown(Stmt::Expr(Expr::Literal(
+                Literal::Number(1.0),
+            )))],
             span: Span { start: 0, end: 10 },
         };
         let json = serde_json::to_string(&decl).unwrap();
@@ -602,19 +659,39 @@ mod tests {
                 params: vec![],
                 return_type: Type::Number,
                 body: vec![Spanned::unknown(Stmt::While {
-                    condition: Expr::Call { function: "length".to_string(), args: vec![Expr::Ref("x".to_string())], unwrap: false },
-                    body: vec![Spanned::unknown(Stmt::Expr(Expr::Call { function: "length".to_string(), args: vec![Expr::Ref("y".to_string())], unwrap: false }))],
+                    condition: Expr::Call {
+                        function: "length".to_string(),
+                        args: vec![Expr::Ref("x".to_string())],
+                        unwrap: false,
+                    },
+                    body: vec![Spanned::unknown(Stmt::Expr(Expr::Call {
+                        function: "length".to_string(),
+                        args: vec![Expr::Ref("y".to_string())],
+                        unwrap: false,
+                    }))],
                 })],
                 span: Span::UNKNOWN,
             }],
             source: None,
         };
         resolve_aliases(&mut prog);
-        let Decl::Function { body, .. } = &prog.declarations[0] else { panic!() };
-        let Stmt::While { condition, body: wbody } = &body[0].node else { panic!("expected While") };
-        let Expr::Call { function, .. } = condition else { panic!("expected call") };
+        let Decl::Function { body, .. } = &prog.declarations[0] else {
+            panic!()
+        };
+        let Stmt::While {
+            condition,
+            body: wbody,
+        } = &body[0].node
+        else {
+            panic!("expected While")
+        };
+        let Expr::Call { function, .. } = condition else {
+            panic!("expected call")
+        };
         assert_eq!(function, "len");
-        let Stmt::Expr(Expr::Call { function: f2, .. }) = &wbody[0].node else { panic!("expected call") };
+        let Stmt::Expr(Expr::Call { function: f2, .. }) = &wbody[0].node else {
+            panic!("expected call")
+        };
         assert_eq!(f2, "len");
     }
 
@@ -626,16 +703,22 @@ mod tests {
                 name: "f".to_string(),
                 params: vec![],
                 return_type: Type::Number,
-                body: vec![Spanned::unknown(Stmt::Return(
-                    Expr::Call { function: "length".to_string(), args: vec![Expr::Ref("x".to_string())], unwrap: false },
-                ))],
+                body: vec![Spanned::unknown(Stmt::Return(Expr::Call {
+                    function: "length".to_string(),
+                    args: vec![Expr::Ref("x".to_string())],
+                    unwrap: false,
+                }))],
                 span: Span::UNKNOWN,
             }],
             source: None,
         };
         resolve_aliases(&mut prog);
-        let Decl::Function { body, .. } = &prog.declarations[0] else { panic!() };
-        let Stmt::Return(Expr::Call { function, .. }) = &body[0].node else { panic!("expected Return(Call)") };
+        let Decl::Function { body, .. } = &prog.declarations[0] else {
+            panic!()
+        };
+        let Stmt::Return(Expr::Call { function, .. }) = &body[0].node else {
+            panic!("expected Return(Call)")
+        };
         assert_eq!(function, "len");
     }
 
@@ -649,15 +732,27 @@ mod tests {
                 return_type: Type::Number,
                 body: vec![Spanned::unknown(Stmt::Destructure {
                     bindings: vec!["a".to_string(), "b".to_string()],
-                    value: Expr::Call { function: "length".to_string(), args: vec![Expr::Ref("x".to_string())], unwrap: false },
+                    value: Expr::Call {
+                        function: "length".to_string(),
+                        args: vec![Expr::Ref("x".to_string())],
+                        unwrap: false,
+                    },
                 })],
                 span: Span::UNKNOWN,
             }],
             source: None,
         };
         resolve_aliases(&mut prog);
-        let Decl::Function { body, .. } = &prog.declarations[0] else { panic!() };
-        let Stmt::Destructure { value: Expr::Call { function, .. }, .. } = &body[0].node else { panic!("expected Destructure") };
+        let Decl::Function { body, .. } = &prog.declarations[0] else {
+            panic!()
+        };
+        let Stmt::Destructure {
+            value: Expr::Call { function, .. },
+            ..
+        } = &body[0].node
+        else {
+            panic!("expected Destructure")
+        };
         assert_eq!(function, "len");
     }
 
@@ -669,16 +764,22 @@ mod tests {
                 name: "f".to_string(),
                 params: vec![],
                 return_type: Type::Number,
-                body: vec![Spanned::unknown(Stmt::Break(Some(
-                    Expr::Call { function: "length".to_string(), args: vec![Expr::Ref("x".to_string())], unwrap: false },
-                )))],
+                body: vec![Spanned::unknown(Stmt::Break(Some(Expr::Call {
+                    function: "length".to_string(),
+                    args: vec![Expr::Ref("x".to_string())],
+                    unwrap: false,
+                })))],
                 span: Span::UNKNOWN,
             }],
             source: None,
         };
         resolve_aliases(&mut prog);
-        let Decl::Function { body, .. } = &prog.declarations[0] else { panic!() };
-        let Stmt::Break(Some(Expr::Call { function, .. })) = &body[0].node else { panic!("expected Break(Some(Call))") };
+        let Decl::Function { body, .. } = &prog.declarations[0] else {
+            panic!()
+        };
+        let Stmt::Break(Some(Expr::Call { function, .. })) = &body[0].node else {
+            panic!("expected Break(Some(Call))")
+        };
         assert_eq!(function, "len");
     }
 
@@ -711,19 +812,35 @@ mod tests {
                 params: vec![],
                 return_type: Type::Number,
                 body: vec![Spanned::unknown(Stmt::Expr(Expr::NilCoalesce {
-                    value: Box::new(Expr::Call { function: "length".to_string(), args: vec![Expr::Ref("x".to_string())], unwrap: false }),
-                    default: Box::new(Expr::Call { function: "reverse".to_string(), args: vec![Expr::Ref("y".to_string())], unwrap: false }),
+                    value: Box::new(Expr::Call {
+                        function: "length".to_string(),
+                        args: vec![Expr::Ref("x".to_string())],
+                        unwrap: false,
+                    }),
+                    default: Box::new(Expr::Call {
+                        function: "reverse".to_string(),
+                        args: vec![Expr::Ref("y".to_string())],
+                        unwrap: false,
+                    }),
                 }))],
                 span: Span::UNKNOWN,
             }],
             source: None,
         };
         resolve_aliases(&mut prog);
-        let Decl::Function { body, .. } = &prog.declarations[0] else { panic!() };
-        let Stmt::Expr(Expr::NilCoalesce { value, default }) = &body[0].node else { panic!("expected NilCoalesce") };
-        let Expr::Call { function, .. } = value.as_ref() else { panic!("expected call") };
+        let Decl::Function { body, .. } = &prog.declarations[0] else {
+            panic!()
+        };
+        let Stmt::Expr(Expr::NilCoalesce { value, default }) = &body[0].node else {
+            panic!("expected NilCoalesce")
+        };
+        let Expr::Call { function, .. } = value.as_ref() else {
+            panic!("expected call")
+        };
         assert_eq!(function, "len");
-        let Expr::Call { function: f2, .. } = default.as_ref() else { panic!("expected call") };
+        let Expr::Call { function: f2, .. } = default.as_ref() else {
+            panic!("expected call")
+        };
         assert_eq!(f2, "rev");
     }
 
@@ -737,18 +854,29 @@ mod tests {
                 return_type: Type::Number,
                 body: vec![Spanned::unknown(Stmt::Expr(Expr::Record {
                     type_name: "point".to_string(),
-                    fields: vec![
-                        ("x".to_string(), Expr::Call { function: "length".to_string(), args: vec![Expr::Ref("a".to_string())], unwrap: false }),
-                    ],
+                    fields: vec![(
+                        "x".to_string(),
+                        Expr::Call {
+                            function: "length".to_string(),
+                            args: vec![Expr::Ref("a".to_string())],
+                            unwrap: false,
+                        },
+                    )],
                 }))],
                 span: Span::UNKNOWN,
             }],
             source: None,
         };
         resolve_aliases(&mut prog);
-        let Decl::Function { body, .. } = &prog.declarations[0] else { panic!() };
-        let Stmt::Expr(Expr::Record { fields, .. }) = &body[0].node else { panic!("expected Record") };
-        let Expr::Call { function, .. } = &fields[0].1 else { panic!("expected call") };
+        let Decl::Function { body, .. } = &prog.declarations[0] else {
+            panic!()
+        };
+        let Stmt::Expr(Expr::Record { fields, .. }) = &body[0].node else {
+            panic!("expected Record")
+        };
+        let Expr::Call { function, .. } = &fields[0].1 else {
+            panic!("expected call")
+        };
         assert_eq!(function, "len");
     }
 
@@ -761,10 +889,18 @@ mod tests {
                 params: vec![],
                 return_type: Type::Number,
                 body: vec![Spanned::unknown(Stmt::Expr(Expr::Match {
-                    subject: Some(Box::new(Expr::Call { function: "length".to_string(), args: vec![Expr::Ref("x".to_string())], unwrap: false })),
+                    subject: Some(Box::new(Expr::Call {
+                        function: "length".to_string(),
+                        args: vec![Expr::Ref("x".to_string())],
+                        unwrap: false,
+                    })),
                     arms: vec![MatchArm {
                         pattern: Pattern::Wildcard,
-                        body: vec![Spanned::unknown(Stmt::Expr(Expr::Call { function: "reverse".to_string(), args: vec![Expr::Ref("y".to_string())], unwrap: false }))],
+                        body: vec![Spanned::unknown(Stmt::Expr(Expr::Call {
+                            function: "reverse".to_string(),
+                            args: vec![Expr::Ref("y".to_string())],
+                            unwrap: false,
+                        }))],
                     }],
                 }))],
                 span: Span::UNKNOWN,
@@ -772,12 +908,22 @@ mod tests {
             source: None,
         };
         resolve_aliases(&mut prog);
-        let Decl::Function { body, .. } = &prog.declarations[0] else { panic!() };
-        let Stmt::Expr(Expr::Match { subject, arms }) = &body[0].node else { panic!("expected Match") };
-        let Some(s) = subject else { panic!("expected subject") };
-        let Expr::Call { function, .. } = s.as_ref() else { panic!("expected call") };
+        let Decl::Function { body, .. } = &prog.declarations[0] else {
+            panic!()
+        };
+        let Stmt::Expr(Expr::Match { subject, arms }) = &body[0].node else {
+            panic!("expected Match")
+        };
+        let Some(s) = subject else {
+            panic!("expected subject")
+        };
+        let Expr::Call { function, .. } = s.as_ref() else {
+            panic!("expected call")
+        };
         assert_eq!(function, "len");
-        let Stmt::Expr(Expr::Call { function: f2, .. }) = &arms[0].body[0].node else { panic!("expected call") };
+        let Stmt::Expr(Expr::Call { function: f2, .. }) = &arms[0].body[0].node else {
+            panic!("expected call")
+        };
         assert_eq!(f2, "rev");
     }
 
@@ -790,21 +936,38 @@ mod tests {
                 params: vec![],
                 return_type: Type::Number,
                 body: vec![Spanned::unknown(Stmt::Expr(Expr::With {
-                    object: Box::new(Expr::Call { function: "length".to_string(), args: vec![Expr::Ref("x".to_string())], unwrap: false }),
-                    updates: vec![
-                        ("a".to_string(), Expr::Call { function: "reverse".to_string(), args: vec![Expr::Ref("y".to_string())], unwrap: false }),
-                    ],
+                    object: Box::new(Expr::Call {
+                        function: "length".to_string(),
+                        args: vec![Expr::Ref("x".to_string())],
+                        unwrap: false,
+                    }),
+                    updates: vec![(
+                        "a".to_string(),
+                        Expr::Call {
+                            function: "reverse".to_string(),
+                            args: vec![Expr::Ref("y".to_string())],
+                            unwrap: false,
+                        },
+                    )],
                 }))],
                 span: Span::UNKNOWN,
             }],
             source: None,
         };
         resolve_aliases(&mut prog);
-        let Decl::Function { body, .. } = &prog.declarations[0] else { panic!() };
-        let Stmt::Expr(Expr::With { object, updates }) = &body[0].node else { panic!("expected With") };
-        let Expr::Call { function, .. } = object.as_ref() else { panic!("expected call") };
+        let Decl::Function { body, .. } = &prog.declarations[0] else {
+            panic!()
+        };
+        let Stmt::Expr(Expr::With { object, updates }) = &body[0].node else {
+            panic!("expected With")
+        };
+        let Expr::Call { function, .. } = object.as_ref() else {
+            panic!("expected call")
+        };
         assert_eq!(function, "len");
-        let Expr::Call { function: f2, .. } = &updates[0].1 else { panic!("expected call") };
+        let Expr::Call { function: f2, .. } = &updates[0].1 else {
+            panic!("expected call")
+        };
         assert_eq!(f2, "rev");
     }
 
@@ -814,7 +977,10 @@ mod tests {
         let prog = Program {
             declarations: vec![Decl::Function {
                 name: "f".to_string(),
-                params: vec![Param { name: "x".to_string(), ty: Type::Number }],
+                params: vec![Param {
+                    name: "x".to_string(),
+                    ty: Type::Number,
+                }],
                 return_type: Type::Number,
                 body: vec![Spanned::unknown(Stmt::Expr(Expr::Ref("x".to_string())))],
                 span: Span { start: 0, end: 13 },

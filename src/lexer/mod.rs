@@ -252,7 +252,10 @@ fn lex_error_kind(bad_token: &str) -> (&'static str, String) {
     if bad_token.contains('_') && bad_token.len() > 1 {
         (
             "ILO-L002",
-            format!("Use hyphens instead of underscores: '{}'", bad_token.replace('_', "-")),
+            format!(
+                "Use hyphens instead of underscores: '{}'",
+                bad_token.replace('_', "-")
+            ),
         )
     } else if bad_token.chars().next().is_some_and(|c| c.is_uppercase()) && bad_token.len() > 1 {
         (
@@ -295,11 +298,20 @@ mod tests {
         let source = ">=<=!=><+-*/";
         let tokens = lex(source).unwrap();
         let types: Vec<_> = tokens.iter().map(|(t, _)| t.clone()).collect();
-        assert_eq!(types, vec![
-            Token::GreaterEq, Token::LessEq, Token::NotEq,
-            Token::Greater, Token::Less,
-            Token::Plus, Token::Minus, Token::Star, Token::Slash,
-        ]);
+        assert_eq!(
+            types,
+            vec![
+                Token::GreaterEq,
+                Token::LessEq,
+                Token::NotEq,
+                Token::Greater,
+                Token::Less,
+                Token::Plus,
+                Token::Minus,
+                Token::Star,
+                Token::Slash,
+            ]
+        );
     }
 
     #[test]
@@ -307,7 +319,17 @@ mod tests {
         let source = "?@!^~$";
         let tokens = lex(source).unwrap();
         let types: Vec<_> = tokens.iter().map(|(t, _)| t.clone()).collect();
-        assert_eq!(types, vec![Token::Question, Token::At, Token::Bang, Token::Caret, Token::Tilde, Token::Dollar]);
+        assert_eq!(
+            types,
+            vec![
+                Token::Question,
+                Token::At,
+                Token::Bang,
+                Token::Caret,
+                Token::Tilde,
+                Token::Dollar
+            ]
+        );
     }
 
     #[test]
@@ -323,10 +345,16 @@ mod tests {
         let source = "type tool with timeout retry";
         let tokens = lex(source).unwrap();
         let types: Vec<_> = tokens.iter().map(|(t, _)| t.clone()).collect();
-        assert_eq!(types, vec![
-            Token::Type, Token::Tool, Token::With,
-            Token::Timeout, Token::Retry,
-        ]);
+        assert_eq!(
+            types,
+            vec![
+                Token::Type,
+                Token::Tool,
+                Token::With,
+                Token::Timeout,
+                Token::Retry,
+            ]
+        );
     }
 
     #[test]
@@ -340,7 +368,11 @@ mod tests {
     fn lex_comment_ignored() {
         let source = "-- this is a comment\ntot";
         let tokens = lex(source).unwrap();
-        assert!(tokens.iter().any(|(t, _)| *t == Token::Ident("tot".to_string())));
+        assert!(
+            tokens
+                .iter()
+                .any(|(t, _)| *t == Token::Ident("tot".to_string()))
+        );
     }
 
     #[test]
@@ -348,11 +380,20 @@ mod tests {
         let source = ":;.,{}()_";
         let tokens = lex(source).unwrap();
         let types: Vec<_> = tokens.iter().map(|(t, _)| t.clone()).collect();
-        assert_eq!(types, vec![
-            Token::Colon, Token::Semi, Token::Dot, Token::Comma,
-            Token::LBrace, Token::RBrace, Token::LParen, Token::RParen,
-            Token::Underscore,
-        ]);
+        assert_eq!(
+            types,
+            vec![
+                Token::Colon,
+                Token::Semi,
+                Token::Dot,
+                Token::Comma,
+                Token::LBrace,
+                Token::RBrace,
+                Token::LParen,
+                Token::RParen,
+                Token::Underscore,
+            ]
+        );
     }
 
     #[test]
@@ -411,19 +452,25 @@ mod tests {
         // Actually: e==c → Ident("e"), Eq(==), Ident("c"), Ident("n")
         let tokens = lex("e==c n").unwrap();
         let types: Vec<_> = tokens.iter().map(|(t, _)| t.clone()).collect();
-        assert_eq!(types, vec![
-            Token::Ident("e".to_string()),
-            Token::Eq,
-            Token::Ident("c".to_string()),
-            Token::Ident("n".to_string()),
-        ]);
+        assert_eq!(
+            types,
+            vec![
+                Token::Ident("e".to_string()),
+                Token::Eq,
+                Token::Ident("c".to_string()),
+                Token::Ident("n".to_string()),
+            ]
+        );
     }
 
     #[test]
     fn lex_dotdot_token() {
         let tokens = lex("0..3").unwrap();
         let types: Vec<_> = tokens.iter().map(|(t, _)| t.clone()).collect();
-        assert_eq!(types, vec![Token::Number(0.0), Token::DotDot, Token::Number(3.0)]);
+        assert_eq!(
+            types,
+            vec![Token::Number(0.0), Token::DotDot, Token::Number(3.0)]
+        );
     }
 
     #[test]
@@ -431,7 +478,14 @@ mod tests {
         // Make sure single dot still works
         let tokens = lex("x.y").unwrap();
         let types: Vec<_> = tokens.iter().map(|(t, _)| t.clone()).collect();
-        assert_eq!(types, vec![Token::Ident("x".to_string()), Token::Dot, Token::Ident("y".to_string())]);
+        assert_eq!(
+            types,
+            vec![
+                Token::Ident("x".to_string()),
+                Token::Dot,
+                Token::Ident("y".to_string())
+            ]
+        );
     }
 
     #[test]
@@ -452,7 +506,11 @@ mod tests {
     fn lex_suggest_fix_generic() {
         let (code, suggestion) = super::lex_error_kind("#");
         assert_eq!(code, "ILO-L001");
-        assert!(suggestion.contains("Unexpected character"), "got: {}", suggestion);
+        assert!(
+            suggestion.contains("Unexpected character"),
+            "got: {}",
+            suggestion
+        );
     }
 
     // normalize_newlines tests
@@ -482,7 +540,10 @@ mod tests {
     fn normalize_separate_functions_preserved() {
         let src = "dbl x:n>n;*x 2\ninc x:n>n;+x 1";
         let result = normalize_newlines(src);
-        assert!(result.contains('\n'), "newline between functions should be preserved: {result}");
+        assert!(
+            result.contains('\n'),
+            "newline between functions should be preserved: {result}"
+        );
     }
 
     #[test]

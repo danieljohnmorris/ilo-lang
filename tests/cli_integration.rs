@@ -73,12 +73,8 @@ fn graph_dot_output() {
 #[test]
 fn graph_fn_query() {
     let (_dir, path) = write_temp_ilo("add a:n b:n>n;+a b");
-    let (ok, stdout, stderr) =
-        run_args(&["graph", path.to_str().unwrap(), "--fn", "add"]);
-    assert!(
-        ok,
-        "graph --fn add should succeed; stderr: {stderr}"
-    );
+    let (ok, stdout, stderr) = run_args(&["graph", path.to_str().unwrap(), "--fn", "add"]);
+    assert!(ok, "graph --fn add should succeed; stderr: {stderr}");
     let parsed: serde_json::Value =
         serde_json::from_str(&stdout).expect("per-function output should be valid JSON");
     // The query result should reference the function name somehow
@@ -91,10 +87,14 @@ fn graph_fn_query() {
 /// `ilo graph <file> --fn NAME --subgraph` should output subgraph JSON.
 #[test]
 fn graph_subgraph_query() {
-    let (_dir, path) =
-        write_temp_ilo("helper a:n>n;*a 2 main x:n>n;helper x");
-    let (ok, stdout, stderr) =
-        run_args(&["graph", path.to_str().unwrap(), "--fn", "main", "--subgraph"]);
+    let (_dir, path) = write_temp_ilo("helper a:n>n;*a 2 main x:n>n;helper x");
+    let (ok, stdout, stderr) = run_args(&[
+        "graph",
+        path.to_str().unwrap(),
+        "--fn",
+        "main",
+        "--subgraph",
+    ]);
     assert!(
         ok,
         "graph --fn main --subgraph should succeed; stderr: {stderr}"
@@ -114,8 +114,7 @@ fn graph_no_args_exits_nonzero() {
 #[test]
 fn graph_fn_not_found() {
     let (_dir, path) = write_temp_ilo("add a:n b:n>n;+a b");
-    let (ok, _stdout, stderr) =
-        run_args(&["graph", path.to_str().unwrap(), "--fn", "no_such_fn"]);
+    let (ok, _stdout, stderr) = run_args(&["graph", path.to_str().unwrap(), "--fn", "no_such_fn"]);
     assert!(!ok, "graph --fn on nonexistent function should fail");
     assert!(
         stderr.contains("not found"),
@@ -126,8 +125,7 @@ fn graph_fn_not_found() {
 /// `ilo graph nonexistent_file.ilo` should fail with a read-error message.
 #[test]
 fn graph_file_not_found() {
-    let (ok, _stdout, stderr) =
-        run_args(&["graph", "/tmp/ilo_test_nonexistent_12345.ilo"]);
+    let (ok, _stdout, stderr) = run_args(&["graph", "/tmp/ilo_test_nonexistent_12345.ilo"]);
     assert!(!ok, "graph on missing file should fail");
     assert!(
         stderr.contains("Error reading") || stderr.contains("No such"),
@@ -245,8 +243,7 @@ fn run_tree_basic_execution() {
 /// should hit the numeric-parse error.  Either way the exit code must be 1.
 #[test]
 fn run_jit_non_numeric_arg_fails() {
-    let (ok, _stdout, stderr) =
-        run_args(&["run", "--run-jit", "f x:n>n;*x 2", "f", "abc"]);
+    let (ok, _stdout, stderr) = run_args(&["run", "--run-jit", "f x:n>n;*x 2", "f", "abc"]);
     // The JIT path on non-arm64 will say "only available on aarch64 macOS";
     // on arm64 it should say "not a valid number".
     // In both cases the process should fail.
@@ -284,8 +281,7 @@ fn tools_no_source_fails() {
 /// `ilo graph <file> --fn NAME --reverse` should output reverse-callers JSON.
 #[test]
 fn graph_reverse_query() {
-    let (_dir, path) =
-        write_temp_ilo("helper a:n>n;*a 2 main x:n>n;helper x");
+    let (_dir, path) = write_temp_ilo("helper a:n>n;*a 2 main x:n>n;helper x");
     let (ok, stdout, stderr) = run_args(&[
         "graph",
         path.to_str().unwrap(),
@@ -327,11 +323,7 @@ fn graph_budget_query() {
 #[test]
 fn graph_budget_invalid_value() {
     let (_dir, path) = write_temp_ilo("add a:n b:n>n;+a b");
-    let (ok, _stdout, _stderr) = run_args(&[
-        "graph",
-        path.to_str().unwrap(),
-        "--budget",
-        "notanumber",
-    ]);
+    let (ok, _stdout, _stderr) =
+        run_args(&["graph", path.to_str().unwrap(), "--budget", "notanumber"]);
     assert!(!ok, "graph --budget with non-integer should fail");
 }

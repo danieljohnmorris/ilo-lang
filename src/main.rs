@@ -6,11 +6,11 @@ mod cli;
 use ilo::ast;
 use ilo::codegen;
 use ilo::diagnostic;
+use ilo::graph;
 use ilo::interpreter;
 use ilo::lexer;
 use ilo::parser;
 use ilo::tools;
-use ilo::graph;
 use ilo::verify;
 use ilo::vm;
 
@@ -91,9 +91,7 @@ fn tools_cmd(args: &[String]) -> i32 {
     }
 
     if mcp_path.is_none() && http_path.is_none() {
-        eprintln!(
-            "error: ilo tools requires at least one of --mcp <path> or --tools <path>"
-        );
+        eprintln!("error: ilo tools requires at least one of --mcp <path> or --tools <path>");
         eprintln!(
             "Usage: ilo tools [--mcp <path>] [--tools <path>] \
              [--human|--ilo|--json] [--full] [--graph]"
@@ -141,7 +139,14 @@ fn tools_cmd(args: &[String]) -> i32 {
                 }
             }
             for decl in &mcp_decls {
-                if let ast::Decl::Tool { name, description, params, return_type, .. } = decl {
+                if let ast::Decl::Tool {
+                    name,
+                    description,
+                    params,
+                    return_type,
+                    ..
+                } = decl
+                {
                     if full {
                         let sig = tool_sig_str(params, return_type);
                         println!("{:<32} {:<44} {}", name, description, sig);
@@ -157,7 +162,10 @@ fn tools_cmd(args: &[String]) -> i32 {
                 println!("tool {}\"\" > R t t", name);
             }
             for decl in &mcp_decls {
-                println!("{}", codegen::fmt::format_decl(decl, codegen::fmt::FmtMode::Dense));
+                println!(
+                    "{}",
+                    codegen::fmt::format_decl(decl, codegen::fmt::FmtMode::Dense)
+                );
             }
         }
         ToolsOutputFmt::Json => {
@@ -172,7 +180,14 @@ fn tools_cmd(args: &[String]) -> i32 {
                 }));
             }
             for decl in &mcp_decls {
-                if let ast::Decl::Tool { name, description, params, return_type, .. } = decl {
+                if let ast::Decl::Tool {
+                    name,
+                    description,
+                    params,
+                    return_type,
+                    ..
+                } = decl
+                {
                     let params_json: Vec<serde_json::Value> = params
                         .iter()
                         .map(|p| {
@@ -215,7 +230,13 @@ fn print_tool_graph(decls: &[ast::Decl]) {
     let tools: Vec<(&str, &[ast::Param], &ast::Type)> = decls
         .iter()
         .filter_map(|d| {
-            if let ast::Decl::Tool { name, params, return_type, .. } = d {
+            if let ast::Decl::Tool {
+                name,
+                params,
+                return_type,
+                ..
+            } = d
+            {
                 Some((name.as_str(), params.as_slice(), return_type))
             } else {
                 None
@@ -229,7 +250,12 @@ fn print_tool_graph(decls: &[ast::Decl]) {
     }
 
     // Name column width.
-    let name_w = tools.iter().map(|(n, _, _)| n.len()).max().unwrap_or(8).max(8);
+    let name_w = tools
+        .iter()
+        .map(|(n, _, _)| n.len())
+        .max()
+        .unwrap_or(8)
+        .max(8);
     // Sig column width — cap at 36 for readability.
     let sig_w: usize = 36;
 
@@ -247,7 +273,9 @@ fn print_tool_graph(decls: &[ast::Decl]) {
             .iter()
             .filter(|&&(dst_name, dst_params, _)| {
                 dst_name != src_name
-                    && dst_params.iter().any(|p| types_pipe_compatible(out_ty, &p.ty))
+                    && dst_params
+                        .iter()
+                        .any(|p| types_pipe_compatible(out_ty, &p.ty))
             })
             .map(|&(n, _, _)| n)
             .collect();
@@ -273,7 +301,11 @@ fn print_tool_graph(decls: &[ast::Decl]) {
 
 /// Unwrap `R ok err` → `ok`; otherwise return the type itself.
 fn tool_ok_type(ty: &ast::Type) -> &ast::Type {
-    if let ast::Type::Result(ok, _) = ty { ok } else { ty }
+    if let ast::Type::Result(ok, _) = ty {
+        ok
+    } else {
+        ty
+    }
 }
 
 /// True if a value of type `out` can be piped into a parameter of type `param`.
@@ -281,7 +313,11 @@ fn tool_ok_type(ty: &ast::Type) -> &ast::Type {
 fn types_pipe_compatible(out: &ast::Type, param: &ast::Type) -> bool {
     use ast::Type::*;
     // Unwrap Optional on the param side — Optional(T) accepts T.
-    let param = if let Optional(inner) = param { inner } else { param };
+    let param = if let Optional(inner) = param {
+        inner
+    } else {
+        param
+    };
     match (out, param) {
         // Named / unknown / Any types — treat as wildcard.
         (Named(_), _) | (_, Named(_)) | (Any, _) | (_, Any) => true,
@@ -321,7 +357,9 @@ fn tool_sig_str(params: &[ast::Param], ret: &ast::Type) -> String {
 /// Analyze a program's dependency graph and output JSON / DOT.  Returns exit code.
 fn graph_cmd(args: &[String]) -> i32 {
     if args.is_empty() {
-        eprintln!("Usage: ilo graph <file> [--fn NAME] [--reverse] [--subgraph] [--budget N] [--dot]");
+        eprintln!(
+            "Usage: ilo graph <file> [--fn NAME] [--reverse] [--subgraph] [--budget N] [--dot]"
+        );
         return 1;
     }
 
@@ -343,7 +381,15 @@ fn graph_cmd(args: &[String]) -> i32 {
     };
     let token_spans: Vec<(lexer::Token, ast::Span)> = tokens
         .into_iter()
-        .map(|(t, r)| (t, ast::Span { start: r.start, end: r.end }))
+        .map(|(t, r)| {
+            (
+                t,
+                ast::Span {
+                    start: r.start,
+                    end: r.end,
+                },
+            )
+        })
         .collect();
     let (mut program, _) = parser::parse(token_spans);
     ast::resolve_aliases(&mut program);
@@ -412,7 +458,10 @@ fn graph_cmd(args: &[String]) -> i32 {
             match graph::query_reverse(&program, &pg, name) {
                 Some(r) => match serde_json::to_string_pretty(&r) {
                     Ok(s) => println!("{}", s),
-                    Err(e) => { eprintln!("error serialising graph: {}", e); return 1; }
+                    Err(e) => {
+                        eprintln!("error serialising graph: {}", e);
+                        return 1;
+                    }
                 },
                 None => {
                     eprintln!("function '{}' not found", name);
@@ -423,7 +472,10 @@ fn graph_cmd(args: &[String]) -> i32 {
             match graph::query_budget(&program, &pg, name, b) {
                 Some(q) => match serde_json::to_string_pretty(&q) {
                     Ok(s) => println!("{}", s),
-                    Err(e) => { eprintln!("error serialising graph: {}", e); return 1; }
+                    Err(e) => {
+                        eprintln!("error serialising graph: {}", e);
+                        return 1;
+                    }
                 },
                 None => {
                     eprintln!("function '{}' not found", name);
@@ -434,7 +486,10 @@ fn graph_cmd(args: &[String]) -> i32 {
             match graph::query_subgraph(&program, &pg, name) {
                 Some(q) => match serde_json::to_string_pretty(&q) {
                     Ok(s) => println!("{}", s),
-                    Err(e) => { eprintln!("error serialising graph: {}", e); return 1; }
+                    Err(e) => {
+                        eprintln!("error serialising graph: {}", e);
+                        return 1;
+                    }
                 },
                 None => {
                     eprintln!("function '{}' not found", name);
@@ -445,7 +500,10 @@ fn graph_cmd(args: &[String]) -> i32 {
             match graph::query_fn(&program, &pg, name) {
                 Some(q) => match serde_json::to_string_pretty(&q) {
                     Ok(s) => println!("{}", s),
-                    Err(e) => { eprintln!("error serialising graph: {}", e); return 1; }
+                    Err(e) => {
+                        eprintln!("error serialising graph: {}", e);
+                        return 1;
+                    }
                 },
                 None => {
                     eprintln!("function '{}' not found", name);
@@ -457,7 +515,10 @@ fn graph_cmd(args: &[String]) -> i32 {
         // Full graph output.
         match serde_json::to_string_pretty(&pg) {
             Ok(s) => println!("{}", s),
-            Err(e) => { eprintln!("error serialising graph: {}", e); return 1; }
+            Err(e) => {
+                eprintln!("error serialising graph: {}", e);
+                return 1;
+            }
         }
     }
     0
@@ -471,8 +532,7 @@ fn collect_mcp_tool_decls(path: Option<&str>) -> Result<Vec<ast::Decl>, String> 
         Some(p) => p,
         None => return Ok(vec![]),
     };
-    let config = tools::mcp_provider::McpConfig::from_file(path)
-        .map_err(|e| e.to_string())?;
+    let config = tools::mcp_provider::McpConfig::from_file(path).map_err(|e| e.to_string())?;
     let rt = tokio::runtime::Builder::new_current_thread()
         .enable_all()
         .build()
@@ -486,10 +546,9 @@ fn collect_mcp_tool_decls(path: Option<&str>) -> Result<Vec<ast::Decl>, String> 
 #[cfg(not(feature = "tools"))]
 fn collect_mcp_tool_decls(path: Option<&str>) -> Result<Vec<ast::Decl>, String> {
     if path.is_some() {
-        return Err(
-            "error: --mcp requires the 'tools' feature \
-             (build with: cargo build --features tools)".to_string()
-        );
+        return Err("error: --mcp requires the 'tools' feature \
+             (build with: cargo build --features tools)"
+            .to_string());
     }
     Ok(vec![])
 }
@@ -507,8 +566,9 @@ fn process_serv_request(
     line: &str,
     mcp_tool_decls: &[ast::Decl],
     #[cfg(feature = "tools")] provider: Option<std::sync::Arc<dyn tools::ToolProvider>>,
-    #[cfg_attr(not(feature = "tools"), allow(unused_variables))]
-    http_config: Option<&tools::http_provider::ToolsConfig>,
+    #[cfg_attr(not(feature = "tools"), allow(unused_variables))] http_config: Option<
+        &tools::http_provider::ToolsConfig,
+    >,
     #[cfg(feature = "tools")] rt: std::sync::Arc<tokio::runtime::Runtime>,
 ) -> serde_json::Value {
     #[derive(serde::Deserialize)]
@@ -524,7 +584,7 @@ fn process_serv_request(
         Err(e) => {
             return serde_json::json!({
                 "error": {"phase": "request", "message": format!("invalid JSON: {e}")}
-            })
+            });
         }
     };
 
@@ -540,22 +600,32 @@ fn process_serv_request(
                     "phase": "lex",
                     "diagnostics": [diag_to_json(&Diagnostic::from(&e))]
                 }
-            })
+            });
         }
     };
 
     // Parse
     let token_spans: Vec<_> = tokens
         .into_iter()
-        .map(|(t, r)| (t, ast::Span { start: r.start, end: r.end }))
+        .map(|(t, r)| {
+            (
+                t,
+                ast::Span {
+                    start: r.start,
+                    end: r.end,
+                },
+            )
+        })
         .collect();
     let (mut program, parse_errors) = parser::parse(token_spans);
     ast::resolve_aliases(&mut program);
     program.source = Some(source.clone());
 
     if !parse_errors.is_empty() {
-        let diags: Vec<_> =
-            parse_errors.iter().map(|e| diag_to_json(&Diagnostic::from(e))).collect();
+        let diags: Vec<_> = parse_errors
+            .iter()
+            .map(|e| diag_to_json(&Diagnostic::from(e)))
+            .collect();
         return serde_json::json!({"error": {"phase": "parse", "diagnostics": diags}});
     }
 
@@ -578,8 +648,7 @@ fn process_serv_request(
     }
 
     // Run
-    let run_args: Vec<interpreter::Value> =
-        req.args.iter().map(|a| parse_cli_arg(a)).collect();
+    let run_args: Vec<interpreter::Value> = req.args.iter().map(|a| parse_cli_arg(a)).collect();
     let func_name = req.func.as_deref();
 
     #[cfg(feature = "tools")]
@@ -604,15 +673,15 @@ fn process_serv_request(
                 serde_json::json!({"ok": v, "ms": ms})
             }
             interpreter::Value::Err(inner) => {
-                let v = inner.to_json().unwrap_or_else(|_| {
-                    serde_json::Value::String(inner.to_string())
-                });
+                let v = inner
+                    .to_json()
+                    .unwrap_or_else(|_| serde_json::Value::String(inner.to_string()));
                 serde_json::json!({"error": {"phase": "program", "value": v}, "ms": ms})
             }
             other => {
-                let v = other.to_json().unwrap_or_else(|_| {
-                    serde_json::Value::String(other.to_string())
-                });
+                let v = other
+                    .to_json()
+                    .unwrap_or_else(|_| serde_json::Value::String(other.to_string()));
                 serde_json::json!({"ok": v, "ms": ms})
             }
         },
@@ -751,7 +820,10 @@ fn repl_cmd() {
                     let is_wq = input.starts_with(":wq");
                     let path = match input.split_once(' ') {
                         Some((_, p)) => p.trim(),
-                        None => { eprintln!("usage: :w <file.ilo>"); continue; }
+                        None => {
+                            eprintln!("usage: :w <file.ilo>");
+                            continue;
+                        }
                     };
                     if defs.is_empty() {
                         eprintln!("no definitions to save");
@@ -760,7 +832,11 @@ fn repl_cmd() {
                     } else {
                         println!("saved {} definition(s) to {path}", defs.len());
                     }
-                    if is_wq { break; } else { continue; }
+                    if is_wq {
+                        break;
+                    } else {
+                        continue;
+                    }
                 }
                 ":defs" => {
                     if defs.is_empty() {
@@ -804,12 +880,27 @@ fn repl_cmd() {
             if let Ok(tokens) = tokens {
                 let token_spans: Vec<_> = tokens
                     .into_iter()
-                    .map(|(t, r)| (t, ast::Span { start: r.start, end: r.end }))
+                    .map(|(t, r)| {
+                        (
+                            t,
+                            ast::Span {
+                                start: r.start,
+                                end: r.end,
+                            },
+                        )
+                    })
                     .collect();
                 let (program, errors) = parser::parse(token_spans);
                 if errors.is_empty()
                     && !program.declarations.is_empty()
-                    && program.declarations.iter().all(|d| matches!(d, ast::Decl::Function { .. } | ast::Decl::TypeDef { .. } | ast::Decl::Alias { .. }))
+                    && program.declarations.iter().all(|d| {
+                        matches!(
+                            d,
+                            ast::Decl::Function { .. }
+                                | ast::Decl::TypeDef { .. }
+                                | ast::Decl::Alias { .. }
+                        )
+                    })
                 {
                     Some(program)
                 } else {
@@ -825,12 +916,28 @@ fn repl_cmd() {
 
             for d in &program.declarations {
                 match d {
-                    ast::Decl::Function { name, params, return_type, .. } => {
-                        let params_str: Vec<_> = params.iter().map(|p| format!("{}:{}", p.name, type_to_ilo(&p.ty))).collect();
-                        println!("defined: {}({}) -> {}", name, params_str.join(", "), type_to_ilo(return_type));
+                    ast::Decl::Function {
+                        name,
+                        params,
+                        return_type,
+                        ..
+                    } => {
+                        let params_str: Vec<_> = params
+                            .iter()
+                            .map(|p| format!("{}:{}", p.name, type_to_ilo(&p.ty)))
+                            .collect();
+                        println!(
+                            "defined: {}({}) -> {}",
+                            name,
+                            params_str.join(", "),
+                            type_to_ilo(return_type)
+                        );
                     }
                     ast::Decl::TypeDef { name, fields, .. } => {
-                        let fields_str: Vec<_> = fields.iter().map(|f| format!("{}:{}", f.name, type_to_ilo(&f.ty))).collect();
+                        let fields_str: Vec<_> = fields
+                            .iter()
+                            .map(|f| format!("{}:{}", f.name, type_to_ilo(&f.ty)))
+                            .collect();
                         println!("defined type: {}{{{}}}", name, fields_str.join(";"));
                     }
                     ast::Decl::Alias { name, target, .. } => {
@@ -861,7 +968,15 @@ fn repl_cmd() {
 
         let token_spans: Vec<_> = tokens
             .into_iter()
-            .map(|(t, r)| (t, ast::Span { start: r.start, end: r.end }))
+            .map(|(t, r)| {
+                (
+                    t,
+                    ast::Span {
+                        start: r.start,
+                        end: r.end,
+                    },
+                )
+            })
             .collect();
         let (mut full_program, parse_errors) = parser::parse(token_spans);
         ast::resolve_aliases(&mut full_program);
@@ -958,15 +1073,25 @@ fn compile_cmd(args: &[String]) -> i32 {
     let tokens = match lexer::lex(&source) {
         Ok(t) => t,
         Err(e) => {
-            eprint!("{}", AnsiRenderer { use_color: true }.render(
-                &Diagnostic::from(&e).with_source(source.clone()),
-            ));
+            eprint!(
+                "{}",
+                AnsiRenderer { use_color: true }
+                    .render(&Diagnostic::from(&e).with_source(source.clone()),)
+            );
             return 1;
         }
     };
     let token_spans: Vec<(lexer::Token, ast::Span)> = tokens
         .into_iter()
-        .map(|(t, r)| (t, ast::Span { start: r.start, end: r.end }))
+        .map(|(t, r)| {
+            (
+                t,
+                ast::Span {
+                    start: r.start,
+                    end: r.end,
+                },
+            )
+        })
         .collect();
 
     // Parse
@@ -1006,15 +1131,19 @@ fn compile_cmd(args: &[String]) -> i32 {
     // Verify
     let verify_result = verify::verify(&program);
     for w in &verify_result.warnings {
-        eprint!("{}", AnsiRenderer { use_color: true }.render(
-            &Diagnostic::from(w).with_source(source.clone()),
-        ));
+        eprint!(
+            "{}",
+            AnsiRenderer { use_color: true }
+                .render(&Diagnostic::from(w).with_source(source.clone()),)
+        );
     }
     if !verify_result.errors.is_empty() {
         for e in &verify_result.errors {
-            eprint!("{}", AnsiRenderer { use_color: true }.render(
-                &Diagnostic::from(e).with_source(source.clone()),
-            ));
+            eprint!(
+                "{}",
+                AnsiRenderer { use_color: true }
+                    .render(&Diagnostic::from(e).with_source(source.clone()),)
+            );
         }
         return 1;
     }
@@ -1030,7 +1159,11 @@ fn compile_cmd(args: &[String]) -> i32 {
 
     // Determine entry function
     let entry = func_name.unwrap_or_else(|| {
-        compiled.func_names.first().map(|s| s.as_str()).unwrap_or("main")
+        compiled
+            .func_names
+            .first()
+            .map(|s| s.as_str())
+            .unwrap_or("main")
     });
 
     // AOT compile
@@ -1095,13 +1228,12 @@ fn serv_cmd(args_slice: &[String]) {
     }
 
     // Load HTTP config (sync)
-    let http_config: Option<tools::http_provider::ToolsConfig> =
-        http_path.as_ref().map(|p| {
-            tools::http_provider::ToolsConfig::from_file(p).unwrap_or_else(|e| {
-                eprintln!("{}", e);
-                std::process::exit(1);
-            })
-        });
+    let http_config: Option<tools::http_provider::ToolsConfig> = http_path.as_ref().map(|p| {
+        tools::http_provider::ToolsConfig::from_file(p).unwrap_or_else(|e| {
+            eprintln!("{}", e);
+            std::process::exit(1);
+        })
+    });
 
     // Create tokio runtime once (used for MCP connect + all tool calls)
     #[cfg(feature = "tools")]
@@ -1122,12 +1254,12 @@ fn serv_cmd(args_slice: &[String]) {
             eprintln!("{}", e);
             std::process::exit(1);
         });
-        let provider =
-            rt.block_on(tools::mcp_provider::McpProvider::connect(&config))
-                .unwrap_or_else(|e| {
-                    eprintln!("MCP error: {}", e);
-                    std::process::exit(1);
-                });
+        let provider = rt
+            .block_on(tools::mcp_provider::McpProvider::connect(&config))
+            .unwrap_or_else(|e| {
+                eprintln!("MCP error: {}", e);
+                std::process::exit(1);
+            });
         let decls = provider.tool_decls();
         (decls, Some(std::sync::Arc::new(provider)))
     } else {
@@ -1189,13 +1321,25 @@ fn detect_output_mode(args: Vec<String>) -> (OutputMode, bool, bool, Vec<String>
     for arg in args {
         match arg.as_str() {
             "--json" | "-j" => {
-                if mode.is_some() { conflict = true; } else { mode = Some(OutputMode::Json); }
+                if mode.is_some() {
+                    conflict = true;
+                } else {
+                    mode = Some(OutputMode::Json);
+                }
             }
             "--text" | "-t" => {
-                if mode.is_some() { conflict = true; } else { mode = Some(OutputMode::Text); }
+                if mode.is_some() {
+                    conflict = true;
+                } else {
+                    mode = Some(OutputMode::Text);
+                }
             }
             "--ansi" | "-a" => {
-                if mode.is_some() { conflict = true; } else { mode = Some(OutputMode::Ansi); }
+                if mode.is_some() {
+                    conflict = true;
+                } else {
+                    mode = Some(OutputMode::Ansi);
+                }
             }
             "--no-hints" | "-nh" => {
                 no_hints = true;
@@ -1279,9 +1423,7 @@ fn collect_hints(source: &str) -> Vec<String> {
     // Scan for word boundaries matching known aliases
     let mut seen_alias = false;
     for word in stripped.split(|c: char| !c.is_alphanumeric() && c != '_' && c != '-') {
-        if !seen_alias
-            && let Some(short) = ast::resolve_alias(word)
-        {
+        if !seen_alias && let Some(short) = ast::resolve_alias(word) {
             hints.push(format!("hint: `{word}` → `{short}` (canonical short form)"));
             seen_alias = true; // one hint per run is enough
         }
@@ -1371,9 +1513,11 @@ fn resolve_imports(
         if let ast::Decl::Use { path, only, span } = decl {
             let Some(dir) = base_dir else {
                 diagnostics.push(
-                    Diagnostic::error("`use` requires a file path context — not supported in inline code")
-                        .with_code("ILO-P017")
-                        .with_span(span, "here"),
+                    Diagnostic::error(
+                        "`use` requires a file path context — not supported in inline code",
+                    )
+                    .with_code("ILO-P017")
+                    .with_span(span, "here"),
                 );
                 continue;
             };
@@ -1422,7 +1566,15 @@ fn resolve_imports(
 
             let token_spans: Vec<(lexer::Token, ast::Span)> = tokens
                 .into_iter()
-                .map(|(t, r)| (t, ast::Span { start: r.start, end: r.end }))
+                .map(|(t, r)| {
+                    (
+                        t,
+                        ast::Span {
+                            start: r.start,
+                            end: r.end,
+                        },
+                    )
+                })
                 .collect();
 
             let (mut imported_prog, parse_errors) = parser::parse(token_spans);
@@ -1445,18 +1597,27 @@ fn resolve_imports(
             let filtered = if let Some(ref names) = only {
                 // Warn about any requested names that weren't found
                 for name in names {
-                    let found = imported_decls.iter().any(|d| decl_name(d) == Some(name.as_str()));
+                    let found = imported_decls
+                        .iter()
+                        .any(|d| decl_name(d) == Some(name.as_str()));
                     if !found {
                         diagnostics.push(
-                            Diagnostic::error(format!("use \"{}\": name '{}' not found in imported file", path, name))
-                                .with_code("ILO-P019")
-                                .with_span(span, "imported here"),
+                            Diagnostic::error(format!(
+                                "use \"{}\": name '{}' not found in imported file",
+                                path, name
+                            ))
+                            .with_code("ILO-P019")
+                            .with_span(span, "imported here"),
                         );
                     }
                 }
                 imported_decls
                     .into_iter()
-                    .filter(|d| decl_name(d).map(|n| names.iter().any(|s| s == n)).unwrap_or(false))
+                    .filter(|d| {
+                        decl_name(d)
+                            .map(|n| names.iter().any(|s| s == n))
+                            .unwrap_or(false)
+                    })
                     .collect::<Vec<_>>()
             } else {
                 imported_decls
@@ -1487,10 +1648,14 @@ fn report_diagnostic(d: &Diagnostic, mode: OutputMode) {
 /// Format: `KEY=VALUE` — no quoting, no variable expansion.
 /// Does NOT overwrite variables already set in the environment.
 fn load_env_file(path: &str) {
-    let Ok(contents) = std::fs::read_to_string(path) else { return };
+    let Ok(contents) = std::fs::read_to_string(path) else {
+        return;
+    };
     for line in contents.lines() {
         let line = line.trim();
-        if line.is_empty() || line.starts_with('#') { continue; }
+        if line.is_empty() || line.starts_with('#') {
+            continue;
+        }
         if let Some((key, val)) = line.split_once('=') {
             let key = key.trim();
             let val = val.trim();
@@ -1527,16 +1692,19 @@ fn main() {
         Err(_) => {
             // Build a Cli whose `cmd` is None and `args` carries the raw argv
             // (including the binary name at position 0).
-            (cli::Cli {
-                cmd: None,
-                global: cli::Global {
-                    ansi: false,
-                    text: false,
-                    json: false,
-                    no_hints: false,
+            (
+                cli::Cli {
+                    cmd: None,
+                    global: cli::Global {
+                        ansi: false,
+                        text: false,
+                        json: false,
+                        no_hints: false,
+                    },
+                    args: raw_args,
                 },
-                args: raw_args,
-            }, true)
+                true,
+            )
         }
     };
 
@@ -1552,22 +1720,50 @@ fn dispatch_cli(cli: cli::Cli, bare_has_bin: bool) -> i32 {
     match cli.cmd {
         Some(cli::Cmd::Tools(t)) => {
             let mut args: Vec<String> = Vec::new();
-            if let Some(ref p) = t.mcp_path { args.push("--mcp".into()); args.push(p.clone()); }
-            if let Some(ref p) = t.tools_path { args.push("--tools".into()); args.push(p.clone()); }
-            if t.human { args.push("--human".into()); }
-            if t.ilo { args.push("--ilo".into()); }
-            if t.json { args.push("--json".into()); }
-            if t.full { args.push("--full".into()); }
-            if t.graph { args.push("--graph".into()); }
+            if let Some(ref p) = t.mcp_path {
+                args.push("--mcp".into());
+                args.push(p.clone());
+            }
+            if let Some(ref p) = t.tools_path {
+                args.push("--tools".into());
+                args.push(p.clone());
+            }
+            if t.human {
+                args.push("--human".into());
+            }
+            if t.ilo {
+                args.push("--ilo".into());
+            }
+            if t.json {
+                args.push("--json".into());
+            }
+            if t.full {
+                args.push("--full".into());
+            }
+            if t.graph {
+                args.push("--graph".into());
+            }
             tools_cmd(&args)
         }
         Some(cli::Cmd::Graph(g)) => {
             let mut args: Vec<String> = vec![g.file];
-            if let Some(ref n) = g.fn_name { args.push("--fn".into()); args.push(n.clone()); }
-            if g.reverse { args.push("--reverse".into()); }
-            if g.subgraph { args.push("--subgraph".into()); }
-            if let Some(b) = g.budget { args.push("--budget".into()); args.push(b.to_string()); }
-            if g.dot { args.push("--dot".into()); }
+            if let Some(ref n) = g.fn_name {
+                args.push("--fn".into());
+                args.push(n.clone());
+            }
+            if g.reverse {
+                args.push("--reverse".into());
+            }
+            if g.subgraph {
+                args.push("--subgraph".into());
+            }
+            if let Some(b) = g.budget {
+                args.push("--budget".into());
+                args.push(b.to_string());
+            }
+            if g.dot {
+                args.push("--dot".into());
+            }
             graph_cmd(&args)
         }
         Some(cli::Cmd::Repl) => {
@@ -1580,31 +1776,42 @@ fn dispatch_cli(cli: cli::Cli, bare_has_bin: bool) -> i32 {
         }
         Some(cli::Cmd::Serv(s)) => {
             let mut args: Vec<String> = vec!["-j".into()];
-            if let Some(ref p) = s.mcp_path { args.push("--mcp".into()); args.push(p.clone()); }
-            if let Some(ref p) = s.tools_path { args.push("--tools".into()); args.push(p.clone()); }
+            if let Some(ref p) = s.mcp_path {
+                args.push("--mcp".into());
+                args.push(p.clone());
+            }
+            if let Some(ref p) = s.tools_path {
+                args.push("--tools".into());
+                args.push(p.clone());
+            }
             serv_cmd(&args);
             0
         }
         Some(cli::Cmd::Compile(c)) => {
             let mut args: Vec<String> = vec![c.source];
-            if let Some(ref o) = c.output { args.push("-o".into()); args.push(o.clone()); }
-            if c.bench { args.push("--bench".into()); }
-            if let Some(ref f) = c.func { args.push(f.clone()); }
+            if let Some(ref o) = c.output {
+                args.push("-o".into());
+                args.push(o.clone());
+            }
+            if c.bench {
+                args.push("--bench".into());
+            }
+            if let Some(ref f) = c.func {
+                args.push(f.clone());
+            }
             compile_cmd(&args)
         }
-        Some(cli::Cmd::Explain(e)) => {
-            match diagnostic::registry::lookup(&e.code) {
-                Some(entry) => {
-                    print!("{}", entry.long);
-                    0
-                }
-                None => {
-                    eprintln!("unknown error code: {}", e.code);
-                    eprintln!("Error codes have the form ILO-L001, ILO-P001, ILO-T001, ILO-R001.");
-                    1
-                }
+        Some(cli::Cmd::Explain(e)) => match diagnostic::registry::lookup(&e.code) {
+            Some(entry) => {
+                print!("{}", entry.long);
+                0
             }
-        }
+            None => {
+                eprintln!("unknown error code: {}", e.code);
+                eprintln!("Error codes have the form ILO-L001, ILO-P001, ILO-T001, ILO-R001.");
+                1
+            }
+        },
         Some(cli::Cmd::Spec(s)) => {
             match s.topic.as_deref() {
                 Some("lang") => print!("{}", include_str!("../SPEC.md")),
@@ -1648,15 +1855,22 @@ fn dispatch_bare_args(raw_args: Vec<String>, global: &cli::Global) -> i32 {
     let (mode, explicit_json, no_hints, args) = detect_output_mode(raw_args);
 
     // Override with clap-parsed global flags if they were set
-    let mode = if global.ansi { OutputMode::Ansi }
-        else if global.text { OutputMode::Text }
-        else if global.json { OutputMode::Json }
-        else { mode };
+    let mode = if global.ansi {
+        OutputMode::Ansi
+    } else if global.text {
+        OutputMode::Text
+    } else if global.json {
+        OutputMode::Json
+    } else {
+        mode
+    };
     let explicit_json = explicit_json || global.explicit_json();
     let no_hints = no_hints || global.no_hints;
 
     if args.len() < 2 {
-        eprintln!("Usage: ilo <file-or-code> [args... | --run func args... | --bench func args... | --emit python]");
+        eprintln!(
+            "Usage: ilo <file-or-code> [args... | --run func args... | --bench func args... | --emit python]"
+        );
         eprintln!("       ilo repl                                  Interactive REPL");
         eprintln!("       ilo serv [--mcp <path>] [--tools <path>]  Stdio agent loop");
         eprintln!("       ilo graph <file> [--fn NAME] [--dot]      Dependency graph");
@@ -1676,7 +1890,10 @@ fn dispatch_bare_args(raw_args: Vec<String>, global: &cli::Global) -> i32 {
     if args[1] == "--explain" {
         return match args.get(2) {
             Some(code) => match diagnostic::registry::lookup(code) {
-                Some(entry) => { print!("{}", entry.long); 0 }
+                Some(entry) => {
+                    print!("{}", entry.long);
+                    0
+                }
                 None => {
                     eprintln!("unknown error code: {code}");
                     eprintln!("Error codes have the form ILO-L001, ILO-P001, ILO-T001, ILO-R001.");
@@ -1784,7 +2001,12 @@ fn dispatch_bare_args(raw_args: Vec<String>, global: &cli::Global) -> i32 {
                 let run_args = cli::RunArgs {
                     source,
                     engine: cli::Engine::Default,
-                    run_tree: false, run: false, run_vm: false, run_jit: false, run_cranelift: false, run_llvm: false,
+                    run_tree: false,
+                    run: false,
+                    run_vm: false,
+                    run_jit: false,
+                    run_cranelift: false,
+                    run_llvm: false,
                     bench: true,
                     emit: None,
                     explain: false,
@@ -1800,7 +2022,12 @@ fn dispatch_bare_args(raw_args: Vec<String>, global: &cli::Global) -> i32 {
                 let run_args = cli::RunArgs {
                     source,
                     engine: cli::Engine::Default,
-                    run_tree: false, run: false, run_vm: false, run_jit: false, run_cranelift: false, run_llvm: false,
+                    run_tree: false,
+                    run: false,
+                    run_vm: false,
+                    run_jit: false,
+                    run_cranelift: false,
+                    run_llvm: false,
                     bench: false,
                     emit: None,
                     explain: true,
@@ -1813,11 +2040,20 @@ fn dispatch_bare_args(raw_args: Vec<String>, global: &cli::Global) -> i32 {
                 return dispatch_run(run_args, mode, explicit_json, no_hints);
             }
             "--emit" if engine_flag.is_none() => {
-                let target = if args.len() > m + 1 { Some(args[m + 1].clone()) } else { None };
+                let target = if args.len() > m + 1 {
+                    Some(args[m + 1].clone())
+                } else {
+                    None
+                };
                 let run_args = cli::RunArgs {
                     source,
                     engine: cli::Engine::Default,
-                    run_tree: false, run: false, run_vm: false, run_jit: false, run_cranelift: false, run_llvm: false,
+                    run_tree: false,
+                    run: false,
+                    run_vm: false,
+                    run_jit: false,
+                    run_cranelift: false,
+                    run_llvm: false,
                     bench: false,
                     emit: target,
                     explain: false,
@@ -1833,7 +2069,12 @@ fn dispatch_bare_args(raw_args: Vec<String>, global: &cli::Global) -> i32 {
                 let run_args = cli::RunArgs {
                     source,
                     engine: cli::Engine::Default,
-                    run_tree: false, run: false, run_vm: false, run_jit: false, run_cranelift: false, run_llvm: false,
+                    run_tree: false,
+                    run: false,
+                    run_vm: false,
+                    run_jit: false,
+                    run_cranelift: false,
+                    run_llvm: false,
                     bench: false,
                     emit: None,
                     explain: false,
@@ -1849,7 +2090,12 @@ fn dispatch_bare_args(raw_args: Vec<String>, global: &cli::Global) -> i32 {
                 let run_args = cli::RunArgs {
                     source,
                     engine: cli::Engine::Default,
-                    run_tree: false, run: false, run_vm: false, run_jit: false, run_cranelift: false, run_llvm: false,
+                    run_tree: false,
+                    run: false,
+                    run_vm: false,
+                    run_jit: false,
+                    run_cranelift: false,
+                    run_llvm: false,
                     bench: false,
                     emit: None,
                     explain: false,
@@ -1867,7 +2113,11 @@ fn dispatch_bare_args(raw_args: Vec<String>, global: &cli::Global) -> i32 {
 
     // Default: build RunArgs with engine and remaining positional args
     let engine = engine_flag.unwrap_or(cli::Engine::Default);
-    let rest_start = if engine_flag.is_some() { run_rest_start } else { m };
+    let rest_start = if engine_flag.is_some() {
+        run_rest_start
+    } else {
+        m
+    };
     let rest: Vec<String> = args[rest_start..].to_vec();
 
     let run_args = cli::RunArgs {
@@ -1933,7 +2183,15 @@ fn dispatch_run(r: cli::RunArgs, mode: OutputMode, explicit_json: bool, no_hints
 
     let token_spans: Vec<(lexer::Token, ast::Span)> = tokens
         .into_iter()
-        .map(|(t, r)| (t, ast::Span { start: r.start, end: r.end }))
+        .map(|(t, r)| {
+            (
+                t,
+                ast::Span {
+                    start: r.start,
+                    end: r.end,
+                },
+            )
+        })
         .collect();
 
     let (mut program, parse_errors) = parser::parse(token_spans);
@@ -1943,7 +2201,9 @@ fn dispatch_run(r: cli::RunArgs, mode: OutputMode, explicit_json: bool, no_hints
     // MCP injection
     #[cfg(not(feature = "tools"))]
     if mcp_config_path.is_some() {
-        eprintln!("error: --mcp requires the 'tools' feature (build with: cargo build --features tools)");
+        eprintln!(
+            "error: --mcp requires the 'tools' feature (build with: cargo build --features tools)"
+        );
         return 1;
     }
 
@@ -1956,12 +2216,21 @@ fn dispatch_run(r: cli::RunArgs, mode: OutputMode, explicit_json: bool, no_hints
     if let Some(ref path) = mcp_config_path {
         let config = match tools::mcp_provider::McpConfig::from_file(path) {
             Ok(c) => c,
-            Err(e) => { eprintln!("{}", e); return 1; }
+            Err(e) => {
+                eprintln!("{}", e);
+                return 1;
+            }
         };
-        let rt = tokio::runtime::Builder::new_current_thread().enable_all().build().expect("tokio runtime");
+        let rt = tokio::runtime::Builder::new_current_thread()
+            .enable_all()
+            .build()
+            .expect("tokio runtime");
         let provider = match rt.block_on(tools::mcp_provider::McpProvider::connect(&config)) {
             Ok(p) => p,
-            Err(e) => { eprintln!("MCP error: {}", e); return 1; }
+            Err(e) => {
+                eprintln!("MCP error: {}", e);
+                return 1;
+            }
         };
         let mut decls = provider.tool_decls();
         decls.append(&mut program.declarations);
@@ -2030,7 +2299,11 @@ fn dispatch_run(r: cli::RunArgs, mode: OutputMode, explicit_json: bool, no_hints
         run_bench(&program, func_name, &run_args);
         0
     } else if r.explain {
-        let filename = if is_file { Some(source_arg.as_str()) } else { None };
+        let filename = if is_file {
+            Some(source_arg.as_str())
+        } else {
+            None
+        };
         print!("{}", codegen::explain::explain(&program, filename));
         0
     } else if let Some(ref target) = r.emit {
@@ -2042,10 +2315,16 @@ fn dispatch_run(r: cli::RunArgs, mode: OutputMode, explicit_json: bool, no_hints
             1
         }
     } else if r.dense {
-        println!("{}", codegen::fmt::format(&program, codegen::fmt::FmtMode::Dense));
+        println!(
+            "{}",
+            codegen::fmt::format(&program, codegen::fmt::FmtMode::Dense)
+        );
         0
     } else if r.expanded {
-        print!("{}", codegen::fmt::format(&program, codegen::fmt::FmtMode::Expanded));
+        print!(
+            "{}",
+            codegen::fmt::format(&program, codegen::fmt::FmtMode::Expanded)
+        );
         0
     } else {
         // Execution dispatch based on engine
@@ -2053,15 +2332,9 @@ fn dispatch_run(r: cli::RunArgs, mode: OutputMode, explicit_json: bool, no_hints
         let rest = &r.rest;
 
         match engine {
-            cli::Engine::Jit => {
-                run_jit_engine(&program, rest)
-            }
-            cli::Engine::Cranelift => {
-                run_cranelift_engine(&program, rest, explicit_json)
-            }
-            cli::Engine::Llvm => {
-                run_llvm_engine(&program, rest)
-            }
+            cli::Engine::Jit => run_jit_engine(&program, rest),
+            cli::Engine::Cranelift => run_cranelift_engine(&program, rest, explicit_json),
+            cli::Engine::Llvm => run_llvm_engine(&program, rest),
             cli::Engine::Vm => {
                 let func_name = rest.first().map(|s| s.as_str());
                 let run_args: Vec<interpreter::Value> = if rest.len() > 1 {
@@ -2071,7 +2344,10 @@ fn dispatch_run(r: cli::RunArgs, mode: OutputMode, explicit_json: bool, no_hints
                 };
                 let compiled = match vm::compile(&program) {
                     Ok(c) => c,
-                    Err(e) => { eprintln!("Compile error: {}", e); return 1; }
+                    Err(e) => {
+                        eprintln!("Compile error: {}", e);
+                        return 1;
+                    }
                 };
                 run_vm_with_provider(
                     &compiled,
@@ -2110,21 +2386,31 @@ fn dispatch_run(r: cli::RunArgs, mode: OutputMode, explicit_json: bool, no_hints
             }
             cli::Engine::Default => {
                 // Default: func-name heuristic + Cranelift JIT with interpreter fallback
-                let func_names: Vec<&str> = program.declarations.iter().filter_map(|d| match d {
-                    ast::Decl::Function { name, .. } => Some(name.as_str()),
-                    _ => None,
-                }).collect();
+                let func_names: Vec<&str> = program
+                    .declarations
+                    .iter()
+                    .filter_map(|d| match d {
+                        ast::Decl::Function { name, .. } => Some(name.as_str()),
+                        _ => None,
+                    })
+                    .collect();
 
                 let (func_name, run_args) = if let Some(first) = rest.first() {
                     if func_names.contains(&first.as_str()) {
-                        (Some(first.as_str()), rest[1..].iter().map(|a| parse_cli_arg(a)).collect())
+                        (
+                            Some(first.as_str()),
+                            rest[1..].iter().map(|a| parse_cli_arg(a)).collect(),
+                        )
                     } else {
                         (None, rest.iter().map(|a| parse_cli_arg(a)).collect())
                     }
                 } else {
                     // No args at all: AST JSON
                     match serde_json::to_string_pretty(&program) {
-                        Ok(json) => { println!("{}", json); return 0; }
+                        Ok(json) => {
+                            println!("{}", json);
+                            return 0;
+                        }
                         Err(e) => {
                             eprintln!("Serialization error: {}", e);
                             return 1;
@@ -2169,18 +2455,34 @@ fn run_jit_engine(program: &ast::Program, rest: &[String]) -> i32 {
     {
         let compiled = match vm::compile(program) {
             Ok(c) => c,
-            Err(e) => { eprintln!("Compile error: {}", e); return 1; }
+            Err(e) => {
+                eprintln!("Compile error: {}", e);
+                return 1;
+            }
         };
-        let target = func_name.unwrap_or(compiled.func_names.first().map(|s| s.as_str()).unwrap_or("main"));
+        let target = func_name.unwrap_or(
+            compiled
+                .func_names
+                .first()
+                .map(|s| s.as_str())
+                .unwrap_or("main"),
+        );
         let func_idx = match compiled.func_names.iter().position(|n| n == target) {
             Some(i) => i,
-            None => { eprintln!("undefined function: {}", target); return 1; }
+            None => {
+                eprintln!("undefined function: {}", target);
+                return 1;
+            }
         };
         let chunk = &compiled.chunks[func_idx];
         let nan_consts = &compiled.nan_constants[func_idx];
         match vm::jit_arm64::compile_and_call(chunk, nan_consts, &jit_args) {
             Some(result) => {
-                if result == (result as i64) as f64 { println!("{}", result as i64); } else { println!("{}", result); }
+                if result == (result as i64) as f64 {
+                    println!("{}", result as i64);
+                } else {
+                    println!("{}", result);
+                }
                 0
             }
             None => {
@@ -2210,16 +2512,31 @@ fn run_cranelift_engine(program: &ast::Program, rest: &[String], explicit_json: 
     {
         let compiled = match vm::compile(program) {
             Ok(c) => c,
-            Err(e) => { eprintln!("Compile error: {}", e); return 1; }
+            Err(e) => {
+                eprintln!("Compile error: {}", e);
+                return 1;
+            }
         };
-        let target_name = func_name.unwrap_or(compiled.func_names.first().map(|s| s.as_str()).unwrap_or("main"));
+        let target_name = func_name.unwrap_or(
+            compiled
+                .func_names
+                .first()
+                .map(|s| s.as_str())
+                .unwrap_or("main"),
+        );
         let func_idx = match compiled.func_names.iter().position(|n| n == target_name) {
             Some(i) => i,
-            None => { eprintln!("undefined function: {}", target_name); return 1; }
+            None => {
+                eprintln!("undefined function: {}", target_name);
+                return 1;
+            }
         };
         let chunk = &compiled.chunks[func_idx];
         let nan_consts = &compiled.nan_constants[func_idx];
-        let nan_args: Vec<u64> = run_args.iter().map(|v| vm::NanVal::from_value(v).0).collect();
+        let nan_args: Vec<u64> = run_args
+            .iter()
+            .map(|v| vm::NanVal::from_value(v).0)
+            .collect();
         match vm::jit_cranelift::compile_and_call(chunk, nan_consts, &nan_args, &compiled) {
             Some(result_bits) => {
                 let result = vm::NanVal(result_bits).to_value();
@@ -2263,18 +2580,34 @@ fn run_llvm_engine(_program: &ast::Program, rest: &[String]) -> i32 {
     {
         let compiled = match vm::compile(program) {
             Ok(c) => c,
-            Err(e) => { eprintln!("Compile error: {}", e); return 1; }
+            Err(e) => {
+                eprintln!("Compile error: {}", e);
+                return 1;
+            }
         };
-        let target_name = func_name.unwrap_or(compiled.func_names.first().map(|s| s.as_str()).unwrap_or("main"));
+        let target_name = func_name.unwrap_or(
+            compiled
+                .func_names
+                .first()
+                .map(|s| s.as_str())
+                .unwrap_or("main"),
+        );
         let func_idx = match compiled.func_names.iter().position(|n| n == target_name) {
             Some(i) => i,
-            None => { eprintln!("undefined function: {}", target_name); return 1; }
+            None => {
+                eprintln!("undefined function: {}", target_name);
+                return 1;
+            }
         };
         let chunk = &compiled.chunks[func_idx];
         let nan_consts = &compiled.nan_constants[func_idx];
         match vm::jit_llvm::compile_and_call(chunk, nan_consts, &jit_args) {
             Some(result) => {
-                if result == (result as i64) as f64 { println!("{}", result as i64); } else { println!("{}", result); }
+                if result == (result as i64) as f64 {
+                    println!("{}", result as i64);
+                } else {
+                    println!("{}", result);
+                }
                 0
             }
             None => {
@@ -2328,7 +2661,9 @@ fn print_help() {
     println!("Agent serve loop:");
     println!("  ilo serv [-m <path>] [-t <path>]");
     println!("  Request:  {{\"program\": \"<ilo>\", \"args\": [...], \"func\": \"name\"}}");
-    println!("  Response: {{\"ok\": <value>, \"ms\": n}} | {{\"error\": {{\"phase\": \"...\", ...}}}}\n");
+    println!(
+        "  Response: {{\"ok\": <value>, \"ms\": n}} | {{\"error\": {{\"phase\": \"...\", ...}}}}\n"
+    );
     println!("Dependency graph:");
     println!("  ilo graph <file>                    Full call graph (JSON)");
     println!("  ilo graph <file> --fn NAME          Subgraph for one function");
@@ -2352,7 +2687,6 @@ fn print_help() {
     println!("  ilo 'f x:n>n;*x 2' --emit python Transpile to Python");
 }
 
-
 /// Dispatch --run-vm, routing to MCP / HTTP / plain run based on available providers.
 /// Returns exit code.
 #[allow(clippy::too_many_arguments)]
@@ -2371,7 +2705,10 @@ fn run_vm_with_provider(
     if let Some(provider) = mcp_provider {
         let rt = mcp_rt.expect("runtime present with mcp_provider");
         match vm::run_with_tools(compiled, func_name, args, provider, rt) {
-            Ok(val) => { print_value(&val, explicit_json); return 0; }
+            Ok(val) => {
+                print_value(&val, explicit_json);
+                return 0;
+            }
             Err(e) => {
                 report_diagnostic(&Diagnostic::from(&e).with_source(source.to_string()), mode);
                 return 1;
@@ -2382,11 +2719,17 @@ fn run_vm_with_provider(
     if let Some(tools_path) = tools_config_path {
         let config = match tools::http_provider::ToolsConfig::from_file(tools_path) {
             Ok(c) => c,
-            Err(e) => { eprintln!("{}", e); return 1; }
+            Err(e) => {
+                eprintln!("{}", e);
+                return 1;
+            }
         };
         let provider = tools::http_provider::HttpProvider::new(config);
         #[cfg(feature = "tools")]
-        let runtime = tokio::runtime::Builder::new_current_thread().enable_all().build().expect("tokio runtime");
+        let runtime = tokio::runtime::Builder::new_current_thread()
+            .enable_all()
+            .build()
+            .expect("tokio runtime");
         return match vm::run_with_tools(
             compiled,
             func_name,
@@ -2395,7 +2738,10 @@ fn run_vm_with_provider(
             #[cfg(feature = "tools")]
             &runtime,
         ) {
-            Ok(val) => { print_value(&val, explicit_json); 0 }
+            Ok(val) => {
+                print_value(&val, explicit_json);
+                0
+            }
             Err(e) => {
                 report_diagnostic(&Diagnostic::from(&e).with_source(source.to_string()), mode);
                 1
@@ -2404,7 +2750,10 @@ fn run_vm_with_provider(
     }
 
     match vm::run(compiled, func_name, args) {
-        Ok(val) => { print_value(&val, explicit_json); 0 }
+        Ok(val) => {
+            print_value(&val, explicit_json);
+            0
+        }
         Err(e) => {
             report_diagnostic(&Diagnostic::from(&e).with_source(source.to_string()), mode);
             1
@@ -2429,8 +2778,17 @@ fn run_interp_with_provider(
     #[cfg(feature = "tools")]
     if let Some(provider) = mcp_provider {
         let rt = std::sync::Arc::new(mcp_rt.expect("runtime present with mcp_provider"));
-        match interpreter::run_with_tools(program, func_name, args, std::sync::Arc::new(provider), rt) {
-            Ok(val) => { print_value(&val, explicit_json); return 0; }
+        match interpreter::run_with_tools(
+            program,
+            func_name,
+            args,
+            std::sync::Arc::new(provider),
+            rt,
+        ) {
+            Ok(val) => {
+                print_value(&val, explicit_json);
+                return 0;
+            }
             Err(e) => {
                 report_diagnostic(&Diagnostic::from(&e).with_source(source.to_string()), mode);
                 return 1;
@@ -2441,11 +2799,19 @@ fn run_interp_with_provider(
     if let Some(tools_path) = tools_config_path {
         let config = match tools::http_provider::ToolsConfig::from_file(tools_path) {
             Ok(c) => c,
-            Err(e) => { eprintln!("{}", e); return 1; }
+            Err(e) => {
+                eprintln!("{}", e);
+                return 1;
+            }
         };
         let provider = std::sync::Arc::new(tools::http_provider::HttpProvider::new(config));
         #[cfg(feature = "tools")]
-        let runtime = std::sync::Arc::new(tokio::runtime::Builder::new_current_thread().enable_all().build().expect("tokio runtime"));
+        let runtime = std::sync::Arc::new(
+            tokio::runtime::Builder::new_current_thread()
+                .enable_all()
+                .build()
+                .expect("tokio runtime"),
+        );
         return match interpreter::run_with_tools(
             program,
             func_name,
@@ -2454,7 +2820,10 @@ fn run_interp_with_provider(
             #[cfg(feature = "tools")]
             runtime,
         ) {
-            Ok(val) => { print_value(&val, explicit_json); 0 }
+            Ok(val) => {
+                print_value(&val, explicit_json);
+                0
+            }
             Err(e) => {
                 report_diagnostic(&Diagnostic::from(&e).with_source(source.to_string()), mode);
                 1
@@ -2463,7 +2832,10 @@ fn run_interp_with_provider(
     }
 
     match interpreter::run(program, func_name, args) {
-        Ok(val) => { print_value(&val, explicit_json); 0 }
+        Ok(val) => {
+            print_value(&val, explicit_json);
+            0
+        }
         Err(e) => {
             report_diagnostic(&Diagnostic::from(&e).with_source(source.to_string()), mode);
             1
@@ -2471,17 +2843,32 @@ fn run_interp_with_provider(
     }
 }
 
-fn run_default(program: &ast::Program, func_name: Option<&str>, args: Vec<interpreter::Value>, source: &str, mode: OutputMode, explicit_json: bool) -> i32 {
+fn run_default(
+    program: &ast::Program,
+    func_name: Option<&str>,
+    args: Vec<interpreter::Value>,
+    source: &str,
+    mode: OutputMode,
+    explicit_json: bool,
+) -> i32 {
     // Try Cranelift JIT first — all functions are now eligible
     #[cfg(feature = "cranelift")]
     {
         if let Ok(compiled) = vm::compile(program) {
-            let target = func_name.unwrap_or(compiled.func_names.first().map(|s| s.as_str()).unwrap_or("main"));
+            let target = func_name.unwrap_or(
+                compiled
+                    .func_names
+                    .first()
+                    .map(|s| s.as_str())
+                    .unwrap_or("main"),
+            );
             if let Some(func_idx) = compiled.func_names.iter().position(|n| n == target) {
                 let chunk = &compiled.chunks[func_idx];
                 let nan_consts = &compiled.nan_constants[func_idx];
                 let nan_args: Vec<u64> = args.iter().map(|v| vm::NanVal::from_value(v).0).collect();
-                if let Some(result_bits) = vm::jit_cranelift::compile_and_call(chunk, nan_consts, &nan_args, &compiled) {
+                if let Some(result_bits) =
+                    vm::jit_cranelift::compile_and_call(chunk, nan_consts, &nan_args, &compiled)
+                {
                     let result = vm::NanVal(result_bits).to_value();
                     print_value(&result, explicit_json);
                     return 0;
@@ -2492,7 +2879,10 @@ fn run_default(program: &ast::Program, func_name: Option<&str>, args: Vec<interp
 
     // Fall back to interpreter
     match interpreter::run(program, func_name, args) {
-        Ok(val) => { print_value(&val, explicit_json); 0 }
+        Ok(val) => {
+            print_value(&val, explicit_json);
+            0
+        }
         Err(e) => {
             report_diagnostic(&Diagnostic::from(&e).with_source(source.to_string()), mode);
             1
@@ -2529,9 +2919,9 @@ fn print_value(val: &interpreter::Value, as_json: bool) {
 }
 
 fn run_bench(program: &ast::Program, func_name: Option<&str>, args: &[interpreter::Value]) {
-    use std::time::Instant;
     use std::io::Write;
     use std::process::Command;
+    use std::time::Instant;
 
     let iterations: u32 = 10_000;
 
@@ -2544,7 +2934,8 @@ fn run_bench(program: &ast::Program, func_name: Option<&str>, args: &[interprete
     let start = Instant::now();
     let mut result = interpreter::Value::Nil;
     for _ in 0..iterations {
-        result = interpreter::run(program, func_name, args.to_vec()).expect("interpreter error during benchmark");
+        result = interpreter::run(program, func_name, args.to_vec())
+            .expect("interpreter error during benchmark");
     }
     let interp_dur = start.elapsed();
     let interp_ns = interp_dur.as_nanos() / iterations as u128;
@@ -2566,7 +2957,8 @@ fn run_bench(program: &ast::Program, func_name: Option<&str>, args: &[interprete
     let start = Instant::now();
     let mut vm_result = interpreter::Value::Nil;
     for _ in 0..iterations {
-        vm_result = vm::run(&compiled, func_name, args.to_vec()).expect("VM error during benchmark");
+        vm_result =
+            vm::run(&compiled, func_name, args.to_vec()).expect("VM error during benchmark");
     }
     let vm_dur = start.elapsed();
     let vm_ns = vm_dur.as_nanos() / iterations as u128;
@@ -2579,7 +2971,13 @@ fn run_bench(program: &ast::Program, func_name: Option<&str>, args: &[interprete
     println!();
 
     // -- Register VM (reusable) benchmark --
-    let call_name = func_name.unwrap_or(compiled.func_names.first().map(|s| s.as_str()).unwrap_or("main"));
+    let call_name = func_name.unwrap_or(
+        compiled
+            .func_names
+            .first()
+            .map(|s| s.as_str())
+            .unwrap_or("main"),
+    );
     let mut vm_state = vm::VmState::new(&compiled);
     for _ in 0..100 {
         let _ = vm_state.call(call_name, args.to_vec());
@@ -2587,7 +2985,9 @@ fn run_bench(program: &ast::Program, func_name: Option<&str>, args: &[interprete
 
     let start = Instant::now();
     for _ in 0..iterations {
-        vm_result = vm_state.call(call_name, args.to_vec()).expect("VM reusable error during benchmark");
+        vm_result = vm_state
+            .call(call_name, args.to_vec())
+            .expect("VM reusable error during benchmark");
     }
     let vm_reuse_dur = start.elapsed();
     let vm_reuse_ns = vm_reuse_dur.as_nanos() / iterations as u128;
@@ -2595,54 +2995,68 @@ fn run_bench(program: &ast::Program, func_name: Option<&str>, args: &[interprete
     println!("Register VM (reusable)");
     println!("  result:     {}", vm_result);
     println!("  iterations: {}", iterations);
-    println!("  total:      {:.2}ms", vm_reuse_dur.as_nanos() as f64 / 1e6);
+    println!(
+        "  total:      {:.2}ms",
+        vm_reuse_dur.as_nanos() as f64 / 1e6
+    );
     println!("  per call:   {}ns", vm_reuse_ns);
     println!();
 
     // -- JIT benchmarks --
     // Extract function info for JIT
-    let call_name_jit = func_name.unwrap_or(compiled.func_names.first().map(|s| s.as_str()).unwrap_or("main"));
+    let call_name_jit = func_name.unwrap_or(
+        compiled
+            .func_names
+            .first()
+            .map(|s| s.as_str())
+            .unwrap_or("main"),
+    );
     let func_idx_jit = compiled.func_names.iter().position(|n| n == call_name_jit);
-    let jit_args: Vec<f64> = args.iter().filter_map(|a| match a {
-        interpreter::Value::Number(n) => Some(*n),
-        _ => None,
-    }).collect();
+    let jit_args: Vec<f64> = args
+        .iter()
+        .filter_map(|a| match a {
+            interpreter::Value::Number(n) => Some(*n),
+            _ => None,
+        })
+        .collect();
     #[cfg(all(target_arch = "aarch64", target_os = "macos"))]
     let all_numeric = jit_args.len() == args.len();
 
     let mut jit_arm64_ns: Option<u128> = None;
     #[cfg(all(target_arch = "aarch64", target_os = "macos"))]
     if let Some(fi) = func_idx_jit
-        && all_numeric {
-            let chunk = &compiled.chunks[fi];
-            let nan_consts = &compiled.nan_constants[fi];
-            if let Some(jit_func) = vm::jit_arm64::compile(chunk, nan_consts) {
-                // Warmup
-                for _ in 0..100 {
-                    let _ = vm::jit_arm64::call(&jit_func, &jit_args);
-                }
-
-                let start = Instant::now();
-                let mut jit_result = 0.0f64;
-                for _ in 0..iterations {
-                    jit_result = vm::jit_arm64::call(&jit_func, &jit_args).expect("arm64 JIT error during benchmark");
-                }
-                let jit_dur = start.elapsed();
-                let ns = jit_dur.as_nanos() / iterations as u128;
-                jit_arm64_ns = Some(ns);
-
-                println!("Custom JIT (arm64)");
-                if jit_result == (jit_result as i64) as f64 {
-                    println!("  result:     {}", jit_result as i64);
-                } else {
-                    println!("  result:     {}", jit_result);
-                }
-                println!("  iterations: {}", iterations);
-                println!("  total:      {:.2}ms", jit_dur.as_nanos() as f64 / 1e6);
-                println!("  per call:   {}ns", ns);
-                println!();
+        && all_numeric
+    {
+        let chunk = &compiled.chunks[fi];
+        let nan_consts = &compiled.nan_constants[fi];
+        if let Some(jit_func) = vm::jit_arm64::compile(chunk, nan_consts) {
+            // Warmup
+            for _ in 0..100 {
+                let _ = vm::jit_arm64::call(&jit_func, &jit_args);
             }
+
+            let start = Instant::now();
+            let mut jit_result = 0.0f64;
+            for _ in 0..iterations {
+                jit_result = vm::jit_arm64::call(&jit_func, &jit_args)
+                    .expect("arm64 JIT error during benchmark");
+            }
+            let jit_dur = start.elapsed();
+            let ns = jit_dur.as_nanos() / iterations as u128;
+            jit_arm64_ns = Some(ns);
+
+            println!("Custom JIT (arm64)");
+            if jit_result == (jit_result as i64) as f64 {
+                println!("  result:     {}", jit_result as i64);
+            } else {
+                println!("  result:     {}", jit_result);
+            }
+            println!("  iterations: {}", iterations);
+            println!("  total:      {:.2}ms", jit_dur.as_nanos() as f64 / 1e6);
+            println!("  per call:   {}ns", ns);
+            println!();
         }
+    }
 
     let mut jit_cranelift_ns: Option<u128> = None;
     #[cfg(feature = "cranelift")]
@@ -2659,7 +3073,8 @@ fn run_bench(program: &ast::Program, func_name: Option<&str>, args: &[interprete
                 let start = Instant::now();
                 let mut jit_result_bits = 0u64;
                 for _ in 0..iterations {
-                    jit_result_bits = vm::jit_cranelift::call(&jit_func, &nan_args).expect("Cranelift JIT error during benchmark");
+                    jit_result_bits = vm::jit_cranelift::call(&jit_func, &nan_args)
+                        .expect("Cranelift JIT error during benchmark");
                 }
                 let jit_dur = start.elapsed();
                 let ns = jit_dur.as_nanos() / iterations as u128;
@@ -2691,7 +3106,8 @@ fn run_bench(program: &ast::Program, func_name: Option<&str>, args: &[interprete
                 let start = Instant::now();
                 let mut jit_result = 0.0f64;
                 for _ in 0..iterations {
-                    jit_result = vm::jit_llvm::call(&jit_func, &jit_args).expect("LLVM JIT error during benchmark");
+                    jit_result = vm::jit_llvm::call(&jit_func, &jit_args)
+                        .expect("LLVM JIT error during benchmark");
                 }
                 let jit_dur = start.elapsed();
                 let ns = jit_dur.as_nanos() / iterations as u128;
@@ -2714,14 +3130,27 @@ fn run_bench(program: &ast::Program, func_name: Option<&str>, args: &[interprete
     // -- Python transpiler benchmark (single invocation) --
     let py_code = codegen::python::emit(program);
     let call_func = func_name.unwrap_or("main").replace('-', "_");
-    let call_args: Vec<String> = args.iter().map(|a| match a {
-        interpreter::Value::Number(n) => {
-            if *n == (*n as i64) as f64 { format!("{}", *n as i64) } else { format!("{}", n) }
-        }
-        interpreter::Value::Text(s) => format!("\"{}\"", s),
-        interpreter::Value::Bool(b) => if *b { "True".to_string() } else { "False".to_string() },
-        _ => "None".to_string(),
-    }).collect();
+    let call_args: Vec<String> = args
+        .iter()
+        .map(|a| match a {
+            interpreter::Value::Number(n) => {
+                if *n == (*n as i64) as f64 {
+                    format!("{}", *n as i64)
+                } else {
+                    format!("{}", n)
+                }
+            }
+            interpreter::Value::Text(s) => format!("\"{}\"", s),
+            interpreter::Value::Bool(b) => {
+                if *b {
+                    "True".to_string()
+                } else {
+                    "False".to_string()
+                }
+            }
+            _ => "None".to_string(),
+        })
+        .collect();
 
     // Python script: prints human-readable lines then a final __NS__=<value> for parsing
     let py_script = format!(
@@ -2748,10 +3177,7 @@ print(f"__NS__={{_per}}")
     );
 
     println!("Python transpiled");
-    let output = Command::new("python3")
-        .arg("-c")
-        .arg(&py_script)
-        .output();
+    let output = Command::new("python3").arg("-c").arg(&py_script).output();
 
     let mut py_ns: Option<u128> = None;
     match output {
@@ -2764,7 +3190,9 @@ print(f"__NS__={{_per}}")
                     println!("  {}", line);
                 }
             }
-            std::io::stderr().write_all(&out.stderr).expect("write to stderr");
+            std::io::stderr()
+                .write_all(&out.stderr)
+                .expect("write to stderr");
         }
         Err(e) => eprintln!("  failed to run python3: {}", e),
     }
@@ -2775,79 +3203,140 @@ print(f"__NS__={{_per}}")
     println!("Summary");
     if vm_ns > 0 && interp_ns > 0 {
         if vm_ns < interp_ns {
-            println!("  Register VM is {:.1}x faster than interpreter", interp_ns as f64 / vm_ns as f64);
+            println!(
+                "  Register VM is {:.1}x faster than interpreter",
+                interp_ns as f64 / vm_ns as f64
+            );
         } else {
-            println!("  Interpreter is {:.1}x faster than bytecode VM", vm_ns as f64 / interp_ns as f64);
+            println!(
+                "  Interpreter is {:.1}x faster than bytecode VM",
+                vm_ns as f64 / interp_ns as f64
+            );
         }
     }
     if let Some(jit_ns) = jit_arm64_ns
-        && jit_ns > 0 && vm_reuse_ns > 0 {
-            println!("  Custom JIT (arm64) is {:.1}x faster than VM (reusable)", vm_reuse_ns as f64 / jit_ns as f64);
-        }
+        && jit_ns > 0
+        && vm_reuse_ns > 0
+    {
+        println!(
+            "  Custom JIT (arm64) is {:.1}x faster than VM (reusable)",
+            vm_reuse_ns as f64 / jit_ns as f64
+        );
+    }
     if let Some(jit_ns) = jit_cranelift_ns
-        && jit_ns > 0 && vm_reuse_ns > 0 {
-            println!("  Cranelift JIT is {:.1}x faster than VM (reusable)", vm_reuse_ns as f64 / jit_ns as f64);
-        }
+        && jit_ns > 0
+        && vm_reuse_ns > 0
+    {
+        println!(
+            "  Cranelift JIT is {:.1}x faster than VM (reusable)",
+            vm_reuse_ns as f64 / jit_ns as f64
+        );
+    }
     if let Some(jit_ns) = jit_llvm_ns
-        && jit_ns > 0 && vm_reuse_ns > 0 {
-            println!("  LLVM JIT is {:.1}x faster than VM (reusable)", vm_reuse_ns as f64 / jit_ns as f64);
-        }
+        && jit_ns > 0
+        && vm_reuse_ns > 0
+    {
+        println!(
+            "  LLVM JIT is {:.1}x faster than VM (reusable)",
+            vm_reuse_ns as f64 / jit_ns as f64
+        );
+    }
     if let Some(py) = py_ns {
         if interp_ns > 0 && py > 0 {
             if interp_ns < py {
-                println!("  Rust interpreter is {:.1}x faster than Python", py as f64 / interp_ns as f64);
+                println!(
+                    "  Rust interpreter is {:.1}x faster than Python",
+                    py as f64 / interp_ns as f64
+                );
             } else {
-                println!("  Python is {:.1}x faster than Rust interpreter", interp_ns as f64 / py as f64);
+                println!(
+                    "  Python is {:.1}x faster than Rust interpreter",
+                    interp_ns as f64 / py as f64
+                );
             }
         }
         if vm_ns > 0 && py > 0 {
             if vm_ns < py {
-                println!("  Register VM is {:.1}x faster than Python", py as f64 / vm_ns as f64);
+                println!(
+                    "  Register VM is {:.1}x faster than Python",
+                    py as f64 / vm_ns as f64
+                );
             } else {
-                println!("  Python is {:.1}x faster than Register VM", vm_ns as f64 / py as f64);
+                println!(
+                    "  Python is {:.1}x faster than Register VM",
+                    vm_ns as f64 / py as f64
+                );
             }
         }
         if vm_reuse_ns > 0 && py > 0 {
             if vm_reuse_ns < py {
-                println!("  VM (reusable) is {:.1}x faster than Python", py as f64 / vm_reuse_ns as f64);
+                println!(
+                    "  VM (reusable) is {:.1}x faster than Python",
+                    py as f64 / vm_reuse_ns as f64
+                );
             } else {
-                println!("  Python is {:.1}x faster than VM (reusable)", vm_reuse_ns as f64 / py as f64);
+                println!(
+                    "  Python is {:.1}x faster than VM (reusable)",
+                    vm_reuse_ns as f64 / py as f64
+                );
             }
         }
         if let Some(jit_ns) = jit_arm64_ns
-            && jit_ns > 0 && py > 0 {
-                println!("  Custom JIT (arm64) is {:.1}x faster than Python", py as f64 / jit_ns as f64);
-            }
+            && jit_ns > 0
+            && py > 0
+        {
+            println!(
+                "  Custom JIT (arm64) is {:.1}x faster than Python",
+                py as f64 / jit_ns as f64
+            );
+        }
         if let Some(jit_ns) = jit_cranelift_ns
-            && jit_ns > 0 && py > 0 {
-                println!("  Cranelift JIT is {:.1}x faster than Python", py as f64 / jit_ns as f64);
-            }
+            && jit_ns > 0
+            && py > 0
+        {
+            println!(
+                "  Cranelift JIT is {:.1}x faster than Python",
+                py as f64 / jit_ns as f64
+            );
+        }
         if let Some(jit_ns) = jit_llvm_ns
-            && jit_ns > 0 && py > 0 {
-                println!("  LLVM JIT is {:.1}x faster than Python", py as f64 / jit_ns as f64);
-            }
+            && jit_ns > 0
+            && py > 0
+        {
+            println!(
+                "  LLVM JIT is {:.1}x faster than Python",
+                py as f64 / jit_ns as f64
+            );
+        }
     }
 }
 
 fn parse_cli_arg(s: &str) -> interpreter::Value {
     // Bracketed list: [1,2,3] or []
     if s.starts_with('[') && s.ends_with(']') {
-        let inner = s[1..s.len()-1].trim();
+        let inner = s[1..s.len() - 1].trim();
         if inner.is_empty() {
             return interpreter::Value::List(vec![]);
         }
-        let items = inner.split(',').map(|part| parse_cli_arg(part.trim())).collect();
+        let items = inner
+            .split(',')
+            .map(|part| parse_cli_arg(part.trim()))
+            .collect();
         return interpreter::Value::List(items);
     }
     // Bare comma list: 1,2,3
     if s.contains(',') {
-        let items = s.split(',').map(|part| parse_cli_arg(part.trim())).collect();
+        let items = s
+            .split(',')
+            .map(|part| parse_cli_arg(part.trim()))
+            .collect();
         return interpreter::Value::List(items);
     }
     if let Ok(n) = s.parse::<f64>()
-        && n.is_finite() {
-            return interpreter::Value::Number(n);
-        }
+        && n.is_finite()
+    {
+        return interpreter::Value::Number(n);
+    }
     if s == "true" {
         interpreter::Value::Bool(true)
     } else if s == "false" {
@@ -2869,7 +3358,15 @@ mod tests {
         let tokens = lexer::lex(src).unwrap();
         let token_spans: Vec<_> = tokens
             .into_iter()
-            .map(|(t, r)| (t, ast::Span { start: r.start, end: r.end }))
+            .map(|(t, r)| {
+                (
+                    t,
+                    ast::Span {
+                        start: r.start,
+                        end: r.end,
+                    },
+                )
+            })
             .collect();
         let (program, _) = parser::parse(token_spans);
         vm::compile(&program).unwrap()
@@ -2879,7 +3376,15 @@ mod tests {
         let tokens = lexer::lex(src).unwrap();
         let token_spans: Vec<_> = tokens
             .into_iter()
-            .map(|(t, r)| (t, ast::Span { start: r.start, end: r.end }))
+            .map(|(t, r)| {
+                (
+                    t,
+                    ast::Span {
+                        start: r.start,
+                        end: r.end,
+                    },
+                )
+            })
             .collect();
         let (mut program, _) = parser::parse(token_spans);
         program.source = Some(src.to_string());
@@ -2912,7 +3417,9 @@ mod tests {
 
     #[test]
     fn cli_arg_float() {
-        assert_eq!(parse_cli_arg("3.14"), interpreter::Value::Number(3.14));
+        #[allow(clippy::approx_constant)]
+        let expected = interpreter::Value::Number(3.14);
+        assert_eq!(parse_cli_arg("3.14"), expected);
     }
 
     #[test]
@@ -2927,7 +3434,10 @@ mod tests {
 
     #[test]
     fn cli_arg_text() {
-        assert_eq!(parse_cli_arg("hello"), interpreter::Value::Text("hello".into()));
+        assert_eq!(
+            parse_cli_arg("hello"),
+            interpreter::Value::Text("hello".into())
+        );
     }
 
     #[test]
@@ -3122,8 +3632,10 @@ mod tests {
     fn serv_result_err_value_returns_program_phase() {
         // Function returns Err value (not a runtime crash — interpreter returns Ok(Value::Err))
         let resp = run_serv(r#"{"program": "f>R n t;^\"oops\""}"#);
-        assert_eq!(resp["error"]["phase"], "program",
-            "expected program phase for Err value, got: {resp}");
+        assert_eq!(
+            resp["error"]["phase"], "program",
+            "expected program phase for Err value, got: {resp}"
+        );
     }
 
     #[test]
@@ -3158,17 +3670,17 @@ mod tests {
 
     #[test]
     fn tool_ok_type_extracts_ok_branch() {
-        let ty = ast::Type::Result(
-            Box::new(ast::Type::Number),
-            Box::new(ast::Type::Text),
-        );
+        let ty = ast::Type::Result(Box::new(ast::Type::Number), Box::new(ast::Type::Text));
         assert!(matches!(tool_ok_type(&ty), ast::Type::Number));
     }
 
     #[test]
     fn tool_ok_type_passthrough_non_result() {
         assert!(matches!(tool_ok_type(&ast::Type::Text), ast::Type::Text));
-        assert!(matches!(tool_ok_type(&ast::Type::Number), ast::Type::Number));
+        assert!(matches!(
+            tool_ok_type(&ast::Type::Number),
+            ast::Type::Number
+        ));
         assert!(matches!(tool_ok_type(&ast::Type::Bool), ast::Type::Bool));
     }
 
@@ -3176,7 +3688,10 @@ mod tests {
 
     #[test]
     fn pipe_compat_same_primitives() {
-        assert!(types_pipe_compatible(&ast::Type::Number, &ast::Type::Number));
+        assert!(types_pipe_compatible(
+            &ast::Type::Number,
+            &ast::Type::Number
+        ));
         assert!(types_pipe_compatible(&ast::Type::Text, &ast::Type::Text));
         assert!(types_pipe_compatible(&ast::Type::Bool, &ast::Type::Bool));
         assert!(types_pipe_compatible(&ast::Type::Any, &ast::Type::Any));
@@ -3190,8 +3705,14 @@ mod tests {
 
     #[test]
     fn pipe_compat_named_type_is_wildcard() {
-        assert!(types_pipe_compatible(&ast::Type::Named("foo".into()), &ast::Type::Text));
-        assert!(types_pipe_compatible(&ast::Type::Text, &ast::Type::Named("bar".into())));
+        assert!(types_pipe_compatible(
+            &ast::Type::Named("foo".into()),
+            &ast::Type::Text
+        ));
+        assert!(types_pipe_compatible(
+            &ast::Type::Text,
+            &ast::Type::Named("bar".into())
+        ));
     }
 
     #[test]
@@ -3233,15 +3754,24 @@ mod tests {
 
     #[test]
     fn tool_sig_str_one_param() {
-        let params = vec![ast::Param { name: "x".into(), ty: ast::Type::Number }];
+        let params = vec![ast::Param {
+            name: "x".into(),
+            ty: ast::Type::Number,
+        }];
         assert_eq!(tool_sig_str(&params, &ast::Type::Text), "x:n > t");
     }
 
     #[test]
     fn tool_sig_str_two_params() {
         let params = vec![
-            ast::Param { name: "a".into(), ty: ast::Type::Number },
-            ast::Param { name: "b".into(), ty: ast::Type::Text },
+            ast::Param {
+                name: "a".into(),
+                ty: ast::Type::Number,
+            },
+            ast::Param {
+                name: "b".into(),
+                ty: ast::Type::Text,
+            },
         ];
         assert_eq!(tool_sig_str(&params, &ast::Type::Bool), "a:n b:t > b");
     }
@@ -3400,7 +3930,10 @@ mod tests {
 
         let names: Vec<&str> = result.iter().filter_map(|d| decl_name(d)).collect();
         assert!(names.contains(&"dbl"), "expected dbl: {names:?}");
-        assert!(!names.contains(&"half"), "half should be filtered: {names:?}");
+        assert!(
+            !names.contains(&"half"),
+            "half should be filtered: {names:?}"
+        );
         assert!(diags.is_empty(), "no errors expected: {diags:?}");
 
         std::fs::remove_file(lib_path).ok();
@@ -3429,7 +3962,7 @@ mod tests {
         );
 
         assert!(
-            diags.iter().any(|d| d.code.as_deref() == Some("ILO-P019")),
+            diags.iter().any(|d| d.code == Some("ILO-P019")),
             "expected ILO-P019 for missing name, got: {diags:?}"
         );
 
@@ -3445,7 +3978,12 @@ mod tests {
         assert!(val.is_object());
         let obj = val.as_object().unwrap();
         assert_eq!(obj["code"], "ILO-T001");
-        assert!(obj["message"].as_str().unwrap().contains("something went wrong"));
+        assert!(
+            obj["message"]
+                .as_str()
+                .unwrap()
+                .contains("something went wrong")
+        );
     }
 
     #[test]
@@ -3541,8 +4079,10 @@ mod tests {
             Some("f"),
             vec![interpreter::Value::Number(5.0)],
             None,
-            #[cfg(feature = "tools")] None,
-            #[cfg(feature = "tools")] None,
+            #[cfg(feature = "tools")]
+            None,
+            #[cfg(feature = "tools")]
+            None,
             "f x:n>n;*x 2",
             OutputMode::Text,
             false,
@@ -3557,8 +4097,10 @@ mod tests {
             Some("f"),
             vec![interpreter::Value::Number(4.0)],
             None,
-            #[cfg(feature = "tools")] None,
-            #[cfg(feature = "tools")] None,
+            #[cfg(feature = "tools")]
+            None,
+            #[cfg(feature = "tools")]
+            None,
             "f x:n>n;*x 3",
             OutputMode::Json,
             true,
@@ -3575,8 +4117,10 @@ mod tests {
             Some("f"),
             vec![interpreter::Value::Number(7.0)],
             None,
-            #[cfg(feature = "tools")] None,
-            #[cfg(feature = "tools")] None,
+            #[cfg(feature = "tools")]
+            None,
+            #[cfg(feature = "tools")]
+            None,
             "f x:n>n;*x 2",
             OutputMode::Text,
             false,
@@ -3591,8 +4135,10 @@ mod tests {
             Some("f"),
             vec![interpreter::Value::Number(10.0)],
             None,
-            #[cfg(feature = "tools")] None,
-            #[cfg(feature = "tools")] None,
+            #[cfg(feature = "tools")]
+            None,
+            #[cfg(feature = "tools")]
+            None,
             "f x:n>n;+x 1",
             OutputMode::Json,
             true,
@@ -3604,23 +4150,40 @@ mod tests {
     #[test]
     fn run_default_simple_numeric() {
         let program = make_program("f x:n>n;*x 2");
-        run_default(&program, Some("f"), vec![interpreter::Value::Number(3.0)],
-            "f x:n>n;*x 2", OutputMode::Text, false);
+        run_default(
+            &program,
+            Some("f"),
+            vec![interpreter::Value::Number(3.0)],
+            "f x:n>n;*x 2",
+            OutputMode::Text,
+            false,
+        );
     }
 
     #[test]
     fn run_default_text_result() {
         let program = make_program("greet name:t>t;cat \"hi \" name");
-        run_default(&program, Some("greet"),
+        run_default(
+            &program,
+            Some("greet"),
             vec![interpreter::Value::Text("world".into())],
-            "greet name:t>t;cat \"hi \" name", OutputMode::Text, false);
+            "greet name:t>t;cat \"hi \" name",
+            OutputMode::Text,
+            false,
+        );
     }
 
     #[test]
     fn run_default_none_func_name_uses_first() {
         let program = make_program("double x:n>n;*x 2");
-        run_default(&program, None, vec![interpreter::Value::Number(4.0)],
-            "double x:n>n;*x 2", OutputMode::Text, false);
+        run_default(
+            &program,
+            None,
+            vec![interpreter::Value::Number(4.0)],
+            "double x:n>n;*x 2",
+            OutputMode::Text,
+            false,
+        );
     }
 
     // ── resolve_imports: additional paths ─────────────────────────────────────
@@ -3636,7 +4199,7 @@ mod tests {
         let mut diags = Vec::new();
         let result = resolve_imports(vec![use_decl], None, &mut visited, &mut diags);
         assert!(result.is_empty());
-        assert!(diags.iter().any(|d| d.code.as_deref() == Some("ILO-P017")));
+        assert!(diags.iter().any(|d| d.code == Some("ILO-P017")));
         assert!(diags[0].message.contains("inline code"));
     }
 
@@ -3650,11 +4213,17 @@ mod tests {
         let mut visited = std::collections::HashSet::new();
         let mut diags = Vec::new();
         let result = resolve_imports(
-            vec![use_decl], Some(std::path::Path::new("/tmp")), &mut visited, &mut diags,
+            vec![use_decl],
+            Some(std::path::Path::new("/tmp")),
+            &mut visited,
+            &mut diags,
         );
         assert!(result.is_empty());
-        assert!(diags.iter().any(|d| d.code.as_deref() == Some("ILO-P017")
-            && d.message.contains("file not found")));
+        assert!(
+            diags
+                .iter()
+                .any(|d| d.code == Some("ILO-P017") && d.message.contains("file not found"))
+        );
     }
 
     #[test]
@@ -3749,9 +4318,17 @@ mod tests {
         }];
         let mut visited = std::collections::HashSet::new();
         let mut diags = Vec::new();
-        let _ = resolve_imports(decls, Some(std::path::Path::new("/tmp")), &mut visited, &mut diags);
+        let _ = resolve_imports(
+            decls,
+            Some(std::path::Path::new("/tmp")),
+            &mut visited,
+            &mut diags,
+        );
 
-        assert!(!diags.is_empty(), "expected parse error diagnostic from imported file");
+        assert!(
+            !diags.is_empty(),
+            "expected parse error diagnostic from imported file"
+        );
         std::fs::remove_file(bad_path).ok();
     }
 
@@ -3763,8 +4340,11 @@ mod tests {
         let file_a = "/tmp/ilo_unit_trans_a_Q3R8.ilo";
 
         std::fs::write(file_b, "triple x:n>n;*x 3").expect("write B");
-        std::fs::write(file_a, "use \"ilo_unit_trans_b_Q3R8.ilo\"\nsextuple x:n>n;t=triple x;*t 2")
-            .expect("write A");
+        std::fs::write(
+            file_a,
+            "use \"ilo_unit_trans_b_Q3R8.ilo\"\nsextuple x:n>n;t=triple x;*t 2",
+        )
+        .expect("write A");
 
         let decls = vec![ast::Decl::Use {
             path: "ilo_unit_trans_a_Q3R8.ilo".into(),
@@ -3773,7 +4353,12 @@ mod tests {
         }];
         let mut visited = std::collections::HashSet::new();
         let mut diags = Vec::new();
-        let result = resolve_imports(decls, Some(std::path::Path::new("/tmp")), &mut visited, &mut diags);
+        let result = resolve_imports(
+            decls,
+            Some(std::path::Path::new("/tmp")),
+            &mut visited,
+            &mut diags,
+        );
 
         assert!(diags.is_empty(), "unexpected diagnostics: {diags:?}");
         let names: Vec<_> = result.iter().filter_map(|d| decl_name(d)).collect();
@@ -3970,11 +4555,11 @@ mod tests {
         let tool_decl = ast::Decl::Tool {
             name: "echo_tool".into(),
             description: "echoes input".into(),
-            params: vec![ast::Param { name: "msg".into(), ty: ast::Type::Text }],
-            return_type: ast::Type::Result(
-                Box::new(ast::Type::Text),
-                Box::new(ast::Type::Text),
-            ),
+            params: vec![ast::Param {
+                name: "msg".into(),
+                ty: ast::Type::Text,
+            }],
+            return_type: ast::Type::Result(Box::new(ast::Type::Text), Box::new(ast::Type::Text)),
             timeout: None,
             retry: None,
             span: ast::Span { start: 0, end: 0 },
@@ -3996,7 +4581,10 @@ mod tests {
             process_serv_request(line, &[tool_decl], None, None, rt)
         };
 
-        assert!(resp.get("ok").is_some(), "expected ok response, got: {resp}");
+        assert!(
+            resp.get("ok").is_some(),
+            "expected ok response, got: {resp}"
+        );
         assert_eq!(resp["ok"].as_f64(), Some(42.0));
     }
 
@@ -4048,7 +4636,7 @@ mod tests {
         let exe = std::env::current_exe().expect("current_exe");
         // Go up from deps/ to the profile dir (debug or release)
         let profile_dir = exe
-            .parent()          // deps/
+            .parent() // deps/
             .and_then(|p| p.parent()) // debug/ or release/
             .expect("could not locate profile dir");
         let bin = profile_dir.join("ilo");
@@ -4077,7 +4665,13 @@ mod tests {
         );
         // Should contain the binary name or version token
         assert!(
-            stdout.to_lowercase().contains("ilo") || stdout.trim().chars().next().map(|c| c.is_ascii_digit()).unwrap_or(false),
+            stdout.to_lowercase().contains("ilo")
+                || stdout
+                    .trim()
+                    .chars()
+                    .next()
+                    .map(|c| c.is_ascii_digit())
+                    .unwrap_or(false),
             "expected ilo version string, got: {stdout}"
         );
     }
@@ -4216,7 +4810,9 @@ mod tests {
         );
         let stderr = String::from_utf8_lossy(&out.stderr);
         assert!(
-            stderr.contains("Unknown emit") || stderr.contains("Supported") || stderr.contains("python"),
+            stderr.contains("Unknown emit")
+                || stderr.contains("Supported")
+                || stderr.contains("python"),
             "expected unknown-emit error in stderr, got: {stderr}"
         );
     }
@@ -4415,7 +5011,10 @@ mod tests {
             Decl::Tool {
                 name: "alpha".into(),
                 description: "first tool".into(),
-                params: vec![Param { name: "x".into(), ty: Type::Number }],
+                params: vec![Param {
+                    name: "x".into(),
+                    ty: Type::Number,
+                }],
                 return_type: Type::Result(Box::new(Type::Text), Box::new(Type::Text)),
                 timeout: None,
                 retry: None,
@@ -4424,7 +5023,10 @@ mod tests {
             Decl::Tool {
                 name: "beta".into(),
                 description: "second tool".into(),
-                params: vec![Param { name: "s".into(), ty: Type::Text }],
+                params: vec![Param {
+                    name: "s".into(),
+                    ty: Type::Text,
+                }],
                 return_type: Type::Text,
                 timeout: None,
                 retry: None,
@@ -4443,7 +5045,10 @@ mod tests {
         let params: Vec<Param> = vec![];
         let ret = Type::Result(Box::new(Type::Number), Box::new(Type::Text));
         let sig = tool_sig_str(&params, &ret);
-        assert!(sig.starts_with('>'), "expected '>' prefix for no-param sig, got: {sig}");
+        assert!(
+            sig.starts_with('>'),
+            "expected '>' prefix for no-param sig, got: {sig}"
+        );
         assert!(sig.contains("R"), "expected result type in sig, got: {sig}");
     }
 
@@ -4604,10 +5209,7 @@ mod tests {
     fn tools_cmd_human_flag_renders_no_panic() {
         // Covers: --human flag (lines 57-58), Human rendering without --full (lines 122, 126)
         let path = write_tools_config_unit("human_unit");
-        tools_cmd(&[
-            "--tools".to_string(), path.clone(),
-            "--human".to_string(),
-        ]);
+        tools_cmd(&["--tools".to_string(), path.clone(), "--human".to_string()]);
         std::fs::remove_file(&path).ok();
     }
 
@@ -4615,10 +5217,7 @@ mod tests {
     fn tools_cmd_ilo_flag_renders_no_panic() {
         // Covers: --ilo flag (lines 60-61), full=true (line 99-100), Ilo rendering (lines 140-147)
         let path = write_tools_config_unit("ilo_unit");
-        tools_cmd(&[
-            "--tools".to_string(), path.clone(),
-            "--ilo".to_string(),
-        ]);
+        tools_cmd(&["--tools".to_string(), path.clone(), "--ilo".to_string()]);
         std::fs::remove_file(&path).ok();
     }
 
@@ -4626,10 +5225,7 @@ mod tests {
     fn tools_cmd_json_flag_renders_no_panic() {
         // Covers: --json flag (lines 64-65), Json rendering (lines 149-181)
         let path = write_tools_config_unit("json_unit");
-        tools_cmd(&[
-            "--tools".to_string(), path.clone(),
-            "--json".to_string(),
-        ]);
+        tools_cmd(&["--tools".to_string(), path.clone(), "--json".to_string()]);
         std::fs::remove_file(&path).ok();
     }
 
@@ -4637,10 +5233,7 @@ mod tests {
     fn tools_cmd_full_flag_human_shows_http_label() {
         // Covers: --full flag (lines 68-70), Human+full path (lines 122, 124)
         let path = write_tools_config_unit("full_unit");
-        tools_cmd(&[
-            "--tools".to_string(), path.clone(),
-            "--full".to_string(),
-        ]);
+        tools_cmd(&["--tools".to_string(), path.clone(), "--full".to_string()]);
         std::fs::remove_file(&path).ok();
     }
 
@@ -4648,10 +5241,7 @@ mod tests {
     fn tools_cmd_graph_flag_no_panic() {
         // Covers: --graph flag (lines 72-74), graph flag path (lines 190-192)
         let path = write_tools_config_unit("graph_unit");
-        tools_cmd(&[
-            "--tools".to_string(), path.clone(),
-            "--graph".to_string(),
-        ]);
+        tools_cmd(&["--tools".to_string(), path.clone(), "--graph".to_string()]);
         std::fs::remove_file(&path).ok();
     }
 
@@ -4660,11 +5250,14 @@ mod tests {
     #[test]
     fn print_tool_graph_with_function_decl_skipped() {
         // Covers line 205: the None arm of filter_map when decl is not a Tool.
-        use ast::{Decl, Param, Type, Span};
+        use ast::{Decl, Param, Span, Type};
         let decls = vec![
             Decl::Function {
                 name: "helper".into(),
-                params: vec![Param { name: "x".into(), ty: Type::Number }],
+                params: vec![Param {
+                    name: "x".into(),
+                    ty: Type::Number,
+                }],
                 return_type: Type::Number,
                 body: vec![],
                 span: Span::UNKNOWN,
@@ -4672,7 +5265,10 @@ mod tests {
             Decl::Tool {
                 name: "alpha".into(),
                 description: "a tool".into(),
-                params: vec![Param { name: "x".into(), ty: Type::Text }],
+                params: vec![Param {
+                    name: "x".into(),
+                    ty: Type::Text,
+                }],
                 return_type: Type::Result(Box::new(Type::Text), Box::new(Type::Text)),
                 timeout: None,
                 retry: None,
@@ -4688,8 +5284,14 @@ mod tests {
     #[test]
     fn tool_sig_str_with_params() {
         let params = vec![
-            ast::Param { name: "url".into(), ty: ast::Type::Text },
-            ast::Param { name: "limit".into(), ty: ast::Type::Number },
+            ast::Param {
+                name: "url".into(),
+                ty: ast::Type::Text,
+            },
+            ast::Param {
+                name: "limit".into(),
+                ty: ast::Type::Number,
+            },
         ];
         let ret = ast::Type::Result(Box::new(ast::Type::Text), Box::new(ast::Type::Text));
         let sig = tool_sig_str(&params, &ret);
@@ -4708,11 +5310,26 @@ mod tests {
             name: "search".into(),
             description: "search tool".into(),
             params: vec![
-                Param { name: "url".into(),   ty: Type::Text },
-                Param { name: "query".into(), ty: Type::Text },
-                Param { name: "page".into(),  ty: Type::Number },
-                Param { name: "limit".into(), ty: Type::Number },
-                Param { name: "size".into(),  ty: Type::Number },
+                Param {
+                    name: "url".into(),
+                    ty: Type::Text,
+                },
+                Param {
+                    name: "query".into(),
+                    ty: Type::Text,
+                },
+                Param {
+                    name: "page".into(),
+                    ty: Type::Number,
+                },
+                Param {
+                    name: "limit".into(),
+                    ty: Type::Number,
+                },
+                Param {
+                    name: "size".into(),
+                    ty: Type::Number,
+                },
             ],
             return_type: Type::Result(Box::new(Type::Text), Box::new(Type::Text)),
             timeout: None,
@@ -4736,10 +5353,18 @@ mod tests {
         let decls = vec![make_use_decl(dir_name)];
         let mut visited = std::collections::HashSet::new();
         let mut diagnostics = Vec::new();
-        let result = resolve_imports(decls, Some(std::path::Path::new("/tmp")), &mut visited, &mut diagnostics);
+        let result = resolve_imports(
+            decls,
+            Some(std::path::Path::new("/tmp")),
+            &mut visited,
+            &mut diagnostics,
+        );
 
         assert!(result.is_empty());
-        assert!(!diagnostics.is_empty(), "should emit error for directory import");
+        assert!(
+            !diagnostics.is_empty(),
+            "should emit error for directory import"
+        );
 
         std::fs::remove_dir(&dir_path).ok();
     }
@@ -4831,9 +5456,9 @@ mod tests {
     #[test]
     fn type_to_ilo_nested_optional_list() {
         assert_eq!(
-            type_to_ilo(&ast::Type::Optional(Box::new(ast::Type::List(
-                Box::new(ast::Type::Number)
-            )))),
+            type_to_ilo(&ast::Type::Optional(Box::new(ast::Type::List(Box::new(
+                ast::Type::Number
+            ))))),
             "O L n"
         );
     }
@@ -4920,9 +5545,9 @@ mod tests {
         unsafe { std::env::remove_var(key) };
 
         let mut f = std::fs::File::create(path).unwrap();
-        writeln!(f, "# comment").unwrap();          // skipped (comment)
-        writeln!(f, "no_equals_here").unwrap();      // split_once returns None → line 826
-        writeln!(f, "{key}=set_value").unwrap();     // normal assignment
+        writeln!(f, "# comment").unwrap(); // skipped (comment)
+        writeln!(f, "no_equals_here").unwrap(); // split_once returns None → line 826
+        writeln!(f, "{key}=set_value").unwrap(); // normal assignment
         drop(f);
 
         load_env_file(path);

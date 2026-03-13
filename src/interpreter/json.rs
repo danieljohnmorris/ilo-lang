@@ -19,7 +19,9 @@ impl Value {
                     return Ok(serde_json::Value::Null);
                 }
                 if n.fract() == 0.0 && n.abs() < 1e15 {
-                    Ok(serde_json::Value::Number(serde_json::Number::from(*n as i64)))
+                    Ok(serde_json::Value::Number(serde_json::Number::from(
+                        *n as i64,
+                    )))
                 } else {
                     serde_json::Number::from_f64(*n)
                         .map(serde_json::Value::Number)
@@ -78,7 +80,8 @@ impl Value {
         match json {
             serde_json::Value::Number(n) => {
                 // Prefer f64 directly; fall back through i64 for large integers.
-                let f = n.as_f64()
+                let f = n
+                    .as_f64()
                     .or_else(|| n.as_i64().map(|i| i as f64))
                     .unwrap_or(0.0);
                 Ok(Value::Number(f))
@@ -87,7 +90,8 @@ impl Value {
             serde_json::Value::Bool(b) => Ok(Value::Bool(*b)),
             serde_json::Value::Null => Ok(Value::Nil),
             serde_json::Value::Array(arr) => {
-                let items: Result<Vec<_>, _> = arr.iter().map(|v| Value::from_json(v, None)).collect();
+                let items: Result<Vec<_>, _> =
+                    arr.iter().map(|v| Value::from_json(v, None)).collect();
                 Ok(Value::List(items?))
             }
             serde_json::Value::Object(map) => {
@@ -107,7 +111,10 @@ impl Value {
                 for (k, v) in map {
                     fields.insert(k.clone(), Value::from_json(v, None)?);
                 }
-                Ok(Value::Record { type_name: "_".to_string(), fields })
+                Ok(Value::Record {
+                    type_name: "_".to_string(),
+                    fields,
+                })
             }
         }
     }
@@ -172,7 +179,10 @@ mod tests {
     fn to_json_record() {
         let mut fields = std::collections::HashMap::new();
         fields.insert("x".to_string(), Value::Number(5.0));
-        let v = Value::Record { type_name: "Point".to_string(), fields };
+        let v = Value::Record {
+            type_name: "Point".to_string(),
+            fields,
+        };
         let j = v.to_json().unwrap();
         assert_eq!(j["x"], json!(5));
     }
@@ -211,7 +221,10 @@ mod tests {
 
     #[test]
     fn from_json_bool() {
-        assert_eq!(Value::from_json(&json!(true), None).unwrap(), Value::Bool(true));
+        assert_eq!(
+            Value::from_json(&json!(true), None).unwrap(),
+            Value::Bool(true)
+        );
     }
 
     #[test]
@@ -222,7 +235,14 @@ mod tests {
     #[test]
     fn from_json_array() {
         let v = Value::from_json(&json!([1, 2, 3]), None).unwrap();
-        assert_eq!(v, Value::List(vec![Value::Number(1.0), Value::Number(2.0), Value::Number(3.0)]));
+        assert_eq!(
+            v,
+            Value::List(vec![
+                Value::Number(1.0),
+                Value::Number(2.0),
+                Value::Number(3.0)
+            ])
+        );
     }
 
     #[test]

@@ -4,8 +4,8 @@
 //! LLVM brings the heaviest optimization pipeline (same passes as clang -O2).
 
 use super::*;
-use inkwell::context::Context;
 use inkwell::OptimizationLevel;
+use inkwell::context::Context;
 use inkwell::targets::{InitializationConfig, Target};
 
 /// Check if a chunk uses only numeric-safe opcodes.
@@ -13,13 +13,16 @@ pub(crate) fn is_jit_eligible(chunk: &Chunk) -> bool {
     for &inst in &chunk.code {
         let op = (inst >> 24) as u8;
         match op {
-            OP_ADD_NN | OP_SUB_NN | OP_MUL_NN | OP_DIV_NN |
-            OP_ADDK_N | OP_SUBK_N | OP_MULK_N | OP_DIVK_N |
-            OP_MOVE | OP_NEG | OP_RET => {}
+            OP_ADD_NN | OP_SUB_NN | OP_MUL_NN | OP_DIV_NN | OP_ADDK_N | OP_SUBK_N | OP_MULK_N
+            | OP_DIVK_N | OP_MOVE | OP_NEG | OP_RET => {}
             OP_LOADK => {
                 let bx = (inst & 0xFFFF) as usize;
-                if bx >= chunk.constants.len() { return false; }
-                if !matches!(chunk.constants[bx], Value::Number(_)) { return false; }
+                if bx >= chunk.constants.len() {
+                    return false;
+                }
+                if !matches!(chunk.constants[bx], Value::Number(_)) {
+                    return false;
+                }
             }
             _ => return false,
         }
@@ -38,7 +41,9 @@ unsafe impl Send for JitFunction {}
 
 /// Compile a chunk into native code via LLVM.
 pub(crate) fn compile(chunk: &Chunk, nan_consts: &[NanVal]) -> Option<JitFunction> {
-    if !is_jit_eligible(chunk) { return None; }
+    if !is_jit_eligible(chunk) {
+        return None;
+    }
 
     Target::initialize_native(&InitializationConfig::default()).ok()?;
 
@@ -141,7 +146,9 @@ pub(crate) fn compile(chunk: &Chunk, nan_consts: &[NanVal]) -> Option<JitFunctio
     }
 
     // Create execution engine with O2 optimization
-    let engine = module.create_jit_execution_engine(OptimizationLevel::Aggressive).ok()?;
+    let engine = module
+        .create_jit_execution_engine(OptimizationLevel::Aggressive)
+        .ok()?;
     let func_ptr = engine.get_function_address("jit_func").ok()? as *const u8;
 
     // We need to keep the context alive — but execution engine owns the module.
@@ -167,7 +174,9 @@ pub(crate) fn compile(chunk: &Chunk, nan_consts: &[NanVal]) -> Option<JitFunctio
 ///    successful compilation by the LLVM MCJIT engine.
 /// 3. `args.len() == func.param_count` is checked before dispatch.
 pub(crate) fn call(func: &JitFunction, args: &[f64]) -> Option<f64> {
-    if args.len() != func.param_count { return None; }
+    if args.len() != func.param_count {
+        return None;
+    }
     Some(match args.len() {
         0 => {
             // SAFETY: see call() doc — LLVM compiled with 0 f64 params, returns f64.
@@ -184,28 +193,38 @@ pub(crate) fn call(func: &JitFunction, args: &[f64]) -> Option<f64> {
             f(args[0], args[1])
         }
         3 => {
-            let f: extern "C" fn(f64, f64, f64) -> f64 = unsafe { std::mem::transmute(func.func_ptr) };
+            let f: extern "C" fn(f64, f64, f64) -> f64 =
+                unsafe { std::mem::transmute(func.func_ptr) };
             f(args[0], args[1], args[2])
         }
         4 => {
-            let f: extern "C" fn(f64, f64, f64, f64) -> f64 = unsafe { std::mem::transmute(func.func_ptr) };
+            let f: extern "C" fn(f64, f64, f64, f64) -> f64 =
+                unsafe { std::mem::transmute(func.func_ptr) };
             f(args[0], args[1], args[2], args[3])
         }
         5 => {
-            let f: extern "C" fn(f64, f64, f64, f64, f64) -> f64 = unsafe { std::mem::transmute(func.func_ptr) };
+            let f: extern "C" fn(f64, f64, f64, f64, f64) -> f64 =
+                unsafe { std::mem::transmute(func.func_ptr) };
             f(args[0], args[1], args[2], args[3], args[4])
         }
         6 => {
-            let f: extern "C" fn(f64, f64, f64, f64, f64, f64) -> f64 = unsafe { std::mem::transmute(func.func_ptr) };
+            let f: extern "C" fn(f64, f64, f64, f64, f64, f64) -> f64 =
+                unsafe { std::mem::transmute(func.func_ptr) };
             f(args[0], args[1], args[2], args[3], args[4], args[5])
         }
         7 => {
-            let f: extern "C" fn(f64, f64, f64, f64, f64, f64, f64) -> f64 = unsafe { std::mem::transmute(func.func_ptr) };
-            f(args[0], args[1], args[2], args[3], args[4], args[5], args[6])
+            let f: extern "C" fn(f64, f64, f64, f64, f64, f64, f64) -> f64 =
+                unsafe { std::mem::transmute(func.func_ptr) };
+            f(
+                args[0], args[1], args[2], args[3], args[4], args[5], args[6],
+            )
         }
         8 => {
-            let f: extern "C" fn(f64, f64, f64, f64, f64, f64, f64, f64) -> f64 = unsafe { std::mem::transmute(func.func_ptr) };
-            f(args[0], args[1], args[2], args[3], args[4], args[5], args[6], args[7])
+            let f: extern "C" fn(f64, f64, f64, f64, f64, f64, f64, f64) -> f64 =
+                unsafe { std::mem::transmute(func.func_ptr) };
+            f(
+                args[0], args[1], args[2], args[3], args[4], args[5], args[6], args[7],
+            )
         }
         _ => return None,
     })

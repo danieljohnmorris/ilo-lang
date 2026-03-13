@@ -75,9 +75,8 @@ impl ToolProvider for HttpProvider {
                     .collect::<Result<_, _>>()?;
 
                 let body = serde_json::json!({ "args": json_args });
-                let timeout = std::time::Duration::from_secs_f64(
-                    endpoint.timeout_secs.unwrap_or(30.0),
-                );
+                let timeout =
+                    std::time::Duration::from_secs_f64(endpoint.timeout_secs.unwrap_or(30.0));
 
                 let method = endpoint.method.as_deref().unwrap_or("POST");
                 let mut req = match method.to_uppercase().as_str() {
@@ -93,18 +92,13 @@ impl ToolProvider for HttpProvider {
                     req = req.header(k, v);
                 }
 
-                let resp = req
-                    .json(&body)
-                    .timeout(timeout)
-                    .send()
-                    .await
-                    .map_err(|e| {
-                        if e.is_timeout() {
-                            ToolError::Timeout(name.clone())
-                        } else {
-                            ToolError::Http(name.clone(), e.to_string())
-                        }
-                    })?;
+                let resp = req.json(&body).timeout(timeout).send().await.map_err(|e| {
+                    if e.is_timeout() {
+                        ToolError::Timeout(name.clone())
+                    } else {
+                        ToolError::Http(name.clone(), e.to_string())
+                    }
+                })?;
 
                 let status = resp.status();
                 let json: serde_json::Value = resp
@@ -164,11 +158,7 @@ mod tests {
     fn from_file_valid_json() {
         let mut path = std::env::temp_dir();
         path.push("ilo_test_http_provider_valid.json");
-        std::fs::write(
-            &path,
-            r#"{"tools":{"ping":{"url":"http://example.com"}}}"#,
-        )
-        .unwrap();
+        std::fs::write(&path, r#"{"tools":{"ping":{"url":"http://example.com"}}}"#).unwrap();
 
         let result = ToolsConfig::from_file(path.to_str().unwrap());
         std::fs::remove_file(&path).ok();

@@ -1,8 +1,8 @@
-use std::collections::{HashMap, HashSet, BTreeSet, VecDeque};
-use serde::Serialize;
-use crate::ast::{self, Decl, Stmt, Expr, Type, Program};
+use crate::ast::{self, Decl, Expr, Program, Stmt, Type};
 use crate::builtins::Builtin;
 use crate::codegen::fmt::{self, FmtMode};
+use serde::Serialize;
+use std::collections::{BTreeSet, HashMap, HashSet, VecDeque};
 
 // ── Output types ────────────────────────────────────────────────────────────
 
@@ -89,7 +89,9 @@ fn collect_calls(expr: &Expr, calls: &mut BTreeSet<String>, types: &mut BTreeSet
                 collect_calls(arg, calls, types);
             }
         }
-        Expr::Record { type_name, fields, .. } => {
+        Expr::Record {
+            type_name, fields, ..
+        } => {
             types.insert(type_name.clone());
             for (_, val) in fields {
                 collect_calls(val, calls, types);
@@ -118,7 +120,11 @@ fn collect_calls(expr: &Expr, calls: &mut BTreeSet<String>, types: &mut BTreeSet
                 collect_calls(val, calls, types);
             }
         }
-        Expr::Ternary { condition, then_expr, else_expr } => {
+        Expr::Ternary {
+            condition,
+            then_expr,
+            else_expr,
+        } => {
             collect_calls(condition, calls, types);
             collect_calls(then_expr, calls, types);
             collect_calls(else_expr, calls, types);
@@ -138,11 +144,20 @@ fn collect_calls(expr: &Expr, calls: &mut BTreeSet<String>, types: &mut BTreeSet
 }
 
 /// Walk statements, collecting function calls and type references.
-fn collect_stmts(stmts: &[ast::Spanned<Stmt>], calls: &mut BTreeSet<String>, types: &mut BTreeSet<String>) {
+fn collect_stmts(
+    stmts: &[ast::Spanned<Stmt>],
+    calls: &mut BTreeSet<String>,
+    types: &mut BTreeSet<String>,
+) {
     for spanned in stmts {
         match &spanned.node {
             Stmt::Let { value, .. } => collect_calls(value, calls, types),
-            Stmt::Guard { condition, body, else_body, .. } => {
+            Stmt::Guard {
+                condition,
+                body,
+                else_body,
+                ..
+            } => {
                 collect_calls(condition, calls, types);
                 collect_stmts(body, calls, types);
                 if let Some(eb) = else_body {
@@ -159,11 +174,15 @@ fn collect_stmts(stmts: &[ast::Spanned<Stmt>], calls: &mut BTreeSet<String>, typ
                     }
                 }
             }
-            Stmt::ForEach { collection, body, .. } => {
+            Stmt::ForEach {
+                collection, body, ..
+            } => {
                 collect_calls(collection, calls, types);
                 collect_stmts(body, calls, types);
             }
-            Stmt::ForRange { start, end, body, .. } => {
+            Stmt::ForRange {
+                start, end, body, ..
+            } => {
                 collect_calls(start, calls, types);
                 collect_calls(end, calls, types);
                 collect_stmts(body, calls, types);
@@ -251,7 +270,14 @@ pub fn build_graph(program: &Program) -> ProgramGraph {
 
     // 1. Process functions: collect forward edges.
     for decl in &program.declarations {
-        if let Decl::Function { name, params, return_type, body, .. } = decl {
+        if let Decl::Function {
+            name,
+            params,
+            return_type,
+            body,
+            ..
+        } = decl
+        {
             let sig = format_sig(name, params, return_type);
 
             let mut raw_calls = BTreeSet::new();
@@ -278,12 +304,15 @@ pub fn build_graph(program: &Program) -> ProgramGraph {
                 .filter(|t| user_types.contains(t))
                 .collect();
 
-            functions.insert(name.clone(), FuncNode {
-                sig,
-                calls,
-                called_by: BTreeSet::new(),
-                types_used,
-            });
+            functions.insert(
+                name.clone(),
+                FuncNode {
+                    sig,
+                    calls,
+                    called_by: BTreeSet::new(),
+                    types_used,
+                },
+            );
         }
     }
 
@@ -305,7 +334,13 @@ pub fn build_graph(program: &Program) -> ProgramGraph {
                 .filter(|r| user_types.contains(r))
                 .collect();
 
-            types.insert(name.clone(), TypeNode { fields: field_list, refs });
+            types.insert(
+                name.clone(),
+                TypeNode {
+                    fields: field_list,
+                    refs,
+                },
+            );
         }
     }
 
@@ -343,10 +378,13 @@ pub fn query_fn(program: &Program, graph: &ProgramGraph, fn_name: &str) -> Optio
     let mut deps = HashMap::new();
     for dep_name in &node.calls {
         if let Some(dep_node) = graph.functions.get(dep_name) {
-            deps.insert(dep_name.clone(), DepInfo {
-                sig: dep_node.sig.clone(),
-                source: None,
-            });
+            deps.insert(
+                dep_name.clone(),
+                DepInfo {
+                    sig: dep_node.sig.clone(),
+                    source: None,
+                },
+            );
         }
     }
 
@@ -354,9 +392,12 @@ pub fn query_fn(program: &Program, graph: &ProgramGraph, fn_name: &str) -> Optio
     let mut type_infos = HashMap::new();
     for type_name in &node.types_used {
         if let Some(decl) = find_decl(program, type_name) {
-            type_infos.insert(type_name.clone(), TypeInfo {
-                source: fmt::format_decl(decl, FmtMode::Dense),
-            });
+            type_infos.insert(
+                type_name.clone(),
+                TypeInfo {
+                    source: fmt::format_decl(decl, FmtMode::Dense),
+                },
+            );
         }
     }
 
@@ -369,17 +410,24 @@ pub fn query_fn(program: &Program, graph: &ProgramGraph, fn_name: &str) -> Optio
 }
 
 /// Query: reverse callers of a function.
-pub fn query_reverse(_program: &Program, graph: &ProgramGraph, fn_name: &str) -> Option<ReverseQuery> {
+pub fn query_reverse(
+    _program: &Program,
+    graph: &ProgramGraph,
+    fn_name: &str,
+) -> Option<ReverseQuery> {
     let node = graph.functions.get(fn_name)?;
 
     let callers: Vec<CallerInfo> = node
         .called_by
         .iter()
         .filter_map(|caller_name| {
-            graph.functions.get(caller_name).map(|caller_node| CallerInfo {
-                name: caller_name.clone(),
-                sig: caller_node.sig.clone(),
-            })
+            graph
+                .functions
+                .get(caller_name)
+                .map(|caller_node| CallerInfo {
+                    name: caller_name.clone(),
+                    sig: caller_node.sig.clone(),
+                })
         })
         .collect();
 
@@ -427,12 +475,14 @@ pub fn query_subgraph(program: &Program, graph: &ProgramGraph, fn_name: &str) ->
             continue;
         }
         if let Some(dep_node) = graph.functions.get(name) {
-            let dep_source = find_decl(program, name)
-                .map(|d| fmt::format_decl(d, FmtMode::Dense));
-            deps.insert(name.clone(), DepInfo {
-                sig: dep_node.sig.clone(),
-                source: dep_source,
-            });
+            let dep_source = find_decl(program, name).map(|d| fmt::format_decl(d, FmtMode::Dense));
+            deps.insert(
+                name.clone(),
+                DepInfo {
+                    sig: dep_node.sig.clone(),
+                    source: dep_source,
+                },
+            );
         }
     }
 
@@ -449,9 +499,12 @@ pub fn query_subgraph(program: &Program, graph: &ProgramGraph, fn_name: &str) ->
     let mut type_infos = HashMap::new();
     for type_name in &all_types {
         if let Some(decl) = find_decl(program, type_name) {
-            type_infos.insert(type_name.clone(), TypeInfo {
-                source: fmt::format_decl(decl, FmtMode::Dense),
-            });
+            type_infos.insert(
+                type_name.clone(),
+                TypeInfo {
+                    source: fmt::format_decl(decl, FmtMode::Dense),
+                },
+            );
         }
     }
 
@@ -500,8 +553,7 @@ pub fn query_budget(
     }
 
     while let Some(current) = queue.pop_front() {
-        let dep_source = find_decl(program, &current)
-            .map(|d| fmt::format_decl(d, FmtMode::Dense));
+        let dep_source = find_decl(program, &current).map(|d| fmt::format_decl(d, FmtMode::Dense));
         let cost = dep_source.as_ref().map(|s| estimate_tokens(s)).unwrap_or(0);
 
         if used + cost > budget {
@@ -512,10 +564,13 @@ pub fn query_budget(
         used += cost;
 
         if let Some(dep_node) = graph.functions.get(&current) {
-            deps.insert(current.clone(), DepInfo {
-                sig: dep_node.sig.clone(),
-                source: dep_source,
-            });
+            deps.insert(
+                current.clone(),
+                DepInfo {
+                    sig: dep_node.sig.clone(),
+                    source: dep_source,
+                },
+            );
 
             for t in &dep_node.types_used {
                 all_types.insert(t.clone());
@@ -596,14 +651,22 @@ pub fn to_dot(graph: &ProgramGraph) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::parser;
     use crate::lexer;
+    use crate::parser;
 
     fn parse(src: &str) -> Program {
         let tokens = lexer::lex(src).unwrap();
         let token_spans: Vec<_> = tokens
             .into_iter()
-            .map(|(t, r)| (t, ast::Span { start: r.start, end: r.end }))
+            .map(|(t, r)| {
+                (
+                    t,
+                    ast::Span {
+                        start: r.start,
+                        end: r.end,
+                    },
+                )
+            })
             .collect();
         let (mut prog, _) = parser::parse(token_spans);
         ast::resolve_aliases(&mut prog);
@@ -890,7 +953,8 @@ mod tests {
     fn test_collect_stmts_break_with_value() {
         // `brk expr` breaks a loop with a value expression. We call a user
         // function inside the break value to trigger the arm.
-        let prog = parse("add a:n b:n>n;+a b\nextr n:n>n;i=0;wh <i n{i=+i 1;>=i 5{brk add i 0}{i}};i");
+        let prog =
+            parse("add a:n b:n>n;+a b\nextr n:n>n;i=0;wh <i n{i=+i 1;>=i 5{brk add i 0}{i}};i");
         let graph = build_graph(&prog);
         assert!(graph.functions["extr"].calls.contains("add"));
     }

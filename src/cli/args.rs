@@ -2,7 +2,11 @@ use clap::{Args, Parser, Subcommand, ValueEnum};
 
 /// ilo -- a token-minimal programming language for AI agents.
 #[derive(Parser, Debug)]
-#[command(name = "ilo", version, about = "Token-minimal programming language for AI agents")]
+#[command(
+    name = "ilo",
+    version,
+    about = "Token-minimal programming language for AI agents"
+)]
 #[command(args_conflicts_with_subcommands = true)]
 #[command(disable_help_subcommand = true)]
 #[command(disable_help_flag = true)]
@@ -362,7 +366,8 @@ mod tests {
 
     #[test]
     fn parse_tools_with_flags() {
-        let cli = Cli::try_parse_from(["ilo", "tools", "--mcp", "p.json", "--full", "--graph"]).unwrap();
+        let cli =
+            Cli::try_parse_from(["ilo", "tools", "--mcp", "p.json", "--full", "--graph"]).unwrap();
         match cli.cmd {
             Some(Cmd::Tools(t)) => {
                 assert_eq!(t.mcp_path.as_deref(), Some("p.json"));
@@ -375,7 +380,8 @@ mod tests {
 
     #[test]
     fn parse_graph_subcommand() {
-        let cli = Cli::try_parse_from(["ilo", "graph", "file.ilo", "--fn", "main", "--dot"]).unwrap();
+        let cli =
+            Cli::try_parse_from(["ilo", "graph", "file.ilo", "--fn", "main", "--dot"]).unwrap();
         match cli.cmd {
             Some(Cmd::Graph(g)) => {
                 assert_eq!(g.file, "file.ilo");
@@ -388,7 +394,8 @@ mod tests {
 
     #[test]
     fn parse_compile_subcommand() {
-        let cli = Cli::try_parse_from(["ilo", "compile", "prog.ilo", "-o", "out", "--bench"]).unwrap();
+        let cli =
+            Cli::try_parse_from(["ilo", "compile", "prog.ilo", "-o", "out", "--bench"]).unwrap();
         match cli.cmd {
             Some(Cmd::Compile(c)) => {
                 assert_eq!(c.source, "prog.ilo");

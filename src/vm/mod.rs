@@ -1,8 +1,8 @@
-use std::collections::HashMap;
-use std::rc::Rc;
 use crate::ast::*;
 use crate::builtins::Builtin;
 use crate::interpreter::Value;
+use std::collections::HashMap;
+use std::rc::Rc;
 
 #[derive(Debug, thiserror::Error)]
 pub enum VmError {
@@ -51,12 +51,12 @@ pub enum CompileError {
     UndefinedFunction { name: String },
 }
 
+#[cfg(feature = "cranelift")]
+pub mod compile_cranelift;
 #[cfg(all(target_arch = "aarch64", target_os = "macos"))]
 pub mod jit_arm64;
 #[cfg(feature = "cranelift")]
 pub mod jit_cranelift;
-#[cfg(feature = "cranelift")]
-pub mod compile_cranelift;
 #[cfg(feature = "llvm")]
 pub mod jit_llvm;
 
@@ -95,64 +95,64 @@ pub(crate) const OP_DIV_NN: u8 = 32;
 
 // ABC mode — superinstructions: register op constant (C = constant pool index)
 // These fuse LOADK + arithmetic into one dispatch, both operands known numeric
-pub(crate) const OP_ADDK_N: u8 = 33;  // R[A] = R[B] + K[C]
-pub(crate) const OP_SUBK_N: u8 = 34;  // R[A] = R[B] - K[C]
-pub(crate) const OP_MULK_N: u8 = 35;  // R[A] = R[B] * K[C]
-pub(crate) const OP_DIVK_N: u8 = 36;  // R[A] = R[B] / K[C]
+pub(crate) const OP_ADDK_N: u8 = 33; // R[A] = R[B] + K[C]
+pub(crate) const OP_SUBK_N: u8 = 34; // R[A] = R[B] - K[C]
+pub(crate) const OP_MULK_N: u8 = 35; // R[A] = R[B] * K[C]
+pub(crate) const OP_DIVK_N: u8 = 36; // R[A] = R[B] / K[C]
 
 // ABC mode — builtins
-pub(crate) const OP_LEN: u8 = 37;     // R[A] = len(R[B])
+pub(crate) const OP_LEN: u8 = 37; // R[A] = len(R[B])
 pub(crate) const OP_LISTAPPEND: u8 = 38; // R[A] = R[B] ++ [R[C]]
-pub(crate) const OP_INDEX: u8 = 39;      // R[A] = R[B][C]  (C = literal index)
-pub(crate) const OP_STR: u8 = 40;        // R[A] = str(R[B])  (number to text)
-pub(crate) const OP_NUM: u8 = 41;        // R[A] = num(R[B])  (text to number, returns R n t)
-pub(crate) const OP_ABS: u8 = 42;        // R[A] = abs(R[B])
-pub(crate) const OP_MIN: u8 = 43;        // R[A] = min(R[B], R[C])
-pub(crate) const OP_MAX: u8 = 44;        // R[A] = max(R[B], R[C])
-pub(crate) const OP_FLR: u8 = 45;        // R[A] = floor(R[B])
-pub(crate) const OP_CEL: u8 = 46;        // R[A] = ceil(R[B])
-pub(crate) const OP_GET: u8 = 47;        // R[A] = http_get(R[B])  (returns R t t)
-pub(crate) const OP_SPL: u8 = 48;        // R[A] = spl(R[B], R[C])  (split text by separator → L t)
-pub(crate) const OP_CAT: u8 = 49;        // R[A] = cat(R[B], R[C])  (join list with separator → t)
-pub(crate) const OP_HAS: u8 = 50;        // R[A] = has(R[B], R[C])  (membership test → b)
-pub(crate) const OP_HD: u8 = 51;         // R[A] = hd(R[B])  (head of list/text)
-pub(crate) const OP_TL: u8 = 52;         // R[A] = tl(R[B])  (tail of list/text)
-pub(crate) const OP_REV: u8 = 53;        // R[A] = rev(R[B])  (reverse list or text)
-pub(crate) const OP_SRT: u8 = 54;        // R[A] = srt(R[B])  (sort list or text)
-pub(crate) const OP_SLC: u8 = 55;        // R[A] = slc(R[B], R[C], R[C+1])  (slice list or text)
-pub(crate) const OP_RND0: u8 = 57;       // R[A] = random float in [0,1)
-pub(crate) const OP_RND2: u8 = 58;       // R[A] = random int in [R[B], R[C]]
-pub(crate) const OP_NOW: u8 = 59;        // R[A] = current unix timestamp (seconds, float)
-pub(crate) const OP_ENV: u8 = 60;        // R[A] = env(R[B])  (returns R t t)
-pub(crate) const OP_JPTH: u8 = 61;         // R[A] = jpth(R[B], R[C])  (JSON path lookup → R t t)
-pub(crate) const OP_JDMP: u8 = 62;         // R[A] = jdmp(R[B])  (value to JSON string → t)
-pub(crate) const OP_JPAR: u8 = 63;         // R[A] = jpar(R[B])  (parse JSON string → R ? t)
+pub(crate) const OP_INDEX: u8 = 39; // R[A] = R[B][C]  (C = literal index)
+pub(crate) const OP_STR: u8 = 40; // R[A] = str(R[B])  (number to text)
+pub(crate) const OP_NUM: u8 = 41; // R[A] = num(R[B])  (text to number, returns R n t)
+pub(crate) const OP_ABS: u8 = 42; // R[A] = abs(R[B])
+pub(crate) const OP_MIN: u8 = 43; // R[A] = min(R[B], R[C])
+pub(crate) const OP_MAX: u8 = 44; // R[A] = max(R[B], R[C])
+pub(crate) const OP_FLR: u8 = 45; // R[A] = floor(R[B])
+pub(crate) const OP_CEL: u8 = 46; // R[A] = ceil(R[B])
+pub(crate) const OP_GET: u8 = 47; // R[A] = http_get(R[B])  (returns R t t)
+pub(crate) const OP_SPL: u8 = 48; // R[A] = spl(R[B], R[C])  (split text by separator → L t)
+pub(crate) const OP_CAT: u8 = 49; // R[A] = cat(R[B], R[C])  (join list with separator → t)
+pub(crate) const OP_HAS: u8 = 50; // R[A] = has(R[B], R[C])  (membership test → b)
+pub(crate) const OP_HD: u8 = 51; // R[A] = hd(R[B])  (head of list/text)
+pub(crate) const OP_TL: u8 = 52; // R[A] = tl(R[B])  (tail of list/text)
+pub(crate) const OP_REV: u8 = 53; // R[A] = rev(R[B])  (reverse list or text)
+pub(crate) const OP_SRT: u8 = 54; // R[A] = srt(R[B])  (sort list or text)
+pub(crate) const OP_SLC: u8 = 55; // R[A] = slc(R[B], R[C], R[C+1])  (slice list or text)
+pub(crate) const OP_RND0: u8 = 57; // R[A] = random float in [0,1)
+pub(crate) const OP_RND2: u8 = 58; // R[A] = random int in [R[B], R[C]]
+pub(crate) const OP_NOW: u8 = 59; // R[A] = current unix timestamp (seconds, float)
+pub(crate) const OP_ENV: u8 = 60; // R[A] = env(R[B])  (returns R t t)
+pub(crate) const OP_JPTH: u8 = 61; // R[A] = jpth(R[B], R[C])  (JSON path lookup → R t t)
+pub(crate) const OP_JDMP: u8 = 62; // R[A] = jdmp(R[B])  (value to JSON string → t)
+pub(crate) const OP_JPAR: u8 = 63; // R[A] = jpar(R[B])  (parse JSON string → R ? t)
 pub(crate) const OP_RECFLD_NAME: u8 = 64; // R[A] = R[B].field where C = constant pool index of field name (dynamic/fallback)
-pub(crate) const OP_JMPNN: u8 = 56;     // if R[A] is not nil, jump by signed Bx (ABx mode)
-pub(crate) const OP_ISNUM: u8 = 65;     // R[A] = R[B] is Number
-pub(crate) const OP_ISTEXT: u8 = 66;    // R[A] = R[B] is Text
-pub(crate) const OP_ISBOOL: u8 = 67;    // R[A] = R[B] is Bool
-pub(crate) const OP_ISLIST: u8 = 68;    // R[A] = R[B] is List
+pub(crate) const OP_JMPNN: u8 = 56; // if R[A] is not nil, jump by signed Bx (ABx mode)
+pub(crate) const OP_ISNUM: u8 = 65; // R[A] = R[B] is Number
+pub(crate) const OP_ISTEXT: u8 = 66; // R[A] = R[B] is Text
+pub(crate) const OP_ISBOOL: u8 = 67; // R[A] = R[B] is Bool
+pub(crate) const OP_ISLIST: u8 = 68; // R[A] = R[B] is List
 // Map operations
-pub(crate) const OP_MAPNEW: u8 = 69;    // R[A] = {}  (empty map)
-pub(crate) const OP_MGET: u8 = 70;      // R[A] = R[B][R[C]]  (get key → nil if missing)
-pub(crate) const OP_MSET: u8 = 71;      // R[A] = mset(R[B], R[C], R[C+1])  (key=C, val=C+1)
-pub(crate) const OP_MHAS: u8 = 72;      // R[A] = R[B] has key R[C]
-pub(crate) const OP_MKEYS: u8 = 73;     // R[A] = keys(R[B])  → L t
-pub(crate) const OP_MVALS: u8 = 74;     // R[A] = vals(R[B])  → L v
-pub(crate) const OP_MDEL: u8 = 75;      // R[A] = del(R[B], R[C])
-pub(crate) const OP_PRT: u8 = 76;       // print(R[B]) → stdout; R[A] = passthrough
-pub(crate) const OP_RD: u8 = 77;        // R[A] = rd(R[B])   — read file → R t t
-pub(crate) const OP_RDL: u8 = 78;       // R[A] = rdl(R[B])  — read file as lines → R (L t) t
-pub(crate) const OP_WR: u8 = 79;        // R[A] = wr(R[B], R[C])  — write string to file → R t t
-pub(crate) const OP_WRL: u8 = 80;       // R[A] = wrl(R[B], R[C]) — write lines to file → R t t
-pub(crate) const OP_TRM: u8 = 81;       // R[A] = trim(R[B])  — trim whitespace → t
-pub(crate) const OP_UNQ: u8 = 82;       // R[A] = unq(R[B])   — deduplicate list or text
-pub(crate) const OP_POST: u8 = 83;      // R[A] = http_post(R[B], R[C])  (returns R t t)
-pub(crate) const OP_GETH: u8 = 84;      // R[A] = http_get(R[B], headers=R[C])  (returns R t t)
-pub(crate) const OP_POSTH: u8 = 85;     // ABx: R[A] = http_post(R[B], body=R[bx>>8], headers=R[bx&0xFF])
-pub(crate) const OP_MOD: u8 = 86;       // R[A] = R[B] % R[C]  (modulo / remainder)
-pub(crate) const OP_ROU: u8 = 87;       // R[A] = round(R[B])
+pub(crate) const OP_MAPNEW: u8 = 69; // R[A] = {}  (empty map)
+pub(crate) const OP_MGET: u8 = 70; // R[A] = R[B][R[C]]  (get key → nil if missing)
+pub(crate) const OP_MSET: u8 = 71; // R[A] = mset(R[B], R[C], R[C+1])  (key=C, val=C+1)
+pub(crate) const OP_MHAS: u8 = 72; // R[A] = R[B] has key R[C]
+pub(crate) const OP_MKEYS: u8 = 73; // R[A] = keys(R[B])  → L t
+pub(crate) const OP_MVALS: u8 = 74; // R[A] = vals(R[B])  → L v
+pub(crate) const OP_MDEL: u8 = 75; // R[A] = del(R[B], R[C])
+pub(crate) const OP_PRT: u8 = 76; // print(R[B]) → stdout; R[A] = passthrough
+pub(crate) const OP_RD: u8 = 77; // R[A] = rd(R[B])   — read file → R t t
+pub(crate) const OP_RDL: u8 = 78; // R[A] = rdl(R[B])  — read file as lines → R (L t) t
+pub(crate) const OP_WR: u8 = 79; // R[A] = wr(R[B], R[C])  — write string to file → R t t
+pub(crate) const OP_WRL: u8 = 80; // R[A] = wrl(R[B], R[C]) — write lines to file → R t t
+pub(crate) const OP_TRM: u8 = 81; // R[A] = trim(R[B])  — trim whitespace → t
+pub(crate) const OP_UNQ: u8 = 82; // R[A] = unq(R[B])   — deduplicate list or text
+pub(crate) const OP_POST: u8 = 83; // R[A] = http_post(R[B], R[C])  (returns R t t)
+pub(crate) const OP_GETH: u8 = 84; // R[A] = http_get(R[B], headers=R[C])  (returns R t t)
+pub(crate) const OP_POSTH: u8 = 85; // ABx: R[A] = http_post(R[B], body=R[bx>>8], headers=R[bx&0xFF])
+pub(crate) const OP_MOD: u8 = 86; // R[A] = R[B] % R[C]  (modulo / remainder)
+pub(crate) const OP_ROU: u8 = 87; // R[A] = round(R[B])
 
 // Fused foreach opcodes — minimize dispatch overhead for list iteration
 // ABC mode: A = bind_reg, B = coll_reg, C = idx_reg
@@ -170,12 +170,12 @@ pub(crate) const OP_FOREACHNEXT: u8 = 89;
 // This eliminates the intermediate bool register write + nanval_truthy dispatch from
 // the classic OP_GE / OP_JMPF two-instruction sequence.
 // The following instruction MUST be OP_JMP (emitted automatically by the compiler).
-pub(crate) const OP_CMPK_GE_N: u8 = 90;  // skip-if R[A] >= K[C]  (f64)
-pub(crate) const OP_CMPK_GT_N: u8 = 91;  // skip-if R[A] >  K[C]  (f64)
-pub(crate) const OP_CMPK_LT_N: u8 = 92;  // skip-if R[A] <  K[C]  (f64)
-pub(crate) const OP_CMPK_LE_N: u8 = 93;  // skip-if R[A] <= K[C]  (f64)
-pub(crate) const OP_CMPK_EQ_N: u8 = 94;  // skip-if R[A] == K[C]  (f64)
-pub(crate) const OP_CMPK_NE_N: u8 = 95;  // skip-if R[A] != K[C]  (f64)
+pub(crate) const OP_CMPK_GE_N: u8 = 90; // skip-if R[A] >= K[C]  (f64)
+pub(crate) const OP_CMPK_GT_N: u8 = 91; // skip-if R[A] >  K[C]  (f64)
+pub(crate) const OP_CMPK_LT_N: u8 = 92; // skip-if R[A] <  K[C]  (f64)
+pub(crate) const OP_CMPK_LE_N: u8 = 93; // skip-if R[A] <= K[C]  (f64)
+pub(crate) const OP_CMPK_EQ_N: u8 = 94; // skip-if R[A] == K[C]  (f64)
+pub(crate) const OP_CMPK_NE_N: u8 = 95; // skip-if R[A] != K[C]  (f64)
 
 // ABx mode — register + 16-bit operand
 pub(crate) const OP_LOADK: u8 = 20;
@@ -215,13 +215,22 @@ pub struct Chunk {
 
 impl Chunk {
     fn new(param_count: u8) -> Self {
-        Chunk { code: Vec::new(), constants: Vec::new(), param_count, reg_count: param_count, spans: Vec::new(), all_regs_numeric: false }
+        Chunk {
+            code: Vec::new(),
+            constants: Vec::new(),
+            param_count,
+            reg_count: param_count,
+            spans: Vec::new(),
+            all_regs_numeric: false,
+        }
     }
 
     fn add_const(&mut self, val: Value) -> u16 {
         for (i, c) in self.constants.iter().enumerate() {
             match (c, &val) {
-                (Value::Number(a), Value::Number(b)) if (a - b).abs() < f64::EPSILON => return i as u16,
+                (Value::Number(a), Value::Number(b)) if (a - b).abs() < f64::EPSILON => {
+                    return i as u16;
+                }
                 (Value::Text(a), Value::Text(b)) if a == b => return i as u16,
                 (Value::Bool(a), Value::Bool(b)) if a == b => return i as u16,
                 (Value::Nil, Value::Nil) => return i as u16,
@@ -229,14 +238,20 @@ impl Chunk {
             }
         }
         let idx = self.constants.len();
-        assert!(idx <= u16::MAX as usize, "constant pool overflow: more than 65535 constants in one function");
+        assert!(
+            idx <= u16::MAX as usize,
+            "constant pool overflow: more than 65535 constants in one function"
+        );
         self.constants.push(val);
         idx as u16
     }
 
     fn add_const_raw(&mut self, val: Value) -> u16 {
         let idx = self.constants.len();
-        assert!(idx <= u16::MAX as usize, "constant pool overflow: more than 65535 constants in one function");
+        assert!(
+            idx <= u16::MAX as usize,
+            "constant pool overflow: more than 65535 constants in one function"
+        );
         self.constants.push(val);
         idx as u16
     }
@@ -266,8 +281,8 @@ impl Chunk {
 #[derive(Debug, Clone)]
 pub struct TypeInfo {
     pub name: String,
-    pub fields: Vec<String>,      // ordered field names — index = slot
-    pub num_fields: u64,          // bitmask: bit i set if field i is Number type
+    pub fields: Vec<String>, // ordered field names — index = slot
+    pub num_fields: u64,     // bitmask: bit i set if field i is Number type
 }
 
 #[derive(Debug, Clone, Default)]
@@ -283,12 +298,17 @@ impl TypeRegistry {
         }
         let id = self.types.len() as u16;
         self.name_to_id.insert(name.clone(), id);
-        self.types.push(Rc::new(TypeInfo { name, fields, num_fields }));
+        self.types.push(Rc::new(TypeInfo {
+            name,
+            fields,
+            num_fields,
+        }));
         id
     }
 
     fn field_index(&self, type_id: u16, field: &str) -> Option<usize> {
-        self.types.get(type_id as usize)
+        self.types
+            .get(type_id as usize)
             .and_then(|info| info.fields.iter().position(|f| f == field))
     }
 }
@@ -306,7 +326,10 @@ pub struct CompiledProgram {
 
 impl CompiledProgram {
     fn func_index(&self, name: &str) -> Option<u16> {
-        self.func_names.iter().position(|n| n == name).map(|i| i as u16)
+        self.func_names
+            .iter()
+            .position(|n| n == name)
+            .map(|i| i as u16)
     }
 }
 
@@ -338,13 +361,13 @@ struct RegCompiler {
     locals: Vec<(String, u8)>,
     next_reg: u8,
     max_reg: u8,
-    reg_is_num: [bool; 256],  // track which registers are known numeric
-    reg_record_type: [u16; 256],  // track record type_id per register (u16::MAX = unknown)
+    reg_is_num: [bool; 256],     // track which registers are known numeric
+    reg_record_type: [u16; 256], // track record type_id per register (u16::MAX = unknown)
     first_error: Option<CompileError>,
     current_span: crate::ast::Span,
     loop_stack: Vec<LoopContext>,
     type_registry: TypeRegistry,
-    func_return_types: Vec<Type>,  // parallel to func_names
+    func_return_types: Vec<Type>, // parallel to func_names
     current_all_regs_numeric: bool,
 }
 
@@ -369,7 +392,10 @@ impl RegCompiler {
     }
 
     fn alloc_reg(&mut self) -> u8 {
-        assert!(self.next_reg < 255, "register overflow: function uses more than 255 registers");
+        assert!(
+            self.next_reg < 255,
+            "register overflow: function uses more than 255 registers"
+        );
         let r = self.next_reg;
         self.next_reg += 1;
         if self.next_reg > self.max_reg {
@@ -380,9 +406,12 @@ impl RegCompiler {
         r
     }
 
-
     fn resolve_local(&self, name: &str) -> Option<u8> {
-        self.locals.iter().rev().find(|(n, _)| n == name).map(|(_, r)| *r)
+        self.locals
+            .iter()
+            .rev()
+            .find(|(n, _)| n == name)
+            .map(|(_, r)| *r)
     }
 
     fn add_local(&mut self, name: &str, reg: u8) {
@@ -390,7 +419,8 @@ impl RegCompiler {
     }
 
     fn emit_abc(&mut self, op: u8, a: u8, b: u8, c: u8) -> usize {
-        self.current.emit(encode_abc(op, a, b, c), self.current_span)
+        self.current
+            .emit(encode_abc(op, a, b, c), self.current_span)
     }
 
     fn emit_abx(&mut self, op: u8, a: u8, bx: u16) -> usize {
@@ -425,27 +455,29 @@ impl RegCompiler {
     /// Emits: `OP_CMPK_*_N reg, 0, ki` followed by `OP_JMP 0` (placeholder).
     /// Returns `Some(jump_pos)` — the position of the JMP placeholder to patch.
     /// Returns `None` if the pattern does not match (caller falls back to normal form).
-    fn try_emit_fused_guard_cmpk(
-        &mut self,
-        condition: &Expr,
-        negated: bool,
-    ) -> Option<usize> {
+    fn try_emit_fused_guard_cmpk(&mut self, condition: &Expr, negated: bool) -> Option<usize> {
         // Fused form only applies to non-negated guards with a comparison BinOp.
-        if negated { return None; }
+        if negated {
+            return None;
+        }
 
-        let Expr::BinOp { op, left, right } = condition else { return None; };
+        let Expr::BinOp { op, left, right } = condition else {
+            return None;
+        };
 
         // Right-hand side must be a numeric literal.
-        let Expr::Literal(Literal::Number(k)) = right.as_ref() else { return None; };
+        let Expr::Literal(Literal::Number(k)) = right.as_ref() else {
+            return None;
+        };
 
         // Map BinOp to the corresponding CMPK opcode.
         let cmpk_op = match op {
             BinOp::GreaterOrEqual => OP_CMPK_GE_N,
-            BinOp::GreaterThan    => OP_CMPK_GT_N,
-            BinOp::LessThan       => OP_CMPK_LT_N,
-            BinOp::LessOrEqual    => OP_CMPK_LE_N,
-            BinOp::Equals         => OP_CMPK_EQ_N,
-            BinOp::NotEquals      => OP_CMPK_NE_N,
+            BinOp::GreaterThan => OP_CMPK_GT_N,
+            BinOp::LessThan => OP_CMPK_LT_N,
+            BinOp::LessOrEqual => OP_CMPK_LE_N,
+            BinOp::Equals => OP_CMPK_EQ_N,
+            BinOp::NotEquals => OP_CMPK_NE_N,
             _ => return None,
         };
 
@@ -480,7 +512,12 @@ impl RegCompiler {
     /// Resolve a Type to a type_id if it's a Named record type.
     fn resolve_type_id(&self, ty: &Type) -> u16 {
         match ty {
-            Type::Named(name) => self.type_registry.name_to_id.get(name).copied().unwrap_or(u16::MAX),
+            Type::Named(name) => self
+                .type_registry
+                .name_to_id
+                .get(name)
+                .copied()
+                .unwrap_or(u16::MAX),
             _ => u16::MAX,
         }
     }
@@ -513,7 +550,8 @@ impl RegCompiler {
                         num_fields |= 1 << i;
                     }
                 }
-                self.type_registry.register(name.clone(), field_names, num_fields);
+                self.type_registry
+                    .register(name.clone(), field_names, num_fields);
             }
         }
 
@@ -522,17 +560,24 @@ impl RegCompiler {
 
         for decl in &program.declarations {
             match decl {
-                Decl::Function { name, return_type, .. } => {
+                Decl::Function {
+                    name, return_type, ..
+                } => {
                     self.func_names.push(name.clone());
                     self.func_return_types.push(return_type.clone());
                     is_tool.push(false);
                 }
-                Decl::Tool { name, return_type, .. } => {
+                Decl::Tool {
+                    name, return_type, ..
+                } => {
                     self.func_names.push(name.clone());
                     self.func_return_types.push(return_type.clone());
                     is_tool.push(true);
                 }
-                Decl::TypeDef { .. } | Decl::Alias { .. } | Decl::Use { .. } | Decl::Error { .. } => {}
+                Decl::TypeDef { .. }
+                | Decl::Alias { .. }
+                | Decl::Use { .. }
+                | Decl::Error { .. } => {}
             }
         }
 
@@ -571,7 +616,10 @@ impl RegCompiler {
                 });
 
                 // Only emit RET if last instruction isn't already RET
-                let last_is_ret = self.current.code.last()
+                let last_is_ret = self
+                    .current
+                    .code
+                    .last()
                     .map(|inst| (inst >> 24) as u8 == OP_RET)
                     .unwrap_or(false);
                 if !last_is_ret {
@@ -607,7 +655,13 @@ impl RegCompiler {
         if let Some(e) = self.first_error {
             return Err(e);
         }
-        Ok(CompiledProgram { chunks: self.chunks, func_names: self.func_names, nan_constants: Vec::new(), type_registry: self.type_registry, is_tool })
+        Ok(CompiledProgram {
+            chunks: self.chunks,
+            func_names: self.func_names,
+            nan_constants: Vec::new(),
+            type_registry: self.type_registry,
+            is_tool,
+        })
     }
 
     fn compile_body(&mut self, stmts: &[crate::ast::Spanned<Stmt>]) -> Option<u8> {
@@ -628,7 +682,8 @@ impl RegCompiler {
                     // Peephole: `x = +x k` where k is a numeric literal and x is known numeric
                     // → emit ADDK_N/SUBK_N/MULK_N/DIVK_N directly into existing_reg (no temp + MOVE)
                     let is_arith = matches!(value, Expr::BinOp { op, .. } if matches!(op, BinOp::Add | BinOp::Subtract | BinOp::Multiply | BinOp::Divide));
-                    if is_arith && self.reg_is_num[existing_reg as usize]
+                    if is_arith
+                        && self.reg_is_num[existing_reg as usize]
                         && let Expr::BinOp { op, left, right } = value
                     {
                         let emit_addk = |this: &mut Self, rb: u8, n: f64, swap: bool| -> bool {
@@ -652,7 +707,9 @@ impl RegCompiler {
                             let rb = self.compile_expr(left);
                             if self.reg_is_num[rb as usize] {
                                 emit_addk(self, rb, *n, false)
-                            } else { false }
+                            } else {
+                                false
+                            }
                         }
                         // `x = +n x` (left is literal, commutative ops only)
                         else if matches!(op, BinOp::Add | BinOp::Multiply) {
@@ -660,38 +717,58 @@ impl RegCompiler {
                                 let rc = self.compile_expr(right);
                                 if self.reg_is_num[rc as usize] {
                                     emit_addk(self, rc, *n, true)
-                                } else { false }
-                            } else { false }
-                        } else { false };
-                        if handled { return None; }
+                                } else {
+                                    false
+                                }
+                            } else {
+                                false
+                            }
+                        } else {
+                            false
+                        };
+                        if handled {
+                            return None;
+                        }
                     }
                     // Peephole: `name = += name item` → OP_LISTAPPEND(existing, existing, item)
                     // Emitting a=b keeps RC=1 so the runtime fast path mutates in-place,
                     // turning O(n²) list-building into O(n).
-                    if let Expr::BinOp { op: BinOp::Append, left, right } = value
+                    if let Expr::BinOp {
+                        op: BinOp::Append,
+                        left,
+                        right,
+                    } = value
                         && let Expr::Ref(ref_name) = left.as_ref()
-                            && ref_name == name {
-                                let item_reg = self.compile_expr(right);
-                                self.emit_abc(OP_LISTAPPEND, existing_reg, existing_reg, item_reg);
-                                return None;
-                            }
+                        && ref_name == name
+                    {
+                        let item_reg = self.compile_expr(right);
+                        self.emit_abc(OP_LISTAPPEND, existing_reg, existing_reg, item_reg);
+                        return None;
+                    }
                     // Peephole: `name = +name suffix` → OP_ADD(existing, existing, suffix)
                     // Only when `name` is known to be non-numeric (strings/lists): with a=b,
                     // the OP_ADD runtime checks RC=1 and appends in place (amortised O(1)),
                     // turning O(n²) repeated string-building into O(n).
                     // Skip for numeric vars — they use OP_ADD_NN / OP_ADDK_N specialisations.
-                    if let Expr::BinOp { op: BinOp::Add, left, right } = value
+                    if let Expr::BinOp {
+                        op: BinOp::Add,
+                        left,
+                        right,
+                    } = value
                         && let Expr::Ref(ref_name) = left.as_ref()
-                            && ref_name == name && !self.reg_is_num[existing_reg as usize] {
-                                let rhs_reg = self.compile_expr(right);
-                                self.emit_abc(OP_ADD, existing_reg, existing_reg, rhs_reg);
-                                return None;
-                            }
+                        && ref_name == name
+                        && !self.reg_is_num[existing_reg as usize]
+                    {
+                        let rhs_reg = self.compile_expr(right);
+                        self.emit_abc(OP_ADD, existing_reg, existing_reg, rhs_reg);
+                        return None;
+                    }
                     // General re-binding: compile value and move to existing register
                     let reg = self.compile_expr(value);
                     if reg != existing_reg {
                         self.emit_abc(OP_MOVE, existing_reg, reg, 0);
-                        self.reg_record_type[existing_reg as usize] = self.reg_record_type[reg as usize];
+                        self.reg_record_type[existing_reg as usize] =
+                            self.reg_record_type[reg as usize];
                         // Propagate numeric type so next iteration can use specialized opcodes
                         self.reg_is_num[existing_reg as usize] = self.reg_is_num[reg as usize];
                     }
@@ -724,7 +801,10 @@ impl RegCompiler {
                         }
                         None => {
                             let ki = self.current.add_const(Value::Text(binding.clone()));
-                            assert!(ki <= 255, "constant pool overflow for dynamic destructure field");
+                            assert!(
+                                ki <= 255,
+                                "constant pool overflow for dynamic destructure field"
+                            );
                             if let Some(existing_reg) = self.resolve_local(binding) {
                                 self.emit_abc(OP_RECFLD_NAME, existing_reg, record_reg, ki as u8);
                             } else {
@@ -738,7 +818,12 @@ impl RegCompiler {
                 None
             }
 
-            Stmt::Guard { condition, negated, body, else_body } => {
+            Stmt::Guard {
+                condition,
+                negated,
+                body,
+                else_body,
+            } => {
                 let saved_next = self.next_reg;
 
                 // Try the fused CMPK path first: non-negated plain guard with a
@@ -809,7 +894,6 @@ impl RegCompiler {
                 }
             }
 
-  
             Stmt::Match { subject, arms } => {
                 let sub_reg = match subject {
                     Some(e) => self.compile_expr(e),
@@ -825,7 +909,11 @@ impl RegCompiler {
                 Some(result_reg)
             }
 
-            Stmt::ForEach { binding, collection, body } => {
+            Stmt::ForEach {
+                binding,
+                collection,
+                body,
+            } => {
                 let coll_reg = self.compile_expr(collection);
                 self.add_local("__fe_coll", coll_reg);
 
@@ -867,9 +955,10 @@ impl RegCompiler {
                 self.locals.truncate(saved_locals);
 
                 if let Some(br) = body_result
-                    && br != last_reg {
-                        self.emit_abc(OP_MOVE, last_reg, br, 0);
-                    }
+                    && br != last_reg
+                {
+                    self.emit_abc(OP_MOVE, last_reg, br, 0);
+                }
 
                 // Patch continue jumps to the FOREACHNEXT instruction.
                 let continue_target = self.current.code.len();
@@ -887,8 +976,8 @@ impl RegCompiler {
                 // next executed instruction as the JMP back to body_top.
                 // Out-of-bounds: fall through to JMP exit.
                 self.emit_abc(OP_FOREACHNEXT, bind_reg, coll_reg, idx_reg);
-                let next_exit_jump = self.emit_jmp_placeholder();  // JMP exit (on bounds exceeded)
-                self.emit_jump_to(body_top);                        // JMP body_top (on success)
+                let next_exit_jump = self.emit_jmp_placeholder(); // JMP exit (on bounds exceeded)
+                self.emit_jump_to(body_top); // JMP body_top (on success)
 
                 // Exit: patch both JMP-exit placeholders and all break jumps.
                 self.current.patch_jump(exit_jump);
@@ -901,7 +990,12 @@ impl RegCompiler {
                 Some(last_reg)
             }
 
-            Stmt::ForRange { binding, start, end, body } => {
+            Stmt::ForRange {
+                binding,
+                start,
+                end,
+                body,
+            } => {
                 // Evaluate start and end once
                 let start_reg = self.compile_expr(start);
                 let end_reg = self.compile_expr(end);
@@ -938,9 +1032,10 @@ impl RegCompiler {
                 self.locals.truncate(saved_locals);
 
                 if let Some(br) = body_result
-                    && br != last_reg {
-                        self.emit_abc(OP_MOVE, last_reg, br, 0);
-                    }
+                    && br != last_reg
+                {
+                    self.emit_abc(OP_MOVE, last_reg, br, 0);
+                }
 
                 // Patch continue jumps to counter increment
                 let continue_target = self.current.code.len();
@@ -999,9 +1094,10 @@ impl RegCompiler {
                 self.locals.truncate(saved_locals);
 
                 if let Some(br) = body_result
-                    && br != last_reg {
-                        self.emit_abc(OP_MOVE, last_reg, br, 0);
-                    }
+                    && br != last_reg
+                {
+                    self.emit_abc(OP_MOVE, last_reg, br, 0);
+                }
 
                 // Jump back to loop top
                 self.emit_jump_to(loop_top);
@@ -1046,8 +1142,9 @@ impl RegCompiler {
                         // Foreach: emit placeholder, patch later
                         let jmp = self.emit_jmp_placeholder();
                         if let Some(ctx) = self.loop_stack.last_mut()
-                            && let Some(patches) = ctx.continue_patches.as_mut() {
-                                patches.push(jmp);
+                            && let Some(patches) = ctx.continue_patches.as_mut()
+                        {
+                            patches.push(jmp);
                         }
                     } else {
                         // While: jump back to loop_top (condition re-eval)
@@ -1076,9 +1173,10 @@ impl RegCompiler {
                 Pattern::Wildcard => {
                     let body_result = self.compile_body(&arm.body);
                     if let Some(br) = body_result
-                        && br != result_reg {
-                            self.emit_abc(OP_MOVE, result_reg, br, 0);
-                        }
+                        && br != result_reg
+                    {
+                        self.emit_abc(OP_MOVE, result_reg, br, 0);
+                    }
                     self.next_reg = saved_next;
                     self.locals.truncate(saved_locals);
                     for j in end_jumps {
@@ -1100,9 +1198,10 @@ impl RegCompiler {
 
                     let body_result = self.compile_body(&arm.body);
                     if let Some(br) = body_result
-                        && br != result_reg {
-                            self.emit_abc(OP_MOVE, result_reg, br, 0);
-                        }
+                        && br != result_reg
+                    {
+                        self.emit_abc(OP_MOVE, result_reg, br, 0);
+                    }
                     end_jumps.push(self.emit_jmp_placeholder());
                     self.current.patch_jump(skip);
                 }
@@ -1120,9 +1219,10 @@ impl RegCompiler {
 
                     let body_result = self.compile_body(&arm.body);
                     if let Some(br) = body_result
-                        && br != result_reg {
-                            self.emit_abc(OP_MOVE, result_reg, br, 0);
-                        }
+                        && br != result_reg
+                    {
+                        self.emit_abc(OP_MOVE, result_reg, br, 0);
+                    }
                     end_jumps.push(self.emit_jmp_placeholder());
                     self.current.patch_jump(skip);
                 }
@@ -1143,9 +1243,10 @@ impl RegCompiler {
 
                     let body_result = self.compile_body(&arm.body);
                     if let Some(br) = body_result
-                        && br != result_reg {
-                            self.emit_abc(OP_MOVE, result_reg, br, 0);
-                        }
+                        && br != result_reg
+                    {
+                        self.emit_abc(OP_MOVE, result_reg, br, 0);
+                    }
                     end_jumps.push(self.emit_jmp_placeholder());
                     self.current.patch_jump(skip);
                 }
@@ -1169,9 +1270,10 @@ impl RegCompiler {
                     }
                     let body_result = self.compile_body(&arm.body);
                     if let Some(br) = body_result
-                        && br != result_reg {
-                            self.emit_abc(OP_MOVE, result_reg, br, 0);
-                        }
+                        && br != result_reg
+                    {
+                        self.emit_abc(OP_MOVE, result_reg, br, 0);
+                    }
                     end_jumps.push(self.emit_jmp_placeholder());
                     self.current.patch_jump(skip);
                 }
@@ -1250,14 +1352,17 @@ impl RegCompiler {
     fn compile_expr(&mut self, expr: &Expr) -> u8 {
         // Try constant folding for BinOp/UnaryOp expressions
         if matches!(expr, Expr::BinOp { .. } | Expr::UnaryOp { .. })
-            && let Some(ref val) = Self::try_const_fold(expr) {
-                let is_num = matches!(val, Value::Number(_));
-                let reg = self.alloc_reg();
-                let ki = self.current.add_const(val.clone());
-                self.emit_abx(OP_LOADK, reg, ki);
-                if is_num { self.reg_is_num[reg as usize] = true; }
-                return reg;
+            && let Some(ref val) = Self::try_const_fold(expr)
+        {
+            let is_num = matches!(val, Value::Number(_));
+            let reg = self.alloc_reg();
+            let ki = self.current.add_const(val.clone());
+            self.emit_abx(OP_LOADK, reg, ki);
+            if is_num {
+                self.reg_is_num[reg as usize] = true;
             }
+            return reg;
+        }
 
         match expr {
             Expr::Literal(lit) => {
@@ -1271,7 +1376,9 @@ impl RegCompiler {
                 let reg = self.alloc_reg();
                 let ki = self.current.add_const(val);
                 self.emit_abx(OP_LOADK, reg, ki);
-                if is_num { self.reg_is_num[reg as usize] = true; }
+                if is_num {
+                    self.reg_is_num[reg as usize] = true;
+                }
                 reg
             }
 
@@ -1279,12 +1386,17 @@ impl RegCompiler {
                 if let Some(reg) = self.resolve_local(name) {
                     reg // FREE — no instruction needed!
                 } else {
-                    self.first_error.get_or_insert(CompileError::UndefinedVariable { name: name.clone() });
+                    self.first_error
+                        .get_or_insert(CompileError::UndefinedVariable { name: name.clone() });
                     0 // dummy register; compile continues to surface more errors
                 }
             }
 
-            Expr::Field { object, field, safe } => {
+            Expr::Field {
+                object,
+                field,
+                safe,
+            } => {
                 let obj_reg = self.compile_expr(object);
                 // Resolve field to an index using compile-time type info
                 let obj_type = self.reg_record_type[obj_reg as usize];
@@ -1300,18 +1412,24 @@ impl RegCompiler {
                         // Check if this field is known numeric from the type definition
                         let field_is_num = obj_type != u16::MAX
                             && idx < 64
-                            && (self.type_registry.types[obj_type as usize].num_fields & (1 << idx)) != 0;
+                            && (self.type_registry.types[obj_type as usize].num_fields
+                                & (1 << idx))
+                                != 0;
                         if *safe {
                             self.emit_abx(OP_JMPNN, obj_reg, 1);
                             self.emit_abx(OP_JMP, 0, 1);
                             self.emit_abc(OP_RECFLD, obj_reg, obj_reg, c);
                             self.reg_record_type[obj_reg as usize] = u16::MAX;
-                            if field_is_num { self.reg_is_num[obj_reg as usize] = true; }
+                            if field_is_num {
+                                self.reg_is_num[obj_reg as usize] = true;
+                            }
                             obj_reg
                         } else {
                             let ra = self.alloc_reg();
                             self.emit_abc(OP_RECFLD, ra, obj_reg, c);
-                            if field_is_num { self.reg_is_num[ra as usize] = true; }
+                            if field_is_num {
+                                self.reg_is_num[ra as usize] = true;
+                            }
                             ra
                         }
                     }
@@ -1334,9 +1452,17 @@ impl RegCompiler {
                 }
             }
 
-            Expr::Index { object, index, safe } => {
+            Expr::Index {
+                object,
+                index,
+                safe,
+            } => {
                 let obj_reg = self.compile_expr(object);
-                assert!(*index <= 255, "index literal {} exceeds 8-bit limit in OP_INDEX", index);
+                assert!(
+                    *index <= 255,
+                    "index literal {} exceeds 8-bit limit in OP_INDEX",
+                    index
+                );
                 if *safe {
                     self.emit_abx(OP_JMPNN, obj_reg, 1);
                     self.emit_abx(OP_JMP, 0, 1);
@@ -1349,7 +1475,11 @@ impl RegCompiler {
                 }
             }
 
-            Expr::Call { function, args, unwrap } => {
+            Expr::Call {
+                function,
+                args,
+                unwrap,
+            } => {
                 // Builtins — resolve at compile time to enum, then emit dedicated opcodes
                 if let Some(builtin) = Builtin::from_name(function) {
                     let nargs = args.len();
@@ -1384,7 +1514,11 @@ impl RegCompiler {
                             let rb = self.compile_expr(&args[0]);
                             let rc = self.compile_expr(&args[1]);
                             let ra = self.alloc_reg();
-                            let op = if builtin == Builtin::Min { OP_MIN } else { OP_MAX };
+                            let op = if builtin == Builtin::Min {
+                                OP_MIN
+                            } else {
+                                OP_MAX
+                            };
                             self.emit_abc(op, ra, rb, rc);
                             self.reg_is_num[ra as usize] = true;
                             return ra;
@@ -1615,7 +1749,11 @@ impl RegCompiler {
                         (Builtin::Rd | Builtin::Rdl, 1) => {
                             let rb = self.compile_expr(&args[0]);
                             let ra = self.alloc_reg();
-                            let op = if builtin == Builtin::Rdl { OP_RDL } else { OP_RD };
+                            let op = if builtin == Builtin::Rdl {
+                                OP_RDL
+                            } else {
+                                OP_RD
+                            };
                             self.emit_abc(op, ra, rb, 0);
                             if *unwrap {
                                 let check_reg = self.alloc_reg();
@@ -1633,7 +1771,11 @@ impl RegCompiler {
                             let rb = self.compile_expr(&args[0]);
                             let rc = self.compile_expr(&args[1]);
                             let ra = self.alloc_reg();
-                            let op = if builtin == Builtin::Wr { OP_WR } else { OP_WRL };
+                            let op = if builtin == Builtin::Wr {
+                                OP_WR
+                            } else {
+                                OP_WRL
+                            };
                             self.emit_abc(op, ra, rb, rc);
                             if *unwrap {
                                 let check_reg = self.alloc_reg();
@@ -1678,7 +1820,11 @@ impl RegCompiler {
                             let rb = self.compile_expr(&args[0]);
                             let rc = self.compile_expr(&args[1]);
                             let rd = self.compile_expr(&args[2]);
-                            debug_assert_eq!(rd, rc + 1, "mset key/val args should be consecutive regs");
+                            debug_assert_eq!(
+                                rd,
+                                rc + 1,
+                                "mset key/val args should be consecutive regs"
+                            );
                             let ra = self.alloc_reg();
                             self.emit_abc(OP_MSET, ra, rb, rc);
                             return ra;
@@ -1717,16 +1863,25 @@ impl RegCompiler {
                 }
 
                 let arg_regs: Vec<u8> = args.iter().map(|a| self.compile_expr(a)).collect();
-                let func_idx = self.func_names.iter().position(|n| n == function)
+                let func_idx = self
+                    .func_names
+                    .iter()
+                    .position(|n| n == function)
                     .unwrap_or_else(|| {
-                        self.first_error.get_or_insert(CompileError::UndefinedFunction { name: function.clone() });
+                        self.first_error
+                            .get_or_insert(CompileError::UndefinedFunction {
+                                name: function.clone(),
+                            });
                         0 // dummy index; compile continues to surface more errors
                     });
 
                 let a = self.alloc_reg(); // result register
                 // Reserve slots for args
                 let args_base = self.next_reg;
-                assert!((self.next_reg as usize) + args.len() <= 255, "register overflow: call requires too many register slots");
+                assert!(
+                    (self.next_reg as usize) + args.len() <= 255,
+                    "register overflow: call requires too many register slots"
+                );
                 self.next_reg += args.len() as u8;
                 if self.next_reg > self.max_reg {
                     self.max_reg = self.next_reg;
@@ -1739,7 +1894,11 @@ impl RegCompiler {
                     }
                 }
 
-                assert!(func_idx <= 255, "too many functions: function index {} exceeds 8-bit limit in OP_CALL", func_idx);
+                assert!(
+                    func_idx <= 255,
+                    "too many functions: function index {} exceeds 8-bit limit in OP_CALL",
+                    func_idx
+                );
                 let bx = ((func_idx as u16) << 8) | args.len() as u16;
                 self.emit_abx(OP_CALL, a, bx);
 
@@ -1762,9 +1921,9 @@ impl RegCompiler {
                     let check_reg = self.alloc_reg();
                     self.emit_abc(OP_ISOK, check_reg, a, 0);
                     let skip_ret = self.emit_jmpt(check_reg);
-                    self.emit_abx(OP_RET, a, 0);        // propagate Err
+                    self.emit_abx(OP_RET, a, 0); // propagate Err
                     self.current.patch_jump(skip_ret);
-                    self.emit_abc(OP_UNWRAP, a, a, 0);   // extract Ok inner
+                    self.emit_abc(OP_UNWRAP, a, a, 0); // extract Ok inner
                     self.next_reg = a + 1; // only result register live
                 }
 
@@ -1773,7 +1932,10 @@ impl RegCompiler {
 
             Expr::BinOp { op, left, right } => {
                 // Try superinstructions: register op constant (right is number literal)
-                let is_arith = matches!(op, BinOp::Add | BinOp::Subtract | BinOp::Multiply | BinOp::Divide);
+                let is_arith = matches!(
+                    op,
+                    BinOp::Add | BinOp::Subtract | BinOp::Multiply | BinOp::Divide
+                );
                 if is_arith {
                     if let Expr::Literal(Literal::Number(n)) = right.as_ref() {
                         let rb = self.compile_expr(left);
@@ -1796,22 +1958,23 @@ impl RegCompiler {
                     // Also handle constant on left (e.g., 2 * x → MULK x, 2)
                     // Only for commutative ops (Add, Multiply)
                     if matches!(op, BinOp::Add | BinOp::Multiply)
-                        && let Expr::Literal(Literal::Number(n)) = left.as_ref() {
-                            let rc = self.compile_expr(right);
-                            if self.reg_is_num[rc as usize] {
-                                let ki = self.current.add_const(Value::Number(*n));
-                                if ki <= 255 {
-                                    let ra = self.alloc_reg();
-                                    let opcode = match op {
-                                        BinOp::Add => OP_ADDK_N,
-                                        _ => OP_MULK_N, // BinOp::Multiply — only remaining commutative case
-                                    };
-                                    self.emit_abc(opcode, ra, rc, ki as u8);
-                                    self.reg_is_num[ra as usize] = true;
-                                    return ra;
-                                }
+                        && let Expr::Literal(Literal::Number(n)) = left.as_ref()
+                    {
+                        let rc = self.compile_expr(right);
+                        if self.reg_is_num[rc as usize] {
+                            let ki = self.current.add_const(Value::Number(*n));
+                            if ki <= 255 {
+                                let ra = self.alloc_reg();
+                                let opcode = match op {
+                                    BinOp::Add => OP_ADDK_N,
+                                    _ => OP_MULK_N, // BinOp::Multiply — only remaining commutative case
+                                };
+                                self.emit_abc(opcode, ra, rc, ki as u8);
+                                self.reg_is_num[ra as usize] = true;
+                                return ra;
                             }
                         }
+                    }
                 }
 
                 // Short-circuit: &a b → eval a, JMPF skip, eval b, skip:
@@ -1858,7 +2021,9 @@ impl RegCompiler {
                 };
                 let ra = self.alloc_reg();
                 self.emit_abc(opcode, ra, rb, rc);
-                if result_is_num { self.reg_is_num[ra as usize] = true; }
+                if result_is_num {
+                    self.reg_is_num[ra as usize] = true;
+                }
                 ra
             }
 
@@ -1896,7 +2061,10 @@ impl RegCompiler {
                 let a = self.alloc_reg(); // result register
                 // Reserve slots for items
                 let items_base = self.next_reg;
-                assert!((self.next_reg as usize) + items.len() <= 255, "register overflow: list literal requires too many register slots");
+                assert!(
+                    (self.next_reg as usize) + items.len() <= 255,
+                    "register overflow: list literal requires too many register slots"
+                );
                 self.next_reg += items.len() as u8;
                 if self.next_reg > self.max_reg {
                     self.max_reg = self.next_reg;
@@ -1919,19 +2087,22 @@ impl RegCompiler {
                     Some(&id) => id,
                     None => {
                         // Auto-register from field order in this expression
-                        let field_names: Vec<String> = fields.iter().map(|(n, _)| n.clone()).collect();
-                        self.type_registry.register(type_name.clone(), field_names, 0)
+                        let field_names: Vec<String> =
+                            fields.iter().map(|(n, _)| n.clone()).collect();
+                        self.type_registry
+                            .register(type_name.clone(), field_names, 0)
                     }
                 };
 
                 // We need to emit field values in the canonical order defined by the TypeInfo,
                 // not the order they appear in the source. This ensures fields[i] always
                 // corresponds to TypeInfo.fields[i].
-                let canonical_order: Vec<String> = self.type_registry.types[type_id as usize].fields.clone();
-                let source_fields: HashMap<&str, &Expr> = fields.iter()
-                    .map(|(n, e)| (n.as_str(), e))
-                    .collect();
-                let ordered_regs: Vec<u8> = canonical_order.iter()
+                let canonical_order: Vec<String> =
+                    self.type_registry.types[type_id as usize].fields.clone();
+                let source_fields: HashMap<&str, &Expr> =
+                    fields.iter().map(|(n, e)| (n.as_str(), e)).collect();
+                let ordered_regs: Vec<u8> = canonical_order
+                    .iter()
                     .map(|fname| {
                         let expr = source_fields[fname.as_str()];
                         self.compile_expr(expr)
@@ -1940,7 +2111,10 @@ impl RegCompiler {
 
                 let a = self.alloc_reg(); // result register
                 let fields_base = self.next_reg;
-                assert!((self.next_reg as usize) + ordered_regs.len() <= 255, "register overflow: record literal requires too many register slots");
+                assert!(
+                    (self.next_reg as usize) + ordered_regs.len() <= 255,
+                    "register overflow: record literal requires too many register slots"
+                );
                 self.next_reg += ordered_regs.len() as u8;
                 if self.next_reg > self.max_reg {
                     self.max_reg = self.next_reg;
@@ -1953,7 +2127,11 @@ impl RegCompiler {
                     }
                 }
 
-                assert!(type_id <= 255, "type_id {} exceeds 8-bit limit in OP_RECNEW", type_id);
+                assert!(
+                    type_id <= 255,
+                    "type_id {} exceeds 8-bit limit in OP_RECNEW",
+                    type_id
+                );
                 let bx = (type_id << 8) | ordered_regs.len() as u16;
                 self.emit_abx(OP_RECNEW, a, bx);
                 // Track the type of this register
@@ -1988,7 +2166,11 @@ impl RegCompiler {
                 self.current.patch_jump(skip_jump);
                 val_reg
             }
-            Expr::Ternary { condition, then_expr, else_expr } => {
+            Expr::Ternary {
+                condition,
+                then_expr,
+                else_expr,
+            } => {
                 let cond_reg = self.compile_expr(condition);
                 let result_reg = self.alloc_reg();
                 let jump_to_else = self.emit_jmpf(cond_reg);
@@ -2013,33 +2195,50 @@ impl RegCompiler {
                 let obj_reg = self.compile_expr(object);
                 let obj_type = self.reg_record_type[obj_reg as usize];
 
-                let update_regs: Vec<u8> = updates.iter()
+                let update_regs: Vec<u8> = updates
+                    .iter()
                     .map(|(_, val_expr)| self.compile_expr(val_expr))
                     .collect();
 
                 // Resolve update field names to indices
-                let update_indices: Vec<Option<u8>> = updates.iter().map(|(name, _)| {
-                    let idx = if obj_type != u16::MAX {
-                        self.type_registry.field_index(obj_type, name)
-                    } else {
-                        self.search_field_index(name)
-                    };
-                    idx.map(|i| i as u8)
-                }).collect();
+                let update_indices: Vec<Option<u8>> = updates
+                    .iter()
+                    .map(|(name, _)| {
+                        let idx = if obj_type != u16::MAX {
+                            self.type_registry.field_index(obj_type, name)
+                        } else {
+                            self.search_field_index(name)
+                        };
+                        idx.map(|i| i as u8)
+                    })
+                    .collect();
                 let all_resolved = update_indices.iter().all(|i| i.is_some());
 
                 // Store as constant: indices (numbers) for resolved, names (strings) for unresolved
                 let const_val = if all_resolved {
-                    Value::List(update_indices.iter().map(|i| Value::Number(i.unwrap() as f64)).collect())
+                    Value::List(
+                        update_indices
+                            .iter()
+                            .map(|i| Value::Number(i.unwrap() as f64))
+                            .collect(),
+                    )
                 } else {
                     // Fallback: store field names for runtime resolution
-                    Value::List(updates.iter().map(|(n, _)| Value::Text(n.clone())).collect())
+                    Value::List(
+                        updates
+                            .iter()
+                            .map(|(n, _)| Value::Text(n.clone()))
+                            .collect(),
+                    )
                 };
                 let const_idx = self.current.add_const_raw(const_val);
 
                 let a = self.alloc_reg(); // result register
                 let updates_base = self.next_reg;
-                assert!((self.next_reg as usize) + updates.len() <= 255, "register overflow: 'with' expression requires too many register slots");
+                assert!(
+                    (self.next_reg as usize) + updates.len() <= 255,
+                    "register overflow: 'with' expression requires too many register slots"
+                );
                 self.next_reg += updates.len() as u8;
                 if self.next_reg > self.max_reg {
                     self.max_reg = self.next_reg;
@@ -2058,7 +2257,11 @@ impl RegCompiler {
                     }
                 }
 
-                assert!(const_idx <= 255, "constant pool overflow: field data index {} exceeds 8-bit limit in OP_RECWITH", const_idx);
+                assert!(
+                    const_idx <= 255,
+                    "constant pool overflow: field data index {} exceeds 8-bit limit in OP_RECWITH",
+                    const_idx
+                );
                 let bx = (const_idx << 8) | updates.len() as u16;
                 self.emit_abx(OP_RECWITH, a, bx);
                 // Propagate type (with doesn't change the type)
@@ -2079,11 +2282,10 @@ fn chunk_is_all_numeric(chunk: &Chunk) -> bool {
     for &inst in &chunk.code {
         let op = (inst >> 24) as u8;
         match op {
-            OP_RECNEW | OP_LISTNEW | OP_RECWITH | OP_WRAPOK | OP_WRAPERR |
-            OP_STR | OP_CAT | OP_SPL | OP_REV | OP_SRT | OP_SLC | OP_UNQ |
-            OP_LISTAPPEND | OP_JPAR | OP_JDMP | OP_ENV | OP_GET | OP_GETH |
-            OP_POST | OP_POSTH | OP_RD | OP_RDL | OP_WR | OP_WRL |
-            OP_MAPNEW | OP_MGET | OP_MSET | OP_MKEYS | OP_MVALS | OP_HD | OP_TL => {
+            OP_RECNEW | OP_LISTNEW | OP_RECWITH | OP_WRAPOK | OP_WRAPERR | OP_STR | OP_CAT
+            | OP_SPL | OP_REV | OP_SRT | OP_SLC | OP_UNQ | OP_LISTAPPEND | OP_JPAR | OP_JDMP
+            | OP_ENV | OP_GET | OP_GETH | OP_POST | OP_POSTH | OP_RD | OP_RDL | OP_WR | OP_WRL
+            | OP_MAPNEW | OP_MGET | OP_MSET | OP_MKEYS | OP_MVALS | OP_HD | OP_TL => {
                 return false;
             }
             _ => {}
@@ -2098,19 +2300,19 @@ fn chunk_is_all_numeric(chunk: &Chunk) -> bool {
 // all ilo value types in a single Copy u64, making the VM stack
 // Vec<u64>-equivalent with zero-cost number operations.
 
-const QNAN: u64       = 0x7FFC_0000_0000_0000;
-const TAG_NIL: u64    = QNAN;
-const TAG_TRUE: u64   = QNAN | 1;
-const TAG_FALSE: u64  = QNAN | 2;
+const QNAN: u64 = 0x7FFC_0000_0000_0000;
+const TAG_NIL: u64 = QNAN;
+const TAG_TRUE: u64 = QNAN | 1;
+const TAG_FALSE: u64 = QNAN | 2;
 const TAG_STRING: u64 = 0x7FFD_0000_0000_0000;
-const TAG_LIST: u64   = 0x7FFE_0000_0000_0000;
+const TAG_LIST: u64 = 0x7FFE_0000_0000_0000;
 const TAG_RECORD: u64 = 0x7FFF_0000_0000_0000;
-const TAG_OK: u64     = 0xFFFC_0000_0000_0000;
-const TAG_ERR: u64    = 0xFFFD_0000_0000_0000;
-const TAG_MAP: u64          = 0xFFFF_0000_0000_0000;
+const TAG_OK: u64 = 0xFFFC_0000_0000_0000;
+const TAG_ERR: u64 = 0xFFFD_0000_0000_0000;
+const TAG_MAP: u64 = 0xFFFF_0000_0000_0000;
 pub(crate) const TAG_ARENA_REC: u64 = 0xFFFE_0000_0000_0000;
-const PTR_MASK: u64   = 0x0000_FFFF_FFFF_FFFF;
-const TAG_MASK: u64   = 0xFFFF_0000_0000_0000;
+const PTR_MASK: u64 = 0x0000_FFFF_FFFF_FFFF;
+const TAG_MASK: u64 = 0xFFFF_0000_0000_0000;
 
 // ── Bump Arena for Records ──────────────────────────────────────────
 //
@@ -2138,10 +2340,19 @@ impl ArenaRecord {
     /// `n_fields` × u64 (NanVal) fields, all 8-byte aligned.
     #[inline]
     pub(crate) unsafe fn field_ptr(&self, idx: usize) -> *const u64 {
-        debug_assert!(idx < self.n_fields as usize, "field_ptr: idx {idx} >= n_fields {}", self.n_fields);
+        debug_assert!(
+            idx < self.n_fields as usize,
+            "field_ptr: idx {idx} >= n_fields {}",
+            self.n_fields
+        );
         // SAFETY: caller guarantees idx < n_fields; layout is repr(C) with
         // 8-byte header then n_fields×u64.
-        unsafe { (self as *const Self as *const u8).add(8).cast::<u64>().add(idx) }
+        unsafe {
+            (self as *const Self as *const u8)
+                .add(8)
+                .cast::<u64>()
+                .add(idx)
+        }
     }
 
     /// Mutable field pointer. Callers must ensure exclusive access.
@@ -2151,7 +2362,11 @@ impl ArenaRecord {
     /// access to this record (no aliasing readers or writers).
     #[inline]
     pub(crate) unsafe fn field_ptr_mut(&mut self, idx: usize) -> *mut u64 {
-        debug_assert!(idx < self.n_fields as usize, "field_ptr_mut: idx {idx} >= n_fields {}", self.n_fields);
+        debug_assert!(
+            idx < self.n_fields as usize,
+            "field_ptr_mut: idx {idx} >= n_fields {}",
+            self.n_fields
+        );
         // SAFETY: caller guarantees idx < n_fields and exclusive access.
         unsafe { (self as *mut Self as *mut u8).add(8).cast::<u64>().add(idx) }
     }
@@ -2163,19 +2378,26 @@ impl ArenaRecord {
 /// JIT field offsets: buf_ptr=0, buf_cap=8, offset=16.
 #[repr(C)]
 pub(crate) struct BumpArena {
-    pub(crate) buf_ptr: *mut u8,   // offset 0  — raw pointer to buffer
-    pub(crate) buf_cap: usize,     // offset 8  — buffer capacity in bytes
-    pub(crate) offset: usize,      // offset 16 — current bump offset
+    pub(crate) buf_ptr: *mut u8, // offset 0  — raw pointer to buffer
+    pub(crate) buf_cap: usize,   // offset 8  — buffer capacity in bytes
+    pub(crate) offset: usize,    // offset 16 — current bump offset
 }
 
 impl BumpArena {
     pub(crate) fn new() -> Self {
-        let layout = std::alloc::Layout::from_size_align(ARENA_DEFAULT_SIZE, 8).expect("valid arena layout");
+        let layout =
+            std::alloc::Layout::from_size_align(ARENA_DEFAULT_SIZE, 8).expect("valid arena layout");
         // SAFETY: layout is non-zero (64KB, 8-align). No zero-fill needed since
         // arena tracks its own offset and only reads initialized records.
         let ptr = unsafe { std::alloc::alloc(layout) };
-        if ptr.is_null() { std::alloc::handle_alloc_error(layout); }
-        BumpArena { buf_ptr: ptr, buf_cap: ARENA_DEFAULT_SIZE, offset: 0 }
+        if ptr.is_null() {
+            std::alloc::handle_alloc_error(layout);
+        }
+        BumpArena {
+            buf_ptr: ptr,
+            buf_cap: ARENA_DEFAULT_SIZE,
+            offset: 0,
+        }
     }
 
     #[inline]
@@ -2191,7 +2413,9 @@ impl BumpArena {
             let rec = unsafe { &*ptr };
             let n = rec.n_fields as usize;
             let record_size = 8 + n * 8;
-            if off + record_size > self.offset { break; }
+            if off + record_size > self.offset {
+                break;
+            }
             for i in 0..n {
                 let v = NanVal(unsafe { *rec.field_ptr(i) });
                 v.drop_rc(); // no-op for numbers/bools/nil/arena-records; frees heap refs
@@ -2206,7 +2430,11 @@ impl BumpArena {
     /// Bump-allocate space for a record with `n_fields` fields.
     /// Returns a pointer to the ArenaRecord header, or None if full.
     #[inline]
-    pub(crate) fn alloc_record(&mut self, type_id: u16, n_fields: usize) -> Option<*mut ArenaRecord> {
+    pub(crate) fn alloc_record(
+        &mut self,
+        type_id: u16,
+        n_fields: usize,
+    ) -> Option<*mut ArenaRecord> {
         let size = 8 + n_fields * 8; // header + fields
         let aligned_offset = (self.offset + 7) & !7;
         if aligned_offset + size > self.buf_cap {
@@ -2227,7 +2455,8 @@ impl Drop for BumpArena {
     fn drop(&mut self) {
         self.reset(); // drop_rc all heap fields
         unsafe {
-            let layout = std::alloc::Layout::from_size_align(self.buf_cap, 8).expect("valid arena layout");
+            let layout =
+                std::alloc::Layout::from_size_align(self.buf_cap, 8).expect("valid arena layout");
             std::alloc::dealloc(self.buf_ptr, layout);
         }
     }
@@ -2292,7 +2521,10 @@ enum HeapObj {
     Str(String),
     List(Vec<NanVal>),
     Map(HashMap<String, NanVal>),
-    Record { type_info: Rc<TypeInfo>, fields: Box<[NanVal]> },
+    Record {
+        type_info: Rc<TypeInfo>,
+        fields: Box<[NanVal]>,
+    },
     OkVal(NanVal),
     ErrVal(NanVal),
 }
@@ -2355,7 +2587,9 @@ impl NanVal {
     }
 
     #[inline]
-    fn nil() -> Self { NanVal(TAG_NIL) }
+    fn nil() -> Self {
+        NanVal(TAG_NIL)
+    }
 
     #[inline]
     fn boolean(b: bool) -> Self {
@@ -2452,7 +2686,10 @@ impl NanVal {
 
     #[inline]
     fn is_heap(self) -> bool {
-        (self.0 & QNAN) == QNAN && self.0 != TAG_NIL && self.0 != TAG_TRUE && self.0 != TAG_FALSE
+        (self.0 & QNAN) == QNAN
+            && self.0 != TAG_NIL
+            && self.0 != TAG_TRUE
+            && self.0 != TAG_FALSE
             && (self.0 & TAG_MASK) != TAG_ARENA_REC
     }
 
@@ -2480,7 +2717,11 @@ impl NanVal {
     /// NaN-boxing. Violating these invariants is instant UB (use-after-free).
     #[inline]
     unsafe fn as_heap_ref<'a>(self) -> &'a HeapObj {
-        debug_assert!(self.is_heap(), "as_heap_ref called on non-heap NanVal {:#018x}", self.0);
+        debug_assert!(
+            self.is_heap(),
+            "as_heap_ref called on non-heap NanVal {:#018x}",
+            self.0
+        );
         let ptr = (self.0 & PTR_MASK) as *const HeapObj;
         // In debug builds, verify the Rc is still alive by reconstructing it
         // temporarily. This catches use-after-free during development.
@@ -2490,7 +2731,11 @@ impl NanVal {
             let count = Rc::strong_count(&rc);
             // Leak it back — we must not decrement the count.
             std::mem::forget(rc);
-            debug_assert!(count >= 1, "as_heap_ref: Rc strong count is 0 (use-after-free) for NanVal {:#018x}", self.0);
+            debug_assert!(
+                count >= 1,
+                "as_heap_ref: Rc strong count is 0 (use-after-free) for NanVal {:#018x}",
+                self.0
+            );
         }
         // SAFETY: pointer was produced by Rc::into_raw in a heap_* constructor.
         // Caller guarantees is_heap() and the Rc is still live.
@@ -2503,7 +2748,9 @@ impl NanVal {
             let ptr = (self.0 & PTR_MASK) as *const HeapObj;
             // SAFETY: is_heap() guarantees this pointer was produced by Rc::into_raw
             // and the RC count is at least 1 (we hold a NanVal that represents it).
-            unsafe { Rc::increment_strong_count(ptr); }
+            unsafe {
+                Rc::increment_strong_count(ptr);
+            }
         }
     }
 
@@ -2514,7 +2761,9 @@ impl NanVal {
             // SAFETY: is_heap() guarantees this pointer was produced by Rc::into_raw.
             // Decrementing mirrors every clone_rc call; the VM is responsible for
             // pairing increments and decrements correctly.
-            unsafe { Rc::decrement_strong_count(ptr); }
+            unsafe {
+                Rc::decrement_strong_count(ptr);
+            }
         }
     }
 
@@ -2524,11 +2773,10 @@ impl NanVal {
             Value::Bool(b) => NanVal::boolean(*b),
             Value::Nil => NanVal::nil(),
             Value::Text(s) => NanVal::heap_string(s.clone()),
-            Value::List(items) => {
-                NanVal::heap_list(items.iter().map(NanVal::from_value).collect())
-            }
+            Value::List(items) => NanVal::heap_list(items.iter().map(NanVal::from_value).collect()),
             Value::Map(m) => {
-                let nan_map: HashMap<String, NanVal> = m.iter()
+                let nan_map: HashMap<String, NanVal> = m
+                    .iter()
                     .map(|(k, v)| (k.clone(), NanVal::from_value(v)))
                     .collect();
                 NanVal::heap_map(nan_map)
@@ -2536,8 +2784,13 @@ impl NanVal {
             Value::Record { type_name, fields } => {
                 // Build TypeInfo from the Value's field names (preserving order)
                 let field_names: Vec<String> = fields.keys().cloned().collect();
-                let type_info = Rc::new(TypeInfo { name: type_name.clone(), fields: field_names.clone(), num_fields: 0 });
-                let flat: Box<[NanVal]> = field_names.iter()
+                let type_info = Rc::new(TypeInfo {
+                    name: type_name.clone(),
+                    fields: field_names.clone(),
+                    num_fields: 0,
+                });
+                let flat: Box<[NanVal]> = field_names
+                    .iter()
                     .map(|k| NanVal::from_value(&fields[k]))
                     .collect::<Vec<_>>()
                     .into_boxed_slice();
@@ -2575,7 +2828,10 @@ impl NanVal {
                         .unwrap_or_else(|| format!("_{}", i));
                     field_map.insert(name, v.to_value());
                 }
-                Value::Record { type_name, fields: field_map }
+                Value::Record {
+                    type_name,
+                    fields: field_map,
+                }
             };
         }
         match self.0 {
@@ -2586,7 +2842,11 @@ impl NanVal {
                 // SAFETY: Not a number, nil, true, or false — must be a heap-tagged
                 // pointer. The NanVal was created by a heap_* constructor so the
                 // Rc is still live (we own this NanVal value).
-                debug_assert!(self.is_heap(), "to_value: unexpected non-heap NanVal tag {:#018x}", self.0);
+                debug_assert!(
+                    self.is_heap(),
+                    "to_value: unexpected non-heap NanVal tag {:#018x}",
+                    self.0
+                );
                 match self.as_heap_ref() {
                     HeapObj::Str(s) => Value::Text(s.clone()),
                     HeapObj::List(items) => {
@@ -2597,14 +2857,17 @@ impl NanVal {
                     }
                     HeapObj::Record { type_info, fields } => Value::Record {
                         type_name: type_info.name.clone(),
-                        fields: type_info.fields.iter().zip(fields.iter())
+                        fields: type_info
+                            .fields
+                            .iter()
+                            .zip(fields.iter())
                             .map(|(k, v)| (k.clone(), v.to_value()))
                             .collect(),
                     },
                     HeapObj::OkVal(inner) => Value::Ok(Box::new(inner.to_value())),
                     HeapObj::ErrVal(inner) => Value::Err(Box::new(inner.to_value())),
                 }
-            }
+            },
         }
     }
 
@@ -2619,7 +2882,11 @@ impl NanVal {
                 let mut field_map = HashMap::new();
                 for i in 0..n {
                     let v = NanVal(*rec.field_ptr(i));
-                    let name = type_info.fields.get(i).cloned().unwrap_or_else(|| format!("_{}", i));
+                    let name = type_info
+                        .fields
+                        .get(i)
+                        .cloned()
+                        .unwrap_or_else(|| format!("_{}", i));
                     field_map.insert(name, v.to_value_with_registry(registry));
                 }
                 Value::Record {
@@ -2636,27 +2903,38 @@ impl NanVal {
 
 pub fn compile(program: &Program) -> Result<CompiledProgram, CompileError> {
     let mut prog = RegCompiler::new().compile_program(program)?;
-    prog.nan_constants = prog.chunks.iter()
+    prog.nan_constants = prog
+        .chunks
+        .iter()
         .map(|chunk| chunk.constants.iter().map(NanVal::from_value).collect())
         .collect();
     Ok(prog)
 }
 
-pub fn run(compiled: &CompiledProgram, func_name: Option<&str>, args: Vec<Value>) -> Result<Value, VmRuntimeError> {
+pub fn run(
+    compiled: &CompiledProgram,
+    func_name: Option<&str>,
+    args: Vec<Value>,
+) -> Result<Value, VmRuntimeError> {
     let target = match func_name {
         Some(name) => name.to_string(),
-        None => compiled.func_names.first().ok_or_else(|| VmRuntimeError {
-            error: VmError::NoFunctionsDefined,
-            span: None,
-            call_stack: Vec::new(),
-        })?.clone(),
+        None => compiled
+            .func_names
+            .first()
+            .ok_or_else(|| VmRuntimeError {
+                error: VmError::NoFunctionsDefined,
+                span: None,
+                call_stack: Vec::new(),
+            })?
+            .clone(),
     };
-    let func_idx = compiled.func_index(&target)
-        .ok_or_else(|| VmRuntimeError {
-            error: VmError::UndefinedFunction { name: target.clone() },
-            span: None,
-            call_stack: Vec::new(),
-        })?;
+    let func_idx = compiled.func_index(&target).ok_or_else(|| VmRuntimeError {
+        error: VmError::UndefinedFunction {
+            name: target.clone(),
+        },
+        span: None,
+        call_stack: Vec::new(),
+    })?;
     VM::new(compiled).call(func_idx, args)
 }
 
@@ -2669,28 +2947,38 @@ pub fn run_with_tools(
 ) -> Result<Value, VmRuntimeError> {
     let target = match func_name {
         Some(name) => name.to_string(),
-        None => compiled.func_names.first().ok_or_else(|| VmRuntimeError {
-            error: VmError::NoFunctionsDefined,
-            span: None,
-            call_stack: Vec::new(),
-        })?.clone(),
+        None => compiled
+            .func_names
+            .first()
+            .ok_or_else(|| VmRuntimeError {
+                error: VmError::NoFunctionsDefined,
+                span: None,
+                call_stack: Vec::new(),
+            })?
+            .clone(),
     };
-    let func_idx = compiled.func_index(&target)
-        .ok_or_else(|| VmRuntimeError {
-            error: VmError::UndefinedFunction { name: target.clone() },
-            span: None,
-            call_stack: Vec::new(),
-        })?;
+    let func_idx = compiled.func_index(&target).ok_or_else(|| VmRuntimeError {
+        error: VmError::UndefinedFunction {
+            name: target.clone(),
+        },
+        span: None,
+        call_stack: Vec::new(),
+    })?;
     VM::new_with_tools(
         compiled,
         provider,
         #[cfg(feature = "tools")]
         runtime,
-    ).call(func_idx, args)
+    )
+    .call(func_idx, args)
 }
 
 #[cfg(test)]
-pub fn compile_and_run(program: &Program, func_name: Option<&str>, args: Vec<Value>) -> Result<Value, Box<dyn std::error::Error>> {
+pub fn compile_and_run(
+    program: &Program,
+    func_name: Option<&str>,
+    args: Vec<Value>,
+) -> Result<Value, Box<dyn std::error::Error>> {
     let compiled = compile(program)?;
     Ok(run(&compiled, func_name, args).map_err(|e| e.error)?)
 }
@@ -2702,7 +2990,9 @@ pub struct VmState<'a> {
 
 impl<'a> VmState<'a> {
     pub fn new(compiled: &'a CompiledProgram) -> Self {
-        VmState { vm: VM::new(compiled) }
+        VmState {
+            vm: VM::new(compiled),
+        }
     }
 
     pub fn call(&mut self, func_name: &str, args: Vec<Value>) -> VmResult<Value> {
@@ -2711,11 +3001,16 @@ impl<'a> VmState<'a> {
         }
         self.vm.frames.clear();
 
-        let func_idx = self.vm.program.func_index(func_name)
-            .ok_or_else(|| VmError::UndefinedFunction { name: func_name.to_string() })?;
+        let func_idx =
+            self.vm
+                .program
+                .func_index(func_name)
+                .ok_or_else(|| VmError::UndefinedFunction {
+                    name: func_name.to_string(),
+                })?;
         let nan_args: Vec<NanVal> = args.iter().map(NanVal::from_value).collect();
         self.vm.setup_call(func_idx, nan_args, 0);
-        self.vm.execute()  // returns VmError for bench compatibility
+        self.vm.execute() // returns VmError for bench compatibility
     }
 }
 
@@ -2809,14 +3104,23 @@ impl<'a> VM<'a> {
 
     /// Build a `VmRuntimeError` from a `VmError`, capturing span and call stack.
     fn make_runtime_error(&self, error: VmError) -> VmRuntimeError {
-        let span = self.program.chunks.get(self.last_ci)
+        let span = self
+            .program
+            .chunks
+            .get(self.last_ci)
             .and_then(|chunk| chunk.spans.get(self.last_ip))
             .copied()
             .filter(|s| *s != crate::ast::Span::UNKNOWN);
-        let call_stack: Vec<String> = self.frames.iter()
+        let call_stack: Vec<String> = self
+            .frames
+            .iter()
             .filter_map(|f| self.program.func_names.get(f.chunk_idx as usize).cloned())
             .collect();
-        VmRuntimeError { error, span, call_stack }
+        VmRuntimeError {
+            error,
+            span,
+            call_stack,
+        }
     }
 
     // reg!/reg_set! carry their own unsafe {} — clippy flags them as redundant when
@@ -2856,7 +3160,8 @@ impl<'a> VM<'a> {
                 }
                 // SAFETY: we just checked !self.frames.is_empty().
                 let f = unsafe { self.frames.last().unwrap_unchecked() };
-                let target = f.stack_base + self.frames.last().map(|f| f.result_reg).unwrap_or(0) as usize;
+                let target =
+                    f.stack_base + self.frames.last().map(|f| f.result_reg).unwrap_or(0) as usize;
                 ci = f.chunk_idx as usize;
                 ip = f.ip;
                 base = f.stack_base;
@@ -2881,7 +3186,7 @@ impl<'a> VM<'a> {
                 ($idx:expr) => {
                     // SAFETY: $idx = base + encoded register, within pre-allocated slots.
                     unsafe { *self.stack.get_unchecked($idx) }
-                }
+                };
             }
             macro_rules! reg_set {
                 ($idx:expr, $val:expr) => {
@@ -2892,7 +3197,7 @@ impl<'a> VM<'a> {
                         (*slot).drop_rc();
                         *slot = $val;
                     }
-                }
+                };
             }
             // Save position only on error paths. ip was already incremented above,
             // so subtract 1 to recover the instruction's original index.
@@ -2901,7 +3206,7 @@ impl<'a> VM<'a> {
                     self.last_ci = ci;
                     self.last_ip = ip - 1;
                     return Err($e);
-                }}
+                }};
             }
 
             match op {
@@ -2938,7 +3243,9 @@ impl<'a> VM<'a> {
                                     // rc_b is consumed; the NanVal `bv` is now a dangling
                                     // pointer. Nullify slot b immediately so that any
                                     // subsequent OP_MOVE / reg_set! on b won't double-free.
-                                    unsafe { *self.stack.as_mut_ptr().add(b) = NanVal::nil(); }
+                                    unsafe {
+                                        *self.stack.as_mut_ptr().add(b) = NanVal::nil();
+                                    }
                                     // Read the right-hand string BEFORE touching slot a.
                                     let sc_ptr: *const str = unsafe {
                                         match cv.as_heap_ref() {
@@ -2953,7 +3260,9 @@ impl<'a> VM<'a> {
                                         let slot = self.stack.as_mut_ptr().add(a);
                                         // a != b: drop old value at slot a (b is nil after above).
                                         // a == b: slot a == slot b, already nil — just write new_val.
-                                        if a != b { (*slot).drop_rc(); }
+                                        if a != b {
+                                            (*slot).drop_rc();
+                                        }
                                         *slot = new_val;
                                     }
                                 }
@@ -2961,10 +3270,17 @@ impl<'a> VM<'a> {
                                     // Shouldn't happen (RC was 1), but fall back safely.
                                     std::mem::forget(rc_back);
                                     let result = unsafe {
-                                        let sb = match bv.as_heap_ref() { HeapObj::Str(s) => s, _ => unreachable!() };
-                                        let sc = match cv.as_heap_ref() { HeapObj::Str(s) => s, _ => unreachable!() };
+                                        let sb = match bv.as_heap_ref() {
+                                            HeapObj::Str(s) => s,
+                                            _ => unreachable!(),
+                                        };
+                                        let sc = match cv.as_heap_ref() {
+                                            HeapObj::Str(s) => s,
+                                            _ => unreachable!(),
+                                        };
                                         let mut out = String::with_capacity(sb.len() + sc.len());
-                                        out.push_str(sb); out.push_str(sc);
+                                        out.push_str(sb);
+                                        out.push_str(sc);
                                         NanVal::heap_string(out)
                                     };
                                     reg_set!(a, result);
@@ -2975,10 +3291,17 @@ impl<'a> VM<'a> {
                             std::mem::forget(rc_b);
                             let result = unsafe {
                                 // SAFETY: is_string() confirmed heap-tagged with live RC.
-                                let sb = match bv.as_heap_ref() { HeapObj::Str(s) => s, _ => unreachable!() };
-                                let sc = match cv.as_heap_ref() { HeapObj::Str(s) => s, _ => unreachable!() };
+                                let sb = match bv.as_heap_ref() {
+                                    HeapObj::Str(s) => s,
+                                    _ => unreachable!(),
+                                };
+                                let sc = match cv.as_heap_ref() {
+                                    HeapObj::Str(s) => s,
+                                    _ => unreachable!(),
+                                };
                                 let mut out = String::with_capacity(sb.len() + sc.len());
-                                out.push_str(sb); out.push_str(sc);
+                                out.push_str(sb);
+                                out.push_str(sc);
                                 NanVal::heap_string(out)
                             };
                             reg_set!(a, result);
@@ -3068,10 +3391,13 @@ impl<'a> VM<'a> {
                     if bv.is_number() && cv.is_number() {
                         reg_set!(a, NanVal::boolean(bv.as_number() > cv.as_number()));
                     } else if bv.is_string() && cv.is_string() {
-                        let result = unsafe { nanval_str_cmp(bv, cv) == std::cmp::Ordering::Greater };
+                        let result =
+                            unsafe { nanval_str_cmp(bv, cv) == std::cmp::Ordering::Greater };
                         reg_set!(a, NanVal::boolean(result));
                     } else {
-                        vm_err!(VmError::Type("cannot compare > : operands must be same type (n or t)"));
+                        vm_err!(VmError::Type(
+                            "cannot compare > : operands must be same type (n or t)"
+                        ));
                     }
                 }
                 OP_LT => {
@@ -3086,7 +3412,9 @@ impl<'a> VM<'a> {
                         let result = unsafe { nanval_str_cmp(bv, cv) == std::cmp::Ordering::Less };
                         reg_set!(a, NanVal::boolean(result));
                     } else {
-                        vm_err!(VmError::Type("cannot compare < : operands must be same type (n or t)"));
+                        vm_err!(VmError::Type(
+                            "cannot compare < : operands must be same type (n or t)"
+                        ));
                     }
                 }
                 OP_GE => {
@@ -3101,7 +3429,9 @@ impl<'a> VM<'a> {
                         let result = unsafe { nanval_str_cmp(bv, cv) != std::cmp::Ordering::Less };
                         reg_set!(a, NanVal::boolean(result));
                     } else {
-                        vm_err!(VmError::Type("cannot compare >= : operands must be same type (n or t)"));
+                        vm_err!(VmError::Type(
+                            "cannot compare >= : operands must be same type (n or t)"
+                        ));
                     }
                 }
                 OP_LE => {
@@ -3113,17 +3443,22 @@ impl<'a> VM<'a> {
                     if bv.is_number() && cv.is_number() {
                         reg_set!(a, NanVal::boolean(bv.as_number() <= cv.as_number()));
                     } else if bv.is_string() && cv.is_string() {
-                        let result = unsafe { nanval_str_cmp(bv, cv) != std::cmp::Ordering::Greater };
+                        let result =
+                            unsafe { nanval_str_cmp(bv, cv) != std::cmp::Ordering::Greater };
                         reg_set!(a, NanVal::boolean(result));
                     } else {
-                        vm_err!(VmError::Type("cannot compare <= : operands must be same type (n or t)"));
+                        vm_err!(VmError::Type(
+                            "cannot compare <= : operands must be same type (n or t)"
+                        ));
                     }
                 }
                 OP_MOVE => {
                     let a = ((inst >> 16) & 0xFF) as usize + base;
                     let b = ((inst >> 8) & 0xFF) as usize + base;
                     let v = reg!(b);
-                    if !v.is_number() { v.clone_rc(); }
+                    if !v.is_number() {
+                        v.clone_rc();
+                    }
                     reg_set!(a, v);
                 }
                 OP_NOT => {
@@ -3148,7 +3483,9 @@ impl<'a> VM<'a> {
                     let mut v = reg!(b);
                     if v.is_arena_record() {
                         v = v.promote_arena_to_heap(&self.program.type_registry);
-                    } else if !v.is_number() { v.clone_rc(); }
+                    } else if !v.is_number() {
+                        v.clone_rc();
+                    }
                     reg_set!(a, NanVal::heap_ok(v));
                 }
                 OP_WRAPERR => {
@@ -3157,7 +3494,9 @@ impl<'a> VM<'a> {
                     let mut v = reg!(b);
                     if v.is_arena_record() {
                         v = v.promote_arena_to_heap(&self.program.type_registry);
-                    } else if !v.is_number() { v.clone_rc(); }
+                    } else if !v.is_number() {
+                        v.clone_rc();
+                    }
                     reg_set!(a, NanVal::heap_err(v));
                 }
                 OP_ISOK => {
@@ -3209,14 +3548,16 @@ impl<'a> VM<'a> {
                     let key_v = reg!(c);
                     let result = unsafe {
                         match map_v.as_heap_ref() {
-                            HeapObj::Map(m) => {
-                                match key_v.as_heap_ref() {
-                                    HeapObj::Str(k) => m.get(k.as_str())
-                                        .map(|v| { v.clone_rc(); *v })
-                                        .unwrap_or_else(NanVal::nil),
-                                    _ => vm_err!(VmError::Type("mget: key must be text")),
-                                }
-                            }
+                            HeapObj::Map(m) => match key_v.as_heap_ref() {
+                                HeapObj::Str(k) => m
+                                    .get(k.as_str())
+                                    .map(|v| {
+                                        v.clone_rc();
+                                        *v
+                                    })
+                                    .unwrap_or_else(NanVal::nil),
+                                _ => vm_err!(VmError::Type("mget: key must be text")),
+                            },
                             _ => vm_err!(VmError::Type("mget: first arg must be a map")),
                         }
                     };
@@ -3231,17 +3572,15 @@ impl<'a> VM<'a> {
                     let val_v = reg!(c + 1);
                     let result = unsafe {
                         match map_v.as_heap_ref() {
-                            HeapObj::Map(m) => {
-                                match key_v.as_heap_ref() {
-                                    HeapObj::Str(k) => {
-                                        let mut new_map = m.clone();
-                                        val_v.clone_rc();
-                                        new_map.insert(k.clone(), val_v);
-                                        NanVal::heap_map(new_map)
-                                    }
-                                    _ => vm_err!(VmError::Type("mset: key must be text")),
+                            HeapObj::Map(m) => match key_v.as_heap_ref() {
+                                HeapObj::Str(k) => {
+                                    let mut new_map = m.clone();
+                                    val_v.clone_rc();
+                                    new_map.insert(k.clone(), val_v);
+                                    NanVal::heap_map(new_map)
                                 }
-                            }
+                                _ => vm_err!(VmError::Type("mset: key must be text")),
+                            },
                             _ => vm_err!(VmError::Type("mset: first arg must be a map")),
                         }
                     };
@@ -3255,12 +3594,10 @@ impl<'a> VM<'a> {
                     let key_v = reg!(c);
                     let result = unsafe {
                         match map_v.as_heap_ref() {
-                            HeapObj::Map(m) => {
-                                match key_v.as_heap_ref() {
-                                    HeapObj::Str(k) => NanVal::boolean(m.contains_key(k.as_str())),
-                                    _ => vm_err!(VmError::Type("mhas: key must be text")),
-                                }
-                            }
+                            HeapObj::Map(m) => match key_v.as_heap_ref() {
+                                HeapObj::Str(k) => NanVal::boolean(m.contains_key(k.as_str())),
+                                _ => vm_err!(VmError::Type("mhas: key must be text")),
+                            },
                             _ => vm_err!(VmError::Type("mhas: first arg must be a map")),
                         }
                     };
@@ -3275,7 +3612,8 @@ impl<'a> VM<'a> {
                             HeapObj::Map(m) => {
                                 let mut keys: Vec<&String> = m.keys().collect();
                                 keys.sort();
-                                let nan_keys: Vec<NanVal> = keys.iter()
+                                let nan_keys: Vec<NanVal> = keys
+                                    .iter()
                                     .map(|k| NanVal::heap_string((*k).clone()))
                                     .collect();
                                 NanVal::heap_list(nan_keys)
@@ -3294,8 +3632,12 @@ impl<'a> VM<'a> {
                             HeapObj::Map(m) => {
                                 let mut pairs: Vec<(&String, &NanVal)> = m.iter().collect();
                                 pairs.sort_by_key(|(k, _)| k.as_str());
-                                let nan_vals: Vec<NanVal> = pairs.iter()
-                                    .map(|(_, v)| { v.clone_rc(); **v })
+                                let nan_vals: Vec<NanVal> = pairs
+                                    .iter()
+                                    .map(|(_, v)| {
+                                        v.clone_rc();
+                                        **v
+                                    })
                                     .collect();
                                 NanVal::heap_list(nan_vals)
                             }
@@ -3312,16 +3654,14 @@ impl<'a> VM<'a> {
                     let key_v = reg!(c);
                     let result = unsafe {
                         match map_v.as_heap_ref() {
-                            HeapObj::Map(m) => {
-                                match key_v.as_heap_ref() {
-                                    HeapObj::Str(k) => {
-                                        let mut new_map = m.clone();
-                                        new_map.remove(k.as_str());
-                                        NanVal::heap_map(new_map)
-                                    }
-                                    _ => vm_err!(VmError::Type("mdel: key must be text")),
+                            HeapObj::Map(m) => match key_v.as_heap_ref() {
+                                HeapObj::Str(k) => {
+                                    let mut new_map = m.clone();
+                                    new_map.remove(k.as_str());
+                                    NanVal::heap_map(new_map)
                                 }
-                            }
+                                _ => vm_err!(VmError::Type("mdel: key must be text")),
+                            },
                             _ => vm_err!(VmError::Type("mdel: first arg must be a map")),
                         }
                     };
@@ -3342,7 +3682,12 @@ impl<'a> VM<'a> {
                         vm_err!(VmError::Type("rd requires a string path"));
                     }
                     // SAFETY: is_string() confirmed heap-tagged string with live RC.
-                    let path = unsafe { match v.as_heap_ref() { HeapObj::Str(s) => s.as_str().to_owned(), _ => unreachable!() } };
+                    let path = unsafe {
+                        match v.as_heap_ref() {
+                            HeapObj::Str(s) => s.as_str().to_owned(),
+                            _ => unreachable!(),
+                        }
+                    };
                     let fmt = std::path::Path::new(&path)
                         .extension()
                         .and_then(|e| e.to_str())
@@ -3365,7 +3710,12 @@ impl<'a> VM<'a> {
                         vm_err!(VmError::Type("rdl requires a string path"));
                     }
                     // SAFETY: is_string() confirmed heap-tagged string with live RC.
-                    let path = unsafe { match v.as_heap_ref() { HeapObj::Str(s) => s.as_str().to_owned(), _ => unreachable!() } };
+                    let path = unsafe {
+                        match v.as_heap_ref() {
+                            HeapObj::Str(s) => s.as_str().to_owned(),
+                            _ => unreachable!(),
+                        }
+                    };
                     let result = match std::fs::read_to_string(&path) {
                         Ok(content) => {
                             let lines: Vec<NanVal> = content
@@ -3384,12 +3734,22 @@ impl<'a> VM<'a> {
                     let c = (inst & 0xFF) as usize + base;
                     let vb = reg!(b);
                     let vc = reg!(c);
-                    if !vb.is_string() { vm_err!(VmError::Type("wr arg 1 must be a string path")); }
-                    if !vc.is_string() { vm_err!(VmError::Type("wr arg 2 must be a string")); }
+                    if !vb.is_string() {
+                        vm_err!(VmError::Type("wr arg 1 must be a string path"));
+                    }
+                    if !vc.is_string() {
+                        vm_err!(VmError::Type("wr arg 2 must be a string"));
+                    }
                     // SAFETY: is_string() confirmed.
                     let (path, content) = unsafe {
-                        let p = match vb.as_heap_ref() { HeapObj::Str(s) => s.as_str().to_owned(), _ => unreachable!() };
-                        let c = match vc.as_heap_ref() { HeapObj::Str(s) => s.as_str().to_owned(), _ => unreachable!() };
+                        let p = match vb.as_heap_ref() {
+                            HeapObj::Str(s) => s.as_str().to_owned(),
+                            _ => unreachable!(),
+                        };
+                        let c = match vc.as_heap_ref() {
+                            HeapObj::Str(s) => s.as_str().to_owned(),
+                            _ => unreachable!(),
+                        };
                         (p, c)
                     };
                     let result = match std::fs::write(&path, &content) {
@@ -3404,17 +3764,36 @@ impl<'a> VM<'a> {
                     let c = (inst & 0xFF) as usize + base;
                     let vb = reg!(b);
                     let vc = reg!(c);
-                    if !vb.is_string() { vm_err!(VmError::Type("wrl arg 1 must be a string path")); }
+                    if !vb.is_string() {
+                        vm_err!(VmError::Type("wrl arg 1 must be a string path"));
+                    }
                     // SAFETY: is_string() confirmed.
-                    let path = unsafe { match vb.as_heap_ref() { HeapObj::Str(s) => s.as_str().to_owned(), _ => unreachable!() } };
+                    let path = unsafe {
+                        match vb.as_heap_ref() {
+                            HeapObj::Str(s) => s.as_str().to_owned(),
+                            _ => unreachable!(),
+                        }
+                    };
                     let result = if (vc.0 & TAG_MASK) == TAG_LIST {
                         // SAFETY: TAG_LIST confirmed heap-tagged list with live RC.
-                        let lines = unsafe { match vc.as_heap_ref() { HeapObj::List(l) => l.clone(), _ => unreachable!() } };
+                        let lines = unsafe {
+                            match vc.as_heap_ref() {
+                                HeapObj::List(l) => l.clone(),
+                                _ => unreachable!(),
+                            }
+                        };
                         let mut buf = String::new();
                         for line in &lines {
-                            if !line.is_string() { vm_err!(VmError::Type("wrl list elements must be strings")); }
+                            if !line.is_string() {
+                                vm_err!(VmError::Type("wrl list elements must be strings"));
+                            }
                             // SAFETY: is_string() confirmed.
-                            let s = unsafe { match line.as_heap_ref() { HeapObj::Str(s) => s.as_str().to_owned(), _ => unreachable!() } };
+                            let s = unsafe {
+                                match line.as_heap_ref() {
+                                    HeapObj::Str(s) => s.as_str().to_owned(),
+                                    _ => unreachable!(),
+                                }
+                            };
                             buf.push_str(&s);
                             buf.push('\n');
                         }
@@ -3435,7 +3814,12 @@ impl<'a> VM<'a> {
                         vm_err!(VmError::Type("trm requires a string"));
                     }
                     // SAFETY: is_string() confirmed heap-tagged string with live RC.
-                    let s = unsafe { match v.as_heap_ref() { HeapObj::Str(s) => s.as_str().trim().to_owned(), _ => unreachable!() } };
+                    let s = unsafe {
+                        match v.as_heap_ref() {
+                            HeapObj::Str(s) => s.as_str().trim().to_owned(),
+                            _ => unreachable!(),
+                        }
+                    };
                     reg_set!(a, NanVal::heap_string(s));
                 }
                 OP_UNQ => {
@@ -3444,13 +3828,23 @@ impl<'a> VM<'a> {
                     let v = reg!(b);
                     if v.is_string() {
                         // SAFETY: is_string() confirmed.
-                        let s = unsafe { match v.as_heap_ref() { HeapObj::Str(s) => s.as_str().to_owned(), _ => unreachable!() } };
+                        let s = unsafe {
+                            match v.as_heap_ref() {
+                                HeapObj::Str(s) => s.as_str().to_owned(),
+                                _ => unreachable!(),
+                            }
+                        };
                         let mut seen = std::collections::HashSet::new();
                         let deduped: String = s.chars().filter(|c| seen.insert(*c)).collect();
                         reg_set!(a, NanVal::heap_string(deduped));
                     } else if (v.0 & TAG_MASK) == TAG_LIST {
                         // SAFETY: TAG_LIST confirmed.
-                        let items = unsafe { match v.as_heap_ref() { HeapObj::List(l) => l.clone(), _ => unreachable!() } };
+                        let items = unsafe {
+                            match v.as_heap_ref() {
+                                HeapObj::List(l) => l.clone(),
+                                _ => unreachable!(),
+                            }
+                        };
                         // Use nanval_equal for dedup — raw bits can't distinguish heap strings
                         // with equal content but different allocations (O(n²), fine for data sizes).
                         // clone_rc each kept item: HeapObj::Drop will drop_rc the original list's
@@ -3501,31 +3895,38 @@ impl<'a> VM<'a> {
                                 v.clone_rc(); // no-op for numbers; needed for heap strings
                                 v
                             } else {
-                                vm_err!(VmError::FieldNotFound { field: format!("index {}", field_idx) });
+                                vm_err!(VmError::FieldNotFound {
+                                    field: format!("index {}", field_idx)
+                                });
                             }
                         };
                         reg_set!(a, field_val);
                     } else {
-                    // SAFETY: OP_RECFLD is only emitted by the compiler for record
-                    // field accesses on values the type-checker knows are records.
-                    debug_assert!(record.is_heap(), "OP_RECFLD on non-heap value");
-                    let field_val = unsafe {
-                        match record.as_heap_ref() {
-                            HeapObj::Record { fields, type_info } => {
-                                if field_idx < fields.len() {
-                                    let val = fields[field_idx];
-                                    val.clone_rc();
-                                    val
-                                } else {
-                                    let name = type_info.fields.get(field_idx)
-                                        .map(|s| s.as_str()).unwrap_or("?");
-                                    vm_err!(VmError::FieldNotFound { field: name.to_string() });
+                        // SAFETY: OP_RECFLD is only emitted by the compiler for record
+                        // field accesses on values the type-checker knows are records.
+                        debug_assert!(record.is_heap(), "OP_RECFLD on non-heap value");
+                        let field_val = unsafe {
+                            match record.as_heap_ref() {
+                                HeapObj::Record { fields, type_info } => {
+                                    if field_idx < fields.len() {
+                                        let val = fields[field_idx];
+                                        val.clone_rc();
+                                        val
+                                    } else {
+                                        let name = type_info
+                                            .fields
+                                            .get(field_idx)
+                                            .map(|s| s.as_str())
+                                            .unwrap_or("?");
+                                        vm_err!(VmError::FieldNotFound {
+                                            field: name.to_string()
+                                        });
+                                    }
                                 }
+                                _ => vm_err!(VmError::Type("field access on non-record")),
                             }
-                            _ => vm_err!(VmError::Type("field access on non-record")),
-                        }
-                    };
-                    reg_set!(a, field_val);
+                        };
+                        reg_set!(a, field_val);
                     } // end else (heap record path)
                 }
                 OP_RECFLD_NAME => {
@@ -3549,28 +3950,32 @@ impl<'a> VM<'a> {
                                     v.clone_rc();
                                     v
                                 }
-                                _ => vm_err!(VmError::FieldNotFound { field: field_name.to_string() }),
+                                _ => vm_err!(VmError::FieldNotFound {
+                                    field: field_name.to_string()
+                                }),
                             }
                         };
                         reg_set!(a, field_val);
                     } else {
-                    debug_assert!(record.is_heap(), "OP_RECFLD_NAME on non-heap value");
-                    let field_val = unsafe {
-                        match record.as_heap_ref() {
-                            HeapObj::Record { type_info, fields } => {
-                                match type_info.fields.iter().position(|f| f == field_name) {
-                                    Some(idx) if idx < fields.len() => {
-                                        let val = fields[idx];
-                                        val.clone_rc();
-                                        val
+                        debug_assert!(record.is_heap(), "OP_RECFLD_NAME on non-heap value");
+                        let field_val = unsafe {
+                            match record.as_heap_ref() {
+                                HeapObj::Record { type_info, fields } => {
+                                    match type_info.fields.iter().position(|f| f == field_name) {
+                                        Some(idx) if idx < fields.len() => {
+                                            let val = fields[idx];
+                                            val.clone_rc();
+                                            val
+                                        }
+                                        _ => vm_err!(VmError::FieldNotFound {
+                                            field: field_name.to_string()
+                                        }),
                                     }
-                                    _ => vm_err!(VmError::FieldNotFound { field: field_name.to_string() }),
                                 }
+                                _ => vm_err!(VmError::Type("field access on non-record")),
                             }
-                            _ => vm_err!(VmError::Type("field access on non-record")),
-                        }
-                    };
-                    reg_set!(a, field_val);
+                        };
+                        reg_set!(a, field_val);
                     } // end else (heap record path)
                 }
                 OP_INDEX => {
@@ -3706,42 +4111,54 @@ impl<'a> VM<'a> {
                     // SAFETY: ki < constants.len() guaranteed by compiler.
                     let lhs = unsafe { self.stack.get_unchecked(a) }.as_number();
                     let rhs = unsafe { nan_consts.get_unchecked(ki) }.as_number();
-                    if lhs >= rhs { ip += 1; }
+                    if lhs >= rhs {
+                        ip += 1;
+                    }
                 }
                 OP_CMPK_GT_N => {
                     let a = ((inst >> 16) & 0xFF) as usize + base;
                     let ki = (inst & 0xFF) as usize;
                     let lhs = unsafe { self.stack.get_unchecked(a) }.as_number();
                     let rhs = unsafe { nan_consts.get_unchecked(ki) }.as_number();
-                    if lhs > rhs { ip += 1; }
+                    if lhs > rhs {
+                        ip += 1;
+                    }
                 }
                 OP_CMPK_LT_N => {
                     let a = ((inst >> 16) & 0xFF) as usize + base;
                     let ki = (inst & 0xFF) as usize;
                     let lhs = unsafe { self.stack.get_unchecked(a) }.as_number();
                     let rhs = unsafe { nan_consts.get_unchecked(ki) }.as_number();
-                    if lhs < rhs { ip += 1; }
+                    if lhs < rhs {
+                        ip += 1;
+                    }
                 }
                 OP_CMPK_LE_N => {
                     let a = ((inst >> 16) & 0xFF) as usize + base;
                     let ki = (inst & 0xFF) as usize;
                     let lhs = unsafe { self.stack.get_unchecked(a) }.as_number();
                     let rhs = unsafe { nan_consts.get_unchecked(ki) }.as_number();
-                    if lhs <= rhs { ip += 1; }
+                    if lhs <= rhs {
+                        ip += 1;
+                    }
                 }
                 OP_CMPK_EQ_N => {
                     let a = ((inst >> 16) & 0xFF) as usize + base;
                     let ki = (inst & 0xFF) as usize;
                     let lhs = unsafe { self.stack.get_unchecked(a) }.as_number();
                     let rhs = unsafe { nan_consts.get_unchecked(ki) }.as_number();
-                    if lhs == rhs { ip += 1; }
+                    if lhs == rhs {
+                        ip += 1;
+                    }
                 }
                 OP_CMPK_NE_N => {
                     let a = ((inst >> 16) & 0xFF) as usize + base;
                     let ki = (inst & 0xFF) as usize;
                     let lhs = unsafe { self.stack.get_unchecked(a) }.as_number();
                     let rhs = unsafe { nan_consts.get_unchecked(ki) }.as_number();
-                    if lhs != rhs { ip += 1; }
+                    if lhs != rhs {
+                        ip += 1;
+                    }
                 }
                 OP_LOADK => {
                     let a = ((inst >> 16) & 0xFF) as usize + base;
@@ -3749,7 +4166,9 @@ impl<'a> VM<'a> {
                     // SAFETY: bx is the constant pool index encoded in the instruction;
                     // the compiler only emits indices < constants.len().
                     let v = unsafe { *nan_consts.get_unchecked(bx) };
-                    if !v.is_number() { v.clone_rc(); }
+                    if !v.is_number() {
+                        v.clone_rc();
+                    }
                     reg_set!(a, v);
                 }
                 OP_JMP => {
@@ -3788,7 +4207,12 @@ impl<'a> VM<'a> {
 
                     // If this is a tool call and we have a provider, dispatch
                     // through the provider instead of the stub chunk.
-                    let is_tool_call = self.program.is_tool.get(func_idx as usize).copied().unwrap_or(false);
+                    let is_tool_call = self
+                        .program
+                        .is_tool
+                        .get(func_idx as usize)
+                        .copied()
+                        .unwrap_or(false);
                     if let (true, Some(_provider)) = (is_tool_call, self.tool_provider) {
                         let _tool_name = &self.program.func_names[func_idx as usize];
                         let mut value_args = Vec::with_capacity(n_args);
@@ -3801,7 +4225,9 @@ impl<'a> VM<'a> {
                             {
                                 if let Some(rt) = self.tokio_runtime {
                                     rt.block_on(_provider.call(_tool_name, value_args))
-                                        .unwrap_or_else(|e| Value::Err(Box::new(Value::Text(e.to_string()))))
+                                        .unwrap_or_else(|e| {
+                                            Value::Err(Box::new(Value::Text(e.to_string())))
+                                        })
                                 } else {
                                     let _ = value_args;
                                     Value::Ok(Box::new(Value::Nil))
@@ -3822,12 +4248,14 @@ impl<'a> VM<'a> {
 
                     // Push args directly onto the stack (no intermediate Vec).
                     let new_base = self.stack.len();
-                    let callee_all_numeric = unsafe {
-                        self.program.chunks.get_unchecked(func_idx as usize)
-                    }.all_regs_numeric;
+                    let callee_all_numeric =
+                        unsafe { self.program.chunks.get_unchecked(func_idx as usize) }
+                            .all_regs_numeric;
                     for i in 0..n_args {
                         let v = reg!(base + a as usize + 1 + i);
-                        if !callee_all_numeric && !v.is_number() { v.clone_rc(); }
+                        if !callee_all_numeric && !v.is_number() {
+                            v.clone_rc();
+                        }
                         self.stack.push(v);
                     }
 
@@ -3848,9 +4276,13 @@ impl<'a> VM<'a> {
                         let nil = NanVal::nil();
                         let ptr = self.stack.as_mut_ptr();
                         for i in old_len..new_len {
-                            unsafe { ptr.add(i).write(nil); }
+                            unsafe {
+                                ptr.add(i).write(nil);
+                            }
                         }
-                        unsafe { self.stack.set_len(new_len); }
+                        unsafe {
+                            self.stack.set_len(new_len);
+                        }
                     }
 
                     self.frames.push(CallFrame {
@@ -3872,9 +4304,8 @@ impl<'a> VM<'a> {
                     // SAFETY: frames is non-empty while execute() is running.
                     let frame = unsafe { self.frames.last().unwrap_unchecked() };
                     let result_reg = frame.result_reg;
-                    let all_numeric = unsafe {
-                        self.program.chunks.get_unchecked(ci)
-                    }.all_regs_numeric;
+                    let all_numeric =
+                        unsafe { self.program.chunks.get_unchecked(ci) }.all_regs_numeric;
 
                     if all_numeric {
                         // Fast path: all registers are numeric — no RC ops needed.
@@ -3890,9 +4321,13 @@ impl<'a> VM<'a> {
                         ci = f.chunk_idx as usize;
                         ip = f.ip;
                         base = f.stack_base;
-                        unsafe { *self.stack.as_mut_ptr().add(base + result_reg as usize) = result; }
+                        unsafe {
+                            *self.stack.as_mut_ptr().add(base + result_reg as usize) = result;
+                        }
                     } else {
-                        if !result.is_number() && !result.is_arena_record() { result.clone_rc(); }
+                        if !result.is_number() && !result.is_arena_record() {
+                            result.clone_rc();
+                        }
 
                         for i in base..self.stack.len() {
                             // SAFETY: i is in range base..self.stack.len() by loop bounds.
@@ -3941,7 +4376,8 @@ impl<'a> VM<'a> {
                         reg_set!(a, NanVal::arena_record(rec_ptr));
                     } else {
                         // Arena full — fall back to Rc path
-                        let type_info = Rc::clone(&self.program.type_registry.types[type_id as usize]);
+                        let type_info =
+                            Rc::clone(&self.program.type_registry.types[type_id as usize]);
                         let mut fields = Vec::with_capacity(n_fields);
                         for i in 0..n_fields {
                             let v = reg!(a + 1 + i);
@@ -3970,10 +4406,13 @@ impl<'a> VM<'a> {
                             (rec.type_id, rec.n_fields as usize)
                         };
                         let slots: Vec<usize> = match const_val {
-                            Value::List(items) => items.iter().map(|v| match v {
-                                Value::Number(n) => *n as usize,
-                                _ => 0,
-                            }).collect(),
+                            Value::List(items) => items
+                                .iter()
+                                .map(|v| match v {
+                                    Value::Number(n) => *n as usize,
+                                    _ => 0,
+                                })
+                                .collect(),
                             _ => vec![],
                         };
                         if let Some(new_ptr) = self.arena.alloc_record(type_id, old_n) {
@@ -4000,7 +4439,8 @@ impl<'a> VM<'a> {
                             reg_set!(a, NanVal::arena_record(new_ptr));
                         } else {
                             // Arena full — fall back to heap
-                            let type_info = Rc::clone(&self.program.type_registry.types[type_id as usize]);
+                            let type_info =
+                                Rc::clone(&self.program.type_registry.types[type_id as usize]);
                             unsafe {
                                 let old_rec = old_record.as_arena_record();
                                 let mut new_fields = Vec::with_capacity(old_n);
@@ -4017,42 +4457,56 @@ impl<'a> VM<'a> {
                                         new_fields[slot] = val;
                                     }
                                 }
-                                reg_set!(a, NanVal::heap_record(type_info, new_fields.into_boxed_slice()));
+                                reg_set!(
+                                    a,
+                                    NanVal::heap_record(type_info, new_fields.into_boxed_slice())
+                                );
                             }
                         }
                     } else {
-                    debug_assert!(old_record.is_heap(), "OP_RECWITH on non-heap value");
-                    let new_record = unsafe {
-                        match old_record.as_heap_ref() {
-                            HeapObj::Record { type_info, fields } => {
-                                // Clone the entire fields array
-                                let mut new_fields: Vec<NanVal> = fields.to_vec();
-                                for v in new_fields.iter() { v.clone_rc(); }
-                                // Resolve update slots
-                                let slots: Vec<usize> = match const_val {
-                                    Value::List(items) => items.iter().map(|v| match v {
-                                        Value::Number(n) => *n as usize,
-                                        Value::Text(name) => type_info.fields.iter()
-                                            .position(|f| f == name).unwrap_or(0),
-                                        _ => 0,
-                                    }).collect(),
-                                    _ => vec![],
-                                };
-                                // Overwrite updated slots
-                                for (i, &slot) in slots.iter().enumerate().take(n_updates) {
-                                    let val = reg!(a + 1 + i);
-                                    val.clone_rc();
-                                    if slot < new_fields.len() {
-                                        new_fields[slot].drop_rc();
-                                        new_fields[slot] = val;
+                        debug_assert!(old_record.is_heap(), "OP_RECWITH on non-heap value");
+                        let new_record = unsafe {
+                            match old_record.as_heap_ref() {
+                                HeapObj::Record { type_info, fields } => {
+                                    // Clone the entire fields array
+                                    let mut new_fields: Vec<NanVal> = fields.to_vec();
+                                    for v in new_fields.iter() {
+                                        v.clone_rc();
                                     }
+                                    // Resolve update slots
+                                    let slots: Vec<usize> = match const_val {
+                                        Value::List(items) => items
+                                            .iter()
+                                            .map(|v| match v {
+                                                Value::Number(n) => *n as usize,
+                                                Value::Text(name) => type_info
+                                                    .fields
+                                                    .iter()
+                                                    .position(|f| f == name)
+                                                    .unwrap_or(0),
+                                                _ => 0,
+                                            })
+                                            .collect(),
+                                        _ => vec![],
+                                    };
+                                    // Overwrite updated slots
+                                    for (i, &slot) in slots.iter().enumerate().take(n_updates) {
+                                        let val = reg!(a + 1 + i);
+                                        val.clone_rc();
+                                        if slot < new_fields.len() {
+                                            new_fields[slot].drop_rc();
+                                            new_fields[slot] = val;
+                                        }
+                                    }
+                                    NanVal::heap_record(
+                                        Rc::clone(type_info),
+                                        new_fields.into_boxed_slice(),
+                                    )
                                 }
-                                NanVal::heap_record(Rc::clone(type_info), new_fields.into_boxed_slice())
+                                _ => vm_err!(VmError::Type("'with' requires a record")),
                             }
-                            _ => vm_err!(VmError::Type("'with' requires a record")),
-                        }
-                    };
-                    reg_set!(a, new_record);
+                        };
+                        reg_set!(a, new_record);
                     } // end else (heap record path)
                 }
                 OP_LISTNEW => {
@@ -4074,8 +4528,11 @@ impl<'a> VM<'a> {
                     // a = base + reg, within pre-allocated stack slots.
                     let kv = unsafe { *nan_consts.get_unchecked(c) };
                     // SAFETY: see NanVal::number_unchecked — inputs are finite, add cannot produce NaN.
-                    let result = unsafe { NanVal::number_unchecked(reg!(b).as_number() + kv.as_number()) };
-                    unsafe { *self.stack.as_mut_ptr().add(a) = result; }
+                    let result =
+                        unsafe { NanVal::number_unchecked(reg!(b).as_number() + kv.as_number()) };
+                    unsafe {
+                        *self.stack.as_mut_ptr().add(a) = result;
+                    }
                 }
                 OP_SUBK_N => {
                     let a = ((inst >> 16) & 0xFF) as usize + base;
@@ -4084,8 +4541,11 @@ impl<'a> VM<'a> {
                     // SAFETY: same as OP_ADDK_N.
                     let kv = unsafe { *nan_consts.get_unchecked(c) };
                     // SAFETY: see NanVal::number_unchecked — inputs are finite, sub cannot produce NaN.
-                    let result = unsafe { NanVal::number_unchecked(reg!(b).as_number() - kv.as_number()) };
-                    unsafe { *self.stack.as_mut_ptr().add(a) = result; }
+                    let result =
+                        unsafe { NanVal::number_unchecked(reg!(b).as_number() - kv.as_number()) };
+                    unsafe {
+                        *self.stack.as_mut_ptr().add(a) = result;
+                    }
                 }
                 OP_MULK_N => {
                     let a = ((inst >> 16) & 0xFF) as usize + base;
@@ -4094,8 +4554,11 @@ impl<'a> VM<'a> {
                     // SAFETY: same as OP_ADDK_N.
                     let kv = unsafe { *nan_consts.get_unchecked(c) };
                     // SAFETY: see NanVal::number_unchecked — inputs are finite, mul cannot produce NaN.
-                    let result = unsafe { NanVal::number_unchecked(reg!(b).as_number() * kv.as_number()) };
-                    unsafe { *self.stack.as_mut_ptr().add(a) = result; }
+                    let result =
+                        unsafe { NanVal::number_unchecked(reg!(b).as_number() * kv.as_number()) };
+                    unsafe {
+                        *self.stack.as_mut_ptr().add(a) = result;
+                    }
                 }
                 OP_DIVK_N => {
                     let a = ((inst >> 16) & 0xFF) as usize + base;
@@ -4108,7 +4571,9 @@ impl<'a> VM<'a> {
                         vm_err!(VmError::DivisionByZero);
                     }
                     let result = NanVal::number(reg!(b).as_number() / dv);
-                    unsafe { *self.stack.as_mut_ptr().add(a) = result; }
+                    unsafe {
+                        *self.stack.as_mut_ptr().add(a) = result;
+                    }
                 }
                 OP_ADD_NN => {
                     let a = ((inst >> 16) & 0xFF) as usize + base;
@@ -4116,8 +4581,12 @@ impl<'a> VM<'a> {
                     let c = (inst & 0xFF) as usize + base;
                     // SAFETY: a, b, c are all base + register offsets within pre-allocated stack slots.
                     // SAFETY: see NanVal::number_unchecked — inputs are finite, add cannot produce NaN.
-                    let result = unsafe { NanVal::number_unchecked(reg!(b).as_number() + reg!(c).as_number()) };
-                    unsafe { *self.stack.as_mut_ptr().add(a) = result; }
+                    let result = unsafe {
+                        NanVal::number_unchecked(reg!(b).as_number() + reg!(c).as_number())
+                    };
+                    unsafe {
+                        *self.stack.as_mut_ptr().add(a) = result;
+                    }
                 }
                 OP_SUB_NN => {
                     let a = ((inst >> 16) & 0xFF) as usize + base;
@@ -4125,8 +4594,12 @@ impl<'a> VM<'a> {
                     let c = (inst & 0xFF) as usize + base;
                     // SAFETY: a, b, c are base + register offsets within pre-allocated stack slots.
                     // SAFETY: see NanVal::number_unchecked — inputs are finite, sub cannot produce NaN.
-                    let result = unsafe { NanVal::number_unchecked(reg!(b).as_number() - reg!(c).as_number()) };
-                    unsafe { *self.stack.as_mut_ptr().add(a) = result; }
+                    let result = unsafe {
+                        NanVal::number_unchecked(reg!(b).as_number() - reg!(c).as_number())
+                    };
+                    unsafe {
+                        *self.stack.as_mut_ptr().add(a) = result;
+                    }
                 }
                 OP_MUL_NN => {
                     let a = ((inst >> 16) & 0xFF) as usize + base;
@@ -4134,8 +4607,12 @@ impl<'a> VM<'a> {
                     let c = (inst & 0xFF) as usize + base;
                     // SAFETY: same as OP_SUB_NN.
                     // SAFETY: see NanVal::number_unchecked — inputs are finite, mul cannot produce NaN.
-                    let result = unsafe { NanVal::number_unchecked(reg!(b).as_number() * reg!(c).as_number()) };
-                    unsafe { *self.stack.as_mut_ptr().add(a) = result; }
+                    let result = unsafe {
+                        NanVal::number_unchecked(reg!(b).as_number() * reg!(c).as_number())
+                    };
+                    unsafe {
+                        *self.stack.as_mut_ptr().add(a) = result;
+                    }
                 }
                 OP_DIV_NN => {
                     let a = ((inst >> 16) & 0xFF) as usize + base;
@@ -4147,7 +4624,9 @@ impl<'a> VM<'a> {
                         vm_err!(VmError::DivisionByZero);
                     }
                     let result = NanVal::number(reg!(b).as_number() / dv);
-                    unsafe { *self.stack.as_mut_ptr().add(a) = result; }
+                    unsafe {
+                        *self.stack.as_mut_ptr().add(a) = result;
+                    }
                 }
                 OP_LEN => {
                     let a = ((inst >> 16) & 0xFF) as usize + base;
@@ -4155,7 +4634,12 @@ impl<'a> VM<'a> {
                     let v = reg!(b);
                     let length = if v.is_string() {
                         // SAFETY: is_string() confirmed heap-tagged string with live RC.
-                        let s = unsafe { match v.as_heap_ref() { HeapObj::Str(s) => s, _ => unreachable!() } };
+                        let s = unsafe {
+                            match v.as_heap_ref() {
+                                HeapObj::Str(s) => s,
+                                _ => unreachable!(),
+                            }
+                        };
                         s.len() as f64
                     } else if v.is_heap() {
                         // SAFETY: is_heap() confirmed heap-tagged with live RC.
@@ -4192,7 +4676,12 @@ impl<'a> VM<'a> {
                         vm_err!(VmError::Type("num requires a string"));
                     }
                     // SAFETY: is_string() confirmed heap-tagged string with live RC.
-                    let s = unsafe { match v.as_heap_ref() { HeapObj::Str(s) => s, _ => unreachable!() } };
+                    let s = unsafe {
+                        match v.as_heap_ref() {
+                            HeapObj::Str(s) => s,
+                            _ => unreachable!(),
+                        }
+                    };
                     let result = match s.parse::<f64>() {
                         Ok(n) => NanVal::heap_ok(NanVal::number(n)),
                         Err(_) => {
@@ -4248,7 +4737,13 @@ impl<'a> VM<'a> {
                         vm_err!(VmError::Type("flr/cel/rou requires a number"));
                     }
                     let n = v.as_number();
-                    let result = if op == OP_FLR { n.floor() } else if op == OP_CEL { n.ceil() } else { n.round() };
+                    let result = if op == OP_FLR {
+                        n.floor()
+                    } else if op == OP_CEL {
+                        n.ceil()
+                    } else {
+                        n.round()
+                    };
                     reg_set!(a, NanVal::number(result));
                 }
                 OP_RND0 => {
@@ -4288,10 +4783,18 @@ impl<'a> VM<'a> {
                     }
                     // SAFETY: is_string() confirmed heap-tagged string with live RC.
                     // Clone key_str before reg_set! to avoid aliasing if a == b.
-                    let key_str: String = unsafe { match v.as_heap_ref() { HeapObj::Str(s) => s.as_str().to_owned(), _ => unreachable!() } };
+                    let key_str: String = unsafe {
+                        match v.as_heap_ref() {
+                            HeapObj::Str(s) => s.as_str().to_owned(),
+                            _ => unreachable!(),
+                        }
+                    };
                     let result = match std::env::var(&key_str) {
                         Ok(val) => NanVal::heap_ok(NanVal::heap_string(val)),
-                        Err(_) => NanVal::heap_err(NanVal::heap_string(format!("env var '{}' not set", key_str))),
+                        Err(_) => NanVal::heap_err(NanVal::heap_string(format!(
+                            "env var '{}' not set",
+                            key_str
+                        ))),
                     };
                     reg_set!(a, result);
                 }
@@ -4305,17 +4808,26 @@ impl<'a> VM<'a> {
                     #[cfg(feature = "http")]
                     let result = {
                         // SAFETY: is_string() confirmed heap-tagged string with live RC.
-                        let url = unsafe { match v.as_heap_ref() { HeapObj::Str(s) => s, _ => unreachable!() } };
+                        let url = unsafe {
+                            match v.as_heap_ref() {
+                                HeapObj::Str(s) => s,
+                                _ => unreachable!(),
+                            }
+                        };
                         match minreq::get(url.as_str()).send() {
                             Ok(resp) => match resp.as_str() {
                                 Ok(body) => NanVal::heap_ok(NanVal::heap_string(body.to_string())),
-                                Err(e) => NanVal::heap_err(NanVal::heap_string(format!("response is not valid UTF-8: {e}"))),
+                                Err(e) => NanVal::heap_err(NanVal::heap_string(format!(
+                                    "response is not valid UTF-8: {e}"
+                                ))),
                             },
                             Err(e) => NanVal::heap_err(NanVal::heap_string(e.to_string())),
                         }
                     };
                     #[cfg(not(feature = "http"))]
-                    let result = NanVal::heap_err(NanVal::heap_string("http feature not enabled".to_string()));
+                    let result = NanVal::heap_err(NanVal::heap_string(
+                        "http feature not enabled".to_string(),
+                    ));
                     reg_set!(a, result);
                 }
                 OP_POST => {
@@ -4330,18 +4842,32 @@ impl<'a> VM<'a> {
                     #[cfg(feature = "http")]
                     let result = {
                         // SAFETY: is_string() confirmed heap-tagged string with live RC.
-                        let url = unsafe { match vb.as_heap_ref() { HeapObj::Str(s) => s, _ => unreachable!() } };
-                        let body = unsafe { match vc.as_heap_ref() { HeapObj::Str(s) => s, _ => unreachable!() } };
+                        let url = unsafe {
+                            match vb.as_heap_ref() {
+                                HeapObj::Str(s) => s,
+                                _ => unreachable!(),
+                            }
+                        };
+                        let body = unsafe {
+                            match vc.as_heap_ref() {
+                                HeapObj::Str(s) => s,
+                                _ => unreachable!(),
+                            }
+                        };
                         match minreq::post(url.as_str()).with_body(body.as_str()).send() {
                             Ok(resp) => match resp.as_str() {
                                 Ok(b) => NanVal::heap_ok(NanVal::heap_string(b.to_string())),
-                                Err(e) => NanVal::heap_err(NanVal::heap_string(format!("response is not valid UTF-8: {e}"))),
+                                Err(e) => NanVal::heap_err(NanVal::heap_string(format!(
+                                    "response is not valid UTF-8: {e}"
+                                ))),
                             },
                             Err(e) => NanVal::heap_err(NanVal::heap_string(e.to_string())),
                         }
                     };
                     #[cfg(not(feature = "http"))]
-                    let result = NanVal::heap_err(NanVal::heap_string("http feature not enabled".to_string()));
+                    let result = NanVal::heap_err(NanVal::heap_string(
+                        "http feature not enabled".to_string(),
+                    ));
                     reg_set!(a, result);
                 }
                 OP_GETH => {
@@ -4356,13 +4882,24 @@ impl<'a> VM<'a> {
                     }
                     #[cfg(feature = "http")]
                     let result = {
-                        let url = unsafe { match vb.as_heap_ref() { HeapObj::Str(s) => s.as_str().to_owned(), _ => unreachable!() } };
+                        let url = unsafe {
+                            match vb.as_heap_ref() {
+                                HeapObj::Str(s) => s.as_str().to_owned(),
+                                _ => unreachable!(),
+                            }
+                        };
                         let mut req = minreq::get(url.as_str());
                         if vc.is_heap()
-                            && let HeapObj::Map(m) = unsafe { vc.as_heap_ref() } {
+                            && let HeapObj::Map(m) = unsafe { vc.as_heap_ref() }
+                        {
                             for (k, v) in m.iter() {
                                 if v.is_string() {
-                                    let vs = unsafe { match v.as_heap_ref() { HeapObj::Str(s) => s.as_str().to_owned(), _ => unreachable!() } };
+                                    let vs = unsafe {
+                                        match v.as_heap_ref() {
+                                            HeapObj::Str(s) => s.as_str().to_owned(),
+                                            _ => unreachable!(),
+                                        }
+                                    };
                                     req = req.with_header(k.as_str(), &vs);
                                 }
                             }
@@ -4370,13 +4907,17 @@ impl<'a> VM<'a> {
                         match req.send() {
                             Ok(resp) => match resp.as_str() {
                                 Ok(body) => NanVal::heap_ok(NanVal::heap_string(body.to_string())),
-                                Err(e) => NanVal::heap_err(NanVal::heap_string(format!("response is not valid UTF-8: {e}"))),
+                                Err(e) => NanVal::heap_err(NanVal::heap_string(format!(
+                                    "response is not valid UTF-8: {e}"
+                                ))),
                             },
                             Err(e) => NanVal::heap_err(NanVal::heap_string(e.to_string())),
                         }
                     };
                     #[cfg(not(feature = "http"))]
-                    let result = NanVal::heap_err(NanVal::heap_string("http feature not enabled".to_string()));
+                    let result = NanVal::heap_err(NanVal::heap_string(
+                        "http feature not enabled".to_string(),
+                    ));
                     reg_set!(a, result);
                 }
                 OP_POSTH => {
@@ -4396,14 +4937,30 @@ impl<'a> VM<'a> {
                     }
                     #[cfg(feature = "http")]
                     let result = {
-                        let url = unsafe { match vb.as_heap_ref() { HeapObj::Str(s) => s.as_str().to_owned(), _ => unreachable!() } };
-                        let body_str = unsafe { match vc.as_heap_ref() { HeapObj::Str(s) => s.as_str().to_owned(), _ => unreachable!() } };
+                        let url = unsafe {
+                            match vb.as_heap_ref() {
+                                HeapObj::Str(s) => s.as_str().to_owned(),
+                                _ => unreachable!(),
+                            }
+                        };
+                        let body_str = unsafe {
+                            match vc.as_heap_ref() {
+                                HeapObj::Str(s) => s.as_str().to_owned(),
+                                _ => unreachable!(),
+                            }
+                        };
                         let mut req = minreq::post(url.as_str()).with_body(body_str.as_str());
                         if vd.is_heap()
-                            && let HeapObj::Map(m) = unsafe { vd.as_heap_ref() } {
+                            && let HeapObj::Map(m) = unsafe { vd.as_heap_ref() }
+                        {
                             for (k, v) in m.iter() {
                                 if v.is_string() {
-                                    let vs = unsafe { match v.as_heap_ref() { HeapObj::Str(s) => s.as_str().to_owned(), _ => unreachable!() } };
+                                    let vs = unsafe {
+                                        match v.as_heap_ref() {
+                                            HeapObj::Str(s) => s.as_str().to_owned(),
+                                            _ => unreachable!(),
+                                        }
+                                    };
                                     req = req.with_header(k.as_str(), &vs);
                                 }
                             }
@@ -4411,13 +4968,17 @@ impl<'a> VM<'a> {
                         match req.send() {
                             Ok(resp) => match resp.as_str() {
                                 Ok(b) => NanVal::heap_ok(NanVal::heap_string(b.to_string())),
-                                Err(e) => NanVal::heap_err(NanVal::heap_string(format!("response is not valid UTF-8: {e}"))),
+                                Err(e) => NanVal::heap_err(NanVal::heap_string(format!(
+                                    "response is not valid UTF-8: {e}"
+                                ))),
                             },
                             Err(e) => NanVal::heap_err(NanVal::heap_string(e.to_string())),
                         }
                     };
                     #[cfg(not(feature = "http"))]
-                    let result = NanVal::heap_err(NanVal::heap_string("http feature not enabled".to_string()));
+                    let result = NanVal::heap_err(NanVal::heap_string(
+                        "http feature not enabled".to_string(),
+                    ));
                     reg_set!(a, result);
                 }
                 OP_JPTH => {
@@ -4430,8 +4991,18 @@ impl<'a> VM<'a> {
                         vm_err!(VmError::Type("jpth requires two strings"));
                     }
                     // SAFETY: is_string() confirmed heap-tagged string with live RC.
-                    let json_str = unsafe { match vb.as_heap_ref() { HeapObj::Str(s) => s, _ => unreachable!() } };
-                    let path_str = unsafe { match vc.as_heap_ref() { HeapObj::Str(s) => s, _ => unreachable!() } };
+                    let json_str = unsafe {
+                        match vb.as_heap_ref() {
+                            HeapObj::Str(s) => s,
+                            _ => unreachable!(),
+                        }
+                    };
+                    let path_str = unsafe {
+                        match vc.as_heap_ref() {
+                            HeapObj::Str(s) => s,
+                            _ => unreachable!(),
+                        }
+                    };
                     let result = match serde_json::from_str::<serde_json::Value>(json_str) {
                         Ok(parsed) => {
                             let mut current = &parsed;
@@ -4461,7 +5032,9 @@ impl<'a> VM<'a> {
                                 };
                                 NanVal::heap_ok(NanVal::heap_string(result_str))
                             } else {
-                                NanVal::heap_err(NanVal::heap_string(format!("key not found: {missing_key}")))
+                                NanVal::heap_err(NanVal::heap_string(format!(
+                                    "key not found: {missing_key}"
+                                )))
                             }
                         }
                         Err(e) => NanVal::heap_err(NanVal::heap_string(e.to_string())),
@@ -4483,7 +5056,12 @@ impl<'a> VM<'a> {
                         vm_err!(VmError::Type("jpar requires a string"));
                     }
                     // SAFETY: is_string() confirmed heap-tagged string with live RC.
-                    let text = unsafe { match v.as_heap_ref() { HeapObj::Str(s) => s, _ => unreachable!() } };
+                    let text = unsafe {
+                        match v.as_heap_ref() {
+                            HeapObj::Str(s) => s,
+                            _ => unreachable!(),
+                        }
+                    };
                     let result = match serde_json::from_str::<serde_json::Value>(text) {
                         Ok(parsed) => NanVal::heap_ok(serde_json_to_nanval(parsed)),
                         Err(e) => NanVal::heap_err(NanVal::heap_string(e.to_string())),
@@ -4500,9 +5078,20 @@ impl<'a> VM<'a> {
                         vm_err!(VmError::Type("spl requires two strings"));
                     }
                     // SAFETY: is_string() confirmed heap-tagged string with live RC.
-                    let text = unsafe { match vb.as_heap_ref() { HeapObj::Str(s) => s, _ => unreachable!() } };
-                    let sep = unsafe { match vc.as_heap_ref() { HeapObj::Str(s) => s, _ => unreachable!() } };
-                    let items: Vec<NanVal> = text.split(sep.as_str())
+                    let text = unsafe {
+                        match vb.as_heap_ref() {
+                            HeapObj::Str(s) => s,
+                            _ => unreachable!(),
+                        }
+                    };
+                    let sep = unsafe {
+                        match vc.as_heap_ref() {
+                            HeapObj::Str(s) => s,
+                            _ => unreachable!(),
+                        }
+                    };
+                    let items: Vec<NanVal> = text
+                        .split(sep.as_str())
                         .map(|p| NanVal::heap_string(p.to_string()))
                         .collect();
                     reg_set!(a, NanVal::heap_list(items));
@@ -4519,14 +5108,29 @@ impl<'a> VM<'a> {
                     if !vb.is_heap() {
                         vm_err!(VmError::Type("cat requires a list"));
                     }
-                    let sep = unsafe { match vc.as_heap_ref() { HeapObj::Str(s) => s, _ => unreachable!() } };
-                    let items = unsafe { match vb.as_heap_ref() { HeapObj::List(l) => l, _ => vm_err!(VmError::Type("cat requires a list")) } };
+                    let sep = unsafe {
+                        match vc.as_heap_ref() {
+                            HeapObj::Str(s) => s,
+                            _ => unreachable!(),
+                        }
+                    };
+                    let items = unsafe {
+                        match vb.as_heap_ref() {
+                            HeapObj::List(l) => l,
+                            _ => vm_err!(VmError::Type("cat requires a list")),
+                        }
+                    };
                     let mut parts = Vec::with_capacity(items.len());
                     for item in items {
                         if !item.is_string() {
                             vm_err!(VmError::Type("cat: list items must be text"));
                         }
-                        let s = unsafe { match item.as_heap_ref() { HeapObj::Str(s) => s, _ => unreachable!() } };
+                        let s = unsafe {
+                            match item.as_heap_ref() {
+                                HeapObj::Str(s) => s,
+                                _ => unreachable!(),
+                            }
+                        };
                         parts.push(s.as_str());
                     }
                     let result = parts.join(sep.as_str());
@@ -4543,8 +5147,14 @@ impl<'a> VM<'a> {
                             vm_err!(VmError::Type("has: text search requires text needle"));
                         }
                         unsafe {
-                            let haystack = match collection.as_heap_ref() { HeapObj::Str(s) => s, _ => unreachable!() };
-                            let needle_s = match needle.as_heap_ref() { HeapObj::Str(s) => s, _ => unreachable!() };
+                            let haystack = match collection.as_heap_ref() {
+                                HeapObj::Str(s) => s,
+                                _ => unreachable!(),
+                            };
+                            let needle_s = match needle.as_heap_ref() {
+                                HeapObj::Str(s) => s,
+                                _ => unreachable!(),
+                            };
                             haystack.contains(needle_s.as_str())
                         }
                     } else if collection.is_heap() {
@@ -4564,11 +5174,21 @@ impl<'a> VM<'a> {
                     let b = ((inst >> 8) & 0xFF) as usize + base;
                     let v = reg!(b);
                     let result = if v.is_string() {
-                        let s = unsafe { match v.as_heap_ref() { HeapObj::Str(s) => s, _ => unreachable!() } };
+                        let s = unsafe {
+                            match v.as_heap_ref() {
+                                HeapObj::Str(s) => s,
+                                _ => unreachable!(),
+                            }
+                        };
                         if s.is_empty() {
                             vm_err!(VmError::Type("hd: empty text"));
                         }
-                        NanVal::heap_string(s.chars().next().expect("non-empty checked above").to_string())
+                        NanVal::heap_string(
+                            s.chars()
+                                .next()
+                                .expect("non-empty checked above")
+                                .to_string(),
+                        )
                     } else if v.is_heap() {
                         match unsafe { v.as_heap_ref() } {
                             HeapObj::List(items) => {
@@ -4590,7 +5210,12 @@ impl<'a> VM<'a> {
                     let b = ((inst >> 8) & 0xFF) as usize + base;
                     let v = reg!(b);
                     let result = if v.is_string() {
-                        let s = unsafe { match v.as_heap_ref() { HeapObj::Str(s) => s, _ => unreachable!() } };
+                        let s = unsafe {
+                            match v.as_heap_ref() {
+                                HeapObj::Str(s) => s,
+                                _ => unreachable!(),
+                            }
+                        };
                         if s.is_empty() {
                             vm_err!(VmError::Type("tl: empty text"));
                         }
@@ -4603,10 +5228,13 @@ impl<'a> VM<'a> {
                                 if items.is_empty() {
                                     vm_err!(VmError::Type("tl: empty list"));
                                 }
-                                let tail: Vec<NanVal> = items[1..].iter().map(|item| {
-                                    item.clone_rc();
-                                    *item
-                                }).collect();
+                                let tail: Vec<NanVal> = items[1..]
+                                    .iter()
+                                    .map(|item| {
+                                        item.clone_rc();
+                                        *item
+                                    })
+                                    .collect();
                                 NanVal::heap_list(tail)
                             }
                             _ => vm_err!(VmError::Type("tl requires a list or text")),
@@ -4621,12 +5249,23 @@ impl<'a> VM<'a> {
                     let b = ((inst >> 8) & 0xFF) as usize + base;
                     let v = reg!(b);
                     let result = if v.is_string() {
-                        let s = unsafe { match v.as_heap_ref() { HeapObj::Str(s) => s, _ => unreachable!() } };
+                        let s = unsafe {
+                            match v.as_heap_ref() {
+                                HeapObj::Str(s) => s,
+                                _ => unreachable!(),
+                            }
+                        };
                         NanVal::heap_string(s.chars().rev().collect::<String>())
                     } else if v.is_heap() {
                         match unsafe { v.as_heap_ref() } {
                             HeapObj::List(items) => {
-                                let mut reversed: Vec<NanVal> = items.iter().map(|item| { item.clone_rc(); *item }).collect();
+                                let mut reversed: Vec<NanVal> = items
+                                    .iter()
+                                    .map(|item| {
+                                        item.clone_rc();
+                                        *item
+                                    })
+                                    .collect();
                                 reversed.reverse();
                                 NanVal::heap_list(reversed)
                             }
@@ -4642,7 +5281,12 @@ impl<'a> VM<'a> {
                     let b = ((inst >> 8) & 0xFF) as usize + base;
                     let v = reg!(b);
                     if v.is_string() {
-                        let s = unsafe { match v.as_heap_ref() { HeapObj::Str(s) => s, _ => unreachable!() } };
+                        let s = unsafe {
+                            match v.as_heap_ref() {
+                                HeapObj::Str(s) => s,
+                                _ => unreachable!(),
+                            }
+                        };
                         let mut chars: Vec<char> = s.chars().collect();
                         chars.sort();
                         let sorted: String = chars.into_iter().collect();
@@ -4656,17 +5300,33 @@ impl<'a> VM<'a> {
                                     let all_numbers = items.iter().all(|v| v.is_number());
                                     let all_strings = items.iter().all(|v| v.is_string());
                                     if all_numbers {
-                                        let mut sorted: Vec<NanVal> = items.iter().map(|v| { v.clone_rc(); *v }).collect();
+                                        let mut sorted: Vec<NanVal> = items
+                                            .iter()
+                                            .map(|v| {
+                                                v.clone_rc();
+                                                *v
+                                            })
+                                            .collect();
                                         sorted.sort_by(|a, b| {
-                                            a.as_number().partial_cmp(&b.as_number()).unwrap_or(std::cmp::Ordering::Equal)
+                                            a.as_number()
+                                                .partial_cmp(&b.as_number())
+                                                .unwrap_or(std::cmp::Ordering::Equal)
                                         });
                                         reg_set!(a, NanVal::heap_list(sorted));
                                     } else if all_strings {
-                                        let mut sorted: Vec<NanVal> = items.iter().map(|v| { v.clone_rc(); *v }).collect();
+                                        let mut sorted: Vec<NanVal> = items
+                                            .iter()
+                                            .map(|v| {
+                                                v.clone_rc();
+                                                *v
+                                            })
+                                            .collect();
                                         sorted.sort_by(|a, b| unsafe { nanval_str_cmp(*a, *b) });
                                         reg_set!(a, NanVal::heap_list(sorted));
                                     } else {
-                                        vm_err!(VmError::Type("srt: list must contain all numbers or all text"));
+                                        vm_err!(VmError::Type(
+                                            "srt: list must contain all numbers or all text"
+                                        ));
                                     }
                                 }
                             }
@@ -4690,7 +5350,12 @@ impl<'a> VM<'a> {
                     let start = vc.as_number() as usize;
                     let end = vd.as_number() as usize;
                     if vb.is_string() {
-                        let s = unsafe { match vb.as_heap_ref() { HeapObj::Str(s) => s, _ => unreachable!() } };
+                        let s = unsafe {
+                            match vb.as_heap_ref() {
+                                HeapObj::Str(s) => s,
+                                _ => unreachable!(),
+                            }
+                        };
                         let chars: Vec<char> = s.chars().collect();
                         let end = end.min(chars.len());
                         let start = start.min(end);
@@ -4758,7 +5423,9 @@ impl<'a> VM<'a> {
                                 if a != b {
                                     unsafe { self.stack.get_unchecked(a) }.drop_rc();
                                     list_val.clone_rc();
-                                    unsafe { *self.stack.as_mut_ptr().add(a) = list_val; }
+                                    unsafe {
+                                        *self.stack.as_mut_ptr().add(a) = list_val;
+                                    }
                                 }
                                 // a == b: list_val already in slot, nothing to do.
                             }
@@ -4794,8 +5461,14 @@ impl<'a> VM<'a> {
 unsafe fn nanval_str_cmp(a: NanVal, b: NanVal) -> std::cmp::Ordering {
     // SAFETY: caller guarantees is_string() for both values.
     unsafe {
-        let sa = match a.as_heap_ref() { HeapObj::Str(s) => s, _ => unreachable!() };
-        let sb = match b.as_heap_ref() { HeapObj::Str(s) => s, _ => unreachable!() };
+        let sa = match a.as_heap_ref() {
+            HeapObj::Str(s) => s,
+            _ => unreachable!(),
+        };
+        let sb = match b.as_heap_ref() {
+            HeapObj::Str(s) => s,
+            _ => unreachable!(),
+        };
         sa.cmp(sb)
     }
 }
@@ -4821,7 +5494,9 @@ fn nanval_to_json(v: NanVal) -> serde_json::Value {
                 let fv = NanVal(*rec.field_ptr(i));
                 let name = if !registry_ptr.is_null() {
                     let registry = &*registry_ptr;
-                    registry.types.get(rec.type_id as usize)
+                    registry
+                        .types
+                        .get(rec.type_id as usize)
                         .and_then(|ti| ti.fields.get(i).cloned())
                         .unwrap_or_else(|| format!("_{}", i))
                 } else {
@@ -4845,7 +5520,9 @@ fn nanval_to_json(v: NanVal) -> serde_json::Value {
                         serde_json::Value::Array(items.iter().map(|i| nanval_to_json(*i)).collect())
                     }
                     HeapObj::Record { type_info, fields } => {
-                        let map: serde_json::Map<String, serde_json::Value> = type_info.fields.iter()
+                        let map: serde_json::Map<String, serde_json::Value> = type_info
+                            .fields
+                            .iter()
                             .zip(fields.iter())
                             .map(|(k, v)| (k.clone(), nanval_to_json(*v)))
                             .collect();
@@ -4854,7 +5531,8 @@ fn nanval_to_json(v: NanVal) -> serde_json::Value {
                     HeapObj::OkVal(inner) => nanval_to_json(*inner),
                     HeapObj::ErrVal(inner) => nanval_to_json(*inner),
                     HeapObj::Map(m) => {
-                        let obj: serde_json::Map<String, serde_json::Value> = m.iter()
+                        let obj: serde_json::Map<String, serde_json::Value> = m
+                            .iter()
                             .map(|(k, v)| (k.clone(), nanval_to_json(*v)))
                             .collect();
                         serde_json::Value::Object(obj)
@@ -4870,11 +5548,16 @@ fn serde_json_to_nanval(v: serde_json::Value) -> NanVal {
     match v {
         serde_json::Value::Object(map) => {
             let field_names: Vec<String> = map.keys().cloned().collect();
-            let field_vals: Box<[NanVal]> = map.into_iter()
+            let field_vals: Box<[NanVal]> = map
+                .into_iter()
                 .map(|(_, v)| serde_json_to_nanval(v))
                 .collect::<Vec<_>>()
                 .into_boxed_slice();
-            let type_info = Rc::new(TypeInfo { name: "json".to_string(), fields: field_names, num_fields: 0 });
+            let type_info = Rc::new(TypeInfo {
+                name: "json".to_string(),
+                fields: field_names,
+                num_fields: 0,
+            });
             NanVal::heap_record(type_info, field_vals)
         }
         serde_json::Value::Array(arr) => {
@@ -4907,11 +5590,9 @@ fn vm_parse_format(fmt: &str, content: &str) -> Result<NanVal, NanVal> {
                 .collect();
             Ok(NanVal::heap_list(rows))
         }
-        "json" => {
-            serde_json::from_str::<serde_json::Value>(content)
-                .map(serde_json_to_nanval)
-                .map_err(|e| NanVal::heap_string(e.to_string()))
-        }
+        "json" => serde_json::from_str::<serde_json::Value>(content)
+            .map(serde_json_to_nanval)
+            .map_err(|e| NanVal::heap_string(e.to_string())),
         _ => Ok(NanVal::heap_string(content.to_string())),
     }
 }
@@ -4953,8 +5634,14 @@ fn nanval_equal(a: NanVal, b: NanVal) -> bool {
     } else if a.is_string() && b.is_string() {
         unsafe {
             // SAFETY: is_string() confirmed both are live heap-allocated string Rc pointers.
-            let sa = match a.as_heap_ref() { HeapObj::Str(s) => s, _ => unreachable!() };
-            let sb = match b.as_heap_ref() { HeapObj::Str(s) => s, _ => unreachable!() };
+            let sa = match a.as_heap_ref() {
+                HeapObj::Str(s) => s,
+                _ => unreachable!(),
+            };
+            let sb = match b.as_heap_ref() {
+                HeapObj::Str(s) => s,
+                _ => unreachable!(),
+            };
             sa == sb
         }
     } else {
@@ -4975,13 +5662,17 @@ fn nanval_truthy(v: NanVal) -> bool {
                 // and false (the only non-heap non-number tags). Therefore
                 // any remaining value must be a live heap pointer created by
                 // a heap_* constructor, making as_heap_ref() sound here.
-                debug_assert!(v.is_heap(), "nanval_truthy: unexpected non-heap NanVal tag {:#018x}", v.0);
+                debug_assert!(
+                    v.is_heap(),
+                    "nanval_truthy: unexpected non-heap NanVal tag {:#018x}",
+                    v.0
+                );
                 match v.as_heap_ref() {
                     HeapObj::Str(s) => !s.is_empty(),
                     HeapObj::List(l) => !l.is_empty(),
                     _ => true,
                 }
-            }
+            },
         }
     }
 }
@@ -5005,7 +5696,10 @@ pub(crate) extern "C" fn jit_add(a: u64, b: u64) -> u64 {
             let b_ptr = (bv.0 & PTR_MASK) as *const HeapObj;
             // Read the right-hand string via raw pointer (does not touch RC count).
             // SAFETY: b_ptr was produced by Rc::into_raw; the NanVal keeps it alive.
-            let sb: &str = match &*b_ptr { HeapObj::Str(s) => s.as_str(), _ => unreachable!() };
+            let sb: &str = match &*b_ptr {
+                HeapObj::Str(s) => s.as_str(),
+                _ => unreachable!(),
+            };
             // RC=1 fast path: mutate the left string in place via Rc::get_mut,
             // avoiding a fresh allocation. Matches CPython's str += optimisation.
             let mut a_rc = Rc::from_raw(a_ptr);
@@ -5020,7 +5714,10 @@ pub(crate) extern "C" fn jit_add(a: u64, b: u64) -> u64 {
                 NanVal(TAG_STRING | (ptr & PTR_MASK))
             } else {
                 // Multiple owners — copy path.
-                let sa: &str = match &*a_ptr { HeapObj::Str(s) => s.as_str(), _ => unreachable!() };
+                let sa: &str = match &*a_ptr {
+                    HeapObj::Str(s) => s.as_str(),
+                    _ => unreachable!(),
+                };
                 let mut out = String::with_capacity(sa.len() + sb.len());
                 out.push_str(sa);
                 out.push_str(sb);
@@ -5036,8 +5733,14 @@ pub(crate) extern "C" fn jit_add(a: u64, b: u64) -> u64 {
         let bref = unsafe { bv.as_heap_ref() };
         if let (HeapObj::List(left), HeapObj::List(right)) = (aref, bref) {
             let mut new_items = Vec::with_capacity(left.len() + right.len());
-            for v in left { v.clone_rc(); new_items.push(*v); }
-            for v in right { v.clone_rc(); new_items.push(*v); }
+            for v in left {
+                v.clone_rc();
+                new_items.push(*v);
+            }
+            for v in right {
+                v.clone_rc();
+                new_items.push(*v);
+            }
             return NanVal::heap_list(new_items).0;
         }
     }
@@ -5073,7 +5776,9 @@ pub(crate) extern "C" fn jit_div(a: u64, b: u64) -> u64 {
     let bv = NanVal(b);
     if av.is_number() && bv.is_number() {
         let dv = bv.as_number();
-        if dv == 0.0 { return TAG_NIL; }
+        if dv == 0.0 {
+            return TAG_NIL;
+        }
         return NanVal::number(av.as_number() / dv).0;
     }
     TAG_NIL
@@ -5173,7 +5878,9 @@ pub(crate) extern "C" fn jit_truthy(a: u64) -> u64 {
 #[unsafe(no_mangle)]
 pub(crate) extern "C" fn jit_wrapok(v: u64) -> u64 {
     let nv = NanVal(v);
-    if !nv.is_number() { nv.clone_rc(); }
+    if !nv.is_number() {
+        nv.clone_rc();
+    }
     NanVal::heap_ok(nv).0
 }
 
@@ -5181,7 +5888,9 @@ pub(crate) extern "C" fn jit_wrapok(v: u64) -> u64 {
 #[unsafe(no_mangle)]
 pub(crate) extern "C" fn jit_wraperr(v: u64) -> u64 {
     let nv = NanVal(v);
-    if !nv.is_number() { nv.clone_rc(); }
+    if !nv.is_number() {
+        nv.clone_rc();
+    }
     NanVal::heap_err(nv).0
 }
 
@@ -5201,7 +5910,9 @@ pub(crate) extern "C" fn jit_iserr(v: u64) -> u64 {
 #[unsafe(no_mangle)]
 pub(crate) extern "C" fn jit_unwrap(v: u64) -> u64 {
     let nv = NanVal(v);
-    if !nv.is_heap() { return TAG_NIL; }
+    if !nv.is_heap() {
+        return TAG_NIL;
+    }
     unsafe {
         match nv.as_heap_ref() {
             HeapObj::OkVal(inner) | HeapObj::ErrVal(inner) => {
@@ -5238,12 +5949,18 @@ pub(crate) extern "C" fn jit_drop_rc(v: u64) {
 pub(crate) extern "C" fn jit_len(a: u64) -> u64 {
     let v = NanVal(a);
     if v.is_string() {
-        let s = unsafe { match v.as_heap_ref() { HeapObj::Str(s) => s, _ => unreachable!() } };
+        let s = unsafe {
+            match v.as_heap_ref() {
+                HeapObj::Str(s) => s,
+                _ => unreachable!(),
+            }
+        };
         return NanVal::number(s.len() as f64).0;
     }
     if v.is_heap()
-        && let HeapObj::List(items) = unsafe { v.as_heap_ref() } {
-            return NanVal::number(items.len() as f64).0;
+        && let HeapObj::List(items) = unsafe { v.as_heap_ref() }
+    {
+        return NanVal::number(items.len() as f64).0;
     }
     TAG_NIL
 }
@@ -5252,7 +5969,9 @@ pub(crate) extern "C" fn jit_len(a: u64) -> u64 {
 #[unsafe(no_mangle)]
 pub(crate) extern "C" fn jit_str(a: u64) -> u64 {
     let v = NanVal(a);
-    if !v.is_number() { return TAG_NIL; }
+    if !v.is_number() {
+        return TAG_NIL;
+    }
     let n = v.as_number();
     let s = if n.fract() == 0.0 && n.abs() < 1e15 {
         format!("{}", n as i64)
@@ -5266,8 +5985,15 @@ pub(crate) extern "C" fn jit_str(a: u64) -> u64 {
 #[unsafe(no_mangle)]
 pub(crate) extern "C" fn jit_num(a: u64) -> u64 {
     let v = NanVal(a);
-    if !v.is_string() { return TAG_NIL; }
-    let s = unsafe { match v.as_heap_ref() { HeapObj::Str(s) => s, _ => unreachable!() } };
+    if !v.is_string() {
+        return TAG_NIL;
+    }
+    let s = unsafe {
+        match v.as_heap_ref() {
+            HeapObj::Str(s) => s,
+            _ => unreachable!(),
+        }
+    };
     match s.parse::<f64>() {
         Ok(n) => NanVal::heap_ok(NanVal::number(n)).0,
         Err(_) => {
@@ -5281,7 +6007,11 @@ pub(crate) extern "C" fn jit_num(a: u64) -> u64 {
 #[unsafe(no_mangle)]
 pub(crate) extern "C" fn jit_abs(a: u64) -> u64 {
     let v = NanVal(a);
-    if v.is_number() { NanVal::number(v.as_number().abs()).0 } else { TAG_NIL }
+    if v.is_number() {
+        NanVal::number(v.as_number().abs()).0
+    } else {
+        TAG_NIL
+    }
 }
 
 #[cfg(feature = "cranelift")]
@@ -5291,9 +6021,13 @@ pub(crate) extern "C" fn jit_mod(a: u64, b: u64) -> u64 {
     let bv = NanVal(b);
     if av.is_number() && bv.is_number() {
         let dv = bv.as_number();
-        if dv == 0.0 { return TAG_NIL; }
+        if dv == 0.0 {
+            return TAG_NIL;
+        }
         NanVal::number(av.as_number() % dv).0
-    } else { TAG_NIL }
+    } else {
+        TAG_NIL
+    }
 }
 
 #[cfg(feature = "cranelift")]
@@ -5303,7 +6037,9 @@ pub(crate) extern "C" fn jit_min(a: u64, b: u64) -> u64 {
     let bv = NanVal(b);
     if av.is_number() && bv.is_number() {
         NanVal::number(av.as_number().min(bv.as_number())).0
-    } else { TAG_NIL }
+    } else {
+        TAG_NIL
+    }
 }
 
 #[cfg(feature = "cranelift")]
@@ -5313,28 +6049,42 @@ pub(crate) extern "C" fn jit_max(a: u64, b: u64) -> u64 {
     let bv = NanVal(b);
     if av.is_number() && bv.is_number() {
         NanVal::number(av.as_number().max(bv.as_number())).0
-    } else { TAG_NIL }
+    } else {
+        TAG_NIL
+    }
 }
 
 #[cfg(feature = "cranelift")]
 #[unsafe(no_mangle)]
 pub(crate) extern "C" fn jit_flr(a: u64) -> u64 {
     let v = NanVal(a);
-    if v.is_number() { NanVal::number(v.as_number().floor()).0 } else { TAG_NIL }
+    if v.is_number() {
+        NanVal::number(v.as_number().floor()).0
+    } else {
+        TAG_NIL
+    }
 }
 
 #[cfg(feature = "cranelift")]
 #[unsafe(no_mangle)]
 pub(crate) extern "C" fn jit_cel(a: u64) -> u64 {
     let v = NanVal(a);
-    if v.is_number() { NanVal::number(v.as_number().ceil()).0 } else { TAG_NIL }
+    if v.is_number() {
+        NanVal::number(v.as_number().ceil()).0
+    } else {
+        TAG_NIL
+    }
 }
 
 #[cfg(feature = "cranelift")]
 #[unsafe(no_mangle)]
 pub(crate) extern "C" fn jit_rou(a: u64) -> u64 {
     let v = NanVal(a);
-    if v.is_number() { NanVal::number(v.as_number().round()).0 } else { TAG_NIL }
+    if v.is_number() {
+        NanVal::number(v.as_number().round()).0
+    } else {
+        TAG_NIL
+    }
 }
 
 #[cfg(feature = "cranelift")]
@@ -5351,9 +6101,13 @@ pub(crate) extern "C" fn jit_rnd2(a: u64, b: u64) -> u64 {
     if av.is_number() && bv.is_number() {
         let lo = av.as_number() as i64;
         let hi = bv.as_number() as i64;
-        if lo > hi { return TAG_NIL; }
+        if lo > hi {
+            return TAG_NIL;
+        }
         NanVal::number(fastrand::i64(lo..=hi) as f64).0
-    } else { TAG_NIL }
+    } else {
+        TAG_NIL
+    }
 }
 
 #[cfg(feature = "cranelift")]
@@ -5370,8 +6124,15 @@ pub(crate) extern "C" fn jit_now() -> u64 {
 #[unsafe(no_mangle)]
 pub(crate) extern "C" fn jit_env(a: u64) -> u64 {
     let v = NanVal(a);
-    if !v.is_string() { return TAG_NIL; }
-    let key = unsafe { match v.as_heap_ref() { HeapObj::Str(s) => s, _ => unreachable!() } };
+    if !v.is_string() {
+        return TAG_NIL;
+    }
+    let key = unsafe {
+        match v.as_heap_ref() {
+            HeapObj::Str(s) => s,
+            _ => unreachable!(),
+        }
+    };
     match std::env::var(key.as_str()) {
         Ok(val) => NanVal::heap_ok(NanVal::heap_string(val)).0,
         Err(_) => NanVal::heap_err(NanVal::heap_string(format!("env var '{}' not set", key))).0,
@@ -5382,14 +6143,26 @@ pub(crate) extern "C" fn jit_env(a: u64) -> u64 {
 #[unsafe(no_mangle)]
 pub(crate) extern "C" fn jit_get(a: u64) -> u64 {
     let v = NanVal(a);
-    if !v.is_string() { return TAG_NIL; }
+    if !v.is_string() {
+        return TAG_NIL;
+    }
     #[cfg(feature = "http")]
     {
-        let url = unsafe { match v.as_heap_ref() { HeapObj::Str(s) => s, _ => unreachable!() } };
+        let url = unsafe {
+            match v.as_heap_ref() {
+                HeapObj::Str(s) => s,
+                _ => unreachable!(),
+            }
+        };
         match minreq::get(url.as_str()).send() {
             Ok(resp) => match resp.as_str() {
                 Ok(body) => NanVal::heap_ok(NanVal::heap_string(body.to_string())).0,
-                Err(e) => NanVal::heap_err(NanVal::heap_string(format!("response is not valid UTF-8: {e}"))).0,
+                Err(e) => {
+                    NanVal::heap_err(NanVal::heap_string(format!(
+                        "response is not valid UTF-8: {e}"
+                    )))
+                    .0
+                }
             },
             Err(e) => NanVal::heap_err(NanVal::heap_string(e.to_string())).0,
         }
@@ -5405,10 +6178,25 @@ pub(crate) extern "C" fn jit_get(a: u64) -> u64 {
 pub(crate) extern "C" fn jit_spl(a: u64, b: u64) -> u64 {
     let av = NanVal(a);
     let bv = NanVal(b);
-    if !av.is_string() || !bv.is_string() { return TAG_NIL; }
-    let text = unsafe { match av.as_heap_ref() { HeapObj::Str(s) => s, _ => unreachable!() } };
-    let sep = unsafe { match bv.as_heap_ref() { HeapObj::Str(s) => s, _ => unreachable!() } };
-    let items: Vec<NanVal> = text.split(sep.as_str()).map(|p| NanVal::heap_string(p.to_string())).collect();
+    if !av.is_string() || !bv.is_string() {
+        return TAG_NIL;
+    }
+    let text = unsafe {
+        match av.as_heap_ref() {
+            HeapObj::Str(s) => s,
+            _ => unreachable!(),
+        }
+    };
+    let sep = unsafe {
+        match bv.as_heap_ref() {
+            HeapObj::Str(s) => s,
+            _ => unreachable!(),
+        }
+    };
+    let items: Vec<NanVal> = text
+        .split(sep.as_str())
+        .map(|p| NanVal::heap_string(p.to_string()))
+        .collect();
     NanVal::heap_list(items).0
 }
 
@@ -5417,16 +6205,30 @@ pub(crate) extern "C" fn jit_spl(a: u64, b: u64) -> u64 {
 pub(crate) extern "C" fn jit_cat(a: u64, b: u64) -> u64 {
     let av = NanVal(a);
     let bv = NanVal(b);
-    if !bv.is_string() || !av.is_heap() { return TAG_NIL; }
-    let sep = unsafe { match bv.as_heap_ref() { HeapObj::Str(s) => s, _ => unreachable!() } };
+    if !bv.is_string() || !av.is_heap() {
+        return TAG_NIL;
+    }
+    let sep = unsafe {
+        match bv.as_heap_ref() {
+            HeapObj::Str(s) => s,
+            _ => unreachable!(),
+        }
+    };
     let items = match unsafe { av.as_heap_ref() } {
         HeapObj::List(l) => l,
         _ => return TAG_NIL,
     };
     let mut parts = Vec::with_capacity(items.len());
     for item in items {
-        if !item.is_string() { return TAG_NIL; }
-        let s = unsafe { match item.as_heap_ref() { HeapObj::Str(s) => s, _ => unreachable!() } };
+        if !item.is_string() {
+            return TAG_NIL;
+        }
+        let s = unsafe {
+            match item.as_heap_ref() {
+                HeapObj::Str(s) => s,
+                _ => unreachable!(),
+            }
+        };
         parts.push(s.as_str());
     }
     NanVal::heap_string(parts.join(sep.as_str())).0
@@ -5438,18 +6240,27 @@ pub(crate) extern "C" fn jit_has(a: u64, b: u64) -> u64 {
     let collection = NanVal(a);
     let needle = NanVal(b);
     if collection.is_string() {
-        if !needle.is_string() { return TAG_FALSE; }
+        if !needle.is_string() {
+            return TAG_FALSE;
+        }
         let found = unsafe {
-            let haystack = match collection.as_heap_ref() { HeapObj::Str(s) => s, _ => unreachable!() };
-            let needle_s = match needle.as_heap_ref() { HeapObj::Str(s) => s, _ => unreachable!() };
+            let haystack = match collection.as_heap_ref() {
+                HeapObj::Str(s) => s,
+                _ => unreachable!(),
+            };
+            let needle_s = match needle.as_heap_ref() {
+                HeapObj::Str(s) => s,
+                _ => unreachable!(),
+            };
             haystack.contains(needle_s.as_str())
         };
         return NanVal::boolean(found).0;
     }
     if collection.is_heap()
-        && let HeapObj::List(items) = unsafe { collection.as_heap_ref() } {
-            let found = items.iter().any(|item| nanval_equal(*item, needle));
-            return NanVal::boolean(found).0;
+        && let HeapObj::List(items) = unsafe { collection.as_heap_ref() }
+    {
+        let found = items.iter().any(|item| nanval_equal(*item, needle));
+        return NanVal::boolean(found).0;
     }
     TAG_FALSE
 }
@@ -5459,15 +6270,31 @@ pub(crate) extern "C" fn jit_has(a: u64, b: u64) -> u64 {
 pub(crate) extern "C" fn jit_hd(a: u64) -> u64 {
     let v = NanVal(a);
     if v.is_string() {
-        let s = unsafe { match v.as_heap_ref() { HeapObj::Str(s) => s, _ => unreachable!() } };
-        if s.is_empty() { return TAG_NIL; }
-        return NanVal::heap_string(s.chars().next().expect("non-empty checked above").to_string()).0;
+        let s = unsafe {
+            match v.as_heap_ref() {
+                HeapObj::Str(s) => s,
+                _ => unreachable!(),
+            }
+        };
+        if s.is_empty() {
+            return TAG_NIL;
+        }
+        return NanVal::heap_string(
+            s.chars()
+                .next()
+                .expect("non-empty checked above")
+                .to_string(),
+        )
+        .0;
     }
     if v.is_heap()
-        && let HeapObj::List(items) = unsafe { v.as_heap_ref() } {
-            if items.is_empty() { return TAG_NIL; }
-            items[0].clone_rc();
-            return items[0].0;
+        && let HeapObj::List(items) = unsafe { v.as_heap_ref() }
+    {
+        if items.is_empty() {
+            return TAG_NIL;
+        }
+        items[0].clone_rc();
+        return items[0].0;
     }
     TAG_NIL
 }
@@ -5477,17 +6304,33 @@ pub(crate) extern "C" fn jit_hd(a: u64) -> u64 {
 pub(crate) extern "C" fn jit_tl(a: u64) -> u64 {
     let v = NanVal(a);
     if v.is_string() {
-        let s = unsafe { match v.as_heap_ref() { HeapObj::Str(s) => s, _ => unreachable!() } };
-        if s.is_empty() { return TAG_NIL; }
+        let s = unsafe {
+            match v.as_heap_ref() {
+                HeapObj::Str(s) => s,
+                _ => unreachable!(),
+            }
+        };
+        if s.is_empty() {
+            return TAG_NIL;
+        }
         let mut chars = s.chars();
         chars.next();
         return NanVal::heap_string(chars.collect()).0;
     }
     if v.is_heap()
-        && let HeapObj::List(items) = unsafe { v.as_heap_ref() } {
-            if items.is_empty() { return TAG_NIL; }
-            let tail: Vec<NanVal> = items[1..].iter().map(|item| { item.clone_rc(); *item }).collect();
-            return NanVal::heap_list(tail).0;
+        && let HeapObj::List(items) = unsafe { v.as_heap_ref() }
+    {
+        if items.is_empty() {
+            return TAG_NIL;
+        }
+        let tail: Vec<NanVal> = items[1..]
+            .iter()
+            .map(|item| {
+                item.clone_rc();
+                *item
+            })
+            .collect();
+        return NanVal::heap_list(tail).0;
     }
     TAG_NIL
 }
@@ -5497,14 +6340,26 @@ pub(crate) extern "C" fn jit_tl(a: u64) -> u64 {
 pub(crate) extern "C" fn jit_rev(a: u64) -> u64 {
     let v = NanVal(a);
     if v.is_string() {
-        let s = unsafe { match v.as_heap_ref() { HeapObj::Str(s) => s, _ => unreachable!() } };
+        let s = unsafe {
+            match v.as_heap_ref() {
+                HeapObj::Str(s) => s,
+                _ => unreachable!(),
+            }
+        };
         return NanVal::heap_string(s.chars().rev().collect::<String>()).0;
     }
     if v.is_heap()
-        && let HeapObj::List(items) = unsafe { v.as_heap_ref() } {
-            let mut reversed: Vec<NanVal> = items.iter().map(|item| { item.clone_rc(); *item }).collect();
-            reversed.reverse();
-            return NanVal::heap_list(reversed).0;
+        && let HeapObj::List(items) = unsafe { v.as_heap_ref() }
+    {
+        let mut reversed: Vec<NanVal> = items
+            .iter()
+            .map(|item| {
+                item.clone_rc();
+                *item
+            })
+            .collect();
+        reversed.reverse();
+        return NanVal::heap_list(reversed).0;
     }
     TAG_NIL
 }
@@ -5514,26 +6369,50 @@ pub(crate) extern "C" fn jit_rev(a: u64) -> u64 {
 pub(crate) extern "C" fn jit_srt(a: u64) -> u64 {
     let v = NanVal(a);
     if v.is_string() {
-        let s = unsafe { match v.as_heap_ref() { HeapObj::Str(s) => s, _ => unreachable!() } };
+        let s = unsafe {
+            match v.as_heap_ref() {
+                HeapObj::Str(s) => s,
+                _ => unreachable!(),
+            }
+        };
         let mut chars: Vec<char> = s.chars().collect();
         chars.sort();
         return NanVal::heap_string(chars.into_iter().collect()).0;
     }
     if v.is_heap()
-        && let HeapObj::List(items) = unsafe { v.as_heap_ref() } {
-            if items.is_empty() { return NanVal::heap_list(vec![]).0; }
-            let all_numbers = items.iter().all(|v| v.is_number());
-            let all_strings = items.iter().all(|v| v.is_string());
-            if all_numbers {
-                let mut sorted: Vec<NanVal> = items.iter().map(|v| { v.clone_rc(); *v }).collect();
-                sorted.sort_by(|a, b| a.as_number().partial_cmp(&b.as_number()).unwrap_or(std::cmp::Ordering::Equal));
-                return NanVal::heap_list(sorted).0;
-            }
-            if all_strings {
-                let mut sorted: Vec<NanVal> = items.iter().map(|v| { v.clone_rc(); *v }).collect();
-                sorted.sort_by(|a, b| unsafe { nanval_str_cmp(*a, *b) });
-                return NanVal::heap_list(sorted).0;
-            }
+        && let HeapObj::List(items) = unsafe { v.as_heap_ref() }
+    {
+        if items.is_empty() {
+            return NanVal::heap_list(vec![]).0;
+        }
+        let all_numbers = items.iter().all(|v| v.is_number());
+        let all_strings = items.iter().all(|v| v.is_string());
+        if all_numbers {
+            let mut sorted: Vec<NanVal> = items
+                .iter()
+                .map(|v| {
+                    v.clone_rc();
+                    *v
+                })
+                .collect();
+            sorted.sort_by(|a, b| {
+                a.as_number()
+                    .partial_cmp(&b.as_number())
+                    .unwrap_or(std::cmp::Ordering::Equal)
+            });
+            return NanVal::heap_list(sorted).0;
+        }
+        if all_strings {
+            let mut sorted: Vec<NanVal> = items
+                .iter()
+                .map(|v| {
+                    v.clone_rc();
+                    *v
+                })
+                .collect();
+            sorted.sort_by(|a, b| unsafe { nanval_str_cmp(*a, *b) });
+            return NanVal::heap_list(sorted).0;
+        }
     }
     TAG_NIL
 }
@@ -5544,23 +6423,34 @@ pub(crate) extern "C" fn jit_slc(a: u64, start: u64, end: u64) -> u64 {
     let vb = NanVal(a);
     let vc = NanVal(start);
     let vd = NanVal(end);
-    if !vc.is_number() || !vd.is_number() { return TAG_NIL; }
+    if !vc.is_number() || !vd.is_number() {
+        return TAG_NIL;
+    }
     let s_idx = vc.as_number() as usize;
     let e_idx = vd.as_number() as usize;
     if vb.is_string() {
-        let s = unsafe { match vb.as_heap_ref() { HeapObj::Str(s) => s, _ => unreachable!() } };
+        let s = unsafe {
+            match vb.as_heap_ref() {
+                HeapObj::Str(s) => s,
+                _ => unreachable!(),
+            }
+        };
         let chars: Vec<char> = s.chars().collect();
         let e = e_idx.min(chars.len());
         let s = s_idx.min(e);
         return NanVal::heap_string(chars[s..e].iter().collect()).0;
     }
     if vb.is_heap()
-        && let HeapObj::List(items) = unsafe { vb.as_heap_ref() } {
-            let e = e_idx.min(items.len());
-            let s = s_idx.min(e);
-            let mut sliced = Vec::with_capacity(e - s);
-            for v in &items[s..e] { v.clone_rc(); sliced.push(*v); }
-            return NanVal::heap_list(sliced).0;
+        && let HeapObj::List(items) = unsafe { vb.as_heap_ref() }
+    {
+        let e = e_idx.min(items.len());
+        let s = s_idx.min(e);
+        let mut sliced = Vec::with_capacity(e - s);
+        for v in &items[s..e] {
+            v.clone_rc();
+            sliced.push(*v);
+        }
+        return NanVal::heap_list(sliced).0;
     }
     TAG_NIL
 }
@@ -5570,12 +6460,16 @@ pub(crate) extern "C" fn jit_slc(a: u64, start: u64, end: u64) -> u64 {
 pub(crate) extern "C" fn jit_listappend(a: u64, b: u64) -> u64 {
     let list_val = NanVal(a);
     let item_val = NanVal(b);
-    if !list_val.is_heap() { return TAG_NIL; }
+    if !list_val.is_heap() {
+        return TAG_NIL;
+    }
 
     // Normalise the item: promote arena records to heap before anything else.
     let (item_val, item_already_owned) = if item_val.is_arena_record() {
         let registry_ptr = ACTIVE_REGISTRY.with(|r| r.get());
-        if registry_ptr.is_null() { return TAG_NIL; }
+        if registry_ptr.is_null() {
+            return TAG_NIL;
+        }
         let promoted = item_val.promote_arena_to_heap(unsafe { &*registry_ptr });
         (promoted, true) // promote_arena_to_heap gives us RC=1 ownership
     } else {
@@ -5602,7 +6496,9 @@ pub(crate) extern "C" fn jit_listappend(a: u64, b: u64) -> u64 {
         match heap_mut {
             HeapObj::List(items) => {
                 // Standard push: amortized O(1), same as the VM's OP_LISTAPPEND path.
-                if !item_already_owned { item_val.clone_rc(); }
+                if !item_already_owned {
+                    item_val.clone_rc();
+                }
                 items.push(item_val);
                 a // return same NanVal (same pointer, RC still 1)
             }
@@ -5613,8 +6509,13 @@ pub(crate) extern "C" fn jit_listappend(a: u64, b: u64) -> u64 {
         match unsafe { list_val.as_heap_ref() } {
             HeapObj::List(items) => {
                 let mut new_items = Vec::with_capacity(items.len() + 1);
-                for v in items { v.clone_rc(); new_items.push(*v); }
-                if !item_already_owned { item_val.clone_rc(); }
+                for v in items {
+                    v.clone_rc();
+                    new_items.push(*v);
+                }
+                if !item_already_owned {
+                    item_val.clone_rc();
+                }
                 new_items.push(item_val);
                 NanVal::heap_list(new_items).0
             }
@@ -5628,13 +6529,17 @@ pub(crate) extern "C" fn jit_listappend(a: u64, b: u64) -> u64 {
 pub(crate) extern "C" fn jit_index(a: u64, idx: u64) -> u64 {
     let obj = NanVal(a);
     let i = idx as usize;
-    if !obj.is_heap() { return TAG_NIL; }
+    if !obj.is_heap() {
+        return TAG_NIL;
+    }
     match unsafe { obj.as_heap_ref() } {
         HeapObj::List(items) => {
             if i < items.len() {
                 items[i].clone_rc();
                 items[i].0
-            } else { TAG_NIL }
+            } else {
+                TAG_NIL
+            }
         }
         _ => TAG_NIL,
     }
@@ -5659,7 +6564,9 @@ pub(crate) extern "C" fn jit_recfld(rec: u64, field_idx: u64) -> u64 {
         return TAG_NIL;
     }
 
-    if !rv.is_heap() { return TAG_NIL; }
+    if !rv.is_heap() {
+        return TAG_NIL;
+    }
     match unsafe { rv.as_heap_ref() } {
         HeapObj::Record { fields, .. } => {
             if idx < fields.len() {
@@ -5706,7 +6613,9 @@ pub extern "C" fn jit_recfld_name(rec: u64, field_name_ptr: u64, registry_ptr: u
         return TAG_NIL;
     }
 
-    if !rv.is_heap() { return TAG_NIL; }
+    if !rv.is_heap() {
+        return TAG_NIL;
+    }
     // SAFETY: is_heap() confirmed the NanVal is a heap pointer.
     match unsafe { rv.as_heap_ref() } {
         HeapObj::Record { type_info, fields } => {
@@ -5728,7 +6637,12 @@ pub extern "C" fn jit_recfld_name(rec: u64, field_name_ptr: u64, registry_ptr: u
 /// `type_id` identifies the type, `regs` has n_fields u64 values.
 #[cfg(feature = "cranelift")]
 #[unsafe(no_mangle)]
-pub(crate) extern "C" fn jit_recnew(arena_ptr: u64, type_id_and_nfields: u64, regs: *const u64, registry_ptr: u64) -> u64 {
+pub(crate) extern "C" fn jit_recnew(
+    arena_ptr: u64,
+    type_id_and_nfields: u64,
+    regs: *const u64,
+    registry_ptr: u64,
+) -> u64 {
     let tid = (type_id_and_nfields >> 16) as u16;
     let n = (type_id_and_nfields & 0xFFFF) as usize;
     let arena = unsafe { &mut *(arena_ptr as *mut BumpArena) };
@@ -5762,7 +6676,12 @@ pub(crate) extern "C" fn jit_recnew(arena_ptr: u64, type_id_and_nfields: u64, re
 /// `indices_ptr` points to n_updates u8 field indices, `regs` has n_updates new values.
 #[cfg(feature = "cranelift")]
 #[unsafe(no_mangle)]
-pub(crate) extern "C" fn jit_recwith(rec: u64, indices_ptr: *const u8, n_updates: u64, regs: *const u64) -> u64 {
+pub(crate) extern "C" fn jit_recwith(
+    rec: u64,
+    indices_ptr: *const u8,
+    n_updates: u64,
+    regs: *const u64,
+) -> u64 {
     let rv = NanVal(rec);
     let n = n_updates as usize;
 
@@ -5802,7 +6721,9 @@ pub(crate) extern "C" fn jit_recwith(rec: u64, indices_ptr: *const u8, n_updates
         }
     }
 
-    if !rv.is_heap() && !rv.is_arena_record() { return TAG_NIL; }
+    if !rv.is_heap() && !rv.is_arena_record() {
+        return TAG_NIL;
+    }
 
     // Heap record path (or arena fallback when arena full)
     if rv.is_arena_record() {
@@ -5811,7 +6732,9 @@ pub(crate) extern "C" fn jit_recwith(rec: u64, indices_ptr: *const u8, n_updates
             let old_rec = rv.as_arena_record();
             let old_n = old_rec.n_fields as usize;
             let registry_ptr = ACTIVE_REGISTRY.with(|r| r.get());
-            if registry_ptr.is_null() { return TAG_NIL; }
+            if registry_ptr.is_null() {
+                return TAG_NIL;
+            }
             let registry = &*registry_ptr;
             let type_info = Rc::clone(&registry.types[old_rec.type_id as usize]);
             let mut new_fields = Vec::with_capacity(old_n);
@@ -5836,7 +6759,9 @@ pub(crate) extern "C" fn jit_recwith(rec: u64, indices_ptr: *const u8, n_updates
     match unsafe { rv.as_heap_ref() } {
         HeapObj::Record { type_info, fields } => {
             let mut new_fields: Vec<NanVal> = fields.to_vec();
-            for v in new_fields.iter() { v.clone_rc(); }
+            for v in new_fields.iter() {
+                v.clone_rc();
+            }
             for i in 0..n {
                 let slot = unsafe { *indices_ptr.add(i) } as usize;
                 let val = NanVal(unsafe { *regs.add(i) });
@@ -5856,7 +6781,13 @@ pub(crate) extern "C" fn jit_recwith(rec: u64, indices_ptr: *const u8, n_updates
 /// Signature: (rec: u64, arena_ptr: u64, indices_ptr: *const u8, n_updates: u64, regs: *const u64) -> u64
 #[cfg(feature = "cranelift")]
 #[unsafe(no_mangle)]
-pub(crate) extern "C" fn jit_recwith_arena(rec: u64, arena_ptr: u64, indices_ptr: *const u8, n_updates: u64, regs: *const u64) -> u64 {
+pub(crate) extern "C" fn jit_recwith_arena(
+    rec: u64,
+    arena_ptr: u64,
+    indices_ptr: *const u8,
+    n_updates: u64,
+    regs: *const u64,
+) -> u64 {
     let rv = NanVal(rec);
     let n = n_updates as usize;
 
@@ -5924,7 +6855,9 @@ pub(crate) extern "C" fn jit_listnew(regs: *const u64, n: u64) -> u64 {
 pub(crate) extern "C" fn jit_listget(list: u64, idx: u64) -> u64 {
     let lv = NanVal(list);
     let iv = NanVal(idx);
-    if !lv.is_heap() || !iv.is_number() { return TAG_NIL; }
+    if !lv.is_heap() || !iv.is_number() {
+        return TAG_NIL;
+    }
     let i = iv.as_number() as usize;
     match unsafe { lv.as_heap_ref() } {
         HeapObj::List(items) => {
@@ -5944,9 +6877,21 @@ pub(crate) extern "C" fn jit_listget(list: u64, idx: u64) -> u64 {
 pub(crate) extern "C" fn jit_jpth(a: u64, b: u64) -> u64 {
     let av = NanVal(a);
     let bv = NanVal(b);
-    if !av.is_string() || !bv.is_string() { return TAG_NIL; }
-    let json_str = unsafe { match av.as_heap_ref() { HeapObj::Str(s) => s, _ => unreachable!() } };
-    let path_str = unsafe { match bv.as_heap_ref() { HeapObj::Str(s) => s, _ => unreachable!() } };
+    if !av.is_string() || !bv.is_string() {
+        return TAG_NIL;
+    }
+    let json_str = unsafe {
+        match av.as_heap_ref() {
+            HeapObj::Str(s) => s,
+            _ => unreachable!(),
+        }
+    };
+    let path_str = unsafe {
+        match bv.as_heap_ref() {
+            HeapObj::Str(s) => s,
+            _ => unreachable!(),
+        }
+    };
     match serde_json::from_str::<serde_json::Value>(json_str) {
         Ok(parsed) => {
             let mut current = &parsed;
@@ -5957,12 +6902,16 @@ pub(crate) extern "C" fn jit_jpth(a: u64, b: u64) -> u64 {
                     if let Some(v) = current.as_array().and_then(|a| a.get(idx)) {
                         current = v;
                     } else {
-                        found = false; missing_key = key.to_string(); break;
+                        found = false;
+                        missing_key = key.to_string();
+                        break;
                     }
                 } else if let Some(v) = current.get(key) {
                     current = v;
                 } else {
-                    found = false; missing_key = key.to_string(); break;
+                    found = false;
+                    missing_key = key.to_string();
+                    break;
                 }
             }
             if found {
@@ -5991,8 +6940,15 @@ pub(crate) extern "C" fn jit_jdmp(a: u64) -> u64 {
 #[unsafe(no_mangle)]
 pub(crate) extern "C" fn jit_jpar(a: u64) -> u64 {
     let v = NanVal(a);
-    if !v.is_string() { return TAG_NIL; }
-    let text = unsafe { match v.as_heap_ref() { HeapObj::Str(s) => s, _ => unreachable!() } };
+    if !v.is_string() {
+        return TAG_NIL;
+    }
+    let text = unsafe {
+        match v.as_heap_ref() {
+            HeapObj::Str(s) => s,
+            _ => unreachable!(),
+        }
+    };
     match serde_json::from_str::<serde_json::Value>(text) {
         Ok(parsed) => NanVal::heap_ok(serde_json_to_nanval(parsed)).0,
         Err(e) => NanVal::heap_err(NanVal::heap_string(e.to_string())).0,
@@ -6003,7 +6959,12 @@ pub(crate) extern "C" fn jit_jpar(a: u64) -> u64 {
 /// `regs` points to `n_args` u64 values. Returns the result as u64.
 #[cfg(feature = "cranelift")]
 #[unsafe(no_mangle)]
-pub(crate) extern "C" fn jit_call(program_ptr: *const CompiledProgram, func_idx: u64, regs: *const u64, n_args: u64) -> u64 {
+pub(crate) extern "C" fn jit_call(
+    program_ptr: *const CompiledProgram,
+    func_idx: u64,
+    regs: *const u64,
+    n_args: u64,
+) -> u64 {
     // SAFETY: program_ptr is the address of the CompiledProgram that owns this JIT function.
     // It remains valid for the lifetime of the JIT call. regs points to a Cranelift stack slot.
     let program = unsafe { &*program_ptr };
@@ -6064,17 +7025,21 @@ pub(crate) extern "C" fn jit_mapnew() -> u64 {
 pub(crate) extern "C" fn jit_mget(map: u64, key: u64) -> u64 {
     let map_v = NanVal(map);
     let key_v = NanVal(key);
-    if !map_v.is_heap() || !key_v.is_heap() { return TAG_NIL; }
+    if !map_v.is_heap() || !key_v.is_heap() {
+        return TAG_NIL;
+    }
     unsafe {
         match map_v.as_heap_ref() {
-            HeapObj::Map(m) => {
-                match key_v.as_heap_ref() {
-                    HeapObj::Str(k) => m.get(k.as_str())
-                        .map(|v| { v.clone_rc(); v.0 })
-                        .unwrap_or(TAG_NIL),
-                    _ => TAG_NIL,
-                }
-            }
+            HeapObj::Map(m) => match key_v.as_heap_ref() {
+                HeapObj::Str(k) => m
+                    .get(k.as_str())
+                    .map(|v| {
+                        v.clone_rc();
+                        v.0
+                    })
+                    .unwrap_or(TAG_NIL),
+                _ => TAG_NIL,
+            },
             _ => TAG_NIL,
         }
     }
@@ -6086,20 +7051,20 @@ pub(crate) extern "C" fn jit_mset(map: u64, key: u64, val: u64) -> u64 {
     let map_v = NanVal(map);
     let key_v = NanVal(key);
     let val_v = NanVal(val);
-    if !map_v.is_heap() || !key_v.is_heap() { return TAG_NIL; }
+    if !map_v.is_heap() || !key_v.is_heap() {
+        return TAG_NIL;
+    }
     unsafe {
         match map_v.as_heap_ref() {
-            HeapObj::Map(m) => {
-                match key_v.as_heap_ref() {
-                    HeapObj::Str(k) => {
-                        let mut new_map = m.clone();
-                        val_v.clone_rc();
-                        new_map.insert(k.clone(), val_v);
-                        NanVal::heap_map(new_map).0
-                    }
-                    _ => TAG_NIL,
+            HeapObj::Map(m) => match key_v.as_heap_ref() {
+                HeapObj::Str(k) => {
+                    let mut new_map = m.clone();
+                    val_v.clone_rc();
+                    new_map.insert(k.clone(), val_v);
+                    NanVal::heap_map(new_map).0
                 }
-            }
+                _ => TAG_NIL,
+            },
             _ => TAG_NIL,
         }
     }
@@ -6110,15 +7075,15 @@ pub(crate) extern "C" fn jit_mset(map: u64, key: u64, val: u64) -> u64 {
 pub(crate) extern "C" fn jit_mhas(map: u64, key: u64) -> u64 {
     let map_v = NanVal(map);
     let key_v = NanVal(key);
-    if !map_v.is_heap() || !key_v.is_heap() { return TAG_FALSE; }
+    if !map_v.is_heap() || !key_v.is_heap() {
+        return TAG_FALSE;
+    }
     unsafe {
         match map_v.as_heap_ref() {
-            HeapObj::Map(m) => {
-                match key_v.as_heap_ref() {
-                    HeapObj::Str(k) => NanVal::boolean(m.contains_key(k.as_str())).0,
-                    _ => TAG_FALSE,
-                }
-            }
+            HeapObj::Map(m) => match key_v.as_heap_ref() {
+                HeapObj::Str(k) => NanVal::boolean(m.contains_key(k.as_str())).0,
+                _ => TAG_FALSE,
+            },
             _ => TAG_FALSE,
         }
     }
@@ -6128,13 +7093,16 @@ pub(crate) extern "C" fn jit_mhas(map: u64, key: u64) -> u64 {
 #[unsafe(no_mangle)]
 pub(crate) extern "C" fn jit_mkeys(map: u64) -> u64 {
     let map_v = NanVal(map);
-    if !map_v.is_heap() { return TAG_NIL; }
+    if !map_v.is_heap() {
+        return TAG_NIL;
+    }
     unsafe {
         match map_v.as_heap_ref() {
             HeapObj::Map(m) => {
                 let mut keys: Vec<&String> = m.keys().collect();
                 keys.sort();
-                let nan_keys: Vec<NanVal> = keys.iter()
+                let nan_keys: Vec<NanVal> = keys
+                    .iter()
                     .map(|k| NanVal::heap_string((*k).clone()))
                     .collect();
                 NanVal::heap_list(nan_keys).0
@@ -6148,14 +7116,20 @@ pub(crate) extern "C" fn jit_mkeys(map: u64) -> u64 {
 #[unsafe(no_mangle)]
 pub(crate) extern "C" fn jit_mvals(map: u64) -> u64 {
     let map_v = NanVal(map);
-    if !map_v.is_heap() { return TAG_NIL; }
+    if !map_v.is_heap() {
+        return TAG_NIL;
+    }
     unsafe {
         match map_v.as_heap_ref() {
             HeapObj::Map(m) => {
                 let mut pairs: Vec<(&String, &NanVal)> = m.iter().collect();
                 pairs.sort_by_key(|(k, _)| k.as_str());
-                let nan_vals: Vec<NanVal> = pairs.iter()
-                    .map(|(_, v)| { v.clone_rc(); **v })
+                let nan_vals: Vec<NanVal> = pairs
+                    .iter()
+                    .map(|(_, v)| {
+                        v.clone_rc();
+                        **v
+                    })
                     .collect();
                 NanVal::heap_list(nan_vals).0
             }
@@ -6169,19 +7143,19 @@ pub(crate) extern "C" fn jit_mvals(map: u64) -> u64 {
 pub(crate) extern "C" fn jit_mdel(map: u64, key: u64) -> u64 {
     let map_v = NanVal(map);
     let key_v = NanVal(key);
-    if !map_v.is_heap() || !key_v.is_heap() { return TAG_NIL; }
+    if !map_v.is_heap() || !key_v.is_heap() {
+        return TAG_NIL;
+    }
     unsafe {
         match map_v.as_heap_ref() {
-            HeapObj::Map(m) => {
-                match key_v.as_heap_ref() {
-                    HeapObj::Str(k) => {
-                        let mut new_map = m.clone();
-                        new_map.remove(k.as_str());
-                        NanVal::heap_map(new_map).0
-                    }
-                    _ => TAG_NIL,
+            HeapObj::Map(m) => match key_v.as_heap_ref() {
+                HeapObj::Str(k) => {
+                    let mut new_map = m.clone();
+                    new_map.remove(k.as_str());
+                    NanVal::heap_map(new_map).0
                 }
-            }
+                _ => TAG_NIL,
+            },
             _ => TAG_NIL,
         }
     }
@@ -6203,8 +7177,15 @@ pub(crate) extern "C" fn jit_prt(v: u64) -> u64 {
 #[unsafe(no_mangle)]
 pub(crate) extern "C" fn jit_trm(v: u64) -> u64 {
     let nv = NanVal(v);
-    if !nv.is_string() { return TAG_NIL; }
-    let s = unsafe { match nv.as_heap_ref() { HeapObj::Str(s) => s.as_str().trim().to_owned(), _ => unreachable!() } };
+    if !nv.is_string() {
+        return TAG_NIL;
+    }
+    let s = unsafe {
+        match nv.as_heap_ref() {
+            HeapObj::Str(s) => s.as_str().trim().to_owned(),
+            _ => unreachable!(),
+        }
+    };
     NanVal::heap_string(s).0
 }
 
@@ -6213,13 +7194,23 @@ pub(crate) extern "C" fn jit_trm(v: u64) -> u64 {
 pub(crate) extern "C" fn jit_unq(v: u64) -> u64 {
     let nv = NanVal(v);
     if nv.is_string() {
-        let s = unsafe { match nv.as_heap_ref() { HeapObj::Str(s) => s.as_str().to_owned(), _ => unreachable!() } };
+        let s = unsafe {
+            match nv.as_heap_ref() {
+                HeapObj::Str(s) => s.as_str().to_owned(),
+                _ => unreachable!(),
+            }
+        };
         let mut seen = std::collections::HashSet::new();
         let deduped: String = s.chars().filter(|c| seen.insert(*c)).collect();
         return NanVal::heap_string(deduped).0;
     }
     if (nv.0 & TAG_MASK) == TAG_LIST {
-        let items = unsafe { match nv.as_heap_ref() { HeapObj::List(l) => l.clone(), _ => unreachable!() } };
+        let items = unsafe {
+            match nv.as_heap_ref() {
+                HeapObj::List(l) => l.clone(),
+                _ => unreachable!(),
+            }
+        };
         let mut out: Vec<NanVal> = Vec::new();
         for item in items {
             if !out.iter().any(|existing| nanval_equal(*existing, item)) {
@@ -6238,8 +7229,15 @@ pub(crate) extern "C" fn jit_unq(v: u64) -> u64 {
 #[unsafe(no_mangle)]
 pub(crate) extern "C" fn jit_rd(v: u64) -> u64 {
     let nv = NanVal(v);
-    if !nv.is_string() { return TAG_NIL; }
-    let path = unsafe { match nv.as_heap_ref() { HeapObj::Str(s) => s.as_str().to_owned(), _ => unreachable!() } };
+    if !nv.is_string() {
+        return TAG_NIL;
+    }
+    let path = unsafe {
+        match nv.as_heap_ref() {
+            HeapObj::Str(s) => s.as_str().to_owned(),
+            _ => unreachable!(),
+        }
+    };
     let fmt = std::path::Path::new(&path)
         .extension()
         .and_then(|e| e.to_str())
@@ -6258,8 +7256,15 @@ pub(crate) extern "C" fn jit_rd(v: u64) -> u64 {
 #[unsafe(no_mangle)]
 pub(crate) extern "C" fn jit_rdl(v: u64) -> u64 {
     let nv = NanVal(v);
-    if !nv.is_string() { return TAG_NIL; }
-    let path = unsafe { match nv.as_heap_ref() { HeapObj::Str(s) => s.as_str().to_owned(), _ => unreachable!() } };
+    if !nv.is_string() {
+        return TAG_NIL;
+    }
+    let path = unsafe {
+        match nv.as_heap_ref() {
+            HeapObj::Str(s) => s.as_str().to_owned(),
+            _ => unreachable!(),
+        }
+    };
     match std::fs::read_to_string(&path) {
         Ok(content) => {
             let lines: Vec<NanVal> = content
@@ -6277,9 +7282,21 @@ pub(crate) extern "C" fn jit_rdl(v: u64) -> u64 {
 pub(crate) extern "C" fn jit_wr(path_v: u64, content_v: u64) -> u64 {
     let pv = NanVal(path_v);
     let cv = NanVal(content_v);
-    if !pv.is_string() || !cv.is_string() { return TAG_NIL; }
-    let path = unsafe { match pv.as_heap_ref() { HeapObj::Str(s) => s.as_str().to_owned(), _ => unreachable!() } };
-    let content = unsafe { match cv.as_heap_ref() { HeapObj::Str(s) => s.as_str().to_owned(), _ => unreachable!() } };
+    if !pv.is_string() || !cv.is_string() {
+        return TAG_NIL;
+    }
+    let path = unsafe {
+        match pv.as_heap_ref() {
+            HeapObj::Str(s) => s.as_str().to_owned(),
+            _ => unreachable!(),
+        }
+    };
+    let content = unsafe {
+        match cv.as_heap_ref() {
+            HeapObj::Str(s) => s.as_str().to_owned(),
+            _ => unreachable!(),
+        }
+    };
     match std::fs::write(&path, &content) {
         Ok(()) => NanVal::heap_ok(NanVal::heap_string(path)).0,
         Err(e) => NanVal::heap_err(NanVal::heap_string(e.to_string())).0,
@@ -6291,14 +7308,35 @@ pub(crate) extern "C" fn jit_wr(path_v: u64, content_v: u64) -> u64 {
 pub(crate) extern "C" fn jit_wrl(path_v: u64, list_v: u64) -> u64 {
     let pv = NanVal(path_v);
     let lv = NanVal(list_v);
-    if !pv.is_string() { return TAG_NIL; }
-    let path = unsafe { match pv.as_heap_ref() { HeapObj::Str(s) => s.as_str().to_owned(), _ => unreachable!() } };
-    if (lv.0 & TAG_MASK) != TAG_LIST { return TAG_NIL; }
-    let lines = unsafe { match lv.as_heap_ref() { HeapObj::List(l) => l.clone(), _ => unreachable!() } };
+    if !pv.is_string() {
+        return TAG_NIL;
+    }
+    let path = unsafe {
+        match pv.as_heap_ref() {
+            HeapObj::Str(s) => s.as_str().to_owned(),
+            _ => unreachable!(),
+        }
+    };
+    if (lv.0 & TAG_MASK) != TAG_LIST {
+        return TAG_NIL;
+    }
+    let lines = unsafe {
+        match lv.as_heap_ref() {
+            HeapObj::List(l) => l.clone(),
+            _ => unreachable!(),
+        }
+    };
     let mut buf = String::new();
     for line in &lines {
-        if !line.is_string() { return TAG_NIL; }
-        let s = unsafe { match line.as_heap_ref() { HeapObj::Str(s) => s.as_str().to_owned(), _ => unreachable!() } };
+        if !line.is_string() {
+            return TAG_NIL;
+        }
+        let s = unsafe {
+            match line.as_heap_ref() {
+                HeapObj::Str(s) => s.as_str().to_owned(),
+                _ => unreachable!(),
+            }
+        };
         buf.push_str(&s);
         buf.push('\n');
     }
@@ -6315,15 +7353,32 @@ pub(crate) extern "C" fn jit_wrl(path_v: u64, list_v: u64) -> u64 {
 pub(crate) extern "C" fn jit_post(url_v: u64, body_v: u64) -> u64 {
     let uv = NanVal(url_v);
     let bv = NanVal(body_v);
-    if !uv.is_string() || !bv.is_string() { return TAG_NIL; }
+    if !uv.is_string() || !bv.is_string() {
+        return TAG_NIL;
+    }
     #[cfg(feature = "http")]
     {
-        let url = unsafe { match uv.as_heap_ref() { HeapObj::Str(s) => s, _ => unreachable!() } };
-        let body = unsafe { match bv.as_heap_ref() { HeapObj::Str(s) => s, _ => unreachable!() } };
+        let url = unsafe {
+            match uv.as_heap_ref() {
+                HeapObj::Str(s) => s,
+                _ => unreachable!(),
+            }
+        };
+        let body = unsafe {
+            match bv.as_heap_ref() {
+                HeapObj::Str(s) => s,
+                _ => unreachable!(),
+            }
+        };
         match minreq::post(url.as_str()).with_body(body.as_str()).send() {
             Ok(resp) => match resp.as_str() {
                 Ok(b) => NanVal::heap_ok(NanVal::heap_string(b.to_string())).0,
-                Err(e) => NanVal::heap_err(NanVal::heap_string(format!("response is not valid UTF-8: {e}"))).0,
+                Err(e) => {
+                    NanVal::heap_err(NanVal::heap_string(format!(
+                        "response is not valid UTF-8: {e}"
+                    )))
+                    .0
+                }
             },
             Err(e) => NanVal::heap_err(NanVal::heap_string(e.to_string())).0,
         }
@@ -6338,17 +7393,30 @@ pub(crate) extern "C" fn jit_post(url_v: u64, body_v: u64) -> u64 {
 #[unsafe(no_mangle)]
 pub(crate) extern "C" fn jit_geth(url_v: u64, headers_v: u64) -> u64 {
     let uv = NanVal(url_v);
-    if !uv.is_string() { return TAG_NIL; }
+    if !uv.is_string() {
+        return TAG_NIL;
+    }
     #[cfg(feature = "http")]
     {
-        let url = unsafe { match uv.as_heap_ref() { HeapObj::Str(s) => s.as_str().to_owned(), _ => unreachable!() } };
+        let url = unsafe {
+            match uv.as_heap_ref() {
+                HeapObj::Str(s) => s.as_str().to_owned(),
+                _ => unreachable!(),
+            }
+        };
         let hv = NanVal(headers_v);
         let mut req = minreq::get(url.as_str());
         if hv.is_heap()
-            && let HeapObj::Map(m) = unsafe { hv.as_heap_ref() } {
+            && let HeapObj::Map(m) = unsafe { hv.as_heap_ref() }
+        {
             for (k, v) in m.iter() {
                 if v.is_string() {
-                    let vs = unsafe { match v.as_heap_ref() { HeapObj::Str(s) => s.as_str().to_owned(), _ => unreachable!() } };
+                    let vs = unsafe {
+                        match v.as_heap_ref() {
+                            HeapObj::Str(s) => s.as_str().to_owned(),
+                            _ => unreachable!(),
+                        }
+                    };
                     req = req.with_header(k.as_str(), &vs);
                 }
             }
@@ -6356,7 +7424,12 @@ pub(crate) extern "C" fn jit_geth(url_v: u64, headers_v: u64) -> u64 {
         match req.send() {
             Ok(resp) => match resp.as_str() {
                 Ok(body) => NanVal::heap_ok(NanVal::heap_string(body.to_string())).0,
-                Err(e) => NanVal::heap_err(NanVal::heap_string(format!("response is not valid UTF-8: {e}"))).0,
+                Err(e) => {
+                    NanVal::heap_err(NanVal::heap_string(format!(
+                        "response is not valid UTF-8: {e}"
+                    )))
+                    .0
+                }
             },
             Err(e) => NanVal::heap_err(NanVal::heap_string(e.to_string())).0,
         }
@@ -6372,18 +7445,36 @@ pub(crate) extern "C" fn jit_geth(url_v: u64, headers_v: u64) -> u64 {
 pub(crate) extern "C" fn jit_posth(url_v: u64, body_v: u64, headers_v: u64) -> u64 {
     let uv = NanVal(url_v);
     let bv = NanVal(body_v);
-    if !uv.is_string() || !bv.is_string() { return TAG_NIL; }
+    if !uv.is_string() || !bv.is_string() {
+        return TAG_NIL;
+    }
     #[cfg(feature = "http")]
     {
-        let url = unsafe { match uv.as_heap_ref() { HeapObj::Str(s) => s.as_str().to_owned(), _ => unreachable!() } };
-        let body_str = unsafe { match bv.as_heap_ref() { HeapObj::Str(s) => s.as_str().to_owned(), _ => unreachable!() } };
+        let url = unsafe {
+            match uv.as_heap_ref() {
+                HeapObj::Str(s) => s.as_str().to_owned(),
+                _ => unreachable!(),
+            }
+        };
+        let body_str = unsafe {
+            match bv.as_heap_ref() {
+                HeapObj::Str(s) => s.as_str().to_owned(),
+                _ => unreachable!(),
+            }
+        };
         let hv = NanVal(headers_v);
         let mut req = minreq::post(url.as_str()).with_body(body_str.as_str());
         if hv.is_heap()
-            && let HeapObj::Map(m) = unsafe { hv.as_heap_ref() } {
+            && let HeapObj::Map(m) = unsafe { hv.as_heap_ref() }
+        {
             for (k, v) in m.iter() {
                 if v.is_string() {
-                    let vs = unsafe { match v.as_heap_ref() { HeapObj::Str(s) => s.as_str().to_owned(), _ => unreachable!() } };
+                    let vs = unsafe {
+                        match v.as_heap_ref() {
+                            HeapObj::Str(s) => s.as_str().to_owned(),
+                            _ => unreachable!(),
+                        }
+                    };
                     req = req.with_header(k.as_str(), &vs);
                 }
             }
@@ -6391,7 +7482,12 @@ pub(crate) extern "C" fn jit_posth(url_v: u64, body_v: u64, headers_v: u64) -> u
         match req.send() {
             Ok(resp) => match resp.as_str() {
                 Ok(b) => NanVal::heap_ok(NanVal::heap_string(b.to_string())).0,
-                Err(e) => NanVal::heap_err(NanVal::heap_string(format!("response is not valid UTF-8: {e}"))).0,
+                Err(e) => {
+                    NanVal::heap_err(NanVal::heap_string(format!(
+                        "response is not valid UTF-8: {e}"
+                    )))
+                    .0
+                }
             },
             Err(e) => NanVal::heap_err(NanVal::heap_string(e.to_string())).0,
         }
@@ -6419,12 +7515,17 @@ pub extern "C" fn ilo_aot_set_registry(ptr: u64, len: u64) {
     let text = std::str::from_utf8(bytes).unwrap_or("");
     let mut registry = TypeRegistry::default();
     for line in text.lines() {
-        if line.is_empty() { continue; }
+        if line.is_empty() {
+            continue;
+        }
         let parts: Vec<&str> = line.split('\0').collect();
-        if parts.len() < 2 { continue; }
+        if parts.len() < 2 {
+            continue;
+        }
         let name = parts[0].to_string();
         let num_fields: u64 = parts[1].parse().unwrap_or(0);
-        let fields: Vec<String> = parts[2..].iter()
+        let fields: Vec<String> = parts[2..]
+            .iter()
             .filter(|s| !s.is_empty())
             .map(|s| s.to_string())
             .collect();
@@ -6521,8 +7622,13 @@ pub(crate) fn find_block_leaders(code: &[u32]) -> Vec<usize> {
                 leaders.insert(i + 2);
                 leaders.insert(i + 3);
             }
-            op if op == OP_CMPK_GE_N || op == OP_CMPK_GT_N || op == OP_CMPK_LT_N
-                || op == OP_CMPK_LE_N || op == OP_CMPK_EQ_N || op == OP_CMPK_NE_N => {
+            op if op == OP_CMPK_GE_N
+                || op == OP_CMPK_GT_N
+                || op == OP_CMPK_LT_N
+                || op == OP_CMPK_LE_N
+                || op == OP_CMPK_EQ_N
+                || op == OP_CMPK_NE_N =>
+            {
                 // CMPK_*_N may skip the following OP_JMP (i+1) when condition holds.
                 // i+1 (the JMP) and i+2 (the guard body / fall-through) are both leaders.
                 leaders.insert(i + 1);
@@ -6549,7 +7655,15 @@ mod tests {
         let tokens = lexer::lex(source).unwrap();
         let token_spans: Vec<(crate::lexer::Token, crate::ast::Span)> = tokens
             .into_iter()
-            .map(|(t, r)| (t, crate::ast::Span { start: r.start, end: r.end }))
+            .map(|(t, r)| {
+                (
+                    t,
+                    crate::ast::Span {
+                        start: r.start,
+                        end: r.end,
+                    },
+                )
+            })
             .collect();
         let (prog, errors) = parser::parse(token_spans);
         assert!(errors.is_empty(), "parse errors: {:?}", errors);
@@ -6567,7 +7681,11 @@ mod tests {
         let result = vm_run(
             &source,
             Some("tot"),
-            vec![Value::Number(10.0), Value::Number(20.0), Value::Number(30.0)],
+            vec![
+                Value::Number(10.0),
+                Value::Number(20.0),
+                Value::Number(30.0),
+            ],
         );
         assert_eq!(result, Value::Number(6200.0));
     }
@@ -6630,7 +7748,8 @@ mod tests {
 
     #[test]
     fn vm_tool_call() {
-        let source = "tool fetch\"HTTP GET\" url:t>R _ t timeout:30\nf>R _ t;fetch \"http://example.com\"";
+        let source =
+            "tool fetch\"HTTP GET\" url:t>R _ t timeout:30\nf>R _ t;fetch \"http://example.com\"";
         let result = vm_run(source, Some("f"), vec![]);
         assert_eq!(result, Value::Ok(Box::new(Value::Nil)));
     }
@@ -6654,7 +7773,8 @@ mod tests {
     #[test]
     fn vm_tool_call_match() {
         // match on tool result
-        let source = "tool fetch\"get\" url:t>R _ t\nf>t;r=fetch \"http://x\";?r{~v:\"ok\";^e:\"err\"}";
+        let source =
+            "tool fetch\"get\" url:t>R _ t\nf>t;r=fetch \"http://x\";?r{~v:\"ok\";^e:\"err\"}";
         let result = vm_run(source, Some("f"), vec![]);
         assert_eq!(result, Value::Text("ok".into()));
     }
@@ -6768,7 +7888,10 @@ mod tests {
         let result = vm_run(
             source,
             Some("f"),
-            vec![Value::Text("hello ".to_string()), Value::Text("world".to_string())],
+            vec![
+                Value::Text("hello ".to_string()),
+                Value::Text("world".to_string()),
+            ],
         );
         assert_eq!(result, Value::Text("hello world".to_string()));
     }
@@ -6784,9 +7907,14 @@ mod tests {
         // Verify list literal works by creating and returning it
         let source = "f>L n;[1, 2, 3]";
         let result = vm_run(source, Some("f"), vec![]);
-        assert_eq!(result, Value::List(vec![
-            Value::Number(1.0), Value::Number(2.0), Value::Number(3.0),
-        ]));
+        assert_eq!(
+            result,
+            Value::List(vec![
+                Value::Number(1.0),
+                Value::Number(2.0),
+                Value::Number(3.0),
+            ])
+        );
     }
 
     #[test]
@@ -6801,40 +7929,68 @@ mod tests {
         // "banana" > "apple" (lexicographic)
         let source = r#"f a:t b:t>b;>a b"#;
         assert_eq!(
-            vm_run(source, Some("f"), vec![Value::Text("banana".into()), Value::Text("apple".into())]),
+            vm_run(
+                source,
+                Some("f"),
+                vec![Value::Text("banana".into()), Value::Text("apple".into())]
+            ),
             Value::Bool(true)
         );
         assert_eq!(
-            vm_run(source, Some("f"), vec![Value::Text("apple".into()), Value::Text("banana".into())]),
+            vm_run(
+                source,
+                Some("f"),
+                vec![Value::Text("apple".into()), Value::Text("banana".into())]
+            ),
             Value::Bool(false)
         );
 
         // <
         let source = r#"f a:t b:t>b;<a b"#;
         assert_eq!(
-            vm_run(source, Some("f"), vec![Value::Text("apple".into()), Value::Text("banana".into())]),
+            vm_run(
+                source,
+                Some("f"),
+                vec![Value::Text("apple".into()), Value::Text("banana".into())]
+            ),
             Value::Bool(true)
         );
 
         // >=
         let source = r#"f a:t b:t>b;>=a b"#;
         assert_eq!(
-            vm_run(source, Some("f"), vec![Value::Text("apple".into()), Value::Text("apple".into())]),
+            vm_run(
+                source,
+                Some("f"),
+                vec![Value::Text("apple".into()), Value::Text("apple".into())]
+            ),
             Value::Bool(true)
         );
         assert_eq!(
-            vm_run(source, Some("f"), vec![Value::Text("apple".into()), Value::Text("banana".into())]),
+            vm_run(
+                source,
+                Some("f"),
+                vec![Value::Text("apple".into()), Value::Text("banana".into())]
+            ),
             Value::Bool(false)
         );
 
         // <=
         let source = r#"f a:t b:t>b;<=a b"#;
         assert_eq!(
-            vm_run(source, Some("f"), vec![Value::Text("banana".into()), Value::Text("banana".into())]),
+            vm_run(
+                source,
+                Some("f"),
+                vec![Value::Text("banana".into()), Value::Text("banana".into())]
+            ),
             Value::Bool(true)
         );
         assert_eq!(
-            vm_run(source, Some("f"), vec![Value::Text("zebra".into()), Value::Text("banana".into())]),
+            vm_run(
+                source,
+                Some("f"),
+                vec![Value::Text("zebra".into()), Value::Text("banana".into())]
+            ),
             Value::Bool(false)
         );
     }
@@ -6872,15 +8028,27 @@ mod tests {
     fn vm_logical_and() {
         let source = "f a:b b:b>b;&a b";
         assert_eq!(
-            vm_run(source, Some("f"), vec![Value::Bool(true), Value::Bool(true)]),
+            vm_run(
+                source,
+                Some("f"),
+                vec![Value::Bool(true), Value::Bool(true)]
+            ),
             Value::Bool(true)
         );
         assert_eq!(
-            vm_run(source, Some("f"), vec![Value::Bool(true), Value::Bool(false)]),
+            vm_run(
+                source,
+                Some("f"),
+                vec![Value::Bool(true), Value::Bool(false)]
+            ),
             Value::Bool(false)
         );
         assert_eq!(
-            vm_run(source, Some("f"), vec![Value::Bool(false), Value::Bool(true)]),
+            vm_run(
+                source,
+                Some("f"),
+                vec![Value::Bool(false), Value::Bool(true)]
+            ),
             Value::Bool(false)
         );
     }
@@ -6889,15 +8057,27 @@ mod tests {
     fn vm_logical_or() {
         let source = "f a:b b:b>b;|a b";
         assert_eq!(
-            vm_run(source, Some("f"), vec![Value::Bool(false), Value::Bool(false)]),
+            vm_run(
+                source,
+                Some("f"),
+                vec![Value::Bool(false), Value::Bool(false)]
+            ),
             Value::Bool(false)
         );
         assert_eq!(
-            vm_run(source, Some("f"), vec![Value::Bool(true), Value::Bool(false)]),
+            vm_run(
+                source,
+                Some("f"),
+                vec![Value::Bool(true), Value::Bool(false)]
+            ),
             Value::Bool(true)
         );
         assert_eq!(
-            vm_run(source, Some("f"), vec![Value::Bool(false), Value::Bool(true)]),
+            vm_run(
+                source,
+                Some("f"),
+                vec![Value::Bool(false), Value::Bool(true)]
+            ),
             Value::Bool(true)
         );
     }
@@ -6981,7 +8161,11 @@ mod tests {
         let source = "f>L n;xs=[1, 2];+=xs 3";
         assert_eq!(
             vm_run(source, Some("f"), vec![]),
-            Value::List(vec![Value::Number(1.0), Value::Number(2.0), Value::Number(3.0)])
+            Value::List(vec![
+                Value::Number(1.0),
+                Value::Number(2.0),
+                Value::Number(3.0)
+            ])
         );
     }
 
@@ -6999,7 +8183,12 @@ mod tests {
         let source = "f>L n;a=[1, 2];b=[3, 4];+a b";
         assert_eq!(
             vm_run(source, Some("f"), vec![]),
-            Value::List(vec![Value::Number(1.0), Value::Number(2.0), Value::Number(3.0), Value::Number(4.0)])
+            Value::List(vec![
+                Value::Number(1.0),
+                Value::Number(2.0),
+                Value::Number(3.0),
+                Value::Number(4.0)
+            ])
         );
     }
 
@@ -7033,25 +8222,37 @@ mod tests {
     #[test]
     fn vm_str_float() {
         let source = "f>t;str 3.14";
-        assert_eq!(vm_run(source, Some("f"), vec![]), Value::Text("3.14".into()));
+        assert_eq!(
+            vm_run(source, Some("f"), vec![]),
+            Value::Text("3.14".into())
+        );
     }
 
     #[test]
     fn vm_num_ok() {
         let source = "f>R n t;num \"42\"";
-        assert_eq!(vm_run(source, Some("f"), vec![]), Value::Ok(Box::new(Value::Number(42.0))));
+        assert_eq!(
+            vm_run(source, Some("f"), vec![]),
+            Value::Ok(Box::new(Value::Number(42.0)))
+        );
     }
 
     #[test]
     fn vm_num_float() {
         let source = "f>R n t;num \"3.14\"";
-        assert_eq!(vm_run(source, Some("f"), vec![]), Value::Ok(Box::new(Value::Number(3.14))));
+        assert_eq!(
+            vm_run(source, Some("f"), vec![]),
+            Value::Ok(Box::new(Value::Number(3.14)))
+        );
     }
 
     #[test]
     fn vm_num_err() {
         let source = "f>R n t;num \"abc\"";
-        assert_eq!(vm_run(source, Some("f"), vec![]), Value::Err(Box::new(Value::Text("abc".into()))));
+        assert_eq!(
+            vm_run(source, Some("f"), vec![]),
+            Value::Err(Box::new(Value::Text("abc".into())))
+        );
     }
 
     #[test]
@@ -7086,17 +8287,26 @@ mod tests {
 
     #[test]
     fn vm_mod() {
-        assert_eq!(vm_run("f>n;mod 10 3", Some("f"), vec![]), Value::Number(1.0));
+        assert_eq!(
+            vm_run("f>n;mod 10 3", Some("f"), vec![]),
+            Value::Number(1.0)
+        );
     }
 
     #[test]
     fn vm_mod_negative() {
-        assert_eq!(vm_run("f>n;mod -7 3", Some("f"), vec![]), Value::Number(-1.0));
+        assert_eq!(
+            vm_run("f>n;mod -7 3", Some("f"), vec![]),
+            Value::Number(-1.0)
+        );
     }
 
     #[test]
     fn vm_mod_float() {
-        assert_eq!(vm_run("f>n;mod 5.5 2.0", Some("f"), vec![]), Value::Number(1.5));
+        assert_eq!(
+            vm_run("f>n;mod 5.5 2.0", Some("f"), vec![]),
+            Value::Number(1.5)
+        );
     }
 
     #[test]
@@ -7133,7 +8343,11 @@ mod tests {
     fn vm_nested_multiply_add() {
         // +*a b c → (a * b) + c
         let source = "f a:n b:n c:n>n;+*a b c";
-        let result = vm_run(source, Some("f"), vec![Value::Number(2.0), Value::Number(3.0), Value::Number(4.0)]);
+        let result = vm_run(
+            source,
+            Some("f"),
+            vec![Value::Number(2.0), Value::Number(3.0), Value::Number(4.0)],
+        );
         assert_eq!(result, Value::Number(10.0));
     }
 
@@ -7141,7 +8355,11 @@ mod tests {
     fn vm_nested_compare() {
         // >=+x y 100 → (x + y) >= 100
         let source = "f x:n y:n>b;>=+x y 100";
-        let result = vm_run(source, Some("f"), vec![Value::Number(60.0), Value::Number(50.0)]);
+        let result = vm_run(
+            source,
+            Some("f"),
+            vec![Value::Number(60.0), Value::Number(50.0)],
+        );
         assert_eq!(result, Value::Bool(true));
     }
 
@@ -7149,7 +8367,11 @@ mod tests {
     fn vm_not_as_and_operand() {
         // &!x y → (!x) & y
         let source = "f x:b y:b>b;&!x y";
-        let result = vm_run(source, Some("f"), vec![Value::Bool(false), Value::Bool(true)]);
+        let result = vm_run(
+            source,
+            Some("f"),
+            vec![Value::Bool(false), Value::Bool(true)],
+        );
         assert_eq!(result, Value::Bool(true));
     }
 
@@ -7157,7 +8379,11 @@ mod tests {
     fn vm_negate_product() {
         // -*a b → -(a * b)
         let source = "f a:n b:n>n;-*a b";
-        let result = vm_run(source, Some("f"), vec![Value::Number(3.0), Value::Number(4.0)]);
+        let result = vm_run(
+            source,
+            Some("f"),
+            vec![Value::Number(3.0), Value::Number(4.0)],
+        );
         assert_eq!(result, Value::Number(-12.0));
     }
 
@@ -7174,7 +8400,9 @@ mod tests {
         let nv = NanVal::from_value(&v);
         assert!(nv.is_number());
         let rt = nv.to_value();
-        let Value::Number(n) = rt else { panic!("expected Number") };
+        let Value::Number(n) = rt else {
+            panic!("expected Number")
+        };
         assert!(n.to_bits() == (-0.0f64).to_bits());
         nv.drop_rc();
 
@@ -7227,7 +8455,9 @@ mod tests {
 
     fn compile_err(source: &str) -> String {
         let prog = parse_program(source);
-        compile_and_run(&prog, None, vec![]).unwrap_err().to_string()
+        compile_and_run(&prog, None, vec![])
+            .unwrap_err()
+            .to_string()
     }
 
     // 1. VmState API — reusable state
@@ -7236,8 +8466,14 @@ mod tests {
         let prog = parse_program("f x:n>n;*x 2");
         let compiled = compile(&prog).unwrap();
         let mut state = VmState::new(&compiled);
-        assert_eq!(state.call("f", vec![Value::Number(5.0)]).unwrap(), Value::Number(10.0));
-        assert_eq!(state.call("f", vec![Value::Number(3.0)]).unwrap(), Value::Number(6.0));
+        assert_eq!(
+            state.call("f", vec![Value::Number(5.0)]).unwrap(),
+            Value::Number(10.0)
+        );
+        assert_eq!(
+            state.call("f", vec![Value::Number(3.0)]).unwrap(),
+            Value::Number(6.0)
+        );
     }
 
     // VmState — undefined function error
@@ -7255,7 +8491,11 @@ mod tests {
     fn vm_sub_nn() {
         let source = "f a:n b:n>n;-a b";
         assert_eq!(
-            vm_run(source, Some("f"), vec![Value::Number(10.0), Value::Number(3.0)]),
+            vm_run(
+                source,
+                Some("f"),
+                vec![Value::Number(10.0), Value::Number(3.0)]
+            ),
             Value::Number(7.0)
         );
     }
@@ -7265,7 +8505,11 @@ mod tests {
     fn vm_div_nn() {
         let source = "f a:n b:n>n;/a b";
         assert_eq!(
-            vm_run(source, Some("f"), vec![Value::Number(15.0), Value::Number(3.0)]),
+            vm_run(
+                source,
+                Some("f"),
+                vec![Value::Number(15.0), Value::Number(3.0)]
+            ),
             Value::Number(5.0)
         );
     }
@@ -7275,11 +8519,19 @@ mod tests {
     fn vm_equals_prefix() {
         let source = "f a:n b:n>b;=a b";
         assert_eq!(
-            vm_run(source, Some("f"), vec![Value::Number(5.0), Value::Number(5.0)]),
+            vm_run(
+                source,
+                Some("f"),
+                vec![Value::Number(5.0), Value::Number(5.0)]
+            ),
             Value::Bool(true)
         );
         assert_eq!(
-            vm_run(source, Some("f"), vec![Value::Number(5.0), Value::Number(3.0)]),
+            vm_run(
+                source,
+                Some("f"),
+                vec![Value::Number(5.0), Value::Number(3.0)]
+            ),
             Value::Bool(false)
         );
     }
@@ -7289,11 +8541,19 @@ mod tests {
         // == is sugar for = — both produce the same result
         let source = "f a:n b:n>b;==a b";
         assert_eq!(
-            vm_run(source, Some("f"), vec![Value::Number(5.0), Value::Number(5.0)]),
+            vm_run(
+                source,
+                Some("f"),
+                vec![Value::Number(5.0), Value::Number(5.0)]
+            ),
             Value::Bool(true)
         );
         assert_eq!(
-            vm_run(source, Some("f"), vec![Value::Number(5.0), Value::Number(3.0)]),
+            vm_run(
+                source,
+                Some("f"),
+                vec![Value::Number(5.0), Value::Number(3.0)]
+            ),
             Value::Bool(false)
         );
     }
@@ -7331,11 +8591,19 @@ mod tests {
     fn vm_not_equals_prefix() {
         let source = "f a:n b:n>b;!=a b";
         assert_eq!(
-            vm_run(source, Some("f"), vec![Value::Number(5.0), Value::Number(3.0)]),
+            vm_run(
+                source,
+                Some("f"),
+                vec![Value::Number(5.0), Value::Number(3.0)]
+            ),
             Value::Bool(true)
         );
         assert_eq!(
-            vm_run(source, Some("f"), vec![Value::Number(5.0), Value::Number(5.0)]),
+            vm_run(
+                source,
+                Some("f"),
+                vec![Value::Number(5.0), Value::Number(5.0)]
+            ),
             Value::Bool(false)
         );
     }
@@ -7389,7 +8657,10 @@ mod tests {
     #[test]
     fn vm_const_fold_text_concat() {
         let source = r#"f>t;x=+"hello " "world";x"#;
-        assert_eq!(vm_run(source, Some("f"), vec![]), Value::Text("hello world".into()));
+        assert_eq!(
+            vm_run(source, Some("f"), vec![]),
+            Value::Text("hello world".into())
+        );
     }
 
     #[test]
@@ -7478,7 +8749,11 @@ mod tests {
         let source = "f>L n;xs=[10, 20, 30];@x xs{x};xs";
         assert_eq!(
             vm_run(source, Some("f"), vec![]),
-            Value::List(vec![Value::Number(10.0), Value::Number(20.0), Value::Number(30.0)])
+            Value::List(vec![
+                Value::Number(10.0),
+                Value::Number(20.0),
+                Value::Number(30.0)
+            ])
         );
     }
 
@@ -7506,11 +8781,19 @@ mod tests {
     fn vm_nanval_equal_numbers() {
         let source = "f a:n b:n>b;=a b";
         assert_eq!(
-            vm_run(source, Some("f"), vec![Value::Number(3.0), Value::Number(3.0)]),
+            vm_run(
+                source,
+                Some("f"),
+                vec![Value::Number(3.0), Value::Number(3.0)]
+            ),
             Value::Bool(true)
         );
         assert_eq!(
-            vm_run(source, Some("f"), vec![Value::Number(3.0), Value::Number(4.0)]),
+            vm_run(
+                source,
+                Some("f"),
+                vec![Value::Number(3.0), Value::Number(4.0)]
+            ),
             Value::Bool(false)
         );
     }
@@ -7520,11 +8803,19 @@ mod tests {
     fn vm_nanval_equal_strings() {
         let source = r#"f a:t b:t>b;=a b"#;
         assert_eq!(
-            vm_run(source, Some("f"), vec![Value::Text("hi".into()), Value::Text("hi".into())]),
+            vm_run(
+                source,
+                Some("f"),
+                vec![Value::Text("hi".into()), Value::Text("hi".into())]
+            ),
             Value::Bool(true)
         );
         assert_eq!(
-            vm_run(source, Some("f"), vec![Value::Text("hi".into()), Value::Text("bye".into())]),
+            vm_run(
+                source,
+                Some("f"),
+                vec![Value::Text("hi".into()), Value::Text("bye".into())]
+            ),
             Value::Bool(false)
         );
     }
@@ -7535,11 +8826,19 @@ mod tests {
         // Compare bool with bool using equality — both are non-heap singletons
         let source = "f a:b b:b>b;=a b";
         assert_eq!(
-            vm_run(source, Some("f"), vec![Value::Bool(true), Value::Bool(true)]),
+            vm_run(
+                source,
+                Some("f"),
+                vec![Value::Bool(true), Value::Bool(true)]
+            ),
             Value::Bool(true)
         );
         assert_eq!(
-            vm_run(source, Some("f"), vec![Value::Bool(true), Value::Bool(false)]),
+            vm_run(
+                source,
+                Some("f"),
+                vec![Value::Bool(true), Value::Bool(false)]
+            ),
             Value::Bool(false)
         );
     }
@@ -7549,7 +8848,11 @@ mod tests {
     fn vm_nanval_not_equal() {
         let source = "f a:n b:n>b;!=a b";
         assert_eq!(
-            vm_run(source, Some("f"), vec![Value::Number(3.0), Value::Number(4.0)]),
+            vm_run(
+                source,
+                Some("f"),
+                vec![Value::Number(3.0), Value::Number(4.0)]
+            ),
             Value::Bool(true)
         );
     }
@@ -7561,12 +8864,20 @@ mod tests {
         let source = "f a:n b:n>n;&a b";
         // Non-zero is truthy, so &5 3 should return 3 (right operand)
         assert_eq!(
-            vm_run(source, Some("f"), vec![Value::Number(5.0), Value::Number(3.0)]),
+            vm_run(
+                source,
+                Some("f"),
+                vec![Value::Number(5.0), Value::Number(3.0)]
+            ),
             Value::Number(3.0)
         );
         // 0 is falsy, so &0 3 should return 0 (short-circuit)
         assert_eq!(
-            vm_run(source, Some("f"), vec![Value::Number(0.0), Value::Number(3.0)]),
+            vm_run(
+                source,
+                Some("f"),
+                vec![Value::Number(0.0), Value::Number(3.0)]
+            ),
             Value::Number(0.0)
         );
     }
@@ -7576,12 +8887,20 @@ mod tests {
         let source = "f a:n b:n>n;|a b";
         // Non-zero is truthy, so |5 3 should return 5 (short-circuit)
         assert_eq!(
-            vm_run(source, Some("f"), vec![Value::Number(5.0), Value::Number(3.0)]),
+            vm_run(
+                source,
+                Some("f"),
+                vec![Value::Number(5.0), Value::Number(3.0)]
+            ),
             Value::Number(5.0)
         );
         // 0 is falsy, so |0 3 should return 3
         assert_eq!(
-            vm_run(source, Some("f"), vec![Value::Number(0.0), Value::Number(3.0)]),
+            vm_run(
+                source,
+                Some("f"),
+                vec![Value::Number(0.0), Value::Number(3.0)]
+            ),
             Value::Number(3.0)
         );
     }
@@ -7591,11 +8910,19 @@ mod tests {
     fn vm_nanval_truthy_string() {
         let source = r#"f a:t b:t>t;&a b"#;
         assert_eq!(
-            vm_run(source, Some("f"), vec![Value::Text("hi".into()), Value::Text("there".into())]),
+            vm_run(
+                source,
+                Some("f"),
+                vec![Value::Text("hi".into()), Value::Text("there".into())]
+            ),
             Value::Text("there".into())
         );
         assert_eq!(
-            vm_run(source, Some("f"), vec![Value::Text("".into()), Value::Text("there".into())]),
+            vm_run(
+                source,
+                Some("f"),
+                vec![Value::Text("".into()), Value::Text("there".into())]
+            ),
             Value::Text("".into())
         );
     }
@@ -7617,7 +8944,11 @@ mod tests {
         // "f x:t>n;x{1}" — non-negated guard: if x is TRUTHY, execute body (return 1), else skip
         // Ok(Number) is truthy → _ => true → guard body executes → returns 1.0
         let source = "f x:t>n;x{1}";
-        let result = vm_run(source, Some("f"), vec![Value::Ok(Box::new(Value::Number(1.0)))]);
+        let result = vm_run(
+            source,
+            Some("f"),
+            vec![Value::Ok(Box::new(Value::Number(1.0)))],
+        );
         assert_eq!(result, Value::Number(1.0));
     }
 
@@ -7632,7 +8963,9 @@ mod tests {
     fn vm_nanval_record_return() {
         let source = "f>point;r=point x:1 y:2;r";
         let result = vm_run(source, Some("f"), vec![]);
-        let Value::Record { type_name, fields } = result else { panic!("expected record") };
+        let Value::Record { type_name, fields } = result else {
+            panic!("expected record")
+        };
         assert_eq!(type_name, "point");
         assert_eq!(fields.get("x"), Some(&Value::Number(1.0)));
         assert_eq!(fields.get("y"), Some(&Value::Number(2.0)));
@@ -7647,8 +8980,11 @@ mod tests {
         // We use a function that takes a generic-ish approach
         let source = "f x:b>n;y=0;-y x";
         let err = vm_run_err(source, Some("f"), vec![Value::Bool(true)]);
-        assert!(err.contains("subtract") || err.contains("negate") || err.contains("number"),
-            "unexpected error: {}", err);
+        assert!(
+            err.contains("subtract") || err.contains("negate") || err.contains("number"),
+            "unexpected error: {}",
+            err
+        );
     }
 
     // 16. OP_ADD type error — adding incompatible types (number + bool)
@@ -7656,9 +8992,16 @@ mod tests {
     fn vm_err_add_incompatible() {
         // sub of number and bool triggers the OP_SUB type error
         let source = "f x:n y:b>n;-x y";
-        let err = vm_run_err(source, Some("f"), vec![Value::Number(5.0), Value::Bool(true)]);
-        assert!(err.contains("subtract") || err.contains("number"),
-            "unexpected error: {}", err);
+        let err = vm_run_err(
+            source,
+            Some("f"),
+            vec![Value::Number(5.0), Value::Bool(true)],
+        );
+        assert!(
+            err.contains("subtract") || err.contains("number"),
+            "unexpected error: {}",
+            err
+        );
     }
 
     // 17. OP_RECFLD field not found
@@ -7666,33 +9009,49 @@ mod tests {
     fn vm_err_field_not_found() {
         let source = "f>n;r=point x:1 y:2;r.z";
         let err = vm_run_err(source, Some("f"), vec![]);
-        assert!(err.contains("field") || err.contains("z"),
-            "unexpected error: {}", err);
+        assert!(
+            err.contains("field") || err.contains("z"),
+            "unexpected error: {}",
+            err
+        );
     }
 
     // 21. Compile error: undefined variable reference
     #[test]
     fn vm_err_undefined_variable() {
         let err = compile_err("f>n;x");
-        assert!(err.contains("undefined variable"),
-            "unexpected error: {}", err);
+        assert!(
+            err.contains("undefined variable"),
+            "unexpected error: {}",
+            err
+        );
     }
 
     // 22. Compile error: undefined function call
     #[test]
     fn vm_err_undefined_function() {
         let err = compile_err("f>n;nonexistent 5");
-        assert!(err.contains("undefined function"),
-            "unexpected error: {}", err);
+        assert!(
+            err.contains("undefined function"),
+            "unexpected error: {}",
+            err
+        );
     }
 
     // 24. Division by zero in OP_DIV_NN
     #[test]
     fn vm_err_division_by_zero() {
         let source = "f a:n b:n>n;/a b";
-        let err = vm_run_err(source, Some("f"), vec![Value::Number(10.0), Value::Number(0.0)]);
-        assert!(err.contains("division by zero"),
-            "unexpected error: {}", err);
+        let err = vm_run_err(
+            source,
+            Some("f"),
+            vec![Value::Number(10.0), Value::Number(0.0)],
+        );
+        assert!(
+            err.contains("division by zero"),
+            "unexpected error: {}",
+            err
+        );
     }
 
     // Match expression (not just statement) with no subject
@@ -7738,7 +9097,11 @@ mod tests {
         // Falls through to runtime which triggers OP_DIV or OP_DIV_NN
         let source = "f>n;/10 0";
         let err = vm_run_err(source, Some("f"), vec![]);
-        assert!(err.contains("division by zero"), "unexpected error: {}", err);
+        assert!(
+            err.contains("division by zero"),
+            "unexpected error: {}",
+            err
+        );
     }
 
     #[test]
@@ -7756,7 +9119,8 @@ mod tests {
         let err = vm_run_err(source, Some("f"), vec![]);
         assert!(
             err.contains("out of bounds") || err.contains("index"),
-            "unexpected error: {}", err
+            "unexpected error: {}",
+            err
         );
     }
 
@@ -7826,9 +9190,15 @@ mod tests {
         // triggering the Nil constant load fallback that runs when the guard doesn't fire.
         let source = "f x:n>n;>=x 0{0}";
         // With x >= 0: guard fires, returns 0
-        assert_eq!(vm_run(source, Some("f"), vec![Value::Number(5.0)]), Value::Number(0.0));
+        assert_eq!(
+            vm_run(source, Some("f"), vec![Value::Number(5.0)]),
+            Value::Number(0.0)
+        );
         // With x < 0: guard skips, Nil fallback executes → returns Nil
-        assert_eq!(vm_run(source, Some("f"), vec![Value::Number(-1.0)]), Value::Nil);
+        assert_eq!(
+            vm_run(source, Some("f"), vec![Value::Number(-1.0)]),
+            Value::Nil
+        );
     }
 
     #[test]
@@ -7837,9 +9207,15 @@ mod tests {
         // Outer guard fires (x >= 0), inner guard body compiles to None → Nil fallback
         let source = "f x:n>n;>=x 0{>=x 5{10}}";
         // x=10: outer guard fires, inner guard fires → returns 10
-        assert_eq!(vm_run(source, Some("f"), vec![Value::Number(10.0)]), Value::Number(10.0));
+        assert_eq!(
+            vm_run(source, Some("f"), vec![Value::Number(10.0)]),
+            Value::Number(10.0)
+        );
         // x=1: outer guard fires, inner guard doesn't fire → guard body returns Nil
-        assert_eq!(vm_run(source, Some("f"), vec![Value::Number(1.0)]), Value::Nil);
+        assert_eq!(
+            vm_run(source, Some("f"), vec![Value::Number(1.0)]),
+            Value::Nil
+        );
     }
 
     #[test]
@@ -7853,37 +9229,101 @@ mod tests {
         let chunk = &compiled.chunks[0];
         let has_cmpk = chunk.code.iter().any(|&inst| {
             let op = (inst >> 24) as u8;
-            op == OP_CMPK_GE_N || op == OP_CMPK_GT_N || op == OP_CMPK_LT_N
-                || op == OP_CMPK_LE_N || op == OP_CMPK_EQ_N || op == OP_CMPK_NE_N
+            op == OP_CMPK_GE_N
+                || op == OP_CMPK_GT_N
+                || op == OP_CMPK_LT_N
+                || op == OP_CMPK_LE_N
+                || op == OP_CMPK_EQ_N
+                || op == OP_CMPK_NE_N
         });
-        assert!(has_cmpk, "expected at least one CMPK_*_N opcode in guard chain bytecode");
+        assert!(
+            has_cmpk,
+            "expected at least one CMPK_*_N opcode in guard chain bytecode"
+        );
         // Also verify no intermediate bool register (OP_GE) is emitted for these guards
         let has_ge = chunk.code.iter().any(|&inst| (inst >> 24) as u8 == OP_GE);
-        assert!(!has_ge, "expected OP_GE to be replaced by OP_CMPK_GE_N in numeric guard chain");
+        assert!(
+            !has_ge,
+            "expected OP_GE to be replaced by OP_CMPK_GE_N in numeric guard chain"
+        );
         // Correctness: verify runtime results
-        assert_eq!(vm_run(source, Some("classify"), vec![Value::Number(950.0)]), Value::Number(30.0));
-        assert_eq!(vm_run(source, Some("classify"), vec![Value::Number(750.0)]), Value::Number(25.0));
-        assert_eq!(vm_run(source, Some("classify"), vec![Value::Number(550.0)]), Value::Number(20.0));
-        assert_eq!(vm_run(source, Some("classify"), vec![Value::Number(350.0)]), Value::Number(15.0));
-        assert_eq!(vm_run(source, Some("classify"), vec![Value::Number(150.0)]), Value::Number(10.0));
-        assert_eq!(vm_run(source, Some("classify"), vec![Value::Number(50.0)]),  Value::Number(5.0));
+        assert_eq!(
+            vm_run(source, Some("classify"), vec![Value::Number(950.0)]),
+            Value::Number(30.0)
+        );
+        assert_eq!(
+            vm_run(source, Some("classify"), vec![Value::Number(750.0)]),
+            Value::Number(25.0)
+        );
+        assert_eq!(
+            vm_run(source, Some("classify"), vec![Value::Number(550.0)]),
+            Value::Number(20.0)
+        );
+        assert_eq!(
+            vm_run(source, Some("classify"), vec![Value::Number(350.0)]),
+            Value::Number(15.0)
+        );
+        assert_eq!(
+            vm_run(source, Some("classify"), vec![Value::Number(150.0)]),
+            Value::Number(10.0)
+        );
+        assert_eq!(
+            vm_run(source, Some("classify"), vec![Value::Number(50.0)]),
+            Value::Number(5.0)
+        );
     }
 
     #[test]
     fn vm_fused_cmpk_guard_all_ops() {
         // Verify all 6 CMPK opcode variants work correctly
-        assert_eq!(vm_run("f x:n>n;>=x 10{1};0", Some("f"), vec![Value::Number(10.0)]), Value::Number(1.0));
-        assert_eq!(vm_run("f x:n>n;>=x 10{1};0", Some("f"), vec![Value::Number(9.0)]),  Value::Number(0.0));
-        assert_eq!(vm_run("f x:n>n;>x 10{1};0", Some("f"), vec![Value::Number(11.0)]),  Value::Number(1.0));
-        assert_eq!(vm_run("f x:n>n;>x 10{1};0", Some("f"), vec![Value::Number(10.0)]),  Value::Number(0.0));
-        assert_eq!(vm_run("f x:n>n;<x 10{1};0", Some("f"), vec![Value::Number(9.0)]),   Value::Number(1.0));
-        assert_eq!(vm_run("f x:n>n;<x 10{1};0", Some("f"), vec![Value::Number(10.0)]),  Value::Number(0.0));
-        assert_eq!(vm_run("f x:n>n;<=x 10{1};0", Some("f"), vec![Value::Number(10.0)]), Value::Number(1.0));
-        assert_eq!(vm_run("f x:n>n;<=x 10{1};0", Some("f"), vec![Value::Number(11.0)]), Value::Number(0.0));
-        assert_eq!(vm_run("f x:n>n;==x 10{1};0", Some("f"), vec![Value::Number(10.0)]), Value::Number(1.0));
-        assert_eq!(vm_run("f x:n>n;==x 10{1};0", Some("f"), vec![Value::Number(11.0)]), Value::Number(0.0));
-        assert_eq!(vm_run("f x:n>n;!=x 10{1};0", Some("f"), vec![Value::Number(11.0)]), Value::Number(1.0));
-        assert_eq!(vm_run("f x:n>n;!=x 10{1};0", Some("f"), vec![Value::Number(10.0)]), Value::Number(0.0));
+        assert_eq!(
+            vm_run("f x:n>n;>=x 10{1};0", Some("f"), vec![Value::Number(10.0)]),
+            Value::Number(1.0)
+        );
+        assert_eq!(
+            vm_run("f x:n>n;>=x 10{1};0", Some("f"), vec![Value::Number(9.0)]),
+            Value::Number(0.0)
+        );
+        assert_eq!(
+            vm_run("f x:n>n;>x 10{1};0", Some("f"), vec![Value::Number(11.0)]),
+            Value::Number(1.0)
+        );
+        assert_eq!(
+            vm_run("f x:n>n;>x 10{1};0", Some("f"), vec![Value::Number(10.0)]),
+            Value::Number(0.0)
+        );
+        assert_eq!(
+            vm_run("f x:n>n;<x 10{1};0", Some("f"), vec![Value::Number(9.0)]),
+            Value::Number(1.0)
+        );
+        assert_eq!(
+            vm_run("f x:n>n;<x 10{1};0", Some("f"), vec![Value::Number(10.0)]),
+            Value::Number(0.0)
+        );
+        assert_eq!(
+            vm_run("f x:n>n;<=x 10{1};0", Some("f"), vec![Value::Number(10.0)]),
+            Value::Number(1.0)
+        );
+        assert_eq!(
+            vm_run("f x:n>n;<=x 10{1};0", Some("f"), vec![Value::Number(11.0)]),
+            Value::Number(0.0)
+        );
+        assert_eq!(
+            vm_run("f x:n>n;==x 10{1};0", Some("f"), vec![Value::Number(10.0)]),
+            Value::Number(1.0)
+        );
+        assert_eq!(
+            vm_run("f x:n>n;==x 10{1};0", Some("f"), vec![Value::Number(11.0)]),
+            Value::Number(0.0)
+        );
+        assert_eq!(
+            vm_run("f x:n>n;!=x 10{1};0", Some("f"), vec![Value::Number(11.0)]),
+            Value::Number(1.0)
+        );
+        assert_eq!(
+            vm_run("f x:n>n;!=x 10{1};0", Some("f"), vec![Value::Number(10.0)]),
+            Value::Number(0.0)
+        );
     }
 
     #[test]
@@ -7901,14 +9341,20 @@ mod tests {
         // ADDK_N with literal constant on left side: +2 x (L755-763)
         // The compiler detects commutative op (Add) with Literal on left, variable on right
         let source = "f x:n>n;+2 x";
-        assert_eq!(vm_run(source, Some("f"), vec![Value::Number(3.0)]), Value::Number(5.0));
+        assert_eq!(
+            vm_run(source, Some("f"), vec![Value::Number(3.0)]),
+            Value::Number(5.0)
+        );
     }
 
     #[test]
     fn vm_mulk_n_const_left() {
         // MULK_N with literal constant on left side: *3 x (L753-763 for Multiply)
         let source = "f x:n>n;*3 x";
-        assert_eq!(vm_run(source, Some("f"), vec![Value::Number(4.0)]), Value::Number(12.0));
+        assert_eq!(
+            vm_run(source, Some("f"), vec![Value::Number(4.0)]),
+            Value::Number(12.0)
+        );
     }
 
     #[test]
@@ -7922,13 +9368,13 @@ mod tests {
         // Directly exercise NanVal::from_value with a Record value
         let rec = Value::Record {
             type_name: "point".to_string(),
-            fields: std::collections::HashMap::from([
-                ("x".to_string(), Value::Number(42.0)),
-            ]),
+            fields: std::collections::HashMap::from([("x".to_string(), Value::Number(42.0))]),
         };
         let nv = NanVal::from_value(&rec);
         let roundtrip = nv.to_value();
-        let Value::Record { type_name, fields } = roundtrip else { panic!("expected Record") };
+        let Value::Record { type_name, fields } = roundtrip else {
+            panic!("expected Record")
+        };
         assert_eq!(type_name, "point");
         assert_eq!(fields.get("x"), Some(&Value::Number(42.0)));
         // Also verify the state can be used normally
@@ -7956,7 +9402,10 @@ mod tests {
         // OP_DIV division-by-zero path (L1413): divisor register is non-tagged-numeric (match result = 0)
         let source = "f x:n>n;r=?x{1:0;_:2};/x r";
         let err = vm_run_err(source, Some("f"), vec![Value::Number(1.0)]);
-        assert!(err.contains("zero") || err.contains("Div"), "expected division-by-zero error, got: {err}");
+        assert!(
+            err.contains("zero") || err.contains("Div"),
+            "expected division-by-zero error, got: {err}"
+        );
     }
 
     #[test]
@@ -7964,24 +9413,42 @@ mod tests {
         // OP_GT numeric path (L1441): both operands are numbers but not tagged numeric
         // r and s are match results (reg_is_num=false), so OP_GT is emitted (not OP_GT_NN)
         let source = "f x:n>b;r=?x{1:5;_:2};s=?x{1:3;_:8};>r s";
-        assert_eq!(vm_run(source, Some("f"), vec![Value::Number(1.0)]), Value::Bool(true)); // 5 > 3 = true
-        assert_eq!(vm_run(source, Some("f"), vec![Value::Number(2.0)]), Value::Bool(false)); // 2 > 8 = false
+        assert_eq!(
+            vm_run(source, Some("f"), vec![Value::Number(1.0)]),
+            Value::Bool(true)
+        ); // 5 > 3 = true
+        assert_eq!(
+            vm_run(source, Some("f"), vec![Value::Number(2.0)]),
+            Value::Bool(false)
+        ); // 2 > 8 = false
     }
 
     #[test]
     fn vm_lt_non_numeric_registers() {
         // OP_LT numeric path (L1456): both operands are numbers but not tagged numeric
         let source = "f x:n>b;r=?x{1:5;_:2};s=?x{1:3;_:8};<r s";
-        assert_eq!(vm_run(source, Some("f"), vec![Value::Number(1.0)]), Value::Bool(false)); // 5 < 3 = false
-        assert_eq!(vm_run(source, Some("f"), vec![Value::Number(2.0)]), Value::Bool(true)); // 2 < 8 = true
+        assert_eq!(
+            vm_run(source, Some("f"), vec![Value::Number(1.0)]),
+            Value::Bool(false)
+        ); // 5 < 3 = false
+        assert_eq!(
+            vm_run(source, Some("f"), vec![Value::Number(2.0)]),
+            Value::Bool(true)
+        ); // 2 < 8 = true
     }
 
     #[test]
     fn vm_le_non_numeric_registers() {
         // OP_LE numeric path (L1486): both operands are numbers but not tagged numeric
         let source = "f x:n>b;r=?x{1:5;_:3};s=?x{1:5;_:8};<=r s";
-        assert_eq!(vm_run(source, Some("f"), vec![Value::Number(1.0)]), Value::Bool(true)); // 5 <= 5 = true
-        assert_eq!(vm_run(source, Some("f"), vec![Value::Number(2.0)]), Value::Bool(true)); // 3 <= 8 = true
+        assert_eq!(
+            vm_run(source, Some("f"), vec![Value::Number(1.0)]),
+            Value::Bool(true)
+        ); // 5 <= 5 = true
+        assert_eq!(
+            vm_run(source, Some("f"), vec![Value::Number(2.0)]),
+            Value::Bool(true)
+        ); // 3 <= 8 = true
     }
 
     #[test]
@@ -8018,7 +9485,11 @@ mod tests {
     fn vm_add_number_text_type_error() {
         // OP_ADD: bv is number, cv is text → neither both-num nor both-string nor both-heap → L1377
         let source = "f x:n y:t>n;+x y";
-        let err = vm_run_err(source, Some("f"), vec![Value::Number(1.0), Value::Text("hi".to_string())]);
+        let err = vm_run_err(
+            source,
+            Some("f"),
+            vec![Value::Number(1.0), Value::Text("hi".to_string())],
+        );
         assert!(err.contains("cannot add"), "got: {err}");
     }
 
@@ -8037,7 +9508,11 @@ mod tests {
     fn vm_mul_type_error() {
         // OP_MUL: text × number → L1401 ("cannot multiply non-numbers")
         let source = "f x:t y:n>n;*x y";
-        let err = vm_run_err(source, Some("f"), vec![Value::Text("hi".to_string()), Value::Number(2.0)]);
+        let err = vm_run_err(
+            source,
+            Some("f"),
+            vec![Value::Text("hi".to_string()), Value::Number(2.0)],
+        );
         assert!(err.contains("multiply"), "got: {err}");
     }
 
@@ -8045,7 +9520,11 @@ mod tests {
     fn vm_gt_type_error() {
         // OP_GT: number > text → neither both-num nor both-string → L1446
         let source = "f x:n y:t>b;>x y";
-        let err = vm_run_err(source, Some("f"), vec![Value::Number(1.0), Value::Text("hi".to_string())]);
+        let err = vm_run_err(
+            source,
+            Some("f"),
+            vec![Value::Number(1.0), Value::Text("hi".to_string())],
+        );
         assert!(err.contains("compare"), "got: {err}");
     }
 
@@ -8053,7 +9532,11 @@ mod tests {
     fn vm_lt_type_error() {
         // OP_LT: number < text → L1461
         let source = "f x:n y:t>b;<x y";
-        let err = vm_run_err(source, Some("f"), vec![Value::Number(1.0), Value::Text("hi".to_string())]);
+        let err = vm_run_err(
+            source,
+            Some("f"),
+            vec![Value::Number(1.0), Value::Text("hi".to_string())],
+        );
         assert!(err.contains("compare"), "got: {err}");
     }
 
@@ -8061,7 +9544,11 @@ mod tests {
     fn vm_ge_type_error() {
         // OP_GE: number >= text → L1476
         let source = "f x:n y:t>b;>=x y";
-        let err = vm_run_err(source, Some("f"), vec![Value::Number(1.0), Value::Text("hi".to_string())]);
+        let err = vm_run_err(
+            source,
+            Some("f"),
+            vec![Value::Number(1.0), Value::Text("hi".to_string())],
+        );
         assert!(err.contains("compare"), "got: {err}");
     }
 
@@ -8069,7 +9556,11 @@ mod tests {
     fn vm_le_type_error() {
         // OP_LE: number <= text → L1491
         let source = "f x:n y:t>b;<=x y";
-        let err = vm_run_err(source, Some("f"), vec![Value::Number(1.0), Value::Text("hi".to_string())]);
+        let err = vm_run_err(
+            source,
+            Some("f"),
+            vec![Value::Number(1.0), Value::Text("hi".to_string())],
+        );
         assert!(err.contains("compare"), "got: {err}");
     }
 
@@ -8109,8 +9600,15 @@ mod tests {
     fn vm_min_non_number_type_error() {
         // OP_MIN with non-numeric first arg → L1947 ("min/max require numbers")
         let source = "f x:t y:n>n;min x y";
-        let err = vm_run_err(source, Some("f"), vec![Value::Text("hi".to_string()), Value::Number(2.0)]);
-        assert!(err.contains("min") || err.contains("max") || err.contains("number"), "got: {err}");
+        let err = vm_run_err(
+            source,
+            Some("f"),
+            vec![Value::Text("hi".to_string()), Value::Number(2.0)],
+        );
+        assert!(
+            err.contains("min") || err.contains("max") || err.contains("number"),
+            "got: {err}"
+        );
     }
 
     #[test]
@@ -8125,7 +9623,11 @@ mod tests {
     fn vm_nan_value_number() {
         // NanVal::number() with NaN input → canonical NaN path (L1013)
         let result = vm_run("f x:n>n;x", Some("f"), vec![Value::Number(f64::NAN)]);
-        assert!(matches!(result, Value::Number(n) if n.is_nan()), "expected NaN, got: {:?}", result);
+        assert!(
+            matches!(result, Value::Number(n) if n.is_nan()),
+            "expected NaN, got: {:?}",
+            result
+        );
     }
 
     #[test]
@@ -8147,7 +9649,11 @@ mod tests {
     fn vm_div_type_error() {
         // OP_DIV: non-number operands → L1417 ("cannot divide non-numbers")
         let source = "f x:t y:t>t;/x y";
-        let err = vm_run_err(source, Some("f"), vec![Value::Text("hi".into()), Value::Text("lo".into())]);
+        let err = vm_run_err(
+            source,
+            Some("f"),
+            vec![Value::Text("hi".into()), Value::Text("lo".into())],
+        );
         assert!(err.contains("divide"), "got: {err}");
     }
 
@@ -8156,7 +9662,10 @@ mod tests {
         // OP_RECFLD: field access on a list (heap but not record) → L1590
         let source = "f x:t>t;x.name";
         let err = vm_run_err(source, Some("f"), vec![Value::List(vec![])]);
-        assert!(err.contains("field access") || err.contains("record"), "got: {err}");
+        assert!(
+            err.contains("field access") || err.contains("record"),
+            "got: {err}"
+        );
     }
 
     #[test]
@@ -8172,7 +9681,10 @@ mod tests {
         // OP_LISTGET: foreach over a number (non-heap) → L1624
         let source = "f x:n>n;@elem x{elem}";
         let err = vm_run_err(source, Some("f"), vec![Value::Number(5.0)]);
-        assert!(err.contains("list") || err.contains("foreach"), "got: {err}");
+        assert!(
+            err.contains("list") || err.contains("foreach"),
+            "got: {err}"
+        );
     }
 
     #[test]
@@ -8180,7 +9692,10 @@ mod tests {
         // OP_LISTGET: foreach over a string (heap but not list) → L1643
         let source = "f x:t>t;@elem x{elem}";
         let err = vm_run_err(source, Some("f"), vec![Value::Text("hi".into())]);
-        assert!(err.contains("list") || err.contains("foreach"), "got: {err}");
+        assert!(
+            err.contains("list") || err.contains("foreach"),
+            "got: {err}"
+        );
     }
 
     #[test]
@@ -8195,8 +9710,15 @@ mod tests {
     fn vm_len_on_heap_non_string_non_list() {
         // OP_LEN: len of Ok value (heap but not string/list) → L1891
         let source = "f x:t>n;len x";
-        let err = vm_run_err(source, Some("f"), vec![Value::Ok(Box::new(Value::Number(1.0)))]);
-        assert!(err.contains("len") || err.contains("string") || err.contains("list"), "got: {err}");
+        let err = vm_run_err(
+            source,
+            Some("f"),
+            vec![Value::Ok(Box::new(Value::Number(1.0)))],
+        );
+        assert!(
+            err.contains("len") || err.contains("string") || err.contains("list"),
+            "got: {err}"
+        );
     }
 
     #[test]
@@ -8204,14 +9726,21 @@ mod tests {
         // OP_LEN: len of number (non-heap, non-string) → L1894
         let source = "f x:t>n;len x";
         let err = vm_run_err(source, Some("f"), vec![Value::Number(5.0)]);
-        assert!(err.contains("len") || err.contains("string") || err.contains("list"), "got: {err}");
+        assert!(
+            err.contains("len") || err.contains("string") || err.contains("list"),
+            "got: {err}"
+        );
     }
 
     #[test]
     fn vm_listappend_on_non_heap() {
         // OP_LISTAPPEND: += where first arg is a number (non-heap) → L1972
         let source = "f x:t y:t>t;+=x y";
-        let err = vm_run_err(source, Some("f"), vec![Value::Number(1.0), Value::Number(2.0)]);
+        let err = vm_run_err(
+            source,
+            Some("f"),
+            vec![Value::Number(1.0), Value::Number(2.0)],
+        );
         assert!(err.contains("list") || err.contains("+="), "got: {err}");
     }
 
@@ -8219,7 +9748,11 @@ mod tests {
     fn vm_listappend_on_heap_non_list() {
         // OP_LISTAPPEND: += where first arg is a string (heap but not list) → L1986
         let source = "f x:t y:t>t;+=x y";
-        let err = vm_run_err(source, Some("f"), vec![Value::Text("hi".into()), Value::Number(1.0)]);
+        let err = vm_run_err(
+            source,
+            Some("f"),
+            vec![Value::Text("hi".into()), Value::Number(1.0)],
+        );
         assert!(err.contains("list") || err.contains("+="), "got: {err}");
     }
 
@@ -8229,7 +9762,10 @@ mod tests {
     fn vm_too_many_params_panics() {
         use crate::ast::{Decl, Param, Program, Span, Type};
         let params: Vec<Param> = (0..256)
-            .map(|i| Param { name: format!("p{i}"), ty: Type::Number })
+            .map(|i| Param {
+                name: format!("p{i}"),
+                ty: Type::Number,
+            })
             .collect();
         let prog = Program {
             declarations: vec![Decl::Function {
@@ -8257,7 +9793,10 @@ mod tests {
     #[test]
     fn vm_const_fold_bool_lt_no_fold() {
         let err = vm_run_err("f>b;<true false", Some("f"), vec![]);
-        assert!(err.contains("compare") || err.contains("type"), "got: {err}");
+        assert!(
+            err.contains("compare") || err.contains("type"),
+            "got: {err}"
+        );
     }
 
     // try_const_fold: mixed types (Bool + Number) → L582 `_ => None`
@@ -8265,7 +9804,10 @@ mod tests {
     #[test]
     fn vm_const_fold_mixed_types_no_fold() {
         let err = vm_run_err("f>n;+true 3", Some("f"), vec![]);
-        assert!(err.contains("add") || err.contains("type") || err.contains("number"), "got: {err}");
+        assert!(
+            err.contains("add") || err.contains("type") || err.contains("number"),
+            "got: {err}"
+        );
     }
 
     // try_const_fold: UnaryOp on non-Number/non-Bool literal → L590 `_ => None`
@@ -8339,11 +9881,17 @@ mod tests {
         let src = r#"f url:t hdrs:M t t>R t t;get url hdrs"#;
         let mut headers = std::collections::HashMap::new();
         headers.insert("x-api-key".to_string(), Value::Text("tok".to_string()));
-        let result = vm_run(src, Some("f"), vec![
-            Value::Text("http://127.0.0.1:1".to_string()),
-            Value::Map(headers),
-        ]);
-        let Value::Err(_) = result else { panic!("expected Err") };
+        let result = vm_run(
+            src,
+            Some("f"),
+            vec![
+                Value::Text("http://127.0.0.1:1".to_string()),
+                Value::Map(headers),
+            ],
+        );
+        let Value::Err(_) = result else {
+            panic!("expected Err")
+        };
     }
 
     #[test]
@@ -8352,12 +9900,18 @@ mod tests {
         let src = r#"f url:t body:t hdrs:M t t>R t t;post url body hdrs"#;
         let mut headers = std::collections::HashMap::new();
         headers.insert("x-api-key".to_string(), Value::Text("tok".to_string()));
-        let result = vm_run(src, Some("f"), vec![
-            Value::Text("http://127.0.0.1:1".to_string()),
-            Value::Text("body".to_string()),
-            Value::Map(headers),
-        ]);
-        let Value::Err(_) = result else { panic!("expected Err") };
+        let result = vm_run(
+            src,
+            Some("f"),
+            vec![
+                Value::Text("http://127.0.0.1:1".to_string()),
+                Value::Text("body".to_string()),
+                Value::Map(headers),
+            ],
+        );
+        let Value::Err(_) = result else {
+            panic!("expected Err")
+        };
     }
 
     // ---- Braceless guards ----
@@ -8423,9 +9977,15 @@ mod tests {
     fn vm_cat_basic() {
         let source = "f items:L t>t;cat items \",\"";
         assert_eq!(
-            vm_run(source, Some("f"), vec![Value::List(vec![
-                Value::Text("a".into()), Value::Text("b".into()), Value::Text("c".into()),
-            ])]),
+            vm_run(
+                source,
+                Some("f"),
+                vec![Value::List(vec![
+                    Value::Text("a".into()),
+                    Value::Text("b".into()),
+                    Value::Text("c".into()),
+                ])]
+            ),
             Value::Text("a,b,c".into())
         );
     }
@@ -8433,18 +9993,36 @@ mod tests {
     #[test]
     fn vm_cat_empty_list() {
         let source = "f items:L t>t;cat items \"-\"";
-        assert_eq!(vm_run(source, Some("f"), vec![Value::List(vec![])]), Value::Text("".into()));
+        assert_eq!(
+            vm_run(source, Some("f"), vec![Value::List(vec![])]),
+            Value::Text("".into())
+        );
     }
 
     #[test]
     fn vm_has_list() {
         let source = "f xs:L n x:n>b;has xs x";
         assert_eq!(
-            vm_run(source, Some("f"), vec![Value::List(vec![Value::Number(1.0), Value::Number(2.0), Value::Number(3.0)]), Value::Number(2.0)]),
+            vm_run(
+                source,
+                Some("f"),
+                vec![
+                    Value::List(vec![
+                        Value::Number(1.0),
+                        Value::Number(2.0),
+                        Value::Number(3.0)
+                    ]),
+                    Value::Number(2.0)
+                ]
+            ),
             Value::Bool(true)
         );
         assert_eq!(
-            vm_run(source, Some("f"), vec![Value::List(vec![Value::Number(1.0)]), Value::Number(5.0)]),
+            vm_run(
+                source,
+                Some("f"),
+                vec![Value::List(vec![Value::Number(1.0)]), Value::Number(5.0)]
+            ),
             Value::Bool(false)
         );
     }
@@ -8453,7 +10031,14 @@ mod tests {
     fn vm_has_text() {
         let source = r#"f s:t needle:t>b;has s needle"#;
         assert_eq!(
-            vm_run(source, Some("f"), vec![Value::Text("hello world".into()), Value::Text("world".into())]),
+            vm_run(
+                source,
+                Some("f"),
+                vec![
+                    Value::Text("hello world".into()),
+                    Value::Text("world".into())
+                ]
+            ),
             Value::Bool(true)
         );
     }
@@ -8496,7 +10081,11 @@ mod tests {
         let source = "f>L n;rev [1, 2, 3]";
         assert_eq!(
             vm_run(source, Some("f"), vec![]),
-            Value::List(vec![Value::Number(3.0), Value::Number(2.0), Value::Number(1.0)])
+            Value::List(vec![
+                Value::Number(3.0),
+                Value::Number(2.0),
+                Value::Number(1.0)
+            ])
         );
     }
 
@@ -8511,7 +10100,11 @@ mod tests {
         let source = "f>L n;srt [3, 1, 2]";
         assert_eq!(
             vm_run(source, Some("f"), vec![]),
-            Value::List(vec![Value::Number(1.0), Value::Number(2.0), Value::Number(3.0)])
+            Value::List(vec![
+                Value::Number(1.0),
+                Value::Number(2.0),
+                Value::Number(3.0)
+            ])
         );
     }
 
@@ -8520,7 +10113,11 @@ mod tests {
         let source = r#"f>L t;srt ["c", "a", "b"]"#;
         assert_eq!(
             vm_run(source, Some("f"), vec![]),
-            Value::List(vec![Value::Text("a".into()), Value::Text("b".into()), Value::Text("c".into())])
+            Value::List(vec![
+                Value::Text("a".into()),
+                Value::Text("b".into()),
+                Value::Text("c".into())
+            ])
         );
     }
 
@@ -8542,52 +10139,83 @@ mod tests {
     #[test]
     fn vm_ternary_true() {
         let source = r#"f x:n>t;=x 1{"yes"}{"no"}"#;
-        assert_eq!(vm_run(source, Some("f"), vec![Value::Number(1.0)]), Value::Text("yes".into()));
+        assert_eq!(
+            vm_run(source, Some("f"), vec![Value::Number(1.0)]),
+            Value::Text("yes".into())
+        );
     }
 
     #[test]
     fn vm_ternary_false() {
         let source = r#"f x:n>t;=x 1{"yes"}{"no"}"#;
-        assert_eq!(vm_run(source, Some("f"), vec![Value::Number(2.0)]), Value::Text("no".into()));
+        assert_eq!(
+            vm_run(source, Some("f"), vec![Value::Number(2.0)]),
+            Value::Text("no".into())
+        );
     }
 
     #[test]
     fn vm_ternary_no_early_return() {
         let source = r#"f x:n>n;=x 0{10}{20};+x 1"#;
-        assert_eq!(vm_run(source, Some("f"), vec![Value::Number(0.0)]), Value::Number(1.0));
-        assert_eq!(vm_run(source, Some("f"), vec![Value::Number(5.0)]), Value::Number(6.0));
+        assert_eq!(
+            vm_run(source, Some("f"), vec![Value::Number(0.0)]),
+            Value::Number(1.0)
+        );
+        assert_eq!(
+            vm_run(source, Some("f"), vec![Value::Number(5.0)]),
+            Value::Number(6.0)
+        );
     }
 
     #[test]
     fn vm_ret_early_return() {
         let source = r#"f x:n>n;>x 0{ret x};0"#;
-        assert_eq!(vm_run(source, Some("f"), vec![Value::Number(5.0)]), Value::Number(5.0));
-        assert_eq!(vm_run(source, Some("f"), vec![Value::Number(-1.0)]), Value::Number(0.0));
+        assert_eq!(
+            vm_run(source, Some("f"), vec![Value::Number(5.0)]),
+            Value::Number(5.0)
+        );
+        assert_eq!(
+            vm_run(source, Some("f"), vec![Value::Number(-1.0)]),
+            Value::Number(0.0)
+        );
     }
 
     #[test]
     fn vm_ret_in_foreach() {
         let source = "f xs:L n>n;@x xs{>=x 10{ret x}};0";
-        let list = Value::List(vec![Value::Number(1.0), Value::Number(15.0), Value::Number(3.0)]);
+        let list = Value::List(vec![
+            Value::Number(1.0),
+            Value::Number(15.0),
+            Value::Number(3.0),
+        ]);
         assert_eq!(vm_run(source, Some("f"), vec![list]), Value::Number(15.0));
     }
 
     #[test]
     fn vm_pipe_simple() {
         let source = "f x:n>n;str x>>len";
-        assert_eq!(vm_run(source, Some("f"), vec![Value::Number(42.0)]), Value::Number(2.0));
+        assert_eq!(
+            vm_run(source, Some("f"), vec![Value::Number(42.0)]),
+            Value::Number(2.0)
+        );
     }
 
     #[test]
     fn vm_pipe_chain() {
         let source = "dbl x:n>n;*x 2\nadd1 x:n>n;+x 1\nf x:n>n;dbl x>>add1";
-        assert_eq!(vm_run(source, Some("f"), vec![Value::Number(5.0)]), Value::Number(11.0));
+        assert_eq!(
+            vm_run(source, Some("f"), vec![Value::Number(5.0)]),
+            Value::Number(11.0)
+        );
     }
 
     #[test]
     fn vm_pipe_with_extra_args() {
         let source = "add a:n b:n>n;+a b\nf x:n>n;add x 1>>add 2";
-        assert_eq!(vm_run(source, Some("f"), vec![Value::Number(5.0)]), Value::Number(8.0));
+        assert_eq!(
+            vm_run(source, Some("f"), vec![Value::Number(5.0)]),
+            Value::Number(8.0)
+        );
     }
 
     #[test]
@@ -8682,7 +10310,9 @@ mod tests {
     fn vm_rnd_no_args() {
         let source = "f>n;rnd";
         let result = vm_run(source, Some("f"), vec![]);
-        let Value::Number(n) = result else { panic!("expected Number") };
+        let Value::Number(n) = result else {
+            panic!("expected Number")
+        };
         assert!((0.0..1.0).contains(&n), "rnd should be in [0,1), got {n}");
     }
 
@@ -8690,8 +10320,13 @@ mod tests {
     fn vm_rnd_two_args() {
         let source = "f>n;rnd 1 10";
         let result = vm_run(source, Some("f"), vec![]);
-        let Value::Number(n) = result else { panic!("expected Number") };
-        assert!((1.0..=10.0).contains(&n), "rnd 1 10 should be in [1,10], got {n}");
+        let Value::Number(n) = result else {
+            panic!("expected Number")
+        };
+        assert!(
+            (1.0..=10.0).contains(&n),
+            "rnd 1 10 should be in [1,10], got {n}"
+        );
         assert_eq!(n, n.floor(), "rnd with two args should return integer");
     }
 
@@ -8712,8 +10347,13 @@ mod tests {
     fn vm_now() {
         let source = "f>n;now";
         let result = vm_run(source, Some("f"), vec![]);
-        let Value::Number(n) = result else { panic!("expected Number") };
-        assert!(n > 1_000_000_000.0, "now should be a reasonable unix timestamp, got {n}");
+        let Value::Number(n) = result else {
+            panic!("expected Number")
+        };
+        assert!(
+            n > 1_000_000_000.0,
+            "now should be a reasonable unix timestamp, got {n}"
+        );
     }
 
     // ── env builtin VM tests ──────────────────────────────────────────
@@ -8721,20 +10361,32 @@ mod tests {
     #[test]
     fn vm_env_existing_var() {
         let _guard = ENV_TEST_MUTEX.lock().unwrap();
-        unsafe { std::env::set_var("ILO_VM_TEST", "vmval"); }
+        unsafe {
+            std::env::set_var("ILO_VM_TEST", "vmval");
+        }
         let source = r#"f k:t>R t t;env k"#;
         let result = vm_run(source, Some("f"), vec![Value::Text("ILO_VM_TEST".into())]);
         assert_eq!(result, Value::Ok(Box::new(Value::Text("vmval".into()))));
-        unsafe { std::env::remove_var("ILO_VM_TEST"); }
+        unsafe {
+            std::env::remove_var("ILO_VM_TEST");
+        }
     }
 
     #[test]
     fn vm_env_missing_var() {
         let _guard = ENV_TEST_MUTEX.lock().unwrap();
         let source = r#"f k:t>R t t;env k"#;
-        let result = vm_run(source, Some("f"), vec![Value::Text("ILO_VM_NONEXIST_999".into())]);
-        let Value::Err(inner) = result else { panic!("expected Err") };
-        let Value::Text(s) = *inner else { panic!("expected Text") };
+        let result = vm_run(
+            source,
+            Some("f"),
+            vec![Value::Text("ILO_VM_NONEXIST_999".into())],
+        );
+        let Value::Err(inner) = result else {
+            panic!("expected Err")
+        };
+        let Value::Text(s) = *inner else {
+            panic!("expected Text")
+        };
         assert!(s.contains("not set"), "got: {s}");
     }
 
@@ -8837,51 +10489,76 @@ mod tests {
     #[test]
     fn vm_jp_basic() {
         let source = r#"f j:t p:t>R t t;jpth j p"#;
-        let result = vm_run(source, Some("f"), vec![
-            Value::Text(r#"{"name":"alice"}"#.to_string()),
-            Value::Text("name".to_string()),
-        ]);
-        assert_eq!(result, Value::Ok(Box::new(Value::Text("alice".to_string()))));
+        let result = vm_run(
+            source,
+            Some("f"),
+            vec![
+                Value::Text(r#"{"name":"alice"}"#.to_string()),
+                Value::Text("name".to_string()),
+            ],
+        );
+        assert_eq!(
+            result,
+            Value::Ok(Box::new(Value::Text("alice".to_string())))
+        );
     }
 
     #[test]
     fn vm_jp_nested() {
         let source = r#"f j:t p:t>R t t;jpth j p"#;
-        let result = vm_run(source, Some("f"), vec![
-            Value::Text(r#"{"user":{"name":"bob"}}"#.to_string()),
-            Value::Text("user.name".to_string()),
-        ]);
+        let result = vm_run(
+            source,
+            Some("f"),
+            vec![
+                Value::Text(r#"{"user":{"name":"bob"}}"#.to_string()),
+                Value::Text("user.name".to_string()),
+            ],
+        );
         assert_eq!(result, Value::Ok(Box::new(Value::Text("bob".to_string()))));
     }
 
     #[test]
     fn vm_jp_array_index() {
         let source = r#"f j:t p:t>R t t;jpth j p"#;
-        let result = vm_run(source, Some("f"), vec![
-            Value::Text(r#"[10,20,30]"#.to_string()),
-            Value::Text("1".to_string()),
-        ]);
+        let result = vm_run(
+            source,
+            Some("f"),
+            vec![
+                Value::Text(r#"[10,20,30]"#.to_string()),
+                Value::Text("1".to_string()),
+            ],
+        );
         assert_eq!(result, Value::Ok(Box::new(Value::Text("20".to_string()))));
     }
 
     #[test]
     fn vm_jp_missing_key() {
         let source = r#"f j:t p:t>R t t;jpth j p"#;
-        let result = vm_run(source, Some("f"), vec![
-            Value::Text(r#"{"a":1}"#.to_string()),
-            Value::Text("b".to_string()),
-        ]);
-        let Value::Err(e) = result else { panic!("expected Err") };
+        let result = vm_run(
+            source,
+            Some("f"),
+            vec![
+                Value::Text(r#"{"a":1}"#.to_string()),
+                Value::Text("b".to_string()),
+            ],
+        );
+        let Value::Err(e) = result else {
+            panic!("expected Err")
+        };
         assert!(e.to_string().contains("key not found"), "got: {}", e);
     }
 
     #[test]
     fn vm_jp_unwrap() {
         let source = r#"f j:t p:t>t;jpth! j p"#;
-        let result = vm_run(source, Some("f"), vec![
-            Value::Text(r#"{"x":"hello"}"#.to_string()),
-            Value::Text("x".to_string()),
-        ]);
+        let result = vm_run(
+            source,
+            Some("f"),
+            vec![
+                Value::Text(r#"{"x":"hello"}"#.to_string()),
+                Value::Text("x".to_string()),
+            ],
+        );
         assert_eq!(result, Value::Text("hello".to_string()));
     }
 
@@ -8919,7 +10596,9 @@ mod tests {
     fn vm_jd_record() {
         let source = "type pt{x:n;y:n} f>t;p=pt x:1 y:2;jdmp p";
         let result = vm_run(source, Some("f"), vec![]);
-        let Value::Text(ref s) = result else { panic!("expected text") };
+        let Value::Text(ref s) = result else {
+            panic!("expected text")
+        };
         let text = s.clone();
         let parsed: serde_json::Value = serde_json::from_str(&text).unwrap();
         assert_eq!(parsed["x"], 1);
@@ -8938,11 +10617,17 @@ mod tests {
     #[test]
     fn vm_jparse_object() {
         let source = r#"f j:t>R t t;jpar j"#;
-        let result = vm_run(source, Some("f"), vec![
-            Value::Text(r#"{"a":1,"b":"two"}"#.to_string()),
-        ]);
-        let Value::Ok(inner) = result else { panic!("expected Ok") };
-        let Value::Record { type_name, fields } = *inner else { panic!("expected record") };
+        let result = vm_run(
+            source,
+            Some("f"),
+            vec![Value::Text(r#"{"a":1,"b":"two"}"#.to_string())],
+        );
+        let Value::Ok(inner) = result else {
+            panic!("expected Ok")
+        };
+        let Value::Record { type_name, fields } = *inner else {
+            panic!("expected record")
+        };
         assert_eq!(type_name, "json");
         assert_eq!(fields.get("a"), Some(&Value::Number(1.0)));
         assert_eq!(fields.get("b"), Some(&Value::Text("two".to_string())));
@@ -8951,27 +10636,38 @@ mod tests {
     #[test]
     fn vm_jparse_array() {
         let source = r#"f j:t>R t t;jpar j"#;
-        let result = vm_run(source, Some("f"), vec![
-            Value::Text("[1,2,3]".to_string()),
-        ]);
-        let Value::Ok(inner) = result else { panic!("expected Ok") };
-        assert_eq!(*inner, Value::List(vec![Value::Number(1.0), Value::Number(2.0), Value::Number(3.0)]));
+        let result = vm_run(source, Some("f"), vec![Value::Text("[1,2,3]".to_string())]);
+        let Value::Ok(inner) = result else {
+            panic!("expected Ok")
+        };
+        assert_eq!(
+            *inner,
+            Value::List(vec![
+                Value::Number(1.0),
+                Value::Number(2.0),
+                Value::Number(3.0)
+            ])
+        );
     }
 
     #[test]
     fn vm_jparse_invalid() {
         let source = r#"f j:t>R t t;jpar j"#;
-        let result = vm_run(source, Some("f"), vec![
-            Value::Text("not json".to_string()),
-        ]);
+        let result = vm_run(source, Some("f"), vec![Value::Text("not json".to_string())]);
         assert!(matches!(result, Value::Err(_)));
     }
 
     #[test]
     fn vm_jparse_unwrap() {
         let source = r#"f j:t>t;jpar! j"#;
-        let result = vm_run(source, Some("f"), vec![Value::Text(r#"{"x":1}"#.to_string())]);
-        let Value::Record { type_name, fields } = result else { panic!("expected record") };
+        let result = vm_run(
+            source,
+            Some("f"),
+            vec![Value::Text(r#"{"x":1}"#.to_string())],
+        );
+        let Value::Record { type_name, fields } = result else {
+            panic!("expected record")
+        };
         assert_eq!(type_name, "json");
         assert_eq!(fields.get("x"), Some(&Value::Number(1.0)));
     }
@@ -8988,7 +10684,11 @@ mod tests {
     #[test]
     fn vm_jparse_then_field_access() {
         let source = r#"f j:t>n;r=jpar! j;r.x"#;
-        let result = vm_run(source, Some("f"), vec![Value::Text(r#"{"x":42}"#.to_string())]);
+        let result = vm_run(
+            source,
+            Some("f"),
+            vec![Value::Text(r#"{"x":42}"#.to_string())],
+        );
         assert_eq!(result, Value::Number(42.0));
     }
 
@@ -8996,7 +10696,11 @@ mod tests {
 
     #[test]
     fn vm_trm_basic() {
-        let result = vm_run("f s:t>t;trm s", Some("f"), vec![Value::Text("  hello  ".into())]);
+        let result = vm_run(
+            "f s:t>t;trm s",
+            Some("f"),
+            vec![Value::Text("  hello  ".into())],
+        );
         assert_eq!(result, Value::Text("hello".into()));
     }
 
@@ -9017,51 +10721,91 @@ mod tests {
         let prog = parse_program("f s:t>t;trm s");
         let compiled = compile(&prog).unwrap();
         let chunk = &compiled.chunks[0];
-        assert!(chunk.code.iter().any(|inst| (inst >> 24) as u8 == OP_TRM), "expected OP_TRM in bytecode");
+        assert!(
+            chunk.code.iter().any(|inst| (inst >> 24) as u8 == OP_TRM),
+            "expected OP_TRM in bytecode"
+        );
     }
 
     // --- unq ---
 
     #[test]
     fn vm_unq_text() {
-        let result = vm_run("f s:t>t;unq s", Some("f"), vec![Value::Text("aabbc".into())]);
+        let result = vm_run(
+            "f s:t>t;unq s",
+            Some("f"),
+            vec![Value::Text("aabbc".into())],
+        );
         assert_eq!(result, Value::Text("abc".into()));
     }
 
     #[test]
     fn vm_unq_list_numbers() {
-        let result = vm_run("f xs:L n>L n;unq xs", Some("f"), vec![
-            Value::List(vec![Value::Number(1.0), Value::Number(2.0), Value::Number(1.0), Value::Number(3.0)]),
-        ]);
-        assert_eq!(result, Value::List(vec![Value::Number(1.0), Value::Number(2.0), Value::Number(3.0)]));
+        let result = vm_run(
+            "f xs:L n>L n;unq xs",
+            Some("f"),
+            vec![Value::List(vec![
+                Value::Number(1.0),
+                Value::Number(2.0),
+                Value::Number(1.0),
+                Value::Number(3.0),
+            ])],
+        );
+        assert_eq!(
+            result,
+            Value::List(vec![
+                Value::Number(1.0),
+                Value::Number(2.0),
+                Value::Number(3.0)
+            ])
+        );
     }
 
     #[test]
     fn vm_unq_list_strings_dedup() {
         // Regression: raw pointer bits are not a valid equality key for heap strings.
         // After the fix (nanval_equal), equal-content strings deduplicate correctly.
-        let result = vm_run("f xs:L t>L t;unq xs", Some("f"), vec![
-            Value::List(vec![
+        let result = vm_run(
+            "f xs:L t>L t;unq xs",
+            Some("f"),
+            vec![Value::List(vec![
                 Value::Text("a".into()),
                 Value::Text("b".into()),
                 Value::Text("a".into()),
                 Value::Text("c".into()),
                 Value::Text("b".into()),
-            ]),
-        ]);
-        assert_eq!(result, Value::List(vec![
-            Value::Text("a".into()),
-            Value::Text("b".into()),
-            Value::Text("c".into()),
-        ]));
+            ])],
+        );
+        assert_eq!(
+            result,
+            Value::List(vec![
+                Value::Text("a".into()),
+                Value::Text("b".into()),
+                Value::Text("c".into()),
+            ])
+        );
     }
 
     #[test]
     fn vm_unq_preserves_order() {
-        let result = vm_run("f xs:L n>L n;unq xs", Some("f"), vec![
-            Value::List(vec![Value::Number(3.0), Value::Number(1.0), Value::Number(2.0), Value::Number(1.0)]),
-        ]);
-        assert_eq!(result, Value::List(vec![Value::Number(3.0), Value::Number(1.0), Value::Number(2.0)]));
+        let result = vm_run(
+            "f xs:L n>L n;unq xs",
+            Some("f"),
+            vec![Value::List(vec![
+                Value::Number(3.0),
+                Value::Number(1.0),
+                Value::Number(2.0),
+                Value::Number(1.0),
+            ])],
+        );
+        assert_eq!(
+            result,
+            Value::List(vec![
+                Value::Number(3.0),
+                Value::Number(1.0),
+                Value::Number(2.0)
+            ])
+        );
     }
 
     #[test]
@@ -9075,7 +10819,10 @@ mod tests {
         let prog = parse_program("f xs:L n>L n;unq xs");
         let compiled = compile(&prog).unwrap();
         let chunk = &compiled.chunks[0];
-        assert!(chunk.code.iter().any(|inst| (inst >> 24) as u8 == OP_UNQ), "expected OP_UNQ in bytecode");
+        assert!(
+            chunk.code.iter().any(|inst| (inst >> 24) as u8 == OP_UNQ),
+            "expected OP_UNQ in bytecode"
+        );
     }
 
     // --- prnt ---
@@ -9096,7 +10843,11 @@ mod tests {
             Some("f"),
             vec![Value::Text("/nonexistent/ilo_test.txt".into())],
         );
-        assert!(matches!(result, Value::Err(_)), "expected Err, got {:?}", result);
+        assert!(
+            matches!(result, Value::Err(_)),
+            "expected Err, got {:?}",
+            result
+        );
     }
     // Note: rdb, rd path fmt, and fmt (variadic) fall through to OP_CALL → interpreter.
     // Those code paths are tested in interpreter::tests and tests/eval_inline.rs.
@@ -9107,17 +10858,19 @@ mod tests {
     #[test]
     fn vm_mapnew_empty() {
         let result = vm_run("f>M t n;mmap", Some("f"), vec![]);
-        assert!(matches!(result, Value::Map(_)), "expected Map, got {result:?}");
-        if let Value::Map(m) = result { assert!(m.is_empty()); }
+        assert!(
+            matches!(result, Value::Map(_)),
+            "expected Map, got {result:?}"
+        );
+        if let Value::Map(m) = result {
+            assert!(m.is_empty());
+        }
     }
 
     #[test]
     fn vm_mset_and_mget_roundtrip() {
         // O n at runtime is Value::Number (optional = raw value | nil, not Ok-wrapped)
-        let result = vm_run(
-            r#"f>O n;m=mset mmap "x" 7;mget m "x""#,
-            Some("f"), vec![],
-        );
+        let result = vm_run(r#"f>O n;m=mset mmap "x" 7;mget m "x""#, Some("f"), vec![]);
         assert_eq!(result, Value::Number(7.0));
     }
 
@@ -9125,35 +10878,27 @@ mod tests {
     fn vm_mset_multiple_keys() {
         let result = vm_run(
             r#"f>O n;m=mset mmap "a" 1;m=mset m "b" 2;mget m "b""#,
-            Some("f"), vec![],
+            Some("f"),
+            vec![],
         );
         assert_eq!(result, Value::Number(2.0));
     }
 
     #[test]
     fn vm_mget_missing_key_returns_nil() {
-        let result = vm_run(
-            r#"f>O n;m=mset mmap "x" 1;mget m "y""#,
-            Some("f"), vec![],
-        );
+        let result = vm_run(r#"f>O n;m=mset mmap "x" 1;mget m "y""#, Some("f"), vec![]);
         assert_eq!(result, Value::Nil);
     }
 
     #[test]
     fn vm_mhas_present() {
-        let result = vm_run(
-            r#"f>b;m=mset mmap "k" 99;mhas m "k""#,
-            Some("f"), vec![],
-        );
+        let result = vm_run(r#"f>b;m=mset mmap "k" 99;mhas m "k""#, Some("f"), vec![]);
         assert_eq!(result, Value::Bool(true));
     }
 
     #[test]
     fn vm_mhas_absent() {
-        let result = vm_run(
-            r#"f>b;m=mset mmap "k" 99;mhas m "z""#,
-            Some("f"), vec![],
-        );
+        let result = vm_run(r#"f>b;m=mset mmap "k" 99;mhas m "z""#, Some("f"), vec![]);
         assert_eq!(result, Value::Bool(false));
     }
 
@@ -9161,13 +10906,17 @@ mod tests {
     fn vm_mkeys_sorted() {
         let result = vm_run(
             r#"f>L t;m=mset mmap "b" 2;m=mset m "a" 1;m=mset m "c" 3;mkeys m"#,
-            Some("f"), vec![],
+            Some("f"),
+            vec![],
         );
-        assert_eq!(result, Value::List(vec![
-            Value::Text("a".into()),
-            Value::Text("b".into()),
-            Value::Text("c".into()),
-        ]));
+        assert_eq!(
+            result,
+            Value::List(vec![
+                Value::Text("a".into()),
+                Value::Text("b".into()),
+                Value::Text("c".into()),
+            ])
+        );
     }
 
     #[test]
@@ -9175,20 +10924,25 @@ mod tests {
         // values sorted by their key, not insertion order
         let result = vm_run(
             r#"f>L n;m=mset mmap "b" 2;m=mset m "a" 1;m=mset m "c" 3;mvals m"#,
-            Some("f"), vec![],
+            Some("f"),
+            vec![],
         );
-        assert_eq!(result, Value::List(vec![
-            Value::Number(1.0),
-            Value::Number(2.0),
-            Value::Number(3.0),
-        ]));
+        assert_eq!(
+            result,
+            Value::List(vec![
+                Value::Number(1.0),
+                Value::Number(2.0),
+                Value::Number(3.0),
+            ])
+        );
     }
 
     #[test]
     fn vm_mdel_removes_key() {
         let result = vm_run(
             r#"f>b;m=mset mmap "k" 1;m=mdel m "k";mhas m "k""#,
-            Some("f"), vec![],
+            Some("f"),
+            vec![],
         );
         assert_eq!(result, Value::Bool(false));
     }
@@ -9197,7 +10951,8 @@ mod tests {
     fn vm_mdel_nonexistent_key_noop() {
         let result = vm_run(
             r#"f>O n;m=mset mmap "k" 42;m=mdel m "z";mget m "k""#,
-            Some("f"), vec![],
+            Some("f"),
+            vec![],
         );
         assert_eq!(result, Value::Number(42.0));
     }
@@ -9207,7 +10962,8 @@ mod tests {
         // mset returns a NEW map; original unchanged
         let result = vm_run(
             r#"f>b;orig=mset mmap "k" 1;upd=mset orig "k" 99;mhas orig "k""#,
-            Some("f"), vec![],
+            Some("f"),
+            vec![],
         );
         assert_eq!(result, Value::Bool(true));
     }
@@ -9229,12 +10985,15 @@ mod tests {
         let prog = parse_program(r#"f>O n;m=mset mmap "k" 1;mget m "k""#);
         let compiled = compile(&prog).unwrap();
         let chunk = &compiled.chunks[0];
-        let has_mapnew = chunk.code.iter().any(|inst| (inst >> 24) as u8 == OP_MAPNEW);
-        let has_mset   = chunk.code.iter().any(|inst| (inst >> 24) as u8 == OP_MSET);
-        let has_mget   = chunk.code.iter().any(|inst| (inst >> 24) as u8 == OP_MGET);
+        let has_mapnew = chunk
+            .code
+            .iter()
+            .any(|inst| (inst >> 24) as u8 == OP_MAPNEW);
+        let has_mset = chunk.code.iter().any(|inst| (inst >> 24) as u8 == OP_MSET);
+        let has_mget = chunk.code.iter().any(|inst| (inst >> 24) as u8 == OP_MGET);
         assert!(has_mapnew, "expected OP_MAPNEW");
-        assert!(has_mset,   "expected OP_MSET");
-        assert!(has_mget,   "expected OP_MGET");
+        assert!(has_mset, "expected OP_MSET");
+        assert!(has_mget, "expected OP_MGET");
     }
 
     // ── String/list edge cases ──
@@ -9247,9 +11006,7 @@ mod tests {
 
     #[test]
     fn vm_hd_empty_text_is_error() {
-        let err = vm_run_err(
-            "f s:t>t;hd s", Some("f"), vec![Value::Text(String::new())],
-        );
+        let err = vm_run_err("f s:t>t;hd s", Some("f"), vec![Value::Text(String::new())]);
         assert!(err.contains("hd"), "expected hd error, got: {err}");
     }
 
@@ -9261,17 +11018,19 @@ mod tests {
 
     #[test]
     fn vm_tl_empty_text_is_error() {
-        let err = vm_run_err(
-            "f s:t>t;tl s", Some("f"), vec![Value::Text(String::new())],
-        );
+        let err = vm_run_err("f s:t>t;tl s", Some("f"), vec![Value::Text(String::new())]);
         assert!(err.contains("tl"), "expected tl error, got: {err}");
     }
 
     #[test]
     fn vm_srt_mixed_types_is_error() {
         let err = vm_run_err(
-            "f xs:L n>t;srt xs", Some("f"),
-            vec![Value::List(vec![Value::Number(1.0), Value::Text("a".into())])],
+            "f xs:L n>t;srt xs",
+            Some("f"),
+            vec![Value::List(vec![
+                Value::Number(1.0),
+                Value::Text("a".into()),
+            ])],
         );
         assert!(err.contains("srt"), "expected srt error, got: {err}");
     }
@@ -9279,9 +11038,12 @@ mod tests {
     #[test]
     fn vm_cat_empty_separator() {
         let result = vm_run(
-            "f items:L t>t;cat items \"\"", Some("f"),
+            "f items:L t>t;cat items \"\"",
+            Some("f"),
             vec![Value::List(vec![
-                Value::Text("a".into()), Value::Text("b".into()), Value::Text("c".into()),
+                Value::Text("a".into()),
+                Value::Text("b".into()),
+                Value::Text("c".into()),
             ])],
         );
         assert_eq!(result, Value::Text("abc".into()));
@@ -9290,9 +11052,16 @@ mod tests {
     #[test]
     fn vm_has_number_in_list() {
         let result = vm_run(
-            "f xs:L n x:n>b;has xs x", Some("f"),
-            vec![Value::List(vec![Value::Number(1.0), Value::Number(2.0), Value::Number(3.0)]),
-                 Value::Number(2.0)],
+            "f xs:L n x:n>b;has xs x",
+            Some("f"),
+            vec![
+                Value::List(vec![
+                    Value::Number(1.0),
+                    Value::Number(2.0),
+                    Value::Number(3.0),
+                ]),
+                Value::Number(2.0),
+            ],
         );
         assert_eq!(result, Value::Bool(true));
     }
@@ -9300,9 +11069,16 @@ mod tests {
     #[test]
     fn vm_has_number_not_in_list() {
         let result = vm_run(
-            "f xs:L n x:n>b;has xs x", Some("f"),
-            vec![Value::List(vec![Value::Number(1.0), Value::Number(2.0), Value::Number(3.0)]),
-                 Value::Number(9.0)],
+            "f xs:L n x:n>b;has xs x",
+            Some("f"),
+            vec![
+                Value::List(vec![
+                    Value::Number(1.0),
+                    Value::Number(2.0),
+                    Value::Number(3.0),
+                ]),
+                Value::Number(9.0),
+            ],
         );
         assert_eq!(result, Value::Bool(false));
     }
@@ -9311,29 +11087,33 @@ mod tests {
     fn vm_slc_out_of_bounds_clamped() {
         // end clamped to list length
         let result = vm_run(
-            "f xs:L n>L n;slc xs 0 100", Some("f"),
-            vec![Value::List(vec![Value::Number(1.0), Value::Number(2.0), Value::Number(3.0)])],
+            "f xs:L n>L n;slc xs 0 100",
+            Some("f"),
+            vec![Value::List(vec![
+                Value::Number(1.0),
+                Value::Number(2.0),
+                Value::Number(3.0),
+            ])],
         );
-        assert_eq!(result, Value::List(vec![
-            Value::Number(1.0), Value::Number(2.0), Value::Number(3.0),
-        ]));
+        assert_eq!(
+            result,
+            Value::List(vec![
+                Value::Number(1.0),
+                Value::Number(2.0),
+                Value::Number(3.0),
+            ])
+        );
     }
 
     #[test]
     fn vm_rev_empty_list() {
-        let result = vm_run(
-            "f xs:L n>L n;rev xs", Some("f"),
-            vec![Value::List(vec![])],
-        );
+        let result = vm_run("f xs:L n>L n;rev xs", Some("f"), vec![Value::List(vec![])]);
         assert_eq!(result, Value::List(vec![]));
     }
 
     #[test]
     fn vm_srt_empty_list() {
-        let result = vm_run(
-            "f xs:L n>L n;srt xs", Some("f"),
-            vec![Value::List(vec![])],
-        );
+        let result = vm_run("f xs:L n>L n;srt xs", Some("f"), vec![Value::List(vec![])]);
         assert_eq!(result, Value::List(vec![]));
     }
 
@@ -9348,22 +11128,27 @@ mod tests {
     #[test]
     fn vm_rdl_file_not_found() {
         let result = vm_run(
-            "f p:t>t;rdl p", Some("f"),
+            "f p:t>t;rdl p",
+            Some("f"),
             vec![Value::Text("/nonexistent/ilo_rdl_test.txt".into())],
         );
-        assert!(matches!(result, Value::Err(_)), "expected Err, got {result:?}");
+        assert!(
+            matches!(result, Value::Err(_)),
+            "expected Err, got {result:?}"
+        );
     }
 
     #[test]
     fn vm_wr_and_rdl_roundtrip() {
         let path = "/tmp/ilo_vm_rdl_test.txt";
         std::fs::write(path, "line1\nline2\n").unwrap();
-        let result = vm_run(
-            "f p:t>t;rdl p", Some("f"),
-            vec![Value::Text(path.into())],
-        );
-        let Value::Ok(inner) = result else { panic!("expected Ok") };
-        let Value::List(lines) = *inner else { panic!("expected List inside Ok") };
+        let result = vm_run("f p:t>t;rdl p", Some("f"), vec![Value::Text(path.into())]);
+        let Value::Ok(inner) = result else {
+            panic!("expected Ok")
+        };
+        let Value::List(lines) = *inner else {
+            panic!("expected List inside Ok")
+        };
         assert_eq!(lines.len(), 2);
         assert_eq!(lines[0], Value::Text("line1".into()));
         let _ = std::fs::remove_file(path);
@@ -9374,22 +11159,40 @@ mod tests {
     #[test]
     fn vm_type_check_isnum_match() {
         let src = r#"f x:t>b;?x{n _:true;_:false}"#;
-        assert_eq!(vm_run(src, Some("f"), vec![Value::Number(42.0)]), Value::Bool(true));
-        assert_eq!(vm_run(src, Some("f"), vec![Value::Text("hi".into())]), Value::Bool(false));
+        assert_eq!(
+            vm_run(src, Some("f"), vec![Value::Number(42.0)]),
+            Value::Bool(true)
+        );
+        assert_eq!(
+            vm_run(src, Some("f"), vec![Value::Text("hi".into())]),
+            Value::Bool(false)
+        );
     }
 
     #[test]
     fn vm_type_check_istext_match() {
         let src = r#"f x:n>b;?x{t _:true;_:false}"#;
-        assert_eq!(vm_run(src, Some("f"), vec![Value::Text("hello".into())]), Value::Bool(true));
-        assert_eq!(vm_run(src, Some("f"), vec![Value::Number(5.0)]), Value::Bool(false));
+        assert_eq!(
+            vm_run(src, Some("f"), vec![Value::Text("hello".into())]),
+            Value::Bool(true)
+        );
+        assert_eq!(
+            vm_run(src, Some("f"), vec![Value::Number(5.0)]),
+            Value::Bool(false)
+        );
     }
 
     #[test]
     fn vm_type_check_isbool_match() {
         let src = r#"f x:n>b;?x{b _:true;_:false}"#;
-        assert_eq!(vm_run(src, Some("f"), vec![Value::Bool(true)]), Value::Bool(true));
-        assert_eq!(vm_run(src, Some("f"), vec![Value::Number(1.0)]), Value::Bool(false));
+        assert_eq!(
+            vm_run(src, Some("f"), vec![Value::Bool(true)]),
+            Value::Bool(true)
+        );
+        assert_eq!(
+            vm_run(src, Some("f"), vec![Value::Number(1.0)]),
+            Value::Bool(false)
+        );
     }
 
     #[test]
@@ -9399,31 +11202,52 @@ mod tests {
             vm_run(src, Some("f"), vec![Value::List(vec![Value::Number(1.0)])]),
             Value::Bool(true)
         );
-        assert_eq!(vm_run(src, Some("f"), vec![Value::Number(5.0)]), Value::Bool(false));
+        assert_eq!(
+            vm_run(src, Some("f"), vec![Value::Number(5.0)]),
+            Value::Bool(false)
+        );
     }
 
     #[test]
     fn vm_type_check_isnum_with_binding() {
         // n v: binds the value if it's a number
         let src = r#"f x:t>n;?x{n v:v;_:0}"#;
-        assert_eq!(vm_run(src, Some("f"), vec![Value::Number(99.0)]), Value::Number(99.0));
-        assert_eq!(vm_run(src, Some("f"), vec![Value::Text("x".into())]), Value::Number(0.0));
+        assert_eq!(
+            vm_run(src, Some("f"), vec![Value::Number(99.0)]),
+            Value::Number(99.0)
+        );
+        assert_eq!(
+            vm_run(src, Some("f"), vec![Value::Text("x".into())]),
+            Value::Number(0.0)
+        );
     }
 
     #[test]
     fn vm_type_check_istext_with_binding() {
         // t v: binds the value if it's text
         let src = r#"f x:n>t;?x{t v:v;_:"nope"}"#;
-        assert_eq!(vm_run(src, Some("f"), vec![Value::Text("yes".into())]), Value::Text("yes".into()));
-        assert_eq!(vm_run(src, Some("f"), vec![Value::Number(1.0)]), Value::Text("nope".into()));
+        assert_eq!(
+            vm_run(src, Some("f"), vec![Value::Text("yes".into())]),
+            Value::Text("yes".into())
+        );
+        assert_eq!(
+            vm_run(src, Some("f"), vec![Value::Number(1.0)]),
+            Value::Text("nope".into())
+        );
     }
 
     #[test]
     fn vm_type_check_isbool_with_binding() {
         // b v: binds the value if it's bool
         let src = r#"f x:n>b;?x{b v:v;_:false}"#;
-        assert_eq!(vm_run(src, Some("f"), vec![Value::Bool(true)]), Value::Bool(true));
-        assert_eq!(vm_run(src, Some("f"), vec![Value::Number(0.0)]), Value::Bool(false));
+        assert_eq!(
+            vm_run(src, Some("f"), vec![Value::Bool(true)]),
+            Value::Bool(true)
+        );
+        assert_eq!(
+            vm_run(src, Some("f"), vec![Value::Number(0.0)]),
+            Value::Bool(false)
+        );
     }
 
     #[test]
@@ -9432,7 +11256,10 @@ mod tests {
         let compiled = compile(&prog).unwrap();
         let idx = compiled.func_index("f").unwrap() as usize;
         let chunk = &compiled.chunks[idx];
-        let has_isnum = chunk.code.iter().any(|&inst| (inst >> 24) as u8 == OP_ISNUM);
+        let has_isnum = chunk
+            .code
+            .iter()
+            .any(|&inst| (inst >> 24) as u8 == OP_ISNUM);
         assert!(has_isnum, "expected OP_ISNUM in compiled chunk");
     }
 
@@ -9479,19 +11306,28 @@ mod tests {
     #[test]
     fn vm_unq_non_string_non_list_error() {
         let err = vm_run_err("f x:n>t;unq x", Some("f"), vec![Value::Number(42.0)]);
-        assert!(err.contains("unq") || err.contains("list") || err.contains("text"), "got: {err}");
+        assert!(
+            err.contains("unq") || err.contains("list") || err.contains("text"),
+            "got: {err}"
+        );
     }
 
     #[test]
     fn vm_rd_non_string_path_error() {
         let err = vm_run_err("f x:n>R t t;rd x", Some("f"), vec![Value::Number(42.0)]);
-        assert!(err.contains("rd") || err.contains("text") || err.contains("string"), "got: {err}");
+        assert!(
+            err.contains("rd") || err.contains("text") || err.contains("string"),
+            "got: {err}"
+        );
     }
 
     #[test]
     fn vm_rdl_non_string_error() {
         let err = vm_run_err("f x:n>R t t;rdl x", Some("f"), vec![Value::Number(42.0)]);
-        assert!(err.contains("rdl") || err.contains("text") || err.contains("string"), "got: {err}");
+        assert!(
+            err.contains("rdl") || err.contains("text") || err.contains("string"),
+            "got: {err}"
+        );
     }
 
     #[test]
@@ -9501,7 +11337,10 @@ mod tests {
             Some("f"),
             vec![Value::Number(42.0), Value::Text("content".into())],
         );
-        assert!(err.contains("wr") || err.contains("text") || err.contains("string"), "got: {err}");
+        assert!(
+            err.contains("wr") || err.contains("text") || err.contains("string"),
+            "got: {err}"
+        );
     }
 
     #[test]
@@ -9511,7 +11350,10 @@ mod tests {
             Some("f"),
             vec![Value::Text("/tmp/test".into()), Value::Number(42.0)],
         );
-        assert!(err.contains("wr") || err.contains("text") || err.contains("string"), "got: {err}");
+        assert!(
+            err.contains("wr") || err.contains("text") || err.contains("string"),
+            "got: {err}"
+        );
     }
 
     #[test]
@@ -9519,9 +11361,15 @@ mod tests {
         let err = vm_run_err(
             "f x:n xs:L t>R t t;wrl x xs",
             Some("f"),
-            vec![Value::Number(42.0), Value::List(vec![Value::Text("a".into())])],
+            vec![
+                Value::Number(42.0),
+                Value::List(vec![Value::Text("a".into())]),
+            ],
         );
-        assert!(err.contains("wrl") || err.contains("text") || err.contains("string"), "got: {err}");
+        assert!(
+            err.contains("wrl") || err.contains("text") || err.contains("string"),
+            "got: {err}"
+        );
     }
 
     #[test]
@@ -9531,9 +11379,15 @@ mod tests {
         let result = vm_run(
             "f p:t c:t>R t t;wr p c",
             Some("f"),
-            vec![Value::Text(path_str.into()), Value::Text("hello from ilo".into())],
+            vec![
+                Value::Text(path_str.into()),
+                Value::Text("hello from ilo".into()),
+            ],
         );
-        assert!(matches!(result, Value::Ok(_)), "wr should succeed, got {result:?}");
+        assert!(
+            matches!(result, Value::Ok(_)),
+            "wr should succeed, got {result:?}"
+        );
         let content = std::fs::read_to_string(&path).unwrap();
         assert_eq!(content, "hello from ilo");
         let _ = std::fs::remove_file(&path);
@@ -9548,10 +11402,16 @@ mod tests {
             Some("f"),
             vec![
                 Value::Text(path_str.into()),
-                Value::List(vec![Value::Text("line1".into()), Value::Text("line2".into())]),
+                Value::List(vec![
+                    Value::Text("line1".into()),
+                    Value::Text("line2".into()),
+                ]),
             ],
         );
-        assert!(matches!(result, Value::Ok(_)), "wrl should succeed, got {result:?}");
+        assert!(
+            matches!(result, Value::Ok(_)),
+            "wrl should succeed, got {result:?}"
+        );
         let content = std::fs::read_to_string(&path).unwrap();
         assert!(content.contains("line1"), "got: {content}");
         let _ = std::fs::remove_file(&path);
@@ -9587,8 +11447,15 @@ mod tests {
     fn vm_rd_json_file() {
         let path = "/tmp/ilo_vm_rd_json.json";
         std::fs::write(path, r#"{"key":"value"}"#).unwrap();
-        let result = vm_run("f p:t>R t t;rd p", Some("f"), vec![Value::Text(path.into())]);
-        assert!(matches!(result, Value::Ok(_)), "rd json should succeed, got {result:?}");
+        let result = vm_run(
+            "f p:t>R t t;rd p",
+            Some("f"),
+            vec![Value::Text(path.into())],
+        );
+        assert!(
+            matches!(result, Value::Ok(_)),
+            "rd json should succeed, got {result:?}"
+        );
         let _ = std::fs::remove_file(path);
     }
 
@@ -9596,8 +11463,15 @@ mod tests {
     fn vm_rd_csv_file() {
         let path = "/tmp/ilo_vm_rd_csv.csv";
         std::fs::write(path, "a,b,c\n1,2,3\n").unwrap();
-        let result = vm_run("f p:t>R t t;rd p", Some("f"), vec![Value::Text(path.into())]);
-        assert!(matches!(result, Value::Ok(_)), "rd csv should succeed, got {result:?}");
+        let result = vm_run(
+            "f p:t>R t t;rd p",
+            Some("f"),
+            vec![Value::Text(path.into())],
+        );
+        assert!(
+            matches!(result, Value::Ok(_)),
+            "rd csv should succeed, got {result:?}"
+        );
         let _ = std::fs::remove_file(path);
     }
 
@@ -9623,33 +11497,41 @@ mod tests {
 
     #[test]
     fn vm_text_greater_than() {
-        let result = vm_run("f a:t b:t>b;>a b", Some("f"), vec![
-            Value::Text("b".into()), Value::Text("a".into()),
-        ]);
+        let result = vm_run(
+            "f a:t b:t>b;>a b",
+            Some("f"),
+            vec![Value::Text("b".into()), Value::Text("a".into())],
+        );
         assert_eq!(result, Value::Bool(true));
     }
 
     #[test]
     fn vm_text_less_than() {
-        let result = vm_run("f a:t b:t>b;<a b", Some("f"), vec![
-            Value::Text("a".into()), Value::Text("b".into()),
-        ]);
+        let result = vm_run(
+            "f a:t b:t>b;<a b",
+            Some("f"),
+            vec![Value::Text("a".into()), Value::Text("b".into())],
+        );
         assert_eq!(result, Value::Bool(true));
     }
 
     #[test]
     fn vm_text_greater_or_equal() {
-        let result = vm_run("f a:t b:t>b;>=a b", Some("f"), vec![
-            Value::Text("a".into()), Value::Text("a".into()),
-        ]);
+        let result = vm_run(
+            "f a:t b:t>b;>=a b",
+            Some("f"),
+            vec![Value::Text("a".into()), Value::Text("a".into())],
+        );
         assert_eq!(result, Value::Bool(true));
     }
 
     #[test]
     fn vm_text_less_or_equal() {
-        let result = vm_run("f a:t b:t>b;<=a b", Some("f"), vec![
-            Value::Text("a".into()), Value::Text("b".into()),
-        ]);
+        let result = vm_run(
+            "f a:t b:t>b;<=a b",
+            Some("f"),
+            vec![Value::Text("a".into()), Value::Text("b".into())],
+        );
         assert_eq!(result, Value::Bool(true));
     }
 
@@ -9658,9 +11540,11 @@ mod tests {
     #[test]
     fn vm_rnd_two_args_range() {
         // OP_RND2 with a:n b:n
-        let result = vm_run("f a:n b:n>n;rnd a b", Some("f"), vec![
-            Value::Number(5.0), Value::Number(5.0),
-        ]);
+        let result = vm_run(
+            "f a:n b:n>n;rnd a b",
+            Some("f"),
+            vec![Value::Number(5.0), Value::Number(5.0)],
+        );
         assert_eq!(result, Value::Number(5.0)); // rnd 5 5 must be 5
     }
 
@@ -9671,11 +11555,16 @@ mod tests {
             "f xs:L n>L n;slc xs 1 3",
             Some("f"),
             vec![Value::List(vec![
-                Value::Number(10.0), Value::Number(20.0),
-                Value::Number(30.0), Value::Number(40.0),
+                Value::Number(10.0),
+                Value::Number(20.0),
+                Value::Number(30.0),
+                Value::Number(40.0),
             ])],
         );
-        assert_eq!(result, Value::List(vec![Value::Number(20.0), Value::Number(30.0)]));
+        assert_eq!(
+            result,
+            Value::List(vec![Value::Number(20.0), Value::Number(30.0)])
+        );
     }
 
     #[test]
@@ -9707,7 +11596,10 @@ mod tests {
     #[test]
     fn vm_hd_on_number_error() {
         let err = vm_run_err("f x:n>n;hd x", Some("f"), vec![Value::Number(42.0)]);
-        assert!(err.contains("hd") || err.contains("list") || err.contains("text"), "got: {err}");
+        assert!(
+            err.contains("hd") || err.contains("list") || err.contains("text"),
+            "got: {err}"
+        );
     }
 
     // --- OP_TL error paths ---
@@ -9715,7 +11607,10 @@ mod tests {
     #[test]
     fn vm_tl_on_number_error() {
         let err = vm_run_err("f x:n>n;tl x", Some("f"), vec![Value::Number(42.0)]);
-        assert!(err.contains("tl") || err.contains("list") || err.contains("text"), "got: {err}");
+        assert!(
+            err.contains("tl") || err.contains("list") || err.contains("text"),
+            "got: {err}"
+        );
     }
 
     // --- OP_REV error paths ---
@@ -9723,7 +11618,10 @@ mod tests {
     #[test]
     fn vm_rev_on_number_error() {
         let err = vm_run_err("f x:n>n;rev x", Some("f"), vec![Value::Number(42.0)]);
-        assert!(err.contains("rev") || err.contains("list") || err.contains("text"), "got: {err}");
+        assert!(
+            err.contains("rev") || err.contains("list") || err.contains("text"),
+            "got: {err}"
+        );
     }
 
     // --- OP_HAS error paths ---
@@ -9747,7 +11645,10 @@ mod tests {
             Some("f"),
             vec![Value::Number(42.0), Value::Number(10.0)],
         );
-        assert!(err.contains("has") || err.contains("list") || err.contains("text"), "got: {err}");
+        assert!(
+            err.contains("has") || err.contains("list") || err.contains("text"),
+            "got: {err}"
+        );
     }
 
     // --- OP_SLC error paths ---
@@ -9755,7 +11656,10 @@ mod tests {
     #[test]
     fn vm_slc_on_number_error() {
         let err = vm_run_err("f x:n>n;slc x 0 1", Some("f"), vec![Value::Number(42.0)]);
-        assert!(err.contains("slc") || err.contains("list") || err.contains("text"), "got: {err}");
+        assert!(
+            err.contains("slc") || err.contains("list") || err.contains("text"),
+            "got: {err}"
+        );
     }
 
     // --- OP_SRT on non-list/non-text ---
@@ -9800,8 +11704,15 @@ mod tests {
 
     #[test]
     fn vm_neg_on_text_error() {
-        let err = vm_run_err(r#"f x:t>n;neg x"#, Some("f"), vec![Value::Text("hi".into())]);
-        assert!(err.contains("neg") || err.contains("number") || err.contains("n"), "got: {err}");
+        let err = vm_run_err(
+            r#"f x:t>n;neg x"#,
+            Some("f"),
+            vec![Value::Text("hi".into())],
+        );
+        assert!(
+            err.contains("neg") || err.contains("number") || err.contains("n"),
+            "got: {err}"
+        );
     }
 
     // --- Let re-binding (same variable reassigned) ---
@@ -9818,7 +11729,11 @@ mod tests {
     #[test]
     fn vm_match_no_subject_wildcard() {
         // Subjectless match — subject is implicit Nil, wildcard arm catches it
-        let result = vm_run(r#"f x:n>t;?{_:"default"}"#, Some("f"), vec![Value::Number(5.0)]);
+        let result = vm_run(
+            r#"f x:n>t;?{_:"default"}"#,
+            Some("f"),
+            vec![Value::Number(5.0)],
+        );
         assert_eq!(result, Value::Text("default".into()));
     }
 
@@ -9826,7 +11741,11 @@ mod tests {
 
     #[test]
     fn vm_abs_on_text_error() {
-        let err = vm_run_err(r#"f x:t>n;abs x"#, Some("f"), vec![Value::Text("hi".into())]);
+        let err = vm_run_err(
+            r#"f x:t>n;abs x"#,
+            Some("f"),
+            vec![Value::Text("hi".into())],
+        );
         assert!(err.contains("abs") || err.contains("number"), "got: {err}");
     }
 
@@ -9834,13 +11753,21 @@ mod tests {
 
     #[test]
     fn vm_flr_on_text_error() {
-        let err = vm_run_err(r#"f x:t>n;flr x"#, Some("f"), vec![Value::Text("hi".into())]);
+        let err = vm_run_err(
+            r#"f x:t>n;flr x"#,
+            Some("f"),
+            vec![Value::Text("hi".into())],
+        );
         assert!(err.contains("flr") || err.contains("number"), "got: {err}");
     }
 
     #[test]
     fn vm_cel_on_text_error() {
-        let err = vm_run_err(r#"f x:t>n;cel x"#, Some("f"), vec![Value::Text("hi".into())]);
+        let err = vm_run_err(
+            r#"f x:t>n;cel x"#,
+            Some("f"),
+            vec![Value::Text("hi".into())],
+        );
         assert!(err.contains("cel") || err.contains("number"), "got: {err}");
     }
 
@@ -9848,9 +11775,11 @@ mod tests {
 
     #[test]
     fn vm_min_on_text_error() {
-        let err = vm_run_err(r#"f x:t y:t>n;min x y"#, Some("f"), vec![
-            Value::Text("a".into()), Value::Text("b".into()),
-        ]);
+        let err = vm_run_err(
+            r#"f x:t y:t>n;min x y"#,
+            Some("f"),
+            vec![Value::Text("a".into()), Value::Text("b".into())],
+        );
         assert!(err.contains("min") || err.contains("number"), "got: {err}");
     }
 
@@ -9863,7 +11792,10 @@ mod tests {
             Some("f"),
             vec![Value::Number(10.0), Value::Number(5.0)],
         );
-        assert!(err.contains("rnd") || err.contains("bound") || err.contains("lower"), "got: {err}");
+        assert!(
+            err.contains("rnd") || err.contains("bound") || err.contains("lower"),
+            "got: {err}"
+        );
     }
 
     // --- Match with number literal patterns (Pattern::Literal / Number) ---
@@ -9928,10 +11860,7 @@ mod tests {
     fn vm_safe_field_on_record_non_nil_returns_value() {
         // type decl after function (known VM chunk ordering)
         let src = "f>t;p=rec name:\"alice\";p.?name\ntype rec{name:t}";
-        assert_eq!(
-            vm_run(src, Some("f"), vec![]),
-            Value::Text("alice".into())
-        );
+        assert_eq!(vm_run(src, Some("f"), vec![]), Value::Text("alice".into()));
     }
 
     #[test]
@@ -9967,10 +11896,7 @@ mod tests {
     #[test]
     fn vm_nil_coalesce_text_non_nil_passes_through() {
         let src = "f>t;v=\"hello\";v??\"fallback\"";
-        assert_eq!(
-            vm_run(src, Some("f"), vec![]),
-            Value::Text("hello".into())
-        );
+        assert_eq!(vm_run(src, Some("f"), vec![]), Value::Text("hello".into()));
     }
 
     // --- Break without expr in foreach ---
@@ -10007,7 +11933,8 @@ mod tests {
         );
         assert!(
             matches!(result, Value::Err(_)),
-            "expected Err from bad host, got {:?}", result
+            "expected Err from bad host, got {:?}",
+            result
         );
     }
 
@@ -10018,7 +11945,11 @@ mod tests {
         // ?r{~v:v;^_:0} — Ok arm extracts value
         let src = r#"f r:R n t>n;?r{~v:v;^_:0}"#;
         assert_eq!(
-            vm_run(src, Some("f"), vec![Value::Ok(Box::new(Value::Number(42.0)))]),
+            vm_run(
+                src,
+                Some("f"),
+                vec![Value::Ok(Box::new(Value::Number(42.0)))]
+            ),
             Value::Number(42.0)
         );
     }
@@ -10028,7 +11959,11 @@ mod tests {
         // ?r{~_:1;^_:0} — Err arm fires
         let src = r#"f r:R n t>n;?r{~_:1;^_:0}"#;
         assert_eq!(
-            vm_run(src, Some("f"), vec![Value::Err(Box::new(Value::Text("oops".into())))]),
+            vm_run(
+                src,
+                Some("f"),
+                vec![Value::Err(Box::new(Value::Text("oops".into())))]
+            ),
             Value::Number(0.0)
         );
     }
@@ -10104,9 +12039,11 @@ mod tests {
     fn vm_jdmp_list_arg() {
         // jdmp on a list value passed as argument
         let source = "f xs:L n>t;jdmp xs";
-        let result = vm_run(source, Some("f"), vec![
-            Value::List(vec![Value::Number(1.0), Value::Number(2.0)]),
-        ]);
+        let result = vm_run(
+            source,
+            Some("f"),
+            vec![Value::List(vec![Value::Number(1.0), Value::Number(2.0)])],
+        );
         assert_eq!(result, Value::Text("[1,2]".to_string()));
     }
 
@@ -10151,7 +12088,10 @@ mod tests {
                 Value::Text("x".to_string()),
             ],
         );
-        assert!(err.contains("has") || err.contains("list") || err.contains("text"), "got: {err}");
+        assert!(
+            err.contains("has") || err.contains("list") || err.contains("text"),
+            "got: {err}"
+        );
     }
 
     // --- OP_CAT with number list elements errors at runtime ---
@@ -10181,11 +12121,18 @@ mod tests {
         // get url headers where headers is an empty map — exercises the vc.is_heap() +
         // HeapObj::Map branch in OP_GETH. Bad URL → Err.
         let src = r#"f url:t hdrs:M t t>R t t;get url hdrs"#;
-        let result = vm_run(src, Some("f"), vec![
-            Value::Text("http://127.0.0.1:1".to_string()),
-            Value::Map(std::collections::HashMap::new()),
-        ]);
-        assert!(matches!(result, Value::Err(_)), "expected Err, got {result:?}");
+        let result = vm_run(
+            src,
+            Some("f"),
+            vec![
+                Value::Text("http://127.0.0.1:1".to_string()),
+                Value::Map(std::collections::HashMap::new()),
+            ],
+        );
+        assert!(
+            matches!(result, Value::Err(_)),
+            "expected Err, got {result:?}"
+        );
     }
 
     // --- OP_POSTH with empty map headers (bad host) ---
@@ -10195,12 +12142,19 @@ mod tests {
         // post url body headers where headers is an empty map — exercises the vd.is_heap() +
         // HeapObj::Map branch in OP_POSTH. Bad URL → Err.
         let src = r#"f url:t body:t hdrs:M t t>R t t;post url body hdrs"#;
-        let result = vm_run(src, Some("f"), vec![
-            Value::Text("http://127.0.0.1:1".to_string()),
-            Value::Text("{}".to_string()),
-            Value::Map(std::collections::HashMap::new()),
-        ]);
-        assert!(matches!(result, Value::Err(_)), "expected Err, got {result:?}");
+        let result = vm_run(
+            src,
+            Some("f"),
+            vec![
+                Value::Text("http://127.0.0.1:1".to_string()),
+                Value::Text("{}".to_string()),
+                Value::Map(std::collections::HashMap::new()),
+            ],
+        );
+        assert!(
+            matches!(result, Value::Err(_)),
+            "expected Err, got {result:?}"
+        );
     }
 
     // --- OP_FLR / OP_CEL on integer-valued float ---
@@ -10260,7 +12214,10 @@ mod tests {
         let compiled = compile(&prog).unwrap();
         let chunk = &compiled.chunks[0];
         let has_env = chunk.code.iter().any(|inst| (inst >> 24) as u8 == OP_ENV);
-        let has_unwrap = chunk.code.iter().any(|inst| (inst >> 24) as u8 == OP_UNWRAP);
+        let has_unwrap = chunk
+            .code
+            .iter()
+            .any(|inst| (inst >> 24) as u8 == OP_UNWRAP);
         assert!(has_env, "expected OP_ENV");
         assert!(has_unwrap, "expected OP_UNWRAP for env!");
     }
@@ -10271,7 +12228,10 @@ mod tests {
         let compiled = compile(&prog).unwrap();
         let chunk = &compiled.chunks[0];
         let has_get = chunk.code.iter().any(|inst| (inst >> 24) as u8 == OP_GET);
-        let has_unwrap = chunk.code.iter().any(|inst| (inst >> 24) as u8 == OP_UNWRAP);
+        let has_unwrap = chunk
+            .code
+            .iter()
+            .any(|inst| (inst >> 24) as u8 == OP_UNWRAP);
         assert!(has_get, "expected OP_GET");
         assert!(has_unwrap, "expected OP_UNWRAP for get!");
     }
@@ -10282,7 +12242,10 @@ mod tests {
         let compiled = compile(&prog).unwrap();
         let chunk = &compiled.chunks[0];
         let has_geth = chunk.code.iter().any(|inst| (inst >> 24) as u8 == OP_GETH);
-        let has_unwrap = chunk.code.iter().any(|inst| (inst >> 24) as u8 == OP_UNWRAP);
+        let has_unwrap = chunk
+            .code
+            .iter()
+            .any(|inst| (inst >> 24) as u8 == OP_UNWRAP);
         assert!(has_geth, "expected OP_GETH");
         assert!(has_unwrap, "expected OP_UNWRAP for get! with headers");
     }
@@ -10293,7 +12256,10 @@ mod tests {
         let compiled = compile(&prog).unwrap();
         let chunk = &compiled.chunks[0];
         let has_posth = chunk.code.iter().any(|inst| (inst >> 24) as u8 == OP_POSTH);
-        let has_unwrap = chunk.code.iter().any(|inst| (inst >> 24) as u8 == OP_UNWRAP);
+        let has_unwrap = chunk
+            .code
+            .iter()
+            .any(|inst| (inst >> 24) as u8 == OP_UNWRAP);
         assert!(has_posth, "expected OP_POSTH");
         assert!(has_unwrap, "expected OP_UNWRAP for post! with headers");
     }
@@ -10304,7 +12270,10 @@ mod tests {
         let compiled = compile(&prog).unwrap();
         let chunk = &compiled.chunks[0];
         let has_rd = chunk.code.iter().any(|inst| (inst >> 24) as u8 == OP_RD);
-        let has_unwrap = chunk.code.iter().any(|inst| (inst >> 24) as u8 == OP_UNWRAP);
+        let has_unwrap = chunk
+            .code
+            .iter()
+            .any(|inst| (inst >> 24) as u8 == OP_UNWRAP);
         assert!(has_rd, "expected OP_RD");
         assert!(has_unwrap, "expected OP_UNWRAP for rd!");
     }
@@ -10315,7 +12284,10 @@ mod tests {
         let compiled = compile(&prog).unwrap();
         let chunk = &compiled.chunks[0];
         let has_rdl = chunk.code.iter().any(|inst| (inst >> 24) as u8 == OP_RDL);
-        let has_unwrap = chunk.code.iter().any(|inst| (inst >> 24) as u8 == OP_UNWRAP);
+        let has_unwrap = chunk
+            .code
+            .iter()
+            .any(|inst| (inst >> 24) as u8 == OP_UNWRAP);
         assert!(has_rdl, "expected OP_RDL");
         assert!(has_unwrap, "expected OP_UNWRAP for rdl!");
     }
@@ -10326,7 +12298,10 @@ mod tests {
         let compiled = compile(&prog).unwrap();
         let chunk = &compiled.chunks[0];
         let has_wr = chunk.code.iter().any(|inst| (inst >> 24) as u8 == OP_WR);
-        let has_unwrap = chunk.code.iter().any(|inst| (inst >> 24) as u8 == OP_UNWRAP);
+        let has_unwrap = chunk
+            .code
+            .iter()
+            .any(|inst| (inst >> 24) as u8 == OP_UNWRAP);
         assert!(has_wr, "expected OP_WR");
         assert!(has_unwrap, "expected OP_UNWRAP for wr!");
     }
@@ -10337,7 +12312,10 @@ mod tests {
         let compiled = compile(&prog).unwrap();
         let chunk = &compiled.chunks[0];
         let has_wrl = chunk.code.iter().any(|inst| (inst >> 24) as u8 == OP_WRL);
-        let has_unwrap = chunk.code.iter().any(|inst| (inst >> 24) as u8 == OP_UNWRAP);
+        let has_unwrap = chunk
+            .code
+            .iter()
+            .any(|inst| (inst >> 24) as u8 == OP_UNWRAP);
         assert!(has_wrl, "expected OP_WRL");
         assert!(has_unwrap, "expected OP_UNWRAP for wrl!");
     }
@@ -10348,7 +12326,10 @@ mod tests {
         let compiled = compile(&prog).unwrap();
         let chunk = &compiled.chunks[0];
         let has_jpar = chunk.code.iter().any(|inst| (inst >> 24) as u8 == OP_JPAR);
-        let has_unwrap = chunk.code.iter().any(|inst| (inst >> 24) as u8 == OP_UNWRAP);
+        let has_unwrap = chunk
+            .code
+            .iter()
+            .any(|inst| (inst >> 24) as u8 == OP_UNWRAP);
         assert!(has_jpar, "expected OP_JPAR");
         assert!(has_unwrap, "expected OP_UNWRAP for jpar!");
     }
@@ -10407,7 +12388,9 @@ mod tests {
         let nv = NanVal::from_value(&val);
         // FnRef converts to a heap string like "<fn:my_fn>"
         let back = nv.to_value();
-        let Value::Text(s) = back else { panic!("expected Text") };
+        let Value::Text(s) = back else {
+            panic!("expected Text")
+        };
         assert!(s.contains("my_fn"), "got: {s}");
     }
 
@@ -10417,12 +12400,24 @@ mod tests {
     mod jit_helpers {
         use super::super::*;
 
-        fn num(v: f64) -> u64 { NanVal::number(v).0 }
-        fn is_num(v: u64) -> bool { NanVal(v).is_number() }
-        fn as_num(v: u64) -> f64 { NanVal(v).as_number() }
-        fn is_bool(v: u64) -> bool { v == TAG_TRUE || v == TAG_FALSE }
-        fn as_bool(v: u64) -> bool { v == TAG_TRUE }
-        fn is_nil(v: u64) -> bool { v == TAG_NIL }
+        fn num(v: f64) -> u64 {
+            NanVal::number(v).0
+        }
+        fn is_num(v: u64) -> bool {
+            NanVal(v).is_number()
+        }
+        fn as_num(v: u64) -> f64 {
+            NanVal(v).as_number()
+        }
+        fn is_bool(v: u64) -> bool {
+            v == TAG_TRUE || v == TAG_FALSE
+        }
+        fn as_bool(v: u64) -> bool {
+            v == TAG_TRUE
+        }
+        fn is_nil(v: u64) -> bool {
+            v == TAG_NIL
+        }
 
         #[test]
         fn jit_sub_numbers() {
@@ -10639,7 +12634,9 @@ mod tests {
 
         // ── String comparison ops ──────────────────────────────────────────
 
-        fn str_val(s: &str) -> u64 { NanVal::heap_string(s.to_string()).0 }
+        fn str_val(s: &str) -> u64 {
+            NanVal::heap_string(s.to_string()).0
+        }
 
         #[test]
         fn jit_gt_strings_true() {
@@ -10678,7 +12675,9 @@ mod tests {
             let r = jit_add(str_val("hello "), str_val("world"));
             let rv = NanVal(r);
             assert!(rv.is_string());
-            let HeapObj::Str(s) = (unsafe { rv.as_heap_ref() }) else { panic!("expected Str") };
+            let HeapObj::Str(s) = (unsafe { rv.as_heap_ref() }) else {
+                panic!("expected Str")
+            };
             let s = s.clone();
             assert_eq!(s, "hello world");
         }
@@ -10698,7 +12697,9 @@ mod tests {
             let r = jit_add(lhs, rhs);
             let rv = NanVal(r);
             assert!(rv.is_string());
-            let HeapObj::Str(s) = (unsafe { rv.as_heap_ref() }) else { panic!("expected Str") };
+            let HeapObj::Str(s) = (unsafe { rv.as_heap_ref() }) else {
+                panic!("expected Str")
+            };
             assert_eq!(s.as_str(), "foobar");
         }
 
@@ -10712,7 +12713,9 @@ mod tests {
             let r = jit_add(lhs_nan.0, rhs);
             let rv = NanVal(r);
             assert!(rv.is_string());
-            let HeapObj::Str(s) = (unsafe { rv.as_heap_ref() }) else { panic!("expected Str") };
+            let HeapObj::Str(s) = (unsafe { rv.as_heap_ref() }) else {
+                panic!("expected Str")
+            };
             assert_eq!(s.as_str(), "hello world");
             // Clean up the extra RC we bumped.
             lhs_nan.drop_rc();
@@ -10729,7 +12732,11 @@ mod tests {
 
         #[test]
         fn jit_len_list() {
-            let items = vec![NanVal::number(1.0), NanVal::number(2.0), NanVal::number(3.0)];
+            let items = vec![
+                NanVal::number(1.0),
+                NanVal::number(2.0),
+                NanVal::number(3.0),
+            ];
             let list = NanVal::heap_list(items);
             let r = jit_len(list.0);
             assert!(is_num(r));
@@ -10749,7 +12756,9 @@ mod tests {
             let r = jit_str(num(42.0));
             let rv = NanVal(r);
             assert!(rv.is_string());
-            let HeapObj::Str(s) = (unsafe { rv.as_heap_ref() }) else { panic!("expected Str") };
+            let HeapObj::Str(s) = (unsafe { rv.as_heap_ref() }) else {
+                panic!("expected Str")
+            };
             let s = s.clone();
             assert_eq!(s, "42");
         }
@@ -10774,7 +12783,9 @@ mod tests {
             let r = jit_hd(str_val("hello"));
             let rv = NanVal(r);
             assert!(rv.is_string());
-            let HeapObj::Str(s) = (unsafe { rv.as_heap_ref() }) else { panic!("expected Str") };
+            let HeapObj::Str(s) = (unsafe { rv.as_heap_ref() }) else {
+                panic!("expected Str")
+            };
             let s = s.clone();
             assert_eq!(s, "h");
         }
@@ -10814,7 +12825,9 @@ mod tests {
             let r = jit_tl(str_val("hello"));
             let rv = NanVal(r);
             assert!(rv.is_string());
-            let HeapObj::Str(s) = (unsafe { rv.as_heap_ref() }) else { panic!("expected Str") };
+            let HeapObj::Str(s) = (unsafe { rv.as_heap_ref() }) else {
+                panic!("expected Str")
+            };
             let s = s.clone();
             assert_eq!(s, "ello");
         }
@@ -10827,7 +12840,11 @@ mod tests {
 
         #[test]
         fn jit_tl_list_returns_tail() {
-            let items = vec![NanVal::number(1.0), NanVal::number(2.0), NanVal::number(3.0)];
+            let items = vec![
+                NanVal::number(1.0),
+                NanVal::number(2.0),
+                NanVal::number(3.0),
+            ];
             let list = NanVal::heap_list(items);
             let r = jit_tl(list.0);
             let rv = NanVal(r);
@@ -10848,14 +12865,20 @@ mod tests {
             let r = jit_rev(str_val("hello"));
             let rv = NanVal(r);
             assert!(rv.is_string());
-            let HeapObj::Str(s) = (unsafe { rv.as_heap_ref() }) else { panic!("expected Str") };
+            let HeapObj::Str(s) = (unsafe { rv.as_heap_ref() }) else {
+                panic!("expected Str")
+            };
             let s = s.clone();
             assert_eq!(s, "olleh");
         }
 
         #[test]
         fn jit_rev_list() {
-            let items = vec![NanVal::number(1.0), NanVal::number(2.0), NanVal::number(3.0)];
+            let items = vec![
+                NanVal::number(1.0),
+                NanVal::number(2.0),
+                NanVal::number(3.0),
+            ];
             let list = NanVal::heap_list(items);
             let r = jit_rev(list.0);
             let rv = NanVal(r);
@@ -10875,14 +12898,20 @@ mod tests {
             let r = jit_srt(str_val("cab"));
             let rv = NanVal(r);
             assert!(rv.is_string());
-            let HeapObj::Str(s) = (unsafe { rv.as_heap_ref() }) else { panic!("expected Str") };
+            let HeapObj::Str(s) = (unsafe { rv.as_heap_ref() }) else {
+                panic!("expected Str")
+            };
             let s = s.clone();
             assert_eq!(s, "abc");
         }
 
         #[test]
         fn jit_srt_number_list() {
-            let items = vec![NanVal::number(3.0), NanVal::number(1.0), NanVal::number(2.0)];
+            let items = vec![
+                NanVal::number(3.0),
+                NanVal::number(1.0),
+                NanVal::number(2.0),
+            ];
             let list = NanVal::heap_list(items);
             let r = jit_srt(list.0);
             let rv = NanVal(r);
@@ -10923,14 +12952,21 @@ mod tests {
             let r = jit_slc(str_val("hello"), num(1.0), num(3.0));
             let rv = NanVal(r);
             assert!(rv.is_string());
-            let HeapObj::Str(s) = (unsafe { rv.as_heap_ref() }) else { panic!("expected Str") };
+            let HeapObj::Str(s) = (unsafe { rv.as_heap_ref() }) else {
+                panic!("expected Str")
+            };
             let s = s.clone();
             assert_eq!(s, "el");
         }
 
         #[test]
         fn jit_slc_list_slice() {
-            let items = vec![NanVal::number(0.0), NanVal::number(1.0), NanVal::number(2.0), NanVal::number(3.0)];
+            let items = vec![
+                NanVal::number(0.0),
+                NanVal::number(1.0),
+                NanVal::number(2.0),
+                NanVal::number(3.0),
+            ];
             let list = NanVal::heap_list(items);
             let r = jit_slc(list.0, num(1.0), num(3.0));
             let rv = NanVal(r);
@@ -10965,7 +13001,11 @@ mod tests {
 
         #[test]
         fn jit_has_list_found() {
-            let items = vec![NanVal::number(1.0), NanVal::number(2.0), NanVal::number(3.0)];
+            let items = vec![
+                NanVal::number(1.0),
+                NanVal::number(2.0),
+                NanVal::number(3.0),
+            ];
             let list = NanVal::heap_list(items);
             let r = jit_has(list.0, num(2.0));
             assert!(as_bool(r));
@@ -10999,7 +13039,9 @@ mod tests {
             let r = jit_spl(str_val("a,b,c"), str_val(","));
             let rv = NanVal(r);
             assert!(rv.is_heap());
-            let HeapObj::List(items) = (unsafe { rv.as_heap_ref() }) else { panic!("expected list") };
+            let HeapObj::List(items) = (unsafe { rv.as_heap_ref() }) else {
+                panic!("expected list")
+            };
             assert_eq!(items.len(), 3);
         }
 
@@ -11022,7 +13064,9 @@ mod tests {
             let r = jit_cat(list.0, str_val(","));
             let rv = NanVal(r);
             assert!(rv.is_string());
-            let HeapObj::Str(s) = (unsafe { rv.as_heap_ref() }) else { panic!("expected Str") };
+            let HeapObj::Str(s) = (unsafe { rv.as_heap_ref() }) else {
+                panic!("expected Str")
+            };
             let s = s.clone();
             assert_eq!(s, "a,b,c");
         }
@@ -11042,7 +13086,9 @@ mod tests {
             let r = jit_listappend(list.0, num(3.0));
             let rv = NanVal(r);
             assert!(rv.is_heap());
-            let HeapObj::List(items) = (unsafe { rv.as_heap_ref() }) else { panic!("expected list") };
+            let HeapObj::List(items) = (unsafe { rv.as_heap_ref() }) else {
+                panic!("expected list")
+            };
             assert_eq!(items.len(), 3);
         }
 
@@ -11056,7 +13102,11 @@ mod tests {
 
         #[test]
         fn jit_index_list_in_bounds() {
-            let items = vec![NanVal::number(10.0), NanVal::number(20.0), NanVal::number(30.0)];
+            let items = vec![
+                NanVal::number(10.0),
+                NanVal::number(20.0),
+                NanVal::number(30.0),
+            ];
             let list = NanVal::heap_list(items);
             // jit_index takes a raw usize cast as u64, not a NaN-boxed number
             let r = jit_index(list.0, 1u64);
@@ -11099,7 +13149,9 @@ mod tests {
             let r = jit_jpar(str_val("not json"));
             let rv = NanVal(r);
             assert!(rv.is_heap());
-            let HeapObj::ErrVal(_) = (unsafe { rv.as_heap_ref() }) else { panic!("expected ErrVal") };
+            let HeapObj::ErrVal(_) = (unsafe { rv.as_heap_ref() }) else {
+                panic!("expected ErrVal")
+            };
         }
 
         #[test]
@@ -11115,7 +13167,9 @@ mod tests {
             let r = jit_jpth(str_val(r#"{"x":"hello"}"#), str_val("x"));
             let rv = NanVal(r);
             assert!(rv.is_heap());
-            let HeapObj::OkVal(inner) = (unsafe { rv.as_heap_ref() }) else { panic!("expected OkVal") };
+            let HeapObj::OkVal(inner) = (unsafe { rv.as_heap_ref() }) else {
+                panic!("expected OkVal")
+            };
             assert!(inner.is_string());
         }
 
@@ -11123,14 +13177,18 @@ mod tests {
         fn jit_jpth_missing_key() {
             let r = jit_jpth(str_val(r#"{"a":1}"#), str_val("b"));
             let rv = NanVal(r);
-            let HeapObj::ErrVal(_) = (unsafe { rv.as_heap_ref() }) else { panic!("expected ErrVal") };
+            let HeapObj::ErrVal(_) = (unsafe { rv.as_heap_ref() }) else {
+                panic!("expected ErrVal")
+            };
         }
 
         #[test]
         fn jit_jpth_invalid_json() {
             let r = jit_jpth(str_val("not json"), str_val("x"));
             let rv = NanVal(r);
-            let HeapObj::ErrVal(_) = (unsafe { rv.as_heap_ref() }) else { panic!("expected ErrVal") };
+            let HeapObj::ErrVal(_) = (unsafe { rv.as_heap_ref() }) else {
+                panic!("expected ErrVal")
+            };
         }
 
         #[test]
@@ -11156,7 +13214,9 @@ mod tests {
             let list = NanVal::heap_list(items);
             let r = jit_listget(list.0, num(0.0));
             let rv = NanVal(r);
-            let HeapObj::OkVal(inner) = (unsafe { rv.as_heap_ref() }) else { panic!("expected OkVal") };
+            let HeapObj::OkVal(inner) = (unsafe { rv.as_heap_ref() }) else {
+                panic!("expected OkVal")
+            };
             assert_eq!(inner.as_number(), 10.0);
         }
 
@@ -11191,7 +13251,8 @@ mod tests {
         // Two types with ambiguous field positions use RECFLD_NAME opcode
         let result = vm_run(
             "type a{x:n;y:n} type b{y:n;x:n} f>n;v=a x:5 y:3;{y}=v;y",
-            Some("f"), vec![],
+            Some("f"),
+            vec![],
         );
         assert_eq!(result, Value::Number(3.0));
     }
@@ -11202,7 +13263,8 @@ mod tests {
         // while loop with cnt — Stmt::Continue in While exercises L869 path
         let result = vm_run(
             "f>n;i=0;s=0;wh <i 5{i=+i 1;=i 3{cnt};s=+s i};s",
-            Some("f"), vec![],
+            Some("f"),
+            vec![],
         );
         // i=1 +1, i=2 +2, i=3 skip, i=4 +4, i=5 +5 → sum=12
         assert_eq!(result, Value::Number(12.0));
@@ -11211,10 +13273,7 @@ mod tests {
     #[test]
     fn vm_while_break_with_value() {
         // While loop with break carrying a value
-        let result = vm_run(
-            "f>n;i=0;wh <i 10{i=+i 1;=i 5{brk i}};i",
-            Some("f"), vec![],
-        );
+        let result = vm_run("f>n;i=0;wh <i 10{i=+i 1;=i 5{brk i}};i", Some("f"), vec![]);
         assert_eq!(result, Value::Number(5.0));
     }
 
@@ -11258,10 +13317,7 @@ mod tests {
     fn vm_to_value_with_registry_via_record() {
         // Records stored in arena; to_value_with_registry path exercised
         // when record is retrieved from VM
-        let result = vm_run(
-            "type pt{x:n;y:n} f>n;p=pt x:3 y:4;p.x",
-            Some("f"), vec![],
-        );
+        let result = vm_run("type pt{x:n;y:n} f>n;p=pt x:3 y:4;p.x", Some("f"), vec![]);
         assert_eq!(result, Value::Number(3.0));
     }
 
@@ -11286,15 +13342,19 @@ mod tests {
     // L2329-L2341: run_with_tools with undefined function
     #[test]
     fn vm_run_with_tools_undefined_function() {
-        use crate::vm::{compile, run_with_tools};
         use crate::interpreter::Value;
-        use crate::tools::{ToolProvider, ToolError};
+        use crate::tools::{ToolError, ToolProvider};
+        use crate::vm::{compile, run_with_tools};
         use std::future::Future;
         use std::pin::Pin;
 
         struct DummyProvider;
         impl ToolProvider for DummyProvider {
-            fn call(&self, _name: &str, _args: Vec<Value>) -> Pin<Box<dyn Future<Output = Result<Value, ToolError>> + Send + '_>> {
+            fn call(
+                &self,
+                _name: &str,
+                _args: Vec<Value>,
+            ) -> Pin<Box<dyn Future<Output = Result<Value, ToolError>> + Send + '_>> {
                 Box::pin(async { Ok(Value::Nil) })
             }
         }
@@ -11303,7 +13363,10 @@ mod tests {
         let compiled = compile(&prog).expect("compile ok");
         let provider = DummyProvider;
         #[cfg(feature = "tools")]
-        let runtime = tokio::runtime::Builder::new_current_thread().enable_all().build().unwrap();
+        let runtime = tokio::runtime::Builder::new_current_thread()
+            .enable_all()
+            .build()
+            .unwrap();
         let result = run_with_tools(
             &compiled,
             Some("nonexistent_function"),
@@ -11324,7 +13387,8 @@ mod tests {
         // Destructuring from a known type still works correctly.
         let result = vm_run(
             "type a{x:n;y:n} type b{z:n;x:n} f>n;v=a x:10 y:20;{x}=v;x",
-            Some("f"), vec![],
+            Some("f"),
+            vec![],
         );
         assert_eq!(result, Value::Number(10.0));
     }
@@ -11340,14 +13404,22 @@ mod tests {
     #[test]
     fn vm_match_type_is_bool_pattern() {
         // Match with `b v:` pattern — exercises OP_ISBOOL
-        let result = vm_run(r#"f x:b>t;?x{b v:"bool";_:"other"}"#, Some("f"), vec![Value::Bool(true)]);
+        let result = vm_run(
+            r#"f x:b>t;?x{b v:"bool";_:"other"}"#,
+            Some("f"),
+            vec![Value::Bool(true)],
+        );
         assert_eq!(result, Value::Text("bool".into()));
     }
 
     #[test]
     fn vm_match_type_is_list_pattern() {
         // Match with `l v:` pattern — exercises OP_ISLIST
-        let result = vm_run(r#"f xs:L n>t;?xs{l v:"list";_:"other"}"#, Some("f"), vec![Value::List(vec![])]);
+        let result = vm_run(
+            r#"f xs:L n>t;?xs{l v:"list";_:"other"}"#,
+            Some("f"),
+            vec![Value::List(vec![])],
+        );
         assert_eq!(result, Value::Text("list".into()));
     }
 
@@ -11357,7 +13429,8 @@ mod tests {
         // This causes the compiler to use OP_RECFLD_NAME instead of OP_RECFLD.
         let result = vm_run(
             "type p{x:n;y:n} type q{y:n;x:n} f>n;v=p x:5 y:3;{x}=v;x",
-            Some("f"), vec![],
+            Some("f"),
+            vec![],
         );
         assert_eq!(result, Value::Number(5.0));
     }
@@ -11382,7 +13455,8 @@ mod tests {
         // Both types have "x" at index 0 → search_field_index returns Some(0) → OP_RECFLD
         let result = vm_run(
             "type a{x:n;y:n} type b{x:n;z:n} f>n;v=a x:7 y:2;{x}=v;x",
-            Some("f"), vec![],
+            Some("f"),
+            vec![],
         );
         assert_eq!(result, Value::Number(7.0));
     }
@@ -11395,7 +13469,8 @@ mod tests {
         // Existing variable `y` is reused (existing_reg branch at L569-571)
         let result = vm_run(
             "type a{x:n;y:n} type b{y:n;x:n} f>n;y=0;v=a x:5 y:9;{y}=v;y",
-            Some("f"), vec![],
+            Some("f"),
+            vec![],
         );
         assert_eq!(result, Value::Number(9.0));
     }
@@ -11406,7 +13481,8 @@ mod tests {
         // cnt inside foreach — exercises continue_patches patch target (L706)
         let result = vm_run(
             "f>n;s=0;@x [10,20,30,40,50]{>x 25{cnt};s=+s x};s",
-            Some("f"), vec![],
+            Some("f"),
+            vec![],
         );
         // Sums 10+20 (skip 30,40,50 since >25) — wait, >x 25 means x>25 → skip
         // So 10,20 are kept (10+20=30), 30,40,50 are skipped
@@ -11417,10 +13493,7 @@ mod tests {
     #[test]
     fn vm_forrange_cnt_patches_correctly() {
         // cnt inside for-range — exercises continue_patches patch target at L776
-        let result = vm_run(
-            "f>n;s=0;@i 0..8{>i 4{cnt};s=+s i};s",
-            Some("f"), vec![],
-        );
+        let result = vm_run("f>n;s=0;@i 0..8{>i 4{cnt};s=+s i};s", Some("f"), vec![]);
         // Sum 0+1+2+3+4 = 10 (5,6,7 are skipped because >4)
         assert_eq!(result, Value::Number(10.0));
     }
@@ -11429,10 +13502,7 @@ mod tests {
     #[test]
     fn vm_foreach_brk_with_same_reg() {
         // brk x inside @x — x IS the loop variable which may share result_reg
-        let result = vm_run(
-            "f>n;@x [1,2,3,4,5]{>=x 4{brk x};x}",
-            Some("f"), vec![],
-        );
+        let result = vm_run("f>n;@x [1,2,3,4,5]{>=x 4{brk x};x}", Some("f"), vec![]);
         assert_eq!(result, Value::Number(4.0));
     }
 
@@ -11442,7 +13512,8 @@ mod tests {
         // cnt in while loop exercises the `else { emit_jump_to(top) }` branch at L869
         let result = vm_run(
             "f>n;i=0;s=0;wh <i 6{i=+i 1;=i 4{cnt};s=+s i};s",
-            Some("f"), vec![],
+            Some("f"),
+            vec![],
         );
         // Sums: 1+2+3+5+6 = 17 (4 is skipped by cnt)
         assert_eq!(result, Value::Number(17.0));
@@ -11486,7 +13557,8 @@ mod tests {
         // Using a list with records exercises the arena promotion path.
         let result = vm_run(
             "type pt{x:n;y:n} f>n;xs=[pt x:1 y:2, pt x:3 y:4];xs.0",
-            Some("f"), vec![],
+            Some("f"),
+            vec![],
         );
         // Access first element — a promoted arena record
         match result {
@@ -11504,7 +13576,10 @@ mod tests {
         let prog = Program {
             declarations: vec![Decl::TypeDef {
                 name: "pt".to_string(),
-                fields: vec![Param { name: "x".to_string(), ty: Type::Number }],
+                fields: vec![Param {
+                    name: "x".to_string(),
+                    ty: Type::Number,
+                }],
                 span: Span::UNKNOWN,
             }],
             source: None,
@@ -11522,16 +13597,20 @@ mod tests {
     // run_with_tools() with NoFunctionsDefined (None func name, no functions)
     #[test]
     fn vm_run_with_tools_no_functions_defined() {
-        use crate::vm::{compile, run_with_tools};
-        use crate::interpreter::Value;
-        use crate::tools::{ToolProvider, ToolError};
         use crate::ast::{Decl, Param, Program, Span, Type};
+        use crate::interpreter::Value;
+        use crate::tools::{ToolError, ToolProvider};
+        use crate::vm::{compile, run_with_tools};
         use std::future::Future;
         use std::pin::Pin;
 
         struct DummyProvider;
         impl ToolProvider for DummyProvider {
-            fn call(&self, _name: &str, _args: Vec<Value>) -> Pin<Box<dyn Future<Output = Result<Value, ToolError>> + Send + '_>> {
+            fn call(
+                &self,
+                _name: &str,
+                _args: Vec<Value>,
+            ) -> Pin<Box<dyn Future<Output = Result<Value, ToolError>> + Send + '_>> {
                 Box::pin(async { Ok(Value::Nil) })
             }
         }
@@ -11539,7 +13618,10 @@ mod tests {
         let prog = Program {
             declarations: vec![Decl::TypeDef {
                 name: "pt".to_string(),
-                fields: vec![Param { name: "x".to_string(), ty: Type::Number }],
+                fields: vec![Param {
+                    name: "x".to_string(),
+                    ty: Type::Number,
+                }],
                 span: Span::UNKNOWN,
             }],
             source: None,
@@ -11547,7 +13629,10 @@ mod tests {
         let compiled = compile(&prog).unwrap();
         let provider = DummyProvider;
         #[cfg(feature = "tools")]
-        let runtime = tokio::runtime::Builder::new_current_thread().enable_all().build().unwrap();
+        let runtime = tokio::runtime::Builder::new_current_thread()
+            .enable_all()
+            .build()
+            .unwrap();
         let result = run_with_tools(
             &compiled,
             None,
@@ -11562,15 +13647,19 @@ mod tests {
     // VM::new_with_tools constructor path (L2416-2432)
     #[test]
     fn vm_run_with_tools_calls_function_successfully() {
-        use crate::vm::{compile, run_with_tools};
         use crate::interpreter::Value;
-        use crate::tools::{ToolProvider, ToolError};
+        use crate::tools::{ToolError, ToolProvider};
+        use crate::vm::{compile, run_with_tools};
         use std::future::Future;
         use std::pin::Pin;
 
         struct DummyProvider;
         impl ToolProvider for DummyProvider {
-            fn call(&self, _name: &str, _args: Vec<Value>) -> Pin<Box<dyn Future<Output = Result<Value, ToolError>> + Send + '_>> {
+            fn call(
+                &self,
+                _name: &str,
+                _args: Vec<Value>,
+            ) -> Pin<Box<dyn Future<Output = Result<Value, ToolError>> + Send + '_>> {
                 Box::pin(async { Ok(Value::Nil) })
             }
         }
@@ -11579,7 +13668,10 @@ mod tests {
         let compiled = compile(&prog).unwrap();
         let provider = DummyProvider;
         #[cfg(feature = "tools")]
-        let runtime = tokio::runtime::Builder::new_current_thread().enable_all().build().unwrap();
+        let runtime = tokio::runtime::Builder::new_current_thread()
+            .enable_all()
+            .build()
+            .unwrap();
         let result = run_with_tools(
             &compiled,
             Some("f"),
@@ -11597,7 +13689,8 @@ mod tests {
         // Record with a text field — to_value_with_registry resolves field names
         let result = vm_run(
             "type person{name:t;age:n} f>t;p=person name:\"alice\" age:30;p.name",
-            Some("f"), vec![],
+            Some("f"),
+            vec![],
         );
         assert_eq!(result, Value::Text("alice".into()));
     }
@@ -11607,7 +13700,8 @@ mod tests {
         // Multiple records — exercises type_info.fields lookup path
         let result = vm_run(
             "type color{r:n;g:n;b:n} f>n;c=color r:255 g:128 b:0;c.g",
-            Some("f"), vec![],
+            Some("f"),
+            vec![],
         );
         assert_eq!(result, Value::Number(128.0));
     }
@@ -11621,9 +13715,14 @@ mod tests {
         let source = "f r:pt>n;r.x\ntype pt{x:n}";
         let mut fields = std::collections::HashMap::new();
         fields.insert("x".to_string(), Value::Number(77.0));
-        let result = vm_run(source, Some("f"), vec![
-            Value::Record { type_name: "pt".to_string(), fields },
-        ]);
+        let result = vm_run(
+            source,
+            Some("f"),
+            vec![Value::Record {
+                type_name: "pt".to_string(),
+                fields,
+            }],
+        );
         assert_eq!(result, Value::Number(77.0));
     }
 
@@ -11636,9 +13735,14 @@ mod tests {
         let mut fields = std::collections::HashMap::new();
         fields.insert("x".to_string(), Value::Number(1.0));
         fields.insert("y".to_string(), Value::Number(2.0));
-        let result = vm_run(source, Some("f"), vec![
-            Value::Record { type_name: "pt".to_string(), fields },
-        ]);
+        let result = vm_run(
+            source,
+            Some("f"),
+            vec![Value::Record {
+                type_name: "pt".to_string(),
+                fields,
+            }],
+        );
         assert_eq!(result, Value::Number(99.0));
     }
 
@@ -11649,9 +13753,11 @@ mod tests {
         // Two types with y at different indices cause search_field_index to return None → OP_RECFLD_NAME
         // OP_RECFLD_NAME uses the heap record's own TypeInfo for name lookup → correct result
         let source = "type a{x:n;y:n} type b{y:n;x:n} f s:t>n;r=jpar! s;{y}=r;y";
-        let result = vm_run(source, Some("f"), vec![
-            Value::Text(r#"{"x": 10, "y": 20}"#.to_string()),
-        ]);
+        let result = vm_run(
+            source,
+            Some("f"),
+            vec![Value::Text(r#"{"x": 10, "y": 20}"#.to_string())],
+        );
         assert_eq!(result, Value::Number(20.0));
     }
 
@@ -11664,9 +13770,14 @@ mod tests {
         let source = "type box{v:n} f r:box>n;r2=r with v:55;r2.v";
         let mut fields = std::collections::HashMap::new();
         fields.insert("v".to_string(), Value::Number(0.0));
-        let result = vm_run(source, Some("f"), vec![
-            Value::Record { type_name: "box".to_string(), fields },
-        ]);
+        let result = vm_run(
+            source,
+            Some("f"),
+            vec![Value::Record {
+                type_name: "box".to_string(),
+                fields,
+            }],
+        );
         assert_eq!(result, Value::Number(55.0));
     }
 
@@ -11678,7 +13789,8 @@ mod tests {
         // Record with text field is created in arena; to_value() promotes it
         let result = vm_run(
             "type item{label:t;count:n} f>t;r=item label:\"widget\" count:5;r.label",
-            Some("f"), vec![],
+            Some("f"),
+            vec![],
         );
         assert_eq!(result, Value::Text("widget".into()));
     }
@@ -11690,15 +13802,30 @@ mod tests {
     fn vm_match_type_is_all_patterns() {
         // Exercise all four TypeIs patterns in sequence
         let num_src = r#"f x:t>b;?x{n _:true;_:false}"#;
-        assert_eq!(vm_run(num_src, Some("f"), vec![Value::Number(1.0)]), Value::Bool(true));
-        assert_eq!(vm_run(num_src, Some("f"), vec![Value::Text("a".into())]), Value::Bool(false));
+        assert_eq!(
+            vm_run(num_src, Some("f"), vec![Value::Number(1.0)]),
+            Value::Bool(true)
+        );
+        assert_eq!(
+            vm_run(num_src, Some("f"), vec![Value::Text("a".into())]),
+            Value::Bool(false)
+        );
 
         let text_src = r#"f x:n>b;?x{t _:true;_:false}"#;
-        assert_eq!(vm_run(text_src, Some("f"), vec![Value::Text("x".into())]), Value::Bool(true));
-        assert_eq!(vm_run(text_src, Some("f"), vec![Value::Number(0.0)]), Value::Bool(false));
+        assert_eq!(
+            vm_run(text_src, Some("f"), vec![Value::Text("x".into())]),
+            Value::Bool(true)
+        );
+        assert_eq!(
+            vm_run(text_src, Some("f"), vec![Value::Number(0.0)]),
+            Value::Bool(false)
+        );
 
         let bool_src = r#"f x:n>b;?x{b _:true;_:false}"#;
-        assert_eq!(vm_run(bool_src, Some("f"), vec![Value::Bool(false)]), Value::Bool(true));
+        assert_eq!(
+            vm_run(bool_src, Some("f"), vec![Value::Bool(false)]),
+            Value::Bool(true)
+        );
 
         let list_src = r#"f x:n>b;?x{l _:true;_:false}"#;
         let list = Value::List(vec![Value::Number(1.0)]);
@@ -11727,7 +13854,10 @@ mod tests {
         let prog = parse_program("f xs:L n x:n>L n;+=xs x");
         let compiled = compile(&prog).unwrap();
         let chunk = &compiled.chunks[0];
-        let has_listappend = chunk.code.iter().any(|&inst| (inst >> 24) as u8 == OP_LISTAPPEND);
+        let has_listappend = chunk
+            .code
+            .iter()
+            .any(|&inst| (inst >> 24) as u8 == OP_LISTAPPEND);
         assert!(has_listappend, "expected OP_LISTAPPEND for += operator");
     }
 
@@ -11736,7 +13866,8 @@ mod tests {
     fn vm_record_text_field_roundtrip() {
         let result = vm_run(
             "type greeting{msg:t} f>t;g=greeting msg:\"hello world\";g.msg",
-            Some("f"), vec![],
+            Some("f"),
+            vec![],
         );
         assert_eq!(result, Value::Text("hello world".into()));
     }
@@ -11746,16 +13877,28 @@ mod tests {
     fn vm_guard_ternary_chained() {
         // Ternary: x >= 10 ? "large" : "small" — tests two-branch guard value production
         let src = r#"f x:n>t;>=x 10{"large"}{"small"}"#;
-        assert_eq!(vm_run(src, Some("f"), vec![Value::Number(10.0)]), Value::Text("large".into()));
-        assert_eq!(vm_run(src, Some("f"), vec![Value::Number(5.0)]), Value::Text("small".into()));
-        assert_eq!(vm_run(src, Some("f"), vec![Value::Number(15.0)]), Value::Text("large".into()));
+        assert_eq!(
+            vm_run(src, Some("f"), vec![Value::Number(10.0)]),
+            Value::Text("large".into())
+        );
+        assert_eq!(
+            vm_run(src, Some("f"), vec![Value::Number(5.0)]),
+            Value::Text("small".into())
+        );
+        assert_eq!(
+            vm_run(src, Some("f"), vec![Value::Number(15.0)]),
+            Value::Text("large".into())
+        );
     }
 
     // Safe field access on list returns nil (no field named "name" on a list)
     #[test]
     fn vm_safe_field_on_list_returns_nil() {
         let src = "f xs:L n>n;xs.?0??77";
-        assert_eq!(vm_run(src, Some("f"), vec![Value::List(vec![Value::Number(99.0)])]), Value::Number(99.0));
+        assert_eq!(
+            vm_run(src, Some("f"), vec![Value::List(vec![Value::Number(99.0)])]),
+            Value::Number(99.0)
+        );
     }
 
     // While break without value (break_patches path with no expr at L841-855)
@@ -11775,8 +13918,11 @@ mod tests {
         // Actually brk no-value doesn't store anything, result_reg keeps its value from last body
         let result = vm_run(src, Some("f"), vec![]);
         // After brk at x=3, result_reg still has last body = 2
-        assert!(matches!(result, Value::Number(n) if n == 2.0 || n == 3.0),
-            "expected 2.0 or 3.0, got {:?}", result);
+        assert!(
+            matches!(result, Value::Number(n) if n == 2.0 || n == 3.0),
+            "expected 2.0 or 3.0, got {:?}",
+            result
+        );
     }
 
     // Recursive function with multiple calls on the stack (exercises make_runtime_error call_stack)
@@ -11828,7 +13974,10 @@ mod tests {
                 },
             }],
         );
-        assert!(err.contains("z") || err.contains("field") || err.contains("not found"), "got: {err}");
+        assert!(
+            err.contains("z") || err.contains("field") || err.contains("not found"),
+            "got: {err}"
+        );
     }
 
     // VmState::call that hits an error, then another call (drain path L1201)
@@ -11887,7 +14036,9 @@ mod tests {
         let src = "type pt{x:n;y:n} f>n;xs=[pt x:1 y:2,pt x:10 y:20];xs.1";
         let result = vm_run(src, Some("f"), vec![]);
         // xs.1 accesses the second element (index 1) — a promoted pt record
-        let Value::Record { type_name, fields } = result else { panic!("expected Record") };
+        let Value::Record { type_name, fields } = result else {
+            panic!("expected Record")
+        };
         assert_eq!(type_name, "pt");
         assert_eq!(fields.get("x"), Some(&Value::Number(10.0)));
     }
@@ -11895,15 +14046,19 @@ mod tests {
     // Check that run_with_tools correctly invokes VM::new_with_tools (exercises L2416-2432)
     #[test]
     fn vm_run_with_tools_with_tool_declaration() {
-        use crate::vm::{compile, run_with_tools};
         use crate::interpreter::Value;
-        use crate::tools::{ToolProvider, ToolError};
+        use crate::tools::{ToolError, ToolProvider};
+        use crate::vm::{compile, run_with_tools};
         use std::future::Future;
         use std::pin::Pin;
 
         struct DummyProvider;
         impl ToolProvider for DummyProvider {
-            fn call(&self, _name: &str, _args: Vec<Value>) -> Pin<Box<dyn Future<Output = Result<Value, ToolError>> + Send + '_>> {
+            fn call(
+                &self,
+                _name: &str,
+                _args: Vec<Value>,
+            ) -> Pin<Box<dyn Future<Output = Result<Value, ToolError>> + Send + '_>> {
                 Box::pin(async { Ok(Value::Nil) })
             }
         }
@@ -11913,7 +14068,10 @@ mod tests {
         let compiled = compile(&prog).unwrap();
         let provider = DummyProvider;
         #[cfg(feature = "tools")]
-        let runtime = tokio::runtime::Builder::new_current_thread().enable_all().build().unwrap();
+        let runtime = tokio::runtime::Builder::new_current_thread()
+            .enable_all()
+            .build()
+            .unwrap();
         let result = run_with_tools(
             &compiled,
             Some("f"),
@@ -11930,8 +14088,14 @@ mod tests {
     fn vm_ternary_else_computation() {
         // ternary where else computes a value from parameters
         let src = "f x:n>n;>x 0{x}{-x}"; // absolute value
-        assert_eq!(vm_run(src, Some("f"), vec![Value::Number(5.0)]), Value::Number(5.0));
-        assert_eq!(vm_run(src, Some("f"), vec![Value::Number(-3.0)]), Value::Number(3.0));
+        assert_eq!(
+            vm_run(src, Some("f"), vec![Value::Number(5.0)]),
+            Value::Number(5.0)
+        );
+        assert_eq!(
+            vm_run(src, Some("f"), vec![Value::Number(-3.0)]),
+            Value::Number(3.0)
+        );
     }
 
     // While loop with continue that modifies accumulator
@@ -11951,7 +14115,8 @@ mod tests {
         // We can verify via correct record field lookup in a multi-type scenario
         let result = vm_run(
             "type a{x:n;y:n} type b{y:n;x:n} f>n;r=b y:7 x:3;{x}=r;x",
-            Some("f"), vec![],
+            Some("f"),
+            vec![],
         );
         assert_eq!(result, Value::Number(3.0));
     }
@@ -11979,7 +14144,10 @@ mod tests {
                 Value::List(vec![Value::Number(1.0)]),
             ],
         );
-        assert!(err.contains("mget") || err.contains("key") || err.contains("text"), "got: {err}");
+        assert!(
+            err.contains("mget") || err.contains("key") || err.contains("text"),
+            "got: {err}"
+        );
     }
 
     // mget with non-map first arg (line 2805)
@@ -12009,7 +14177,10 @@ mod tests {
                 Value::Text("val".into()),
             ],
         );
-        assert!(err.contains("mset") || err.contains("key") || err.contains("text"), "got: {err}");
+        assert!(
+            err.contains("mset") || err.contains("key") || err.contains("text"),
+            "got: {err}"
+        );
     }
 
     // mset with non-map first arg (line 2830)
@@ -12039,7 +14210,10 @@ mod tests {
                 Value::List(vec![Value::Number(1.0)]),
             ],
         );
-        assert!(err.contains("mhas") || err.contains("key") || err.contains("text"), "got: {err}");
+        assert!(
+            err.contains("mhas") || err.contains("key") || err.contains("text"),
+            "got: {err}"
+        );
     }
 
     // mhas with non-map first arg (line 2849)
@@ -12090,7 +14264,10 @@ mod tests {
                 Value::List(vec![Value::Number(7.0)]),
             ],
         );
-        assert!(err.contains("mdel") || err.contains("key") || err.contains("text"), "got: {err}");
+        assert!(
+            err.contains("mdel") || err.contains("key") || err.contains("text"),
+            "got: {err}"
+        );
     }
 
     // mdel with non-map first arg (line 2910) — must be heap-tagged non-map
@@ -12114,8 +14291,15 @@ mod tests {
     fn vm_rd_bad_json_returns_err() {
         let path = "/tmp/ilo_vm_rd_badjson.json";
         std::fs::write(path, "{ this is not valid json }").unwrap();
-        let result = vm_run("f p:t>R t t;rd p", Some("f"), vec![Value::Text(path.into())]);
-        assert!(matches!(result, Value::Err(_)), "expected Err from bad JSON, got {result:?}");
+        let result = vm_run(
+            "f p:t>R t t;rd p",
+            Some("f"),
+            vec![Value::Text(path.into())],
+        );
+        assert!(
+            matches!(result, Value::Err(_)),
+            "expected Err from bad JSON, got {result:?}"
+        );
         let _ = std::fs::remove_file(path);
     }
 
@@ -12131,7 +14315,10 @@ mod tests {
                 Value::Text("hello".into()),
             ],
         );
-        assert!(matches!(result, Value::Err(_)), "expected Err from bad path, got {result:?}");
+        assert!(
+            matches!(result, Value::Err(_)),
+            "expected Err from bad path, got {result:?}"
+        );
     }
 
     // wrl with bad path returns Err (line 3008)
@@ -12145,7 +14332,10 @@ mod tests {
                 Value::List(vec![Value::Text("line1".into())]),
             ],
         );
-        assert!(matches!(result, Value::Err(_)), "expected Err from bad wrl path, got {result:?}");
+        assert!(
+            matches!(result, Value::Err(_)),
+            "expected Err from bad wrl path, got {result:?}"
+        );
     }
 
     // wrl with non-list second arg triggers VmError (line 3011)
@@ -12199,7 +14389,10 @@ mod tests {
             }],
         );
         assert!(
-            err.contains("z") || err.contains("field") || err.contains("not found") || err.contains("index"),
+            err.contains("z")
+                || err.contains("field")
+                || err.contains("not found")
+                || err.contains("index"),
             "got: {err}"
         );
     }
@@ -12216,7 +14409,10 @@ mod tests {
             vec![Value::Text("not-a-record".into())],
         );
         assert!(
-            err.contains("field") || err.contains("record") || err.contains("not found") || err.contains("x"),
+            err.contains("field")
+                || err.contains("record")
+                || err.contains("not found")
+                || err.contains("x"),
             "got: {err}"
         );
     }
@@ -12240,7 +14436,8 @@ mod tests {
         // A function that returns Err(record) — the record is arena-allocated, must be promoted.
         // wrap takes a dummy n arg; ^(info code:a) wraps arena record in Err.
         // The match extracts the record via ^e and reads field .code.
-        let src = "type info{code:n} wrap a:n>R n info;^info code:a\nf>n;r=wrap 99;?r{^e:e.code;~_:0}";
+        let src =
+            "type info{code:n} wrap a:n>R n info;^info code:a\nf>n;r=wrap 99;?r{^e:e.code;~_:0}";
         let result = vm_run(src, Some("f"), vec![]);
         assert_eq!(result, Value::Number(99.0));
     }
@@ -12274,7 +14471,10 @@ mod tests {
             vec![Value::Ok(Box::new(Value::Number(5.0)))],
         );
         assert!(
-            err.contains("len") || err.contains("string") || err.contains("list") || err.contains("map"),
+            err.contains("len")
+                || err.contains("string")
+                || err.contains("list")
+                || err.contains("map"),
             "got: {err}"
         );
     }
@@ -12282,11 +14482,7 @@ mod tests {
     // OP_LEN on a non-heap, non-string value (line 3589) — e.g. a bool or number
     #[test]
     fn vm_len_on_number_error() {
-        let err = vm_run_err(
-            "f x:z>n;len x",
-            Some("f"),
-            vec![Value::Number(42.0)],
-        );
+        let err = vm_run_err("f x:z>n;len x", Some("f"), vec![Value::Number(42.0)]);
         assert!(
             err.contains("len") || err.contains("string") || err.contains("list"),
             "got: {err}"
@@ -12302,10 +14498,7 @@ mod tests {
             Some("f"),
             vec![Value::Map(std::collections::HashMap::new())],
         );
-        assert!(
-            err.contains("list") || err.contains("index"),
-            "got: {err}"
-        );
+        assert!(err.contains("list") || err.contains("index"), "got: {err}");
     }
 
     // ── Group G: Additional coverage for lines in 6270+ test section ────────────
@@ -12337,7 +14530,10 @@ mod tests {
                 Value::List(vec![Value::Number(42.0)]),
             ],
         );
-        assert!(err.contains("wrl") || err.contains("string") || err.contains("list"), "got: {err}");
+        assert!(
+            err.contains("wrl") || err.contains("string") || err.contains("list"),
+            "got: {err}"
+        );
     }
 
     // Map len (OP_LEN on a map) — happy path exercises the map branch (line 3585)
@@ -12368,17 +14564,27 @@ mod tests {
     // line 3875: jpth invalid JSON → Err
     #[test]
     fn vm_jpth_invalid_json_returns_err() {
-        let result = vm_run(r#"f s:t>R t t;jpth s "a""#, Some("f"),
-            vec![Value::Text("not json at all".into())]);
-        let Value::Err(_) = result else { panic!("expected Err") };
+        let result = vm_run(
+            r#"f s:t>R t t;jpth s "a""#,
+            Some("f"),
+            vec![Value::Text("not json at all".into())],
+        );
+        let Value::Err(_) = result else {
+            panic!("expected Err")
+        };
     }
 
     // lines 3853-3855: jpth array index out of bounds → Err
     #[test]
     fn vm_jpth_array_index_not_found() {
-        let result = vm_run(r#"f s:t>R t t;jpth s "a.5""#, Some("f"),
-            vec![Value::Text(r#"{"a":[1,2]}"#.into())]);
-        let Value::Err(_) = result else { panic!("expected Err") };
+        let result = vm_run(
+            r#"f s:t>R t t;jpth s "a.5""#,
+            Some("f"),
+            vec![Value::Text(r#"{"a":[1,2]}"#.into())],
+        );
+        let Value::Err(_) = result else {
+            panic!("expected Err")
+        };
     }
 
     // ── cat error paths (lines 3925, 3928) ──────────────────────────────────
@@ -12386,16 +14592,18 @@ mod tests {
     // line 3925: cat with non-text separator
     #[test]
     fn vm_cat_non_text_separator_error() {
-        let err = vm_run_err(r#"f xs:L t>t;cat xs 42"#, Some("f"),
-            vec![Value::List(vec![Value::Text("a".into())])]);
+        let err = vm_run_err(
+            r#"f xs:L t>t;cat xs 42"#,
+            Some("f"),
+            vec![Value::List(vec![Value::Text("a".into())])],
+        );
         assert!(err.contains("cat") || err.contains("text"), "got: {err}");
     }
 
     // line 3928: cat with non-list first arg (number)
     #[test]
     fn vm_cat_non_list_first_arg_error() {
-        let err = vm_run_err(r#"f n:n>t;cat n ",""#, Some("f"),
-            vec![Value::Number(42.0)]);
+        let err = vm_run_err(r#"f n:n>t;cat n ",""#, Some("f"), vec![Value::Number(42.0)]);
         assert!(err.contains("cat") || err.contains("list"), "got: {err}");
     }
 
@@ -12404,24 +14612,33 @@ mod tests {
     // line 3989: hd on a Map heap value
     #[test]
     fn vm_hd_on_map_error() {
-        let err = vm_run_err(r#"f m:_>t;hd m"#, Some("f"),
-            vec![Value::Map(std::collections::HashMap::new())]);
+        let err = vm_run_err(
+            r#"f m:_>t;hd m"#,
+            Some("f"),
+            vec![Value::Map(std::collections::HashMap::new())],
+        );
         assert!(err.contains("hd") || err.contains("list"), "got: {err}");
     }
 
     // line 4020: tl on a Map heap value
     #[test]
     fn vm_tl_on_map_error() {
-        let err = vm_run_err(r#"f m:_>t;tl m"#, Some("f"),
-            vec![Value::Map(std::collections::HashMap::new())]);
+        let err = vm_run_err(
+            r#"f m:_>t;tl m"#,
+            Some("f"),
+            vec![Value::Map(std::collections::HashMap::new())],
+        );
         assert!(err.contains("tl") || err.contains("list"), "got: {err}");
     }
 
     // line 4041: rev on a Map heap value
     #[test]
     fn vm_rev_on_map_error() {
-        let err = vm_run_err(r#"f m:_>t;rev m"#, Some("f"),
-            vec![Value::Map(std::collections::HashMap::new())]);
+        let err = vm_run_err(
+            r#"f m:_>t;rev m"#,
+            Some("f"),
+            vec![Value::Map(std::collections::HashMap::new())],
+        );
         assert!(err.contains("rev") || err.contains("list"), "got: {err}");
     }
 
@@ -12430,16 +14647,18 @@ mod tests {
     // line 4081: srt on a Map heap value
     #[test]
     fn vm_srt_on_map_error() {
-        let err = vm_run_err(r#"f m:_>L t;srt m"#, Some("f"),
-            vec![Value::Map(std::collections::HashMap::new())]);
+        let err = vm_run_err(
+            r#"f m:_>L t;srt m"#,
+            Some("f"),
+            vec![Value::Map(std::collections::HashMap::new())],
+        );
         assert!(err.contains("srt") || err.contains("list"), "got: {err}");
     }
 
     // line 4084: srt on a number (non-heap, non-string)
     #[test]
     fn vm_srt_on_number_error() {
-        let err = vm_run_err("f x:n>L n;srt x", Some("f"),
-            vec![Value::Number(42.0)]);
+        let err = vm_run_err("f x:n>L n;srt x", Some("f"), vec![Value::Number(42.0)]);
         assert!(err.contains("srt") || err.contains("list"), "got: {err}");
     }
 
@@ -12450,13 +14669,19 @@ mod tests {
     fn vm_slc_non_number_indices_error() {
         // slc xs start end — pass text values for start/end
         // We call slc with a list and two text args (bypassing verifier)
-        let err = vm_run_err(r#"f xs:L n s:t e:t>L n;slc xs s e"#, Some("f"),
+        let err = vm_run_err(
+            r#"f xs:L n s:t e:t>L n;slc xs s e"#,
+            Some("f"),
             vec![
                 Value::List(vec![Value::Number(1.0), Value::Number(2.0)]),
                 Value::Text("a".into()),
                 Value::Text("b".into()),
-            ]);
-        assert!(err.contains("slc") || err.contains("indices") || err.contains("number"), "got: {err}");
+            ],
+        );
+        assert!(
+            err.contains("slc") || err.contains("indices") || err.contains("number"),
+            "got: {err}"
+        );
     }
 
     // ── arena record promotion in += (line 4131) ────────────────────────────
@@ -12487,9 +14712,14 @@ mod tests {
     #[test]
     fn vm_jdmp_heap_record() {
         // jpar produces a heap record; jdmp it back to JSON string
-        let result = vm_run(r#"f s:t>t;r=jpar! s;jdmp r"#, Some("f"),
-            vec![Value::Text(r#"{"x":10}"#.into())]);
-        let Value::Text(s) = result else { panic!("expected Text") };
+        let result = vm_run(
+            r#"f s:t>t;r=jpar! s;jdmp r"#,
+            Some("f"),
+            vec![Value::Text(r#"{"x":10}"#.into())],
+        );
+        let Value::Text(s) = result else {
+            panic!("expected Text")
+        };
         assert!(s.contains("10"), "got: {s}");
     }
 
@@ -12499,9 +14729,14 @@ mod tests {
     #[test]
     fn vm_jdmp_ok_value() {
         // jpar returns Ok(record) — jdmp on the Ok unwraps inner
-        let result = vm_run(r#"f s:t>t;r=jpar s;jdmp r"#, Some("f"),
-            vec![Value::Text(r#"{"v":5}"#.into())]);
-        let Value::Text(s) = result else { panic!("expected Text") };
+        let result = vm_run(
+            r#"f s:t>t;r=jpar s;jdmp r"#,
+            Some("f"),
+            vec![Value::Text(r#"{"v":5}"#.into())],
+        );
+        let Value::Text(s) = result else {
+            panic!("expected Text")
+        };
         assert!(s.contains("5"), "got: {s}");
     }
 
@@ -12511,7 +14746,9 @@ mod tests {
     #[test]
     fn vm_jdmp_map_value() {
         let result = vm_run(r#"f>t;m=mset mmap "k" 42;jdmp m"#, Some("f"), vec![]);
-        let Value::Text(s) = result else { panic!("expected Text") };
+        let Value::Text(s) = result else {
+            panic!("expected Text")
+        };
         assert!(s.contains("42"), "got: {s}");
     }
 
@@ -12537,9 +14774,14 @@ mod tests {
     #[test]
     fn vm_jdmp_err_value() {
         // jpar on invalid JSON returns Err(text). jdmp on that Err hits line 4224.
-        let result = vm_run(r#"f s:t>t;e=jpar s;jdmp e"#, Some("f"),
-            vec![Value::Text("not json".into())]);
-        let Value::Text(_) = result else { panic!("expected Text") };
+        let result = vm_run(
+            r#"f s:t>t;e=jpar s;jdmp e"#,
+            Some("f"),
+            vec![Value::Text("not json".into())],
+        );
+        let Value::Text(_) = result else {
+            panic!("expected Text")
+        };
         // ErrVal inner serialized
     }
 
@@ -12548,12 +14790,15 @@ mod tests {
     // line 4119: slc on a Map (heap non-list, non-string)
     #[test]
     fn vm_slc_on_map_heap_error() {
-        let err = vm_run_err(r#"f m:_ i:n j:n>L t;slc m i j"#, Some("f"),
+        let err = vm_run_err(
+            r#"f m:_ i:n j:n>L t;slc m i j"#,
+            Some("f"),
             vec![
                 Value::Map(std::collections::HashMap::new()),
                 Value::Number(0.0),
                 Value::Number(1.0),
-            ]);
+            ],
+        );
         assert!(err.contains("slc") || err.contains("list"), "got: {err}");
     }
 
@@ -12566,7 +14811,9 @@ mod tests {
         std::fs::write(path, "hello raw").unwrap();
         let source = format!(r#"f>R t t;rd "{path}""#);
         let result = vm_run(&source, Some("f"), vec![]);
-        let Value::Ok(inner) = result else { panic!("expected Ok") };
+        let Value::Ok(inner) = result else {
+            panic!("expected Ok")
+        };
         assert_eq!(*inner, Value::Text("hello raw".into()));
     }
 
@@ -12630,7 +14877,10 @@ mod tests {
         let err = run(&program, Some("f"), vec![]).unwrap_err();
         // Error kind should be UnknownOpcode and span should be captured.
         let msg = err.to_string();
-        assert!(msg.contains("unknown opcode") || msg.contains("opcode"), "got: {msg}");
+        assert!(
+            msg.contains("unknown opcode") || msg.contains("opcode"),
+            "got: {msg}"
+        );
         assert!(err.span.is_some(), "expected span to be captured");
         assert_eq!(err.call_stack, vec!["f".to_string()]);
     }
@@ -12646,7 +14896,11 @@ mod tests {
         // Order should be outermost to innermost.
         let f_pos = err.call_stack.iter().position(|n| n == "f").unwrap();
         let g_pos = err.call_stack.iter().position(|n| n == "g").unwrap();
-        assert!(f_pos < g_pos, "expected f before g in call stack: {:?}", err.call_stack);
+        assert!(
+            f_pos < g_pos,
+            "expected f before g in call stack: {:?}",
+            err.call_stack
+        );
     }
 
     // ForEach with cnt (continue) — exercises continue_patches patching (L699-706)
@@ -12679,7 +14933,10 @@ mod tests {
     #[test]
     fn vm_get_non_string_url_error() {
         let err = vm_run_err("f u:z>R t t;get u", Some("f"), vec![Value::Number(42.0)]);
-        assert!(err.contains("get") || err.contains("string") || err.contains("type"), "got: {err}");
+        assert!(
+            err.contains("get") || err.contains("string") || err.contains("type"),
+            "got: {err}"
+        );
     }
 
     // OP_POST type error: non-string args (L3727-3734)
@@ -12690,7 +14947,10 @@ mod tests {
             Some("f"),
             vec![Value::Number(1.0), Value::Text("body".into())],
         );
-        assert!(err.contains("post") || err.contains("string") || err.contains("type"), "got: {err}");
+        assert!(
+            err.contains("post") || err.contains("string") || err.contains("type"),
+            "got: {err}"
+        );
     }
 
     // OP_GETH type error: non-string url (L3753-3761)
@@ -12699,9 +14959,15 @@ mod tests {
         let err = vm_run_err(
             "f u:z h:M t t>R t t;get u h",
             Some("f"),
-            vec![Value::Number(42.0), Value::Map(std::collections::HashMap::new())],
+            vec![
+                Value::Number(42.0),
+                Value::Map(std::collections::HashMap::new()),
+            ],
         );
-        assert!(err.contains("get") || err.contains("string") || err.contains("type"), "got: {err}");
+        assert!(
+            err.contains("get") || err.contains("string") || err.contains("type"),
+            "got: {err}"
+        );
     }
 
     // OP_POSTH type error: non-string url (L3789-3802)
@@ -12710,9 +14976,16 @@ mod tests {
         let err = vm_run_err(
             "f u:z b:z h:M t t>R t t;post u b h",
             Some("f"),
-            vec![Value::Number(1.0), Value::Text("body".into()), Value::Map(std::collections::HashMap::new())],
+            vec![
+                Value::Number(1.0),
+                Value::Text("body".into()),
+                Value::Map(std::collections::HashMap::new()),
+            ],
         );
-        assert!(err.contains("post") || err.contains("string") || err.contains("type"), "got: {err}");
+        assert!(
+            err.contains("post") || err.contains("string") || err.contains("type"),
+            "got: {err}"
+        );
     }
 
     // Destructure existing binding with ambiguous field index → OP_RECFLD_NAME (L570)
@@ -12732,7 +15005,8 @@ mod tests {
         // Compiler emits OP_RECFLD (unambiguous index) rather than OP_RECFLD_NAME
         let result = vm_run(
             "type a{x:n;y:n} type b{x:n;z:n} f>n;r=a x:5 y:10;{x}=r;x",
-            Some("f"), vec![],
+            Some("f"),
+            vec![],
         );
         assert_eq!(result, Value::Number(5.0));
     }
@@ -12745,7 +15019,8 @@ mod tests {
         // This covers the phantom branch at the end of `if let Some(idx) = position(...)`.
         let result = vm_run(
             "type a{x:n;y:n} type b{x:n;z:n} f>n;r=a x:5 y:10;{y}=r;y",
-            Some("f"), vec![],
+            Some("f"),
+            vec![],
         );
         assert_eq!(result, Value::Number(10.0));
     }
@@ -12761,12 +15036,18 @@ mod tests {
             declarations: vec![
                 Decl::TypeDef {
                     name: "pt".to_string(),
-                    fields: vec![Param { name: "x".to_string(), ty: Type::Number }],
+                    fields: vec![Param {
+                        name: "x".to_string(),
+                        ty: Type::Number,
+                    }],
                     span: Span::UNKNOWN,
                 },
                 Decl::TypeDef {
                     name: "pt".to_string(), // duplicate — triggers early return at L253
-                    fields: vec![Param { name: "x".to_string(), ty: Type::Number }],
+                    fields: vec![Param {
+                        name: "x".to_string(),
+                        ty: Type::Number,
+                    }],
                     span: Span::UNKNOWN,
                 },
             ],
@@ -12787,7 +15068,11 @@ mod tests {
     fn vm_subtract() {
         let source = "f a:n b:n>n;-a b";
         assert_eq!(
-            vm_run(source, Some("f"), vec![Value::Number(10.0), Value::Number(3.0)]),
+            vm_run(
+                source,
+                Some("f"),
+                vec![Value::Number(10.0), Value::Number(3.0)]
+            ),
             Value::Number(7.0)
         );
     }
@@ -12796,7 +15081,11 @@ mod tests {
     fn vm_divide() {
         let source = "f a:n b:n>n;/a b";
         assert_eq!(
-            vm_run(source, Some("f"), vec![Value::Number(10.0), Value::Number(4.0)]),
+            vm_run(
+                source,
+                Some("f"),
+                vec![Value::Number(10.0), Value::Number(4.0)]
+            ),
             Value::Number(2.5)
         );
     }
@@ -12805,11 +15094,19 @@ mod tests {
     fn vm_equals() {
         let source = "f a:n b:n>b;=a b";
         assert_eq!(
-            vm_run(source, Some("f"), vec![Value::Number(1.0), Value::Number(1.0)]),
+            vm_run(
+                source,
+                Some("f"),
+                vec![Value::Number(1.0), Value::Number(1.0)]
+            ),
             Value::Bool(true)
         );
         assert_eq!(
-            vm_run(source, Some("f"), vec![Value::Number(1.0), Value::Number(2.0)]),
+            vm_run(
+                source,
+                Some("f"),
+                vec![Value::Number(1.0), Value::Number(2.0)]
+            ),
             Value::Bool(false)
         );
     }
@@ -12818,11 +15115,19 @@ mod tests {
     fn vm_not_equals() {
         let source = "f a:n b:n>b;!=a b";
         assert_eq!(
-            vm_run(source, Some("f"), vec![Value::Number(1.0), Value::Number(2.0)]),
+            vm_run(
+                source,
+                Some("f"),
+                vec![Value::Number(1.0), Value::Number(2.0)]
+            ),
             Value::Bool(true)
         );
         assert_eq!(
-            vm_run(source, Some("f"), vec![Value::Number(1.0), Value::Number(1.0)]),
+            vm_run(
+                source,
+                Some("f"),
+                vec![Value::Number(1.0), Value::Number(1.0)]
+            ),
             Value::Bool(false)
         );
     }
@@ -12831,7 +15136,11 @@ mod tests {
     fn vm_greater_than() {
         let source = "f a:n b:n>b;>a b";
         assert_eq!(
-            vm_run(source, Some("f"), vec![Value::Number(5.0), Value::Number(3.0)]),
+            vm_run(
+                source,
+                Some("f"),
+                vec![Value::Number(5.0), Value::Number(3.0)]
+            ),
             Value::Bool(true)
         );
     }
@@ -12840,7 +15149,11 @@ mod tests {
     fn vm_less_than() {
         let source = "f a:n b:n>b;<a b";
         assert_eq!(
-            vm_run(source, Some("f"), vec![Value::Number(3.0), Value::Number(5.0)]),
+            vm_run(
+                source,
+                Some("f"),
+                vec![Value::Number(3.0), Value::Number(5.0)]
+            ),
             Value::Bool(true)
         );
     }
@@ -12849,7 +15162,11 @@ mod tests {
     fn vm_less_or_equal() {
         let source = "f a:n b:n>b;<=a b";
         assert_eq!(
-            vm_run(source, Some("f"), vec![Value::Number(3.0), Value::Number(3.0)]),
+            vm_run(
+                source,
+                Some("f"),
+                vec![Value::Number(3.0), Value::Number(3.0)]
+            ),
             Value::Bool(true)
         );
     }
@@ -12891,15 +15208,24 @@ mod tests {
     #[test]
     fn vm_foreach_on_non_list() {
         let err = vm_run_err("f x:n>n;@i x{i}", Some("f"), vec![Value::Number(1.0)]);
-        assert!(err.contains("foreach") || err.contains("list"), "got: {err}");
+        assert!(
+            err.contains("foreach") || err.contains("list"),
+            "got: {err}"
+        );
     }
 
     #[test]
     fn vm_foreach_return_from_nested_match() {
         let source = "f xs:L n>n;@x xs{?x{5:x;_:0}}";
-        let result = vm_run(source, Some("f"), vec![
-            Value::List(vec![Value::Number(1.0), Value::Number(5.0), Value::Number(9.0)]),
-        ]);
+        let result = vm_run(
+            source,
+            Some("f"),
+            vec![Value::List(vec![
+                Value::Number(1.0),
+                Value::Number(5.0),
+                Value::Number(9.0),
+            ])],
+        );
         assert_eq!(result, Value::Number(0.0));
     }
 
@@ -12908,23 +15234,37 @@ mod tests {
     #[test]
     fn vm_guard_still_returns_early() {
         let source = "f x:n>n;=x 0{99};+x 1";
-        assert_eq!(vm_run(source, Some("f"), vec![Value::Number(0.0)]), Value::Number(99.0));
-        assert_eq!(vm_run(source, Some("f"), vec![Value::Number(5.0)]), Value::Number(6.0));
+        assert_eq!(
+            vm_run(source, Some("f"), vec![Value::Number(0.0)]),
+            Value::Number(99.0)
+        );
+        assert_eq!(
+            vm_run(source, Some("f"), vec![Value::Number(5.0)]),
+            Value::Number(6.0)
+        );
     }
 
     #[test]
     fn vm_ternary_negated() {
         let source = r#"f x:n>t;!=x 1{"not one"}{"one"}"#;
-        assert_eq!(vm_run(source, Some("f"), vec![Value::Number(1.0)]), Value::Text("one".into()));
-        assert_eq!(vm_run(source, Some("f"), vec![Value::Number(2.0)]), Value::Text("not one".into()));
+        assert_eq!(
+            vm_run(source, Some("f"), vec![Value::Number(1.0)]),
+            Value::Text("one".into())
+        );
+        assert_eq!(
+            vm_run(source, Some("f"), vec![Value::Number(2.0)]),
+            Value::Text("not one".into())
+        );
     }
 
     #[test]
     fn vm_guard_ternary_in_foreach() {
         let source = "f xs:L n>n;@x xs{=x 0{10}{20}}";
-        let result = vm_run(source, Some("f"), vec![
-            Value::List(vec![Value::Number(0.0), Value::Number(1.0)]),
-        ]);
+        let result = vm_run(
+            source,
+            Some("f"),
+            vec![Value::List(vec![Value::Number(0.0), Value::Number(1.0)])],
+        );
         assert_eq!(result, Value::Number(20.0));
     }
 
@@ -12933,7 +15273,10 @@ mod tests {
     #[test]
     fn vm_match_not_last_stmt() {
         let source = "f x:n>n;?x{0:x;_:x};+x 1";
-        assert_eq!(vm_run(source, Some("f"), vec![Value::Number(5.0)]), Value::Number(6.0));
+        assert_eq!(
+            vm_run(source, Some("f"), vec![Value::Number(5.0)]),
+            Value::Number(6.0)
+        );
     }
 
     #[test]
@@ -12945,50 +15288,70 @@ mod tests {
     #[test]
     fn vm_match_expr_with_bindings() {
         let source = "f x:R n t>n;y=?x{~v:v;_:0};y";
-        let result = vm_run(source, Some("f"), vec![Value::Ok(Box::new(Value::Number(99.0)))]);
+        let result = vm_run(
+            source,
+            Some("f"),
+            vec![Value::Ok(Box::new(Value::Number(99.0)))],
+        );
         assert_eq!(result, Value::Number(99.0));
     }
 
     #[test]
     fn vm_match_stmt_no_arm_matches() {
         let source = "f x:n>n;?x{1:99};0";
-        assert_eq!(vm_run(source, Some("f"), vec![Value::Number(5.0)]), Value::Number(0.0));
+        assert_eq!(
+            vm_run(source, Some("f"), vec![Value::Number(5.0)]),
+            Value::Number(0.0)
+        );
     }
 
     #[test]
     fn vm_match_arm_body_with_guard_return() {
         let source = "f x:n>n;y=0;?x{1:>=x 0{42};_:0}";
-        assert_eq!(vm_run(source, Some("f"), vec![Value::Number(1.0)]), Value::Number(42.0));
+        assert_eq!(
+            vm_run(source, Some("f"), vec![Value::Number(1.0)]),
+            Value::Number(42.0)
+        );
     }
 
     #[test]
     fn vm_match_continue_arm_returns_nil() {
         let source = "f xs:L n>n;@x xs{?x{1:cnt;_:x}}";
-        let result = vm_run(source, Some("f"), vec![
-            Value::List(vec![Value::Number(1.0), Value::Number(2.0)]),
-        ]);
+        let result = vm_run(
+            source,
+            Some("f"),
+            vec![Value::List(vec![Value::Number(1.0), Value::Number(2.0)])],
+        );
         assert_eq!(result, Value::Number(2.0));
     }
 
     #[test]
     fn vm_match_stmt_continue_propagates() {
         let source = "f xs:L n>n;@x xs{?x{1:cnt;_:x}}";
-        let result = vm_run(source, Some("f"), vec![
-            Value::List(vec![Value::Number(1.0), Value::Number(5.0)]),
-        ]);
+        let result = vm_run(
+            source,
+            Some("f"),
+            vec![Value::List(vec![Value::Number(1.0), Value::Number(5.0)])],
+        );
         assert_eq!(result, Value::Number(5.0));
     }
 
     #[test]
     fn vm_pattern_literal_no_match() {
         let source = r#"f x:n>n;?x{1:10;2:20;_:0}"#;
-        assert_eq!(vm_run(source, Some("f"), vec![Value::Number(5.0)]), Value::Number(0.0));
+        assert_eq!(
+            vm_run(source, Some("f"), vec![Value::Number(5.0)]),
+            Value::Number(0.0)
+        );
     }
 
     #[test]
     fn vm_pattern_ok_no_match() {
         let source = r#"f>t;x=^"err";?x{~v:v;_:"default"}"#;
-        assert_eq!(vm_run(source, Some("f"), vec![]), Value::Text("default".to_string()));
+        assert_eq!(
+            vm_run(source, Some("f"), vec![]),
+            Value::Text("default".to_string())
+        );
     }
 
     // ── TypeIs patterns ─────────────────────────────────────────────────
@@ -13056,9 +15419,14 @@ mod tests {
     #[test]
     fn vm_typeis_pattern_non_basic_type_no_match() {
         let source = "f x:z>b;?x{n _:true;_:false}";
-        let result = vm_run(source, Some("f"), vec![
-            Value::Record { type_name: "pt".into(), fields: std::collections::HashMap::new() },
-        ]);
+        let result = vm_run(
+            source,
+            Some("f"),
+            vec![Value::Record {
+                type_name: "pt".into(),
+                fields: std::collections::HashMap::new(),
+            }],
+        );
         assert_eq!(result, Value::Bool(false));
     }
 
@@ -13067,7 +15435,10 @@ mod tests {
     #[test]
     fn vm_index_access_string() {
         let source = "f>t;xs=[\"hello\", \"world\"];xs.0";
-        assert_eq!(vm_run(source, Some("f"), vec![]), Value::Text("hello".into()));
+        assert_eq!(
+            vm_run(source, Some("f"), vec![]),
+            Value::Text("hello".into())
+        );
     }
 
     // ── Unsupported binop ───────────────────────────────────────────────
@@ -13082,7 +15453,8 @@ mod tests {
         );
         assert!(
             err.contains("unsupported") || err.contains("subtract") || err.contains("type"),
-            "unexpected error: {}", err
+            "unexpected error: {}",
+            err
         );
     }
 
@@ -13106,8 +15478,12 @@ mod tests {
 
     #[test]
     fn vm_destructure_with_text_fields() {
-        let source = "type usr{name:t;email:t} f>t;u=usr name:\"alice\" email:\"a@b\";{name;email}=u;name";
-        assert_eq!(vm_run(source, Some("f"), vec![]), Value::Text("alice".to_string()));
+        let source =
+            "type usr{name:t;email:t} f>t;u=usr name:\"alice\" email:\"a@b\";{name;email}=u;name";
+        assert_eq!(
+            vm_run(source, Some("f"), vec![]),
+            Value::Text("alice".to_string())
+        );
     }
 
     #[test]
@@ -13115,7 +15491,10 @@ mod tests {
         let source = "type pt{x:n;y:n} f>n;p=pt x:3 y:4;{x;z}=p;x";
         let prog = parse_program(source);
         let result = compile_and_run(&prog, Some("f"), vec![]);
-        assert!(result.is_err(), "expected error for missing field in destructure");
+        assert!(
+            result.is_err(),
+            "expected error for missing field in destructure"
+        );
     }
 
     #[test]
@@ -13124,7 +15503,10 @@ mod tests {
         let source = "type pt{x:n;y:n} f p:pt>n;{x;y}=p;+x y";
         let prog = parse_program(source);
         let result = compile_and_run(&prog, Some("f"), vec![Value::Number(42.0)]);
-        assert!(result.is_err(), "expected error for destructure on non-record");
+        assert!(
+            result.is_err(),
+            "expected error for destructure on non-record"
+        );
     }
 
     // ── Builtins: spl, cat, has, hd, tl, rev, srt, slc ─────────────────
@@ -13133,7 +15515,10 @@ mod tests {
     fn vm_index_access_string_list_second() {
         // Tests accessing second text element in list
         let source = "f>t;xs=[\"hello\", \"world\"];xs.1";
-        assert_eq!(vm_run(source, Some("f"), vec![]), Value::Text("world".into()));
+        assert_eq!(
+            vm_run(source, Some("f"), vec![]),
+            Value::Text("world".into())
+        );
     }
 
     // ── Env ─────────────────────────────────────────────────────────────
@@ -13141,17 +15526,28 @@ mod tests {
     #[test]
     fn vm_env_unwrap() {
         let _guard = ENV_TEST_MUTEX.lock().unwrap();
-        unsafe { std::env::set_var("ILO_TEST_UNWRAP_VM", "world"); }
+        unsafe {
+            std::env::set_var("ILO_TEST_UNWRAP_VM", "world");
+        }
         let source = r#"f k:t>R t t;~(env! k)"#;
-        let result = vm_run(source, Some("f"), vec![Value::Text("ILO_TEST_UNWRAP_VM".into())]);
+        let result = vm_run(
+            source,
+            Some("f"),
+            vec![Value::Text("ILO_TEST_UNWRAP_VM".into())],
+        );
         assert_eq!(result, Value::Ok(Box::new(Value::Text("world".into()))));
-        unsafe { std::env::remove_var("ILO_TEST_UNWRAP_VM"); }
+        unsafe {
+            std::env::remove_var("ILO_TEST_UNWRAP_VM");
+        }
     }
 
     #[test]
     fn vm_env_wrong_arg_type() {
         let err = vm_run_err("f>t;env 42", Some("f"), vec![]);
-        assert!(err.contains("env") || err.contains("text") || err.contains("string"), "got: {err}");
+        assert!(
+            err.contains("env") || err.contains("text") || err.contains("string"),
+            "got: {err}"
+        );
     }
 
     // ── Range iteration ─────────────────────────────────────────────────
@@ -13166,7 +15562,11 @@ mod tests {
     fn vm_range_end_not_number() {
         let source = "f s:n e:n>n;@i s..e{i}";
         assert_eq!(
-            vm_run(source, Some("f"), vec![Value::Number(0.0), Value::Number(3.0)]),
+            vm_run(
+                source,
+                Some("f"),
+                vec![Value::Number(0.0), Value::Number(3.0)]
+            ),
             Value::Number(2.0)
         );
     }
@@ -13179,18 +15579,32 @@ mod tests {
 
     #[test]
     fn vm_for_range_non_number_start_error() {
-        let err = vm_run_err("f s:t>n;@i s..3{i}", Some("f"), vec![Value::Text("a".into())]);
+        let err = vm_run_err(
+            "f s:t>n;@i s..3{i}",
+            Some("f"),
+            vec![Value::Text("a".into())],
+        );
         assert!(
-            err.contains("range") || err.contains("number") || err.contains("start") || err.contains("type"),
+            err.contains("range")
+                || err.contains("number")
+                || err.contains("start")
+                || err.contains("type"),
             "got: {err}"
         );
     }
 
     #[test]
     fn vm_for_range_non_number_end_error() {
-        let err = vm_run_err("f e:t>n;@i 0..e{i}", Some("f"), vec![Value::Text("b".into())]);
+        let err = vm_run_err(
+            "f e:t>n;@i 0..e{i}",
+            Some("f"),
+            vec![Value::Text("b".into())],
+        );
         assert!(
-            err.contains("range") || err.contains("number") || err.contains("end") || err.contains("type"),
+            err.contains("range")
+                || err.contains("number")
+                || err.contains("end")
+                || err.contains("type"),
             "got: {err}"
         );
     }
@@ -13200,13 +15614,23 @@ mod tests {
     #[test]
     fn vm_err_abs_wrong_arg_count() {
         let err = vm_run_err("f>n;abs 1 2", Some("f"), vec![]);
-        assert!(err.contains("abs") || err.contains("arg") || err.contains("expect"), "got: {err}");
+        assert!(
+            err.contains("abs") || err.contains("arg") || err.contains("expect"),
+            "got: {err}"
+        );
     }
 
     #[test]
     fn vm_err_abs_wrong_type() {
-        let err = vm_run_err(r#"f x:t>n;abs x"#, Some("f"), vec![Value::Text("hi".into())]);
-        assert!(err.contains("abs") || err.contains("number") || err.contains("type"), "got: {err}");
+        let err = vm_run_err(
+            r#"f x:t>n;abs x"#,
+            Some("f"),
+            vec![Value::Text("hi".into())],
+        );
+        assert!(
+            err.contains("abs") || err.contains("number") || err.contains("type"),
+            "got: {err}"
+        );
     }
 
     #[test]
@@ -13217,51 +15641,87 @@ mod tests {
 
     #[test]
     fn vm_err_cat_wrong_arg_types() {
-        let err = vm_run_err("f x:n y:n>t;cat x y", Some("f"), vec![Value::Number(1.0), Value::Number(2.0)]);
-        assert!(err.contains("cat") || err.contains("list") || err.contains("text"), "got: {err}");
+        let err = vm_run_err(
+            "f x:n y:n>t;cat x y",
+            Some("f"),
+            vec![Value::Number(1.0), Value::Number(2.0)],
+        );
+        assert!(
+            err.contains("cat") || err.contains("list") || err.contains("text"),
+            "got: {err}"
+        );
     }
 
     #[test]
     fn vm_err_cel_non_number() {
         let err = vm_run_err(r#"f x:t>n;cel x"#, Some("f"), vec![Value::Text("a".into())]);
-        assert!(err.contains("cel") || err.contains("number") || err.contains("type"), "got: {err}");
+        assert!(
+            err.contains("cel") || err.contains("number") || err.contains("type"),
+            "got: {err}"
+        );
     }
 
     #[test]
     #[ignore] // VM panics (debug assert) instead of returning error
     fn vm_err_field_access_on_non_record() {
         let err = vm_run_err("f x:n>n;x.y", Some("f"), vec![Value::Number(1.0)]);
-        assert!(err.contains("field") || err.contains("record"), "got: {err}");
+        assert!(
+            err.contains("field") || err.contains("record"),
+            "got: {err}"
+        );
     }
 
     #[test]
     fn vm_err_field_not_found_on_record() {
         let err = vm_run_err("f>n;r=point x:1 y:2;r.z", Some("f"), vec![]);
-        assert!(err.contains("field") || err.contains("z") || err.contains("not found"), "got: {err}");
+        assert!(
+            err.contains("field") || err.contains("z") || err.contains("not found"),
+            "got: {err}"
+        );
     }
 
     #[test]
     fn vm_err_flr_non_number() {
         let err = vm_run_err(r#"f x:t>n;flr x"#, Some("f"), vec![Value::Text("a".into())]);
-        assert!(err.contains("flr") || err.contains("number") || err.contains("type"), "got: {err}");
+        assert!(
+            err.contains("flr") || err.contains("number") || err.contains("type"),
+            "got: {err}"
+        );
     }
 
     #[test]
     fn vm_err_get_non_text_arg() {
         let err = vm_run_err("f x:n>R t t;get x", Some("f"), vec![Value::Number(1.0)]);
-        assert!(err.contains("get") || err.contains("text") || err.contains("string"), "got: {err}");
+        assert!(
+            err.contains("get") || err.contains("text") || err.contains("string"),
+            "got: {err}"
+        );
     }
 
     #[test]
     fn vm_err_has_text_non_text_needle() {
-        let err = vm_run_err("f x:t y:n>b;has x y", Some("f"), vec![Value::Text("hello".into()), Value::Number(1.0)]);
-        assert!(err.contains("has") || err.contains("text") || err.contains("needle"), "got: {err}");
+        let err = vm_run_err(
+            "f x:t y:n>b;has x y",
+            Some("f"),
+            vec![Value::Text("hello".into()), Value::Number(1.0)],
+        );
+        assert!(
+            err.contains("has") || err.contains("text") || err.contains("needle"),
+            "got: {err}"
+        );
     }
 
     #[test]
     fn vm_err_has_wrong_first_arg() {
-        let err = vm_run_err("f x:n y:n>b;has x y", Some("f"), vec![Value::Number(1.0), Value::Number(2.0)]);
-        assert!(err.contains("has") || err.contains("list") || err.contains("text"), "got: {err}");
+        let err = vm_run_err(
+            "f x:n y:n>b;has x y",
+            Some("f"),
+            vec![Value::Number(1.0), Value::Number(2.0)],
+        );
+        assert!(
+            err.contains("has") || err.contains("list") || err.contains("text"),
+            "got: {err}"
+        );
     }
 
     #[test]
@@ -13279,7 +15739,13 @@ mod tests {
     #[test]
     fn vm_err_hd_wrong_type() {
         let err = vm_run_err("f x:n>n;hd x", Some("f"), vec![Value::Number(1.0)]);
-        assert!(err.contains("hd") || err.contains("list") || err.contains("text") || err.contains("type"), "got: {err}");
+        assert!(
+            err.contains("hd")
+                || err.contains("list")
+                || err.contains("text")
+                || err.contains("type"),
+            "got: {err}"
+        );
     }
 
     #[test]
@@ -13287,27 +15753,43 @@ mod tests {
     fn vm_err_index_on_non_list() {
         let err = vm_run_err("f x:n>n;x.0", Some("f"), vec![Value::Number(1.0)]);
         assert!(
-            err.contains("index") || err.contains("field") || err.contains("list") || err.contains("record"),
-            "got: {}", err
+            err.contains("index")
+                || err.contains("field")
+                || err.contains("list")
+                || err.contains("record"),
+            "got: {}",
+            err
         );
     }
 
     #[test]
     fn vm_err_index_out_of_bounds() {
         let err = vm_run_err("f>n;xs=[1, 2];xs.5", Some("f"), vec![]);
-        assert!(err.contains("bound") || err.contains("index") || err.contains("5"), "got: {err}");
+        assert!(
+            err.contains("bound") || err.contains("index") || err.contains("5"),
+            "got: {err}"
+        );
     }
 
     #[test]
     fn vm_err_len_wrong_arg_count() {
         let err = vm_run_err("f>n;len 1 2", Some("f"), vec![]);
-        assert!(err.contains("len") || err.contains("arg") || err.contains("expect"), "got: {err}");
+        assert!(
+            err.contains("len") || err.contains("arg") || err.contains("expect"),
+            "got: {err}"
+        );
     }
 
     #[test]
     fn vm_err_len_wrong_type() {
         let err = vm_run_err("f x:n>n;len x", Some("f"), vec![Value::Number(1.0)]);
-        assert!(err.contains("len") || err.contains("string") || err.contains("list") || err.contains("type"), "got: {err}");
+        assert!(
+            err.contains("len")
+                || err.contains("string")
+                || err.contains("list")
+                || err.contains("type"),
+            "got: {err}"
+        );
     }
 
     #[test]
@@ -13317,7 +15799,10 @@ mod tests {
             Some("f"),
             vec![Value::Text("a".into()), Value::Text("b".into())],
         );
-        assert!(err.contains("max") || err.contains("number") || err.contains("type"), "got: {err}");
+        assert!(
+            err.contains("max") || err.contains("number") || err.contains("type"),
+            "got: {err}"
+        );
     }
 
     #[test]
@@ -13327,25 +15812,40 @@ mod tests {
             Some("f"),
             vec![Value::Text("a".into()), Value::Text("b".into())],
         );
-        assert!(err.contains("min") || err.contains("number") || err.contains("type"), "got: {err}");
+        assert!(
+            err.contains("min") || err.contains("number") || err.contains("type"),
+            "got: {err}"
+        );
     }
 
     #[test]
     fn vm_err_num_wrong_arg_count() {
         let err = vm_run_err(r#"f>R n t;num "1" "2""#, Some("f"), vec![]);
-        assert!(err.contains("num") || err.contains("arg") || err.contains("expect"), "got: {err}");
+        assert!(
+            err.contains("num") || err.contains("arg") || err.contains("expect"),
+            "got: {err}"
+        );
     }
 
     #[test]
     fn vm_err_num_wrong_type() {
         let err = vm_run_err("f x:n>R n t;num x", Some("f"), vec![Value::Number(1.0)]);
-        assert!(err.contains("num") || err.contains("text") || err.contains("type"), "got: {err}");
+        assert!(
+            err.contains("num") || err.contains("text") || err.contains("type"),
+            "got: {err}"
+        );
     }
 
     #[test]
     fn vm_err_rev_wrong_type() {
         let err = vm_run_err("f x:n>n;rev x", Some("f"), vec![Value::Number(1.0)]);
-        assert!(err.contains("rev") || err.contains("list") || err.contains("text") || err.contains("type"), "got: {err}");
+        assert!(
+            err.contains("rev")
+                || err.contains("list")
+                || err.contains("text")
+                || err.contains("type"),
+            "got: {err}"
+        );
     }
 
     #[test]
@@ -13356,63 +15856,129 @@ mod tests {
 
     #[test]
     fn vm_err_rnd_wrong_arg_types() {
-        let err = vm_run_err("f x:t y:t>n;rnd x y", Some("f"), vec![Value::Text("a".into()), Value::Text("b".into())]);
-        assert!(err.contains("rnd") || err.contains("number") || err.contains("type"), "got: {err}");
+        let err = vm_run_err(
+            "f x:t y:t>n;rnd x y",
+            Some("f"),
+            vec![Value::Text("a".into()), Value::Text("b".into())],
+        );
+        assert!(
+            err.contains("rnd") || err.contains("number") || err.contains("type"),
+            "got: {err}"
+        );
     }
 
     #[test]
     #[ignore] // VM panics (debug assert) instead of returning error
     fn vm_err_slc_non_number_end() {
-        let err = vm_run_err("f x:t y:t>t;slc x 0 y", Some("f"), vec![Value::Text("hi".into()), Value::Text("a".into())]);
-        assert!(err.contains("slc") || err.contains("number") || err.contains("index") || err.contains("type"), "got: {err}");
+        let err = vm_run_err(
+            "f x:t y:t>t;slc x 0 y",
+            Some("f"),
+            vec![Value::Text("hi".into()), Value::Text("a".into())],
+        );
+        assert!(
+            err.contains("slc")
+                || err.contains("number")
+                || err.contains("index")
+                || err.contains("type"),
+            "got: {err}"
+        );
     }
 
     #[test]
     fn vm_err_slc_non_number_start() {
-        let err = vm_run_err("f x:t y:t>t;slc x y 1", Some("f"), vec![Value::Text("hi".into()), Value::Text("a".into())]);
-        assert!(err.contains("slc") || err.contains("number") || err.contains("index") || err.contains("type"), "got: {err}");
+        let err = vm_run_err(
+            "f x:t y:t>t;slc x y 1",
+            Some("f"),
+            vec![Value::Text("hi".into()), Value::Text("a".into())],
+        );
+        assert!(
+            err.contains("slc")
+                || err.contains("number")
+                || err.contains("index")
+                || err.contains("type"),
+            "got: {err}"
+        );
     }
 
     #[test]
     fn vm_err_slc_wrong_first_arg() {
         let err = vm_run_err("f x:n>n;slc x 0 1", Some("f"), vec![Value::Number(1.0)]);
-        assert!(err.contains("slc") || err.contains("list") || err.contains("text") || err.contains("type"), "got: {err}");
+        assert!(
+            err.contains("slc")
+                || err.contains("list")
+                || err.contains("text")
+                || err.contains("type"),
+            "got: {err}"
+        );
     }
 
     #[test]
     fn vm_err_spl_non_text_first() {
-        let err = vm_run_err("f x:n y:t>L t;spl x y", Some("f"), vec![Value::Number(1.0), Value::Text("a".into())]);
-        assert!(err.contains("spl") || err.contains("text") || err.contains("type"), "got: {err}");
+        let err = vm_run_err(
+            "f x:n y:t>L t;spl x y",
+            Some("f"),
+            vec![Value::Number(1.0), Value::Text("a".into())],
+        );
+        assert!(
+            err.contains("spl") || err.contains("text") || err.contains("type"),
+            "got: {err}"
+        );
     }
 
     #[test]
     fn vm_err_spl_non_text_second() {
-        let err = vm_run_err("f x:t y:n>L t;spl x y", Some("f"), vec![Value::Text("a-b".into()), Value::Number(1.0)]);
-        assert!(err.contains("spl") || err.contains("text") || err.contains("type"), "got: {err}");
+        let err = vm_run_err(
+            "f x:t y:n>L t;spl x y",
+            Some("f"),
+            vec![Value::Text("a-b".into()), Value::Number(1.0)],
+        );
+        assert!(
+            err.contains("spl") || err.contains("text") || err.contains("type"),
+            "got: {err}"
+        );
     }
 
     #[test]
     fn vm_err_srt_mixed_types() {
         let err = vm_run_err("f>L n;srt [1,\"a\"]", Some("f"), vec![]);
-        assert!(err.contains("srt") || err.contains("mixed") || err.contains("type"), "got: {err}");
+        assert!(
+            err.contains("srt") || err.contains("mixed") || err.contains("type"),
+            "got: {err}"
+        );
     }
 
     #[test]
     fn vm_err_srt_wrong_type() {
         let err = vm_run_err("f x:n>n;srt x", Some("f"), vec![Value::Number(1.0)]);
-        assert!(err.contains("srt") || err.contains("list") || err.contains("text") || err.contains("type"), "got: {err}");
+        assert!(
+            err.contains("srt")
+                || err.contains("list")
+                || err.contains("text")
+                || err.contains("type"),
+            "got: {err}"
+        );
     }
 
     #[test]
     fn vm_err_str_wrong_arg_count() {
         let err = vm_run_err("f>t;str 1 2", Some("f"), vec![]);
-        assert!(err.contains("str") || err.contains("arg") || err.contains("expect"), "got: {err}");
+        assert!(
+            err.contains("str") || err.contains("arg") || err.contains("expect"),
+            "got: {err}"
+        );
     }
 
     #[test]
     fn vm_err_str_wrong_type() {
-        let err = vm_run_err(r#"f x:t>t;str x"#, Some("f"), vec![Value::Text("hi".into())]);
-        assert!(err.contains("str") || err.contains("number") || err.contains("type"), "got: {err}");
+        let err = vm_run_err(
+            r#"f x:t>t;str x"#,
+            Some("f"),
+            vec![Value::Text("hi".into())],
+        );
+        assert!(
+            err.contains("str") || err.contains("number") || err.contains("type"),
+            "got: {err}"
+        );
     }
 
     #[test]
@@ -13430,13 +15996,22 @@ mod tests {
     #[test]
     fn vm_err_tl_wrong_type() {
         let err = vm_run_err("f x:n>n;tl x", Some("f"), vec![Value::Number(1.0)]);
-        assert!(err.contains("tl") || err.contains("list") || err.contains("text") || err.contains("type"), "got: {err}");
+        assert!(
+            err.contains("tl")
+                || err.contains("list")
+                || err.contains("text")
+                || err.contains("type"),
+            "got: {err}"
+        );
     }
 
     #[test]
     fn vm_err_trm_wrong_type() {
         let err = vm_run_err("f x:n>t;trm x", Some("f"), vec![Value::Number(1.0)]);
-        assert!(err.contains("trm") || err.contains("text") || err.contains("type"), "got: {err}");
+        assert!(
+            err.contains("trm") || err.contains("text") || err.contains("type"),
+            "got: {err}"
+        );
     }
 
     #[test]
@@ -13450,7 +16025,13 @@ mod tests {
     #[ignore] // VM panics (debug assert) instead of returning error
     fn vm_err_wrong_arity() {
         let err = vm_run_err("f x:n>n;x", Some("f"), vec![]);
-        assert!(err.contains("expected") || err.contains("arg") || err.contains("arity") || err.contains("1"), "got: {err}");
+        assert!(
+            err.contains("expected")
+                || err.contains("arg")
+                || err.contains("arity")
+                || err.contains("1"),
+            "got: {err}"
+        );
     }
 
     // ── HOF builtins: map, flt, fld, grp ────────────────────────────────
@@ -13459,16 +16040,34 @@ mod tests {
     #[ignore] // VM missing HOF/FnRef resolution
     fn vm_map_squares() {
         let source = "sq x:n>n;*x x main xs:L n>L n;map sq xs";
-        let result = vm_run(source, Some("main"), vec![
-            Value::List(vec![1.0, 2.0, 3.0, 4.0, 5.0].into_iter().map(Value::Number).collect())
-        ]);
-        assert_eq!(result, Value::List(vec![1.0, 4.0, 9.0, 16.0, 25.0].into_iter().map(Value::Number).collect()));
+        let result = vm_run(
+            source,
+            Some("main"),
+            vec![Value::List(
+                vec![1.0, 2.0, 3.0, 4.0, 5.0]
+                    .into_iter()
+                    .map(Value::Number)
+                    .collect(),
+            )],
+        );
+        assert_eq!(
+            result,
+            Value::List(
+                vec![1.0, 4.0, 9.0, 16.0, 25.0]
+                    .into_iter()
+                    .map(Value::Number)
+                    .collect()
+            )
+        );
     }
 
     #[test]
     fn vm_map_wrong_fn_arg() {
         let err = vm_run_err("f>t;map 42 [1, 2]", Some("f"), vec![]);
-        assert!(err.contains("map") || err.contains("fn") || err.contains("function"), "got: {err}");
+        assert!(
+            err.contains("map") || err.contains("fn") || err.contains("function"),
+            "got: {err}"
+        );
     }
 
     #[test]
@@ -13483,10 +16082,14 @@ mod tests {
     #[ignore] // VM missing HOF/FnRef resolution
     fn vm_map_with_text_fn_name() {
         let source = "sq x:n>n;*x x f cb:t xs:L n>L n;map cb xs";
-        let result = vm_run(source, Some("f"), vec![
-            Value::Text("sq".into()),
-            Value::List(vec![Value::Number(3.0)]),
-        ]);
+        let result = vm_run(
+            source,
+            Some("f"),
+            vec![
+                Value::Text("sq".into()),
+                Value::List(vec![Value::Number(3.0)]),
+            ],
+        );
         assert_eq!(result, Value::List(vec![Value::Number(9.0)]));
     }
 
@@ -13494,17 +16097,31 @@ mod tests {
     #[ignore] // VM missing HOF/FnRef resolution
     fn vm_flt_positive() {
         let source = "pos x:n>b;>x 0 main xs:L n>L n;flt pos xs";
-        let result = vm_run(source, Some("main"), vec![
-            Value::List(vec![-3.0, -1.0, 0.0, 2.0, 4.0].into_iter().map(Value::Number).collect())
-        ]);
-        assert_eq!(result, Value::List(vec![2.0, 4.0].into_iter().map(Value::Number).collect()));
+        let result = vm_run(
+            source,
+            Some("main"),
+            vec![Value::List(
+                vec![-3.0, -1.0, 0.0, 2.0, 4.0]
+                    .into_iter()
+                    .map(Value::Number)
+                    .collect(),
+            )],
+        );
+        assert_eq!(
+            result,
+            Value::List(vec![2.0, 4.0].into_iter().map(Value::Number).collect())
+        );
     }
 
     #[test]
     #[ignore] // VM missing HOF/FnRef resolution
     fn vm_flt_predicate_returns_non_bool() {
         let source = "id x:n>n;x f xs:L n>L n;flt id xs";
-        let err = vm_run_err(source, Some("f"), vec![Value::List(vec![Value::Number(1.0)])]);
+        let err = vm_run_err(
+            source,
+            Some("f"),
+            vec![Value::List(vec![Value::Number(1.0)])],
+        );
         assert!(err.contains("flt") || err.contains("bool"), "got: {err}");
     }
 
@@ -13518,25 +16135,41 @@ mod tests {
 
     #[test]
     fn vm_flt_key_not_fn_ref() {
-        let err = vm_run_err("f xs:L n>L n;flt 42 xs", Some("f"),
-            vec![Value::List(vec![Value::Number(1.0)])]);
-        assert!(err.contains("flt") || err.contains("fn") || err.contains("function"), "got: {err}");
+        let err = vm_run_err(
+            "f xs:L n>L n;flt 42 xs",
+            Some("f"),
+            vec![Value::List(vec![Value::Number(1.0)])],
+        );
+        assert!(
+            err.contains("flt") || err.contains("fn") || err.contains("function"),
+            "got: {err}"
+        );
     }
 
     #[test]
     #[ignore] // VM missing builtin implementation
     fn vm_fld_sum() {
         let source = "add a:n b:n>n;+a b main xs:L n>n;fld add xs 0";
-        let result = vm_run(source, Some("main"), vec![
-            Value::List(vec![1.0, 2.0, 3.0, 4.0, 5.0].into_iter().map(Value::Number).collect())
-        ]);
+        let result = vm_run(
+            source,
+            Some("main"),
+            vec![Value::List(
+                vec![1.0, 2.0, 3.0, 4.0, 5.0]
+                    .into_iter()
+                    .map(Value::Number)
+                    .collect(),
+            )],
+        );
         assert_eq!(result, Value::Number(15.0));
     }
 
     #[test]
     fn vm_fld_wrong_fn_arg() {
         let err = vm_run_err("f>n;fld 42 [1, 2] 0", Some("f"), vec![]);
-        assert!(err.contains("fld") || err.contains("fn") || err.contains("function"), "got: {err}");
+        assert!(
+            err.contains("fld") || err.contains("fn") || err.contains("function"),
+            "got: {err}"
+        );
     }
 
     #[test]
@@ -13551,25 +16184,58 @@ mod tests {
     #[ignore] // VM missing HOF/FnRef resolution
     fn vm_grp_by_string_key() {
         let source = r#"cl x:n>t;>x 5{"big"}{"small"} main xs:L n>M t L n;grp cl xs"#;
-        let result = vm_run(source, Some("main"), vec![
-            Value::List(vec![1.0, 8.0, 3.0, 9.0, 2.0].into_iter().map(Value::Number).collect())
-        ]);
-        let Value::Map(m) = result else { panic!("expected Map") };
-        assert_eq!(m.get("small").unwrap(), &Value::List(vec![1.0, 3.0, 2.0].into_iter().map(Value::Number).collect()));
-        assert_eq!(m.get("big").unwrap(), &Value::List(vec![8.0, 9.0].into_iter().map(Value::Number).collect()));
+        let result = vm_run(
+            source,
+            Some("main"),
+            vec![Value::List(
+                vec![1.0, 8.0, 3.0, 9.0, 2.0]
+                    .into_iter()
+                    .map(Value::Number)
+                    .collect(),
+            )],
+        );
+        let Value::Map(m) = result else {
+            panic!("expected Map")
+        };
+        assert_eq!(
+            m.get("small").unwrap(),
+            &Value::List(vec![1.0, 3.0, 2.0].into_iter().map(Value::Number).collect())
+        );
+        assert_eq!(
+            m.get("big").unwrap(),
+            &Value::List(vec![8.0, 9.0].into_iter().map(Value::Number).collect())
+        );
     }
 
     #[test]
     #[ignore] // VM missing HOF/FnRef resolution
     fn vm_grp_by_numeric_key() {
         let source = "key x:n>t;str x main xs:L n>M t L n;grp key xs";
-        let result = vm_run(source, Some("main"), vec![
-            Value::List(vec![1.0, 2.0, 1.0, 3.0, 2.0].into_iter().map(Value::Number).collect())
-        ]);
-        let Value::Map(m) = result else { panic!("expected Map") };
-        assert_eq!(m.get("1").unwrap(), &Value::List(vec![1.0, 1.0].into_iter().map(Value::Number).collect()));
-        assert_eq!(m.get("2").unwrap(), &Value::List(vec![2.0, 2.0].into_iter().map(Value::Number).collect()));
-        assert_eq!(m.get("3").unwrap(), &Value::List(vec![3.0].into_iter().map(Value::Number).collect()));
+        let result = vm_run(
+            source,
+            Some("main"),
+            vec![Value::List(
+                vec![1.0, 2.0, 1.0, 3.0, 2.0]
+                    .into_iter()
+                    .map(Value::Number)
+                    .collect(),
+            )],
+        );
+        let Value::Map(m) = result else {
+            panic!("expected Map")
+        };
+        assert_eq!(
+            m.get("1").unwrap(),
+            &Value::List(vec![1.0, 1.0].into_iter().map(Value::Number).collect())
+        );
+        assert_eq!(
+            m.get("2").unwrap(),
+            &Value::List(vec![2.0, 2.0].into_iter().map(Value::Number).collect())
+        );
+        assert_eq!(
+            m.get("3").unwrap(),
+            &Value::List(vec![3.0].into_iter().map(Value::Number).collect())
+        );
     }
 
     #[test]
@@ -13583,7 +16249,10 @@ mod tests {
     #[test]
     fn vm_grp_wrong_fn_arg() {
         let err = vm_run_err("f>t;grp 42 [1, 2, 3]", Some("f"), vec![]);
-        assert!(err.contains("grp") || err.contains("fn") || err.contains("function"), "got: {err}");
+        assert!(
+            err.contains("grp") || err.contains("fn") || err.contains("function"),
+            "got: {err}"
+        );
     }
 
     #[test]
@@ -13597,10 +16266,18 @@ mod tests {
     #[ignore] // VM missing HOF/FnRef resolution
     fn vm_grp_number_key() {
         let source = "id x:n>n;x g xs:L n>_;grp id xs";
-        let result = vm_run(source, Some("g"), vec![
-            Value::List(vec![Value::Number(1.0), Value::Number(2.0), Value::Number(1.0)]),
-        ]);
-        let Value::Map(m) = result else { panic!("expected map") };
+        let result = vm_run(
+            source,
+            Some("g"),
+            vec![Value::List(vec![
+                Value::Number(1.0),
+                Value::Number(2.0),
+                Value::Number(1.0),
+            ])],
+        );
+        let Value::Map(m) = result else {
+            panic!("expected map")
+        };
         assert_eq!(m.len(), 2);
     }
 
@@ -13608,10 +16285,18 @@ mod tests {
     #[ignore] // VM missing HOF/FnRef resolution
     fn vm_grp_bool_key() {
         let source = "pos x:n>b;>x 0 g xs:L n>_;grp pos xs";
-        let result = vm_run(source, Some("g"), vec![
-            Value::List(vec![Value::Number(-1.0), Value::Number(1.0), Value::Number(2.0)]),
-        ]);
-        let Value::Map(m) = result else { panic!("expected map") };
+        let result = vm_run(
+            source,
+            Some("g"),
+            vec![Value::List(vec![
+                Value::Number(-1.0),
+                Value::Number(1.0),
+                Value::Number(2.0),
+            ])],
+        );
+        let Value::Map(m) = result else {
+            panic!("expected map")
+        };
         assert!(m.contains_key("true"));
         assert!(m.contains_key("false"));
     }
@@ -13620,22 +16305,38 @@ mod tests {
     #[ignore] // VM missing HOF/FnRef resolution
     fn vm_grp_float_key() {
         let source = "half x:n>n;/x 2 g xs:L n>_;grp half xs";
-        let result = vm_run(source, Some("g"), vec![
-            Value::List(vec![Value::Number(1.0), Value::Number(2.0), Value::Number(3.0)]),
-        ]);
-        let Value::Map(m) = result else { panic!("expected Map") };
-        assert!(m.contains_key("0.5") || m.contains_key("1.5"),
-            "expected float key, got: {:?}", m.keys().collect::<Vec<_>>());
+        let result = vm_run(
+            source,
+            Some("g"),
+            vec![Value::List(vec![
+                Value::Number(1.0),
+                Value::Number(2.0),
+                Value::Number(3.0),
+            ])],
+        );
+        let Value::Map(m) = result else {
+            panic!("expected Map")
+        };
+        assert!(
+            m.contains_key("0.5") || m.contains_key("1.5"),
+            "expected float key, got: {:?}",
+            m.keys().collect::<Vec<_>>()
+        );
     }
 
     #[test]
     #[ignore] // VM missing HOF/FnRef resolution
     fn vm_grp_key_returns_list_error() {
         let source = "mk x:n>L n;[x] g xs:L n>_;grp mk xs";
-        let err = vm_run_err(source, Some("g"), vec![
-            Value::List(vec![Value::Number(1.0), Value::Number(2.0)]),
-        ]);
-        assert!(err.contains("grp") || err.contains("key") || err.contains("string"), "got: {err}");
+        let err = vm_run_err(
+            source,
+            Some("g"),
+            vec![Value::List(vec![Value::Number(1.0), Value::Number(2.0)])],
+        );
+        assert!(
+            err.contains("grp") || err.contains("key") || err.contains("string"),
+            "got: {err}"
+        );
     }
 
     // ── sum, avg ────────────────────────────────────────────────────────
@@ -13644,9 +16345,16 @@ mod tests {
     #[ignore] // VM missing builtin implementation
     fn vm_sum_basic() {
         let source = "f xs:L n>n;sum xs";
-        let result = vm_run(source, Some("f"), vec![
-            Value::List(vec![1.0, 2.0, 3.0, 4.0, 5.0].into_iter().map(Value::Number).collect())
-        ]);
+        let result = vm_run(
+            source,
+            Some("f"),
+            vec![Value::List(
+                vec![1.0, 2.0, 3.0, 4.0, 5.0]
+                    .into_iter()
+                    .map(Value::Number)
+                    .collect(),
+            )],
+        );
         assert_eq!(result, Value::Number(15.0));
     }
 
@@ -13654,7 +16362,10 @@ mod tests {
     #[ignore] // VM missing builtin implementation
     fn vm_sum_empty() {
         let source = "f xs:L n>n;sum xs";
-        assert_eq!(vm_run(source, Some("f"), vec![Value::List(vec![])]), Value::Number(0.0));
+        assert_eq!(
+            vm_run(source, Some("f"), vec![Value::List(vec![])]),
+            Value::Number(0.0)
+        );
     }
 
     #[test]
@@ -13673,9 +16384,13 @@ mod tests {
     #[ignore] // VM missing builtin implementation
     fn vm_avg_basic() {
         let source = "f xs:L n>n;avg xs";
-        let result = vm_run(source, Some("f"), vec![
-            Value::List(vec![2.0, 4.0, 6.0].into_iter().map(Value::Number).collect())
-        ]);
+        let result = vm_run(
+            source,
+            Some("f"),
+            vec![Value::List(
+                vec![2.0, 4.0, 6.0].into_iter().map(Value::Number).collect(),
+            )],
+        );
         assert_eq!(result, Value::Number(4.0));
     }
 
@@ -13693,8 +16408,11 @@ mod tests {
 
     #[test]
     fn vm_avg_non_number_element() {
-        let err = vm_run_err("f xs:L n>n;avg xs", Some("f"),
-            vec![Value::List(vec![Value::Text("x".into())])]);
+        let err = vm_run_err(
+            "f xs:L n>n;avg xs",
+            Some("f"),
+            vec![Value::List(vec![Value::Text("x".into())])],
+        );
         assert!(err.contains("avg") || err.contains("number"), "got: {err}");
     }
 
@@ -13705,7 +16423,15 @@ mod tests {
     fn vm_flat_nested() {
         let source = "f>L n;flat [[1, 2], [3], [4, 5]]";
         let result = vm_run(source, Some("f"), vec![]);
-        assert_eq!(result, Value::List(vec![1.0, 2.0, 3.0, 4.0, 5.0].into_iter().map(Value::Number).collect()));
+        assert_eq!(
+            result,
+            Value::List(
+                vec![1.0, 2.0, 3.0, 4.0, 5.0]
+                    .into_iter()
+                    .map(Value::Number)
+                    .collect()
+            )
+        );
     }
 
     #[test]
@@ -13713,13 +16439,19 @@ mod tests {
     fn vm_flat_mixed() {
         let source = "f>L n;flat [[1, 2], 3]";
         let result = vm_run(source, Some("f"), vec![]);
-        assert_eq!(result, Value::List(vec![1.0, 2.0, 3.0].into_iter().map(Value::Number).collect()));
+        assert_eq!(
+            result,
+            Value::List(vec![1.0, 2.0, 3.0].into_iter().map(Value::Number).collect())
+        );
     }
 
     #[test]
     #[ignore] // VM missing builtin implementation
     fn vm_flat_empty() {
-        assert_eq!(vm_run("f>L n;flat []", Some("f"), vec![]), Value::List(vec![]));
+        assert_eq!(
+            vm_run("f>L n;flat []", Some("f"), vec![]),
+            Value::List(vec![])
+        );
     }
 
     #[test]
@@ -13734,46 +16466,69 @@ mod tests {
     #[ignore] // VM missing HOF/FnRef resolution
     fn vm_srt_fn_by_length() {
         let source = "ln s:t>n;len s main xs:L t>L t;srt ln xs";
-        let result = vm_run(source, Some("main"), vec![
-            Value::List(vec![
+        let result = vm_run(
+            source,
+            Some("main"),
+            vec![Value::List(vec![
                 Value::Text("banana".into()),
                 Value::Text("a".into()),
                 Value::Text("cc".into()),
-            ]),
-        ]);
-        assert_eq!(result, Value::List(vec![
-            Value::Text("a".into()),
-            Value::Text("cc".into()),
-            Value::Text("banana".into()),
-        ]));
+            ])],
+        );
+        assert_eq!(
+            result,
+            Value::List(vec![
+                Value::Text("a".into()),
+                Value::Text("cc".into()),
+                Value::Text("banana".into()),
+            ])
+        );
     }
 
     #[test]
     #[ignore] // VM missing HOF/FnRef resolution
     fn vm_srt_fn_numeric_key() {
         let source = "neg x:n>n;-x main xs:L n>L n;srt neg xs";
-        let result = vm_run(source, Some("main"), vec![
-            Value::List(vec![Value::Number(1.0), Value::Number(3.0), Value::Number(2.0)]),
-        ]);
-        assert_eq!(result, Value::List(vec![Value::Number(3.0), Value::Number(2.0), Value::Number(1.0)]));
+        let result = vm_run(
+            source,
+            Some("main"),
+            vec![Value::List(vec![
+                Value::Number(1.0),
+                Value::Number(3.0),
+                Value::Number(2.0),
+            ])],
+        );
+        assert_eq!(
+            result,
+            Value::List(vec![
+                Value::Number(3.0),
+                Value::Number(2.0),
+                Value::Number(1.0)
+            ])
+        );
     }
 
     #[test]
     #[ignore] // VM missing HOF/FnRef resolution
     fn vm_srt_key_fn_text_keys() {
         let source = "id x:t>t;x main xs:L t>L t;srt id xs";
-        let result = vm_run(source, Some("main"), vec![
-            Value::List(vec![
+        let result = vm_run(
+            source,
+            Some("main"),
+            vec![Value::List(vec![
                 Value::Text("banana".into()),
                 Value::Text("apple".into()),
                 Value::Text("cherry".into()),
-            ]),
-        ]);
-        assert_eq!(result, Value::List(vec![
-            Value::Text("apple".into()),
-            Value::Text("banana".into()),
-            Value::Text("cherry".into()),
-        ]));
+            ])],
+        );
+        assert_eq!(
+            result,
+            Value::List(vec![
+                Value::Text("apple".into()),
+                Value::Text("banana".into()),
+                Value::Text("cherry".into()),
+            ])
+        );
     }
 
     #[test]
@@ -13786,14 +16541,23 @@ mod tests {
 
     #[test]
     fn vm_srt_key_not_fn_ref() {
-        let err = vm_run_err("f xs:L n>L n;srt 42 xs", Some("f"),
-            vec![Value::List(vec![Value::Number(1.0)])]);
-        assert!(err.contains("srt") || err.contains("fn") || err.contains("function"), "got: {err}");
+        let err = vm_run_err(
+            "f xs:L n>L n;srt 42 xs",
+            Some("f"),
+            vec![Value::List(vec![Value::Number(1.0)])],
+        );
+        assert!(
+            err.contains("srt") || err.contains("fn") || err.contains("function"),
+            "got: {err}"
+        );
     }
 
     #[test]
     fn vm_srt_text_string() {
-        assert_eq!(vm_run(r#"f>t;srt "cab""#, Some("f"), vec![]), Value::Text("abc".into()));
+        assert_eq!(
+            vm_run(r#"f>t;srt "cab""#, Some("f"), vec![]),
+            Value::Text("abc".into())
+        );
     }
 
     #[test]
@@ -13801,13 +16565,18 @@ mod tests {
     fn vm_srt_bool_key_equal_ordering() {
         let source = "pos x:n>b;> x 0 f>L n;srt pos [3,-1,2,-2]";
         let result = vm_run(source, Some("f"), vec![]);
-        let Value::List(items) = result else { panic!("expected List, got {:?}", result) };
+        let Value::List(items) = result else {
+            panic!("expected List, got {:?}", result)
+        };
         assert_eq!(items.len(), 4);
     }
 
     #[test]
     fn vm_ok_srt_empty_list() {
-        assert_eq!(vm_run("f>L n;srt []", Some("f"), vec![]), Value::List(vec![]));
+        assert_eq!(
+            vm_run("f>L n;srt []", Some("f"), vec![]),
+            Value::List(vec![])
+        );
     }
 
     // ── slc clamped ─────────────────────────────────────────────────────
@@ -13825,16 +16594,29 @@ mod tests {
 
     #[test]
     fn vm_unq_list_strings() {
-        let result = vm_run("f xs:L t>L t;unq xs", Some("f"), vec![
-            Value::List(vec![Value::Text("a".into()), Value::Text("b".into()), Value::Text("a".into())]),
-        ]);
-        assert_eq!(result, Value::List(vec![Value::Text("a".into()), Value::Text("b".into())]));
+        let result = vm_run(
+            "f xs:L t>L t;unq xs",
+            Some("f"),
+            vec![Value::List(vec![
+                Value::Text("a".into()),
+                Value::Text("b".into()),
+                Value::Text("a".into()),
+            ])],
+        );
+        assert_eq!(
+            result,
+            Value::List(vec![Value::Text("a".into()), Value::Text("b".into())])
+        );
     }
 
     #[test]
     fn vm_unq_text_chars() {
         assert_eq!(
-            vm_run("f s:t>t;unq s", Some("f"), vec![Value::Text("aabbc".into())]),
+            vm_run(
+                "f s:t>t;unq s",
+                Some("f"),
+                vec![Value::Text("aabbc".into())]
+            ),
             Value::Text("abc".into())
         );
     }
@@ -13842,7 +16624,13 @@ mod tests {
     #[test]
     fn vm_unq_wrong_type() {
         let err = vm_run_err("f>n;unq 42", Some("f"), vec![]);
-        assert!(err.contains("unq") || err.contains("list") || err.contains("text") || err.contains("type"), "got: {err}");
+        assert!(
+            err.contains("unq")
+                || err.contains("list")
+                || err.contains("text")
+                || err.contains("type"),
+            "got: {err}"
+        );
     }
 
     // ── fmt ──────────────────────────────────────────────────────────────
@@ -13861,7 +16649,10 @@ mod tests {
     #[test]
     #[ignore] // VM missing builtin implementation
     fn vm_fmt_template_only() {
-        assert_eq!(vm_run(r#"f>t;fmt "hello""#, Some("f"), vec![]), Value::Text("hello".into()));
+        assert_eq!(
+            vm_run(r#"f>t;fmt "hello""#, Some("f"), vec![]),
+            Value::Text("hello".into())
+        );
     }
 
     #[test]
@@ -13889,7 +16680,10 @@ mod tests {
     #[test]
     fn vm_fmt_wrong_first_arg() {
         let err = vm_run_err("f>n;fmt 42", Some("f"), vec![]);
-        assert!(err.contains("fmt") || err.contains("text") || err.contains("type"), "got: {err}");
+        assert!(
+            err.contains("fmt") || err.contains("text") || err.contains("type"),
+            "got: {err}"
+        );
     }
 
     // ── prnt ─────────────────────────────────────────────────────────────
@@ -13909,48 +16703,72 @@ mod tests {
     #[ignore] // VM missing builtin implementation
     fn vm_rgx_find_all() {
         let source = r#"f s:t>L t;rgx "\d+" s"#;
-        let result = vm_run(source, Some("f"), vec![Value::Text("abc 123 def 456".into())]);
-        assert_eq!(result, Value::List(vec![
-            Value::Text("123".into()),
-            Value::Text("456".into()),
-        ]));
+        let result = vm_run(
+            source,
+            Some("f"),
+            vec![Value::Text("abc 123 def 456".into())],
+        );
+        assert_eq!(
+            result,
+            Value::List(vec![Value::Text("123".into()), Value::Text("456".into()),])
+        );
     }
 
     #[test]
     #[ignore] // VM missing builtin implementation
     fn vm_rgx_capture_groups() {
         let source = r#"f s:t>L t;rgx "(\w+)=(\w+)" s"#;
-        let result = vm_run(source, Some("f"), vec![Value::Text("name=alice age=30".into())]);
-        assert_eq!(result, Value::List(vec![
-            Value::Text("name".into()),
-            Value::Text("alice".into()),
-        ]));
+        let result = vm_run(
+            source,
+            Some("f"),
+            vec![Value::Text("name=alice age=30".into())],
+        );
+        assert_eq!(
+            result,
+            Value::List(vec![
+                Value::Text("name".into()),
+                Value::Text("alice".into()),
+            ])
+        );
     }
 
     #[test]
     #[ignore] // VM missing builtin implementation
     fn vm_rgx_no_match() {
         let source = r#"f s:t>L t;rgx "\d+" s"#;
-        let result = vm_run(source, Some("f"), vec![Value::Text("no numbers here".into())]);
+        let result = vm_run(
+            source,
+            Some("f"),
+            vec![Value::Text("no numbers here".into())],
+        );
         assert_eq!(result, Value::List(vec![]));
     }
 
     #[test]
     fn vm_rgx_invalid_pattern() {
         let err = vm_run_err(r#"f>L t;rgx "[invalid" "test""#, Some("f"), vec![]);
-        assert!(err.contains("rgx") || err.contains("regex") || err.contains("pattern"), "got: {err}");
+        assert!(
+            err.contains("rgx") || err.contains("regex") || err.contains("pattern"),
+            "got: {err}"
+        );
     }
 
     #[test]
     fn vm_rgx_wrong_arg_types() {
         let err = vm_run_err(r#"f>L t;rgx 42 "test""#, Some("f"), vec![]);
-        assert!(err.contains("rgx") || err.contains("text") || err.contains("type"), "got: {err}");
+        assert!(
+            err.contains("rgx") || err.contains("text") || err.contains("type"),
+            "got: {err}"
+        );
     }
 
     #[test]
     fn vm_rgx_non_text_second_arg() {
         let err = vm_run_err(r#"f>L t;rgx "." 42"#, Some("f"), vec![]);
-        assert!(err.contains("rgx") || err.contains("text") || err.contains("type"), "got: {err}");
+        assert!(
+            err.contains("rgx") || err.contains("text") || err.contains("type"),
+            "got: {err}"
+        );
     }
 
     // ── JSON builtins ───────────────────────────────────────────────────
@@ -13958,20 +16776,31 @@ mod tests {
     #[test]
     fn vm_jp_object() {
         let source = r#"f j:t p:t>R t t;jpth j p"#;
-        let result = vm_run(source, Some("f"), vec![
-            Value::Text(r#"{"name":"alice"}"#.to_string()),
-            Value::Text("name".to_string()),
-        ]);
-        assert_eq!(result, Value::Ok(Box::new(Value::Text("alice".to_string()))));
+        let result = vm_run(
+            source,
+            Some("f"),
+            vec![
+                Value::Text(r#"{"name":"alice"}"#.to_string()),
+                Value::Text("name".to_string()),
+            ],
+        );
+        assert_eq!(
+            result,
+            Value::Ok(Box::new(Value::Text("alice".to_string())))
+        );
     }
 
     #[test]
     fn vm_jp_invalid_json() {
         let source = r#"f j:t p:t>R t t;jpth j p"#;
-        let result = vm_run(source, Some("f"), vec![
-            Value::Text("not json".to_string()),
-            Value::Text("x".to_string()),
-        ]);
+        let result = vm_run(
+            source,
+            Some("f"),
+            vec![
+                Value::Text("not json".to_string()),
+                Value::Text("x".to_string()),
+            ],
+        );
         assert!(matches!(result, Value::Err(_)));
     }
 
@@ -13995,16 +16824,23 @@ mod tests {
     #[test]
     fn vm_jpar_wrong_arg_type() {
         let err = vm_run_err("f>t;jpar 42", Some("f"), vec![]);
-        assert!(err.contains("jpar") || err.contains("text") || err.contains("type"), "got: {err}");
+        assert!(
+            err.contains("jpar") || err.contains("text") || err.contains("type"),
+            "got: {err}"
+        );
     }
 
     #[test]
     fn vm_jpth_array_index() {
         let source = r#"f j:t p:t>R t t;jpth j p"#;
-        let result = vm_run(source, Some("f"), vec![
-            Value::Text(r#"[10,20,30]"#.to_string()),
-            Value::Text("1".to_string()),
-        ]);
+        let result = vm_run(
+            source,
+            Some("f"),
+            vec![
+                Value::Text(r#"[10,20,30]"#.to_string()),
+                Value::Text("1".to_string()),
+            ],
+        );
         assert_eq!(result, Value::Ok(Box::new(Value::Text("20".into()))));
     }
 
@@ -14012,20 +16848,31 @@ mod tests {
     fn vm_jpth_array_index_out_of_bounds() {
         let source = r#"f>R t t;jpth "[1,2,3]" "5""#;
         let result = vm_run(source, Some("f"), vec![]);
-        let Value::Err(inner) = result else { panic!("expected Err, got {:?}", result) };
+        let Value::Err(inner) = result else {
+            panic!("expected Err, got {:?}", result)
+        };
         let s = inner.to_string();
-        assert!(s.contains("not found") || s.contains("5") || s.contains("key"), "got: {s}");
+        assert!(
+            s.contains("not found") || s.contains("5") || s.contains("key"),
+            "got: {s}"
+        );
     }
 
     #[test]
     fn vm_jpth_wrong_args() {
         let err = vm_run_err(r#"f>t;jpth 42 "path""#, Some("f"), vec![]);
-        assert!(err.contains("jpth") || err.contains("text") || err.contains("type"), "got: {err}");
+        assert!(
+            err.contains("jpth") || err.contains("text") || err.contains("type"),
+            "got: {err}"
+        );
     }
 
     #[test]
     fn vm_jdmp_bool_value() {
-        assert_eq!(vm_run("f>t;jdmp true", Some("f"), vec![]), Value::Text("true".into()));
+        assert_eq!(
+            vm_run("f>t;jdmp true", Some("f"), vec![]),
+            Value::Text("true".into())
+        );
     }
 
     #[test]
@@ -14039,7 +16886,9 @@ mod tests {
     fn vm_jdmp_fnref() {
         let source = "sq x:n>n;*x x f>t;r=sq;jdmp r";
         let result = vm_run(source, Some("f"), vec![]);
-        let Value::Text(s) = result else { panic!("expected Text") };
+        let Value::Text(s) = result else {
+            panic!("expected Text")
+        };
         assert!(s.contains("fn:sq") || s.contains("sq"), "got: {s}");
     }
 
@@ -14073,8 +16922,15 @@ mod tests {
 
     #[test]
     fn vm_mkeys_happy_path() {
-        let result = vm_run(r#"f>L t;m=mset (mset mmap "b" 2) "a" 1;mkeys m"#, Some("f"), vec![]);
-        assert_eq!(result, Value::List(vec![Value::Text("a".into()), Value::Text("b".into())]));
+        let result = vm_run(
+            r#"f>L t;m=mset (mset mmap "b" 2) "a" 1;mkeys m"#,
+            Some("f"),
+            vec![],
+        );
+        assert_eq!(
+            result,
+            Value::List(vec![Value::Text("a".into()), Value::Text("b".into())])
+        );
     }
 
     #[test]
@@ -14086,8 +16942,15 @@ mod tests {
 
     #[test]
     fn vm_mvals_happy_path() {
-        let result = vm_run(r#"f>L n;m=mset (mset mmap "b" 2) "a" 1;mvals m"#, Some("f"), vec![]);
-        assert_eq!(result, Value::List(vec![Value::Number(1.0), Value::Number(2.0)]));
+        let result = vm_run(
+            r#"f>L n;m=mset (mset mmap "b" 2) "a" 1;mvals m"#,
+            Some("f"),
+            vec![],
+        );
+        assert_eq!(
+            result,
+            Value::List(vec![Value::Number(1.0), Value::Number(2.0)])
+        );
     }
 
     #[test]
@@ -14099,7 +16962,11 @@ mod tests {
 
     #[test]
     fn vm_mdel_happy_path() {
-        let result = vm_run(r#"f>n;m=mset (mset mmap "a" 1) "b" 2;m2=mdel m "a";len m2"#, Some("f"), vec![]);
+        let result = vm_run(
+            r#"f>n;m=mset (mset mmap "a" 1) "b" 2;m2=mdel m "a";len m2"#,
+            Some("f"),
+            vec![],
+        );
         assert_eq!(result, Value::Number(1.0));
     }
 
@@ -14129,7 +16996,10 @@ mod tests {
     #[test]
     fn vm_rnd_wrong_types() {
         let err = vm_run_err(r#"f>n;rnd "a" "b""#, Some("f"), vec![]);
-        assert!(err.contains("rnd") || err.contains("number") || err.contains("type"), "got: {err}");
+        assert!(
+            err.contains("rnd") || err.contains("number") || err.contains("type"),
+            "got: {err}"
+        );
     }
 
     // ── Safe field/index on nil ──────────────────────────────────────────
@@ -14175,10 +17045,11 @@ mod tests {
     #[ignore] // VM missing HOF/FnRef resolution
     fn vm_user_hof_fn_type() {
         let source = "sq x:n>n;*x x apl f:F n n x:n>n;f x";
-        let result = vm_run(source, Some("apl"), vec![
-            Value::FnRef("sq".to_string()),
-            Value::Number(7.0),
-        ]);
+        let result = vm_run(
+            source,
+            Some("apl"),
+            vec![Value::FnRef("sq".to_string()), Value::Number(7.0)],
+        );
         assert_eq!(result, Value::Number(49.0));
     }
 
@@ -14245,8 +17116,12 @@ mod tests {
             Some("f"),
             vec![Value::Text("a,b\n1,2".into())],
         );
-        let Value::Ok(inner) = result else { panic!("expected Ok") };
-        let Value::List(rows) = *inner else { panic!("expected list") };
+        let Value::Ok(inner) = result else {
+            panic!("expected Ok")
+        };
+        let Value::List(rows) = *inner else {
+            panic!("expected list")
+        };
         assert_eq!(rows.len(), 2);
     }
 
@@ -14258,8 +17133,12 @@ mod tests {
             Some("f"),
             vec![Value::Text("a,b,c".into())],
         );
-        let Value::Ok(inner) = result else { panic!("expected Ok") };
-        let Value::List(rows) = *inner else { panic!("expected list") };
+        let Value::Ok(inner) = result else {
+            panic!("expected Ok")
+        };
+        let Value::List(rows) = *inner else {
+            panic!("expected list")
+        };
         assert_eq!(rows.len(), 1);
     }
 
@@ -14271,7 +17150,11 @@ mod tests {
             Some("f"),
             vec![Value::Text(r#"{"x":1}"#.into())],
         );
-        assert!(matches!(result, Value::Ok(_)), "expected Ok, got {:?}", result);
+        assert!(
+            matches!(result, Value::Ok(_)),
+            "expected Ok, got {:?}",
+            result
+        );
     }
 
     #[test]
@@ -14282,7 +17165,11 @@ mod tests {
             Some("f"),
             vec![Value::Text("not json".into())],
         );
-        assert!(matches!(result, Value::Err(_)), "expected Err, got {:?}", result);
+        assert!(
+            matches!(result, Value::Err(_)),
+            "expected Err, got {:?}",
+            result
+        );
     }
 
     #[test]
@@ -14299,13 +17186,19 @@ mod tests {
     #[test]
     fn vm_rdb_wrong_first_arg() {
         let err = vm_run_err(r#"f>t;rdb 42 "raw""#, Some("f"), vec![]);
-        assert!(err.contains("rdb") || err.contains("text") || err.contains("type"), "got: {err}");
+        assert!(
+            err.contains("rdb") || err.contains("text") || err.contains("type"),
+            "got: {err}"
+        );
     }
 
     #[test]
     fn vm_rdb_wrong_format_arg() {
         let err = vm_run_err(r#"f>t;rdb "hello" 42"#, Some("f"), vec![]);
-        assert!(err.contains("rdb") || err.contains("format") || err.contains("text"), "got: {err}");
+        assert!(
+            err.contains("rdb") || err.contains("format") || err.contains("text"),
+            "got: {err}"
+        );
     }
 
     // ── rd ──────────────────────────────────────────────────────────────
@@ -14313,13 +17206,19 @@ mod tests {
     #[test]
     fn vm_rd_wrong_arg_type() {
         let err = vm_run_err("f>t;rd 42", Some("f"), vec![]);
-        assert!(err.contains("rd") || err.contains("text") || err.contains("type"), "got: {err}");
+        assert!(
+            err.contains("rd") || err.contains("text") || err.contains("type"),
+            "got: {err}"
+        );
     }
 
     #[test]
     fn vm_rd_with_wrong_format_type() {
         let err = vm_run_err("f>t;rd \"/tmp\" 42", Some("f"), vec![]);
-        assert!(err.contains("rd") || err.contains("format") || err.contains("text"), "got: {err}");
+        assert!(
+            err.contains("rd") || err.contains("format") || err.contains("text"),
+            "got: {err}"
+        );
     }
 
     #[test]
@@ -14329,7 +17228,9 @@ mod tests {
         std::fs::write(path, "hello").unwrap();
         let source = format!(r#"f>R t t;rd "{path}" "raw""#);
         let result = vm_run(&source, Some("f"), vec![]);
-        let Value::Ok(inner) = result else { panic!("expected Ok") };
+        let Value::Ok(inner) = result else {
+            panic!("expected Ok")
+        };
         assert_eq!(*inner, Value::Text("hello".into()));
     }
 
@@ -14353,8 +17254,12 @@ mod tests {
         let path_str = path.to_str().unwrap().to_string();
         let result = vm_run("f p:t>t;rdl p", Some("f"), vec![Value::Text(path_str)]);
         std::fs::remove_file(&path).ok();
-        let Value::Ok(inner) = result else { panic!("expected Ok") };
-        let Value::List(lines) = *inner else { panic!("expected list") };
+        let Value::Ok(inner) = result else {
+            panic!("expected Ok")
+        };
+        let Value::List(lines) = *inner else {
+            panic!("expected list")
+        };
         assert_eq!(lines.len(), 3);
         assert_eq!(lines[0], Value::Text("line1".into()));
     }
@@ -14366,13 +17271,20 @@ mod tests {
             Some("f"),
             vec![Value::Text("/nonexistent/ilo_rdl_test.txt".into())],
         );
-        assert!(matches!(result, Value::Err(_)), "expected Err, got {:?}", result);
+        assert!(
+            matches!(result, Value::Err(_)),
+            "expected Err, got {:?}",
+            result
+        );
     }
 
     #[test]
     fn vm_rdl_wrong_arg() {
         let err = vm_run_err("f>t;rdl 42", Some("f"), vec![]);
-        assert!(err.contains("rdl") || err.contains("text") || err.contains("type"), "got: {err}");
+        assert!(
+            err.contains("rdl") || err.contains("text") || err.contains("type"),
+            "got: {err}"
+        );
     }
 
     // ── wr ──────────────────────────────────────────────────────────────
@@ -14388,13 +17300,20 @@ mod tests {
             vec![Value::Text(path_str.clone())],
         );
         std::fs::remove_file(&path).ok();
-        assert!(matches!(result, Value::Ok(_)), "expected Ok, got {:?}", result);
+        assert!(
+            matches!(result, Value::Ok(_)),
+            "expected Ok, got {:?}",
+            result
+        );
     }
 
     #[test]
     fn vm_wr_wrong_args() {
         let err = vm_run_err("f>t;wr 42 \"hello\"", Some("f"), vec![]);
-        assert!(err.contains("wr") || err.contains("text") || err.contains("type"), "got: {err}");
+        assert!(
+            err.contains("wr") || err.contains("text") || err.contains("type"),
+            "got: {err}"
+        );
     }
 
     #[test]
@@ -14485,7 +17404,10 @@ mod tests {
     #[test]
     fn vm_wr_unknown_format() {
         let err = vm_run_err(r#"f>R t t;wr "/tmp/x" "data" "xml""#, Some("f"), vec![]);
-        assert!(err.contains("unknown") || err.contains("format") || err.contains("wr"), "got: {err}");
+        assert!(
+            err.contains("unknown") || err.contains("format") || err.contains("wr"),
+            "got: {err}"
+        );
     }
 
     #[test]
@@ -14538,9 +17460,11 @@ mod tests {
     fn vm_wr_json_with_ok_value() {
         let path = "/tmp/ilo_test_vm_wr_ok.json";
         let source = format!(r#"f x:z>R t t;wr "{path}" x "json""#);
-        let result = vm_run(&source, Some("f"), vec![
-            Value::Ok(Box::new(Value::Number(1.0))),
-        ]);
+        let result = vm_run(
+            &source,
+            Some("f"),
+            vec![Value::Ok(Box::new(Value::Number(1.0)))],
+        );
         assert!(matches!(result, Value::Ok(_)));
     }
 
@@ -14549,7 +17473,10 @@ mod tests {
         let path = "/tmp/ilo_test_vm_wr_fmt_err.csv";
         let source = format!(r#"f>R t t;wr "{path}" [1] 42"#);
         let err = vm_run_err(&source, Some("f"), vec![]);
-        assert!(err.contains("wr") || err.contains("format") || err.contains("text"), "got: {err}");
+        assert!(
+            err.contains("wr") || err.contains("format") || err.contains("text"),
+            "got: {err}"
+        );
     }
 
     #[test]
@@ -14557,7 +17484,10 @@ mod tests {
         let path = "/tmp/ilo_test_vm_wr_csv_nonlist.csv";
         let source = format!(r#"f>R t t;wr "{path}" 42 "csv""#);
         let err = vm_run_err(&source, Some("f"), vec![]);
-        assert!(err.contains("wr") || err.contains("csv") || err.contains("list"), "got: {err}");
+        assert!(
+            err.contains("wr") || err.contains("csv") || err.contains("list"),
+            "got: {err}"
+        );
     }
 
     #[test]
@@ -14565,7 +17495,13 @@ mod tests {
         let path = "/tmp/ilo_test_vm_wr_csv_row_err.csv";
         let source = format!(r#"f>R t t;wr "{path}" [42] "csv""#);
         let err = vm_run_err(&source, Some("f"), vec![]);
-        assert!(err.contains("wr") || err.contains("csv") || err.contains("list") || err.contains("row"), "got: {err}");
+        assert!(
+            err.contains("wr")
+                || err.contains("csv")
+                || err.contains("list")
+                || err.contains("row"),
+            "got: {err}"
+        );
     }
 
     #[test]
@@ -14574,7 +17510,11 @@ mod tests {
         let path = "/tmp/ilo_test_vm_wr_nil.csv";
         let source = format!(r#"f x:z>R t t;wr "{path}" [[x,1]] "csv""#);
         let result = vm_run(&source, Some("f"), vec![Value::Nil]);
-        assert!(matches!(result, Value::Ok(_)), "expected Ok, got {:?}", result);
+        assert!(
+            matches!(result, Value::Ok(_)),
+            "expected Ok, got {:?}",
+            result
+        );
         let content = std::fs::read_to_string(path).unwrap();
         assert!(!content.is_empty());
     }
@@ -14583,16 +17523,24 @@ mod tests {
     fn vm_wr_two_arg_non_text_content_error() {
         let err = vm_run_err(
             r#"f>R t t;wr "/tmp/ilo_test_bad_wr.txt" 42"#,
-            Some("f"), vec![],
+            Some("f"),
+            vec![],
         );
-        assert!(err.contains("wr") || err.contains("text") || err.contains("content"), "got: {err}");
+        assert!(
+            err.contains("wr") || err.contains("text") || err.contains("content"),
+            "got: {err}"
+        );
     }
 
     #[test]
     fn vm_wr_write_failure_returns_err() {
         let source = r#"f>R t t;wr "/no/such/dir/ilo_test.txt" "hello""#;
         let result = vm_run(source, Some("f"), vec![]);
-        assert!(matches!(result, Value::Err(_)), "expected Err for bad path, got {:?}", result);
+        assert!(
+            matches!(result, Value::Err(_)),
+            "expected Err for bad path, got {:?}",
+            result
+        );
     }
 
     // ── wrl ─────────────────────────────────────────────────────────────
@@ -14608,7 +17556,11 @@ mod tests {
             vec![Value::Text(path_str.clone())],
         );
         std::fs::remove_file(&path).ok();
-        assert!(matches!(result, Value::Ok(_)), "expected Ok, got {:?}", result);
+        assert!(
+            matches!(result, Value::Ok(_)),
+            "expected Ok, got {:?}",
+            result
+        );
     }
 
     #[test]
@@ -14624,14 +17576,21 @@ mod tests {
     #[test]
     fn vm_wrl_wrong_args() {
         let err = vm_run_err("f>t;wrl 42 [\"a\"]", Some("f"), vec![]);
-        assert!(err.contains("wrl") || err.contains("text") || err.contains("type"), "got: {err}");
+        assert!(
+            err.contains("wrl") || err.contains("text") || err.contains("type"),
+            "got: {err}"
+        );
     }
 
     #[test]
     fn vm_wrl_write_failure_returns_err() {
         let source = r#"f>R t t;wrl "/no/such/dir/ilo_test.txt" ["a","b"]"#;
         let result = vm_run(source, Some("f"), vec![]);
-        assert!(matches!(result, Value::Err(_)), "expected Err for bad path, got {:?}", result);
+        assert!(
+            matches!(result, Value::Err(_)),
+            "expected Err for bad path, got {:?}",
+            result
+        );
     }
 
     // ── get/post error paths ────────────────────────────────────────────
@@ -14640,20 +17599,32 @@ mod tests {
     #[ignore] // VM skips header type validation, makes network call instead
     fn vm_get_invalid_headers() {
         let err = vm_run_err(r#"f>t;get "http://x" 42"#, Some("f"), vec![]);
-        assert!(err.contains("headers") || err.contains("get") || err.contains("map") || err.contains("M t t"), "got: {err}");
+        assert!(
+            err.contains("headers")
+                || err.contains("get")
+                || err.contains("map")
+                || err.contains("M t t"),
+            "got: {err}"
+        );
     }
 
     #[test]
     fn vm_post_wrong_arg_types() {
         let err = vm_run_err(r#"f>t;post 42 "body""#, Some("f"), vec![]);
-        assert!(err.contains("post") || err.contains("text") || err.contains("type"), "got: {err}");
+        assert!(
+            err.contains("post") || err.contains("text") || err.contains("type"),
+            "got: {err}"
+        );
     }
 
     #[test]
     #[ignore] // VM skips header type validation, makes network call instead
     fn vm_post_invalid_headers() {
         let err = vm_run_err(r#"f>t;post "http://x" "body" 42"#, Some("f"), vec![]);
-        assert!(err.contains("headers") || err.contains("post") || err.contains("map"), "got: {err}");
+        assert!(
+            err.contains("headers") || err.contains("post") || err.contains("map"),
+            "got: {err}"
+        );
     }
 
     // ── Arena-full fallback tests ────────────────────────────────────────────
@@ -14759,7 +17730,10 @@ mod tests {
                 assert_eq!(type_name, "outer");
                 assert_eq!(fields.get("b"), Some(&Value::Number(99.0)));
                 match fields.get("a") {
-                    Some(Value::Record { type_name: inner_name, fields: inner_fields }) => {
+                    Some(Value::Record {
+                        type_name: inner_name,
+                        fields: inner_fields,
+                    }) => {
                         assert_eq!(inner_name, "inner");
                         assert_eq!(inner_fields.get("v"), Some(&Value::Number(42.0)));
                     }
@@ -14832,7 +17806,11 @@ mod tests {
             Value::Text("nil".to_string())
         );
         assert_eq!(
-            vm_run(src, Some("f"), vec![Value::Ok(Box::new(Value::Number(1.0)))]),
+            vm_run(
+                src,
+                Some("f"),
+                vec![Value::Ok(Box::new(Value::Number(1.0)))]
+            ),
             Value::Text("val".to_string())
         );
     }
@@ -14891,7 +17869,10 @@ mod tests {
     fn vm_mod_zero_error() {
         let src = "f x:n>n;mod x 0";
         let err = vm_run_err(src, Some("f"), vec![Value::Number(10.0)]);
-        assert!(err.contains("modulo by zero") || err.contains("zero"), "got: {err}");
+        assert!(
+            err.contains("modulo by zero") || err.contains("zero"),
+            "got: {err}"
+        );
     }
 
     // ── Coverage: OP_RECWITH non-number slot (L3525, 3527) ──────────────────
@@ -14914,7 +17895,10 @@ mod tests {
             Value::Text(s) => s.clone(),
             other => panic!("expected text, got: {other:?}"),
         };
-        assert!(text.contains("\"x\"") && text.contains("\"y\""), "got: {text}");
+        assert!(
+            text.contains("\"x\"") && text.contains("\"y\""),
+            "got: {text}"
+        );
     }
 
     // ── Coverage: serde_json_to_nanval fallback (L4370) ─────────────────────
@@ -15000,9 +17984,14 @@ f>n;r=mk 10 20;+r.x r.y";
     #[test]
     fn vm_list_space_separated() {
         let src = "f>L n;[1 2 3]";
-        assert_eq!(vm_run(src, Some("f"), vec![]), Value::List(vec![
-            Value::Number(1.0), Value::Number(2.0), Value::Number(3.0),
-        ]));
+        assert_eq!(
+            vm_run(src, Some("f"), vec![]),
+            Value::List(vec![
+                Value::Number(1.0),
+                Value::Number(2.0),
+                Value::Number(3.0),
+            ])
+        );
     }
 
     #[test]
@@ -15010,24 +17999,37 @@ f>n;r=mk 10 20;+r.x r.y";
         let src = r#"f w:t>L t;["hi" w]"#;
         assert_eq!(
             vm_run(src, Some("f"), vec![Value::Text("world".to_string())]),
-            Value::List(vec![Value::Text("hi".to_string()), Value::Text("world".to_string())])
+            Value::List(vec![
+                Value::Text("hi".to_string()),
+                Value::Text("world".to_string())
+            ])
         );
     }
 
     #[test]
     fn vm_list_heterogeneous() {
         let src = r#"f>L a;["search" 10 true]"#;
-        assert_eq!(vm_run(src, Some("f"), vec![]), Value::List(vec![
-            Value::Text("search".to_string()), Value::Number(10.0), Value::Bool(true),
-        ]));
+        assert_eq!(
+            vm_run(src, Some("f"), vec![]),
+            Value::List(vec![
+                Value::Text("search".to_string()),
+                Value::Number(10.0),
+                Value::Bool(true),
+            ])
+        );
     }
 
     #[test]
     fn vm_list_mixed_comma_space() {
         let src = "f>L n;[1, 2 3]";
-        assert_eq!(vm_run(src, Some("f"), vec![]), Value::List(vec![
-            Value::Number(1.0), Value::Number(2.0), Value::Number(3.0),
-        ]));
+        assert_eq!(
+            vm_run(src, Some("f"), vec![]),
+            Value::List(vec![
+                Value::Number(1.0),
+                Value::Number(2.0),
+                Value::Number(3.0),
+            ])
+        );
     }
 
     // ── Coverage round 2 ────────────────────────────────────────────────────
@@ -15094,17 +18096,27 @@ f>n;r=mk 10 20;+r.x r.y";
         // Using `a` (any) type to bypass verifier
         let src = r#"f x:a y:a>a;mod x y"#;
         let prog = parse_program(src);
-        let err = compile_and_run(&prog, Some("f"),
-            vec![Value::Text("a".into()), Value::Text("b".into())])
-            .unwrap_err();
-        assert!(err.to_string().contains("mod requires numbers"), "got: {err}");
+        let err = compile_and_run(
+            &prog,
+            Some("f"),
+            vec![Value::Text("a".into()), Value::Text("b".into())],
+        )
+        .unwrap_err();
+        assert!(
+            err.to_string().contains("mod requires numbers"),
+            "got: {err}"
+        );
     }
 
     #[test]
     fn vm_mod_normal_operation() {
         // Normal mod operation for comparison (L3772-3785)
         let src = "f a:n b:n>n;mod a b";
-        let result = vm_run(src, Some("f"), vec![Value::Number(10.0), Value::Number(3.0)]);
+        let result = vm_run(
+            src,
+            Some("f"),
+            vec![Value::Number(10.0), Value::Number(3.0)],
+        );
         assert_eq!(result, Value::Number(1.0));
     }
 
@@ -15113,9 +18125,12 @@ f>n;r=mk 10 20;+r.x r.y";
         // mod by zero triggers "modulo by zero" error (L3782-3783)
         let src = "f a:n b:n>n;mod a b";
         let prog = parse_program(src);
-        let err = compile_and_run(&prog, Some("f"),
-            vec![Value::Number(10.0), Value::Number(0.0)])
-            .unwrap_err();
+        let err = compile_and_run(
+            &prog,
+            Some("f"),
+            vec![Value::Number(10.0), Value::Number(0.0)],
+        )
+        .unwrap_err();
         assert!(err.to_string().contains("modulo by zero"), "got: {err}");
     }
 
@@ -15125,7 +18140,8 @@ f>n;r=mk 10 20;+r.x r.y";
     fn vm_recwith_heap_record_updates() {
         // Record returned from function call (promoted to heap), then `with` update
         // exercises the heap OP_RECWITH path (L3573-3600)
-        let src = "type pt{x:n;y:n}\nmk a:n b:n>pt;pt x:a y:b\nf>n;r=mk 1 2;r2=r with y:99;+r2.x r2.y";
+        let src =
+            "type pt{x:n;y:n}\nmk a:n b:n>pt;pt x:a y:b\nf>n;r=mk 1 2;r2=r with y:99;+r2.x r2.y";
         let result = vm_run(src, Some("f"), vec![]);
         assert_eq!(result, Value::Number(100.0)); // 1 + 99
     }
@@ -15159,9 +18175,14 @@ f>n;r=mk 10 20;+r.x r.y";
         // Multi-frame return where inner function returns a list
         let src = "inner x:n>L n;[x,+x 1,+x 2]\nouter x:n>L n;inner x\nf x:n>L n;outer x";
         let result = vm_run(src, Some("f"), vec![Value::Number(1.0)]);
-        assert_eq!(result, Value::List(vec![
-            Value::Number(1.0), Value::Number(2.0), Value::Number(3.0),
-        ]));
+        assert_eq!(
+            result,
+            Value::List(vec![
+                Value::Number(1.0),
+                Value::Number(2.0),
+                Value::Number(3.0),
+            ])
+        );
     }
 
     #[test]
@@ -15177,13 +18198,19 @@ f>n;r=mk 10 20;+r.x r.y";
     fn vm_sequential_cross_function_calls() {
         // Two sequential calls: a=dbl(n), then triple(a)
         let source = "dbl x:n>n;*x 2\ntriple x:n>n;*x 3\nf n:n>n;a=dbl n;triple a";
-        assert_eq!(vm_run(source, Some("f"), vec![Value::Number(5.0)]), Value::Number(30.0));
+        assert_eq!(
+            vm_run(source, Some("f"), vec![Value::Number(5.0)]),
+            Value::Number(30.0)
+        );
     }
 
     #[test]
     fn vm_long_pipe_chain() {
         // Pipe chain: i>>dbl>>inc>>dbl>>inc = inc(dbl(inc(dbl(i)))) = 4i+3
         let source = "dbl x:n>n;*x 2\ninc x:n>n;+x 1\nf n:n>n;n>>dbl>>inc>>dbl>>inc";
-        assert_eq!(vm_run(source, Some("f"), vec![Value::Number(5.0)]), Value::Number(23.0));
+        assert_eq!(
+            vm_run(source, Some("f"), vec![Value::Number(5.0)]),
+            Value::Number(23.0)
+        );
     }
 }

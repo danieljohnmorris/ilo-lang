@@ -2,8 +2,8 @@
 #[allow(dead_code)] // `short` is used by tooling; `long` is used by --explain
 pub struct ErrorEntry {
     pub code: &'static str,
-    pub short: &'static str,  // brief description for tooling / --list-errors
-    pub long: &'static str,   // full explanation for --explain
+    pub short: &'static str, // brief description for tooling / --list-errors
+    pub long: &'static str,  // full explanation for --explain
 }
 
 /// All stable error codes for the ilo language.
@@ -57,7 +57,6 @@ are reserved for the built-in `List` and `Result` type constructors.
     my-func x:n>n;x
 "#,
     },
-
     // ── Parser ───────────────────────────────────────────────────────────────
     ErrorEntry {
         code: "ILO-P001",
@@ -241,7 +240,6 @@ do not need braces:
     cls sp:n>t;>=sp 1000 "gold";>=sp 500 "silver";"bronze"
 "#,
     },
-
     // ── Type / Verifier ──────────────────────────────────────────────────────
     ErrorEntry {
         code: "ILO-T001",
@@ -530,7 +528,6 @@ arms for each missing case.
     f r:R n t>n;match r{Ok v->v}   -- missing Err arm and wildcard
 "#,
     },
-
     ErrorEntry {
         code: "ILO-T025",
         short: "'!' used on non-Result call",
@@ -587,7 +584,6 @@ but forgot to wrap it in braces.
 Use braces when the guard body is a function call.
 "#,
     },
-
     ErrorEntry {
         code: "ILO-T028",
         short: "brk/cnt used outside a loop",
@@ -605,7 +601,6 @@ body (`@` foreach or `wh` while).
     f xs:L n>n;@ xs x{brk x}
 "#,
     },
-
     ErrorEntry {
         code: "ILO-T029",
         short: "unreachable code",
@@ -621,7 +616,6 @@ never be executed.
 **Fix:** remove the unreachable code or move it before the `ret`/`brk`.
 "#,
     },
-
     // ── Warnings ─────────────────────────────────────────────────────────────
     ErrorEntry {
         code: "ILO-W001",
@@ -648,7 +642,6 @@ Or use `cnt` to skip the iteration:
     f xs:L n>n;r=0;@ xs x{<x 10{cnt};r= +r x;r}
 "#,
     },
-
     // ── Runtime ──────────────────────────────────────────────────────────────
     ErrorEntry {
         code: "ILO-R001",
@@ -812,8 +805,16 @@ mod tests {
     #[test]
     fn all_codes_have_content() {
         for entry in REGISTRY {
-            assert!(!entry.short.is_empty(), "{} missing short description", entry.code);
-            assert!(!entry.long.is_empty(), "{} missing long description", entry.code);
+            assert!(
+                !entry.short.is_empty(),
+                "{} missing short description",
+                entry.code
+            );
+            assert!(
+                !entry.long.is_empty(),
+                "{} missing long description",
+                entry.code
+            );
         }
     }
 }

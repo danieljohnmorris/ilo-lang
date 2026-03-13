@@ -25,9 +25,16 @@ pub fn type_str(ty: &Type) -> String {
 }
 
 pub fn format(program: &Program, mode: FmtMode) -> String {
-    let decls: Vec<&Decl> =
-        program.declarations.iter().filter(|d| !matches!(d, Decl::Error { .. })).collect();
-    let sep = if mode == FmtMode::Expanded { "\n\n" } else { "\n" };
+    let decls: Vec<&Decl> = program
+        .declarations
+        .iter()
+        .filter(|d| !matches!(d, Decl::Error { .. }))
+        .collect();
+    let sep = if mode == FmtMode::Expanded {
+        "\n\n"
+    } else {
+        "\n"
+    };
     let mut parts = Vec::with_capacity(decls.len());
     for decl in decls {
         let mut out = String::new();
@@ -41,7 +48,13 @@ pub fn format(program: &Program, mode: FmtMode) -> String {
 
 fn fmt_decl(out: &mut String, decl: &Decl, mode: FmtMode) {
     match decl {
-        Decl::Function { name, params, return_type, body, .. } => {
+        Decl::Function {
+            name,
+            params,
+            return_type,
+            body,
+            ..
+        } => {
             let params_str = fmt_params(params);
             match mode {
                 FmtMode::Dense => {
@@ -101,7 +114,15 @@ fn fmt_decl(out: &mut String, decl: &Decl, mode: FmtMode) {
             }
         },
 
-        Decl::Tool { name, description, params, return_type, timeout, retry, .. } => {
+        Decl::Tool {
+            name,
+            description,
+            params,
+            return_type,
+            timeout,
+            retry,
+            ..
+        } => {
             let params_str = fmt_params(params);
             let desc = escape_text(description);
             match mode {
@@ -193,13 +214,20 @@ fn fmt_type(ty: &Type) -> String {
         Type::Result(ok, err) => format!("R {} {}", fmt_type(ok), fmt_type(err)),
         Type::Sum(variants) => {
             let mut s = "S".to_string();
-            for v in variants { s.push(' '); s.push_str(v); }
+            for v in variants {
+                s.push(' ');
+                s.push_str(v);
+            }
             s
         }
         Type::Fn(params, ret) => {
             let mut s = "F".to_string();
-            for p in params { s.push(' '); s.push_str(&fmt_type(p)); }
-            s.push(' '); s.push_str(&fmt_type(ret));
+            for p in params {
+                s.push(' ');
+                s.push_str(&fmt_type(p));
+            }
+            s.push(' ');
+            s.push_str(&fmt_type(ret));
             s
         }
         Type::Named(name) => name.clone(),
@@ -209,18 +237,36 @@ fn fmt_type(ty: &Type) -> String {
 // ---- Dense body / statement formatting ----
 
 fn fmt_body_dense(stmts: &[Spanned<Stmt>]) -> String {
-    stmts.iter().map(|s| fmt_stmt_dense(&s.node)).collect::<Vec<_>>().join(";")
+    stmts
+        .iter()
+        .map(|s| fmt_stmt_dense(&s.node))
+        .collect::<Vec<_>>()
+        .join(";")
 }
 
 fn fmt_stmt_dense(stmt: &Stmt) -> String {
     match stmt {
         Stmt::Let { name, value } => format!("{}={}", name, fmt_expr(value, FmtMode::Dense)),
         Stmt::Destructure { bindings, value } => {
-            format!("{{{}}}={}", bindings.join(";"), fmt_expr(value, FmtMode::Dense))
+            format!(
+                "{{{}}}={}",
+                bindings.join(";"),
+                fmt_expr(value, FmtMode::Dense)
+            )
         }
-        Stmt::Guard { condition, negated, body, else_body } => {
+        Stmt::Guard {
+            condition,
+            negated,
+            body,
+            else_body,
+        } => {
             let prefix = if *negated { "!" } else { "" };
-            let main = format!("{}{}{{{}}}", prefix, fmt_expr(condition, FmtMode::Dense), fmt_body_dense(body));
+            let main = format!(
+                "{}{}{{{}}}",
+                prefix,
+                fmt_expr(condition, FmtMode::Dense),
+                fmt_body_dense(body)
+            );
             if let Some(eb) = else_body {
                 format!("{}{{{}}}", main, fmt_body_dense(eb))
             } else {
@@ -228,17 +274,44 @@ fn fmt_stmt_dense(stmt: &Stmt) -> String {
             }
         }
         Stmt::Match { subject, arms } => {
-            let subj = subject.as_ref().map(|e| fmt_expr(e, FmtMode::Dense)).unwrap_or_default();
+            let subj = subject
+                .as_ref()
+                .map(|e| fmt_expr(e, FmtMode::Dense))
+                .unwrap_or_default();
             format!("?{}{{{}}}", subj, fmt_arms_dense(arms))
         }
-        Stmt::ForEach { binding, collection, body } => {
-            format!("@{} {}{{{}}}", binding, fmt_expr(collection, FmtMode::Dense), fmt_body_dense(body))
+        Stmt::ForEach {
+            binding,
+            collection,
+            body,
+        } => {
+            format!(
+                "@{} {}{{{}}}",
+                binding,
+                fmt_expr(collection, FmtMode::Dense),
+                fmt_body_dense(body)
+            )
         }
-        Stmt::ForRange { binding, start, end, body } => {
-            format!("@{} {}..{}{{{}}}", binding, fmt_expr(start, FmtMode::Dense), fmt_expr(end, FmtMode::Dense), fmt_body_dense(body))
+        Stmt::ForRange {
+            binding,
+            start,
+            end,
+            body,
+        } => {
+            format!(
+                "@{} {}..{}{{{}}}",
+                binding,
+                fmt_expr(start, FmtMode::Dense),
+                fmt_expr(end, FmtMode::Dense),
+                fmt_body_dense(body)
+            )
         }
         Stmt::While { condition, body } => {
-            format!("wh {}{{{}}}", fmt_expr(condition, FmtMode::Dense), fmt_body_dense(body))
+            format!(
+                "wh {}{{{}}}",
+                fmt_expr(condition, FmtMode::Dense),
+                fmt_body_dense(body)
+            )
         }
         Stmt::Return(e) => format!("ret {}", fmt_expr(e, FmtMode::Dense)),
         Stmt::Break(Some(e)) => format!("brk {}", fmt_expr(e, FmtMode::Dense)),
@@ -284,7 +357,12 @@ fn fmt_stmt_expanded(out: &mut String, stmt: &Stmt, indent_level: usize) {
             out.push_str(&fmt_expr(value, FmtMode::Expanded));
             out.push('\n');
         }
-        Stmt::Guard { condition, negated, body, else_body } => {
+        Stmt::Guard {
+            condition,
+            negated,
+            body,
+            else_body,
+        } => {
             let prefix = if *negated { "!" } else { "" };
             out.push_str(&ind);
             out.push_str(prefix);
@@ -319,7 +397,11 @@ fn fmt_stmt_expanded(out: &mut String, stmt: &Stmt, indent_level: usize) {
             out.push_str(&ind);
             out.push_str("}\n");
         }
-        Stmt::ForEach { binding, collection, body } => {
+        Stmt::ForEach {
+            binding,
+            collection,
+            body,
+        } => {
             out.push_str(&ind);
             out.push('@');
             out.push(' ');
@@ -331,7 +413,12 @@ fn fmt_stmt_expanded(out: &mut String, stmt: &Stmt, indent_level: usize) {
             out.push_str(&ind);
             out.push_str("}\n");
         }
-        Stmt::ForRange { binding, start, end, body } => {
+        Stmt::ForRange {
+            binding,
+            start,
+            end,
+            body,
+        } => {
             out.push_str(&ind);
             out.push('@');
             out.push(' ');
@@ -398,15 +485,27 @@ fn fmt_expr(expr: &Expr, mode: FmtMode) -> String {
     match expr {
         Expr::Literal(lit) => fmt_literal(lit),
         Expr::Ref(name) => name.clone(),
-        Expr::Field { object, field, safe } => {
+        Expr::Field {
+            object,
+            field,
+            safe,
+        } => {
             let dot = if *safe { ".?" } else { "." };
             format!("{}{}{}", fmt_expr(object, mode), dot, field)
         }
-        Expr::Index { object, index, safe } => {
+        Expr::Index {
+            object,
+            index,
+            safe,
+        } => {
             let dot = if *safe { ".?" } else { "." };
             format!("{}{}{}", fmt_expr(object, mode), dot, index)
         }
-        Expr::Call { function, args, unwrap } => {
+        Expr::Call {
+            function,
+            args,
+            unwrap,
+        } => {
             let bang = if *unwrap { "!" } else { "" };
             if args.is_empty() {
                 format!("{}{}()", function, bang)
@@ -417,10 +516,20 @@ fn fmt_expr(expr: &Expr, mode: FmtMode) -> String {
         }
         Expr::BinOp { op, left, right } => match mode {
             FmtMode::Dense => {
-                format!("{}{} {}", fmt_binop(op), fmt_expr(left, mode), fmt_expr(right, mode))
+                format!(
+                    "{}{} {}",
+                    fmt_binop(op),
+                    fmt_expr(left, mode),
+                    fmt_expr(right, mode)
+                )
             }
             FmtMode::Expanded => {
-                format!("{} {} {}", fmt_binop(op), fmt_expr(left, mode), fmt_expr(right, mode))
+                format!(
+                    "{} {} {}",
+                    fmt_binop(op),
+                    fmt_expr(left, mode),
+                    fmt_expr(right, mode)
+                )
             }
         },
         Expr::UnaryOp { op, operand } => {
@@ -448,24 +557,40 @@ fn fmt_expr(expr: &Expr, mode: FmtMode) -> String {
             if fields.is_empty() {
                 return type_name.clone();
             }
-            let fields_str: Vec<String> =
-                fields.iter().map(|(n, v)| format!("{}:{}", n, fmt_expr(v, mode))).collect();
+            let fields_str: Vec<String> = fields
+                .iter()
+                .map(|(n, v)| format!("{}:{}", n, fmt_expr(v, mode)))
+                .collect();
             format!("{} {}", type_name, fields_str.join(" "))
         }
         // Match expressions stay dense — they appear in expression position.
         Expr::Match { subject, arms } => {
-            let subj = subject.as_ref().map(|e| fmt_expr(e, mode)).unwrap_or_default();
+            let subj = subject
+                .as_ref()
+                .map(|e| fmt_expr(e, mode))
+                .unwrap_or_default();
             format!("?{}{{{}}}", subj, fmt_arms_dense(arms))
         }
         Expr::NilCoalesce { value, default } => {
             format!("{}??{}", fmt_expr(value, mode), fmt_expr(default, mode))
         }
-        Expr::Ternary { condition, then_expr, else_expr } => {
-            format!("?{} {} {}", fmt_expr(condition, mode), fmt_expr(then_expr, mode), fmt_expr(else_expr, mode))
+        Expr::Ternary {
+            condition,
+            then_expr,
+            else_expr,
+        } => {
+            format!(
+                "?{} {} {}",
+                fmt_expr(condition, mode),
+                fmt_expr(then_expr, mode),
+                fmt_expr(else_expr, mode)
+            )
         }
         Expr::With { object, updates } => {
-            let updates_str: Vec<String> =
-                updates.iter().map(|(n, v)| format!("{}:{}", n, fmt_expr(v, mode))).collect();
+            let updates_str: Vec<String> = updates
+                .iter()
+                .map(|(n, v)| format!("{}:{}", n, fmt_expr(v, mode)))
+                .collect();
             format!("{} with {}", fmt_expr(object, mode), updates_str.join(" "))
         }
     }
@@ -487,7 +612,13 @@ fn fmt_literal(lit: &Literal) -> String {
     match lit {
         Literal::Number(n) => fmt_num(*n),
         Literal::Text(s) => format!("\"{}\"", escape_text(s)),
-        Literal::Bool(b) => if *b { "true".to_string() } else { "false".to_string() },
+        Literal::Bool(b) => {
+            if *b {
+                "true".to_string()
+            } else {
+                "false".to_string()
+            }
+        }
         Literal::Nil => "nil".to_string(),
     }
 }
@@ -501,7 +632,10 @@ fn fmt_num(n: f64) -> String {
 }
 
 fn escape_text(s: &str) -> String {
-    s.replace('\\', "\\\\").replace('"', "\\\"").replace('\n', "\\n").replace('\r', "\\r")
+    s.replace('\\', "\\\\")
+        .replace('"', "\\\"")
+        .replace('\n', "\\n")
+        .replace('\r', "\\r")
 }
 
 fn fmt_binop(op: &BinOp) -> &'static str {
@@ -533,7 +667,15 @@ mod tests {
         let tokens = lexer::lex(source).unwrap();
         let token_spans = tokens
             .into_iter()
-            .map(|(t, r)| (t, crate::ast::Span { start: r.start, end: r.end }))
+            .map(|(t, r)| {
+                (
+                    t,
+                    crate::ast::Span {
+                        start: r.start,
+                        end: r.end,
+                    },
+                )
+            })
             .collect();
         let (mut prog, errs) = parser::parse(token_spans);
         assert!(errs.is_empty(), "parse errors in test: {:?}", errs);
@@ -697,10 +839,7 @@ mod tests {
         let s = dense("f x:n>n;-x");
         // May have a space: "- x" to avoid "--"
         let parsed_back = parse(&s);
-        assert!(matches!(
-            parsed_back.declarations[0],
-            Decl::Function { .. }
-        ));
+        assert!(matches!(parsed_back.declarations[0], Decl::Function { .. }));
     }
 
     #[test]
@@ -749,59 +888,32 @@ mod tests {
 
     #[test]
     fn round_trip_tool() {
-        assert_round_trip(
-            r#"tool send-email"Send an email" to:t body:t>R _ t timeout:30,retry:3"#,
-        );
+        assert_round_trip(r#"tool send-email"Send an email" to:t body:t>R _ t timeout:30,retry:3"#);
     }
 
     #[test]
     fn round_trip_example_01() {
-        assert_round_trip(
-            &std::fs::read_to_string(
-                "examples/01-simple-function.ilo",
-            )
-            .unwrap(),
-        );
+        assert_round_trip(&std::fs::read_to_string("examples/01-simple-function.ilo").unwrap());
     }
 
     #[test]
     fn round_trip_example_02() {
-        assert_round_trip(
-            &std::fs::read_to_string(
-                "examples/02-with-dependencies.ilo",
-            )
-            .unwrap(),
-        );
+        assert_round_trip(&std::fs::read_to_string("examples/02-with-dependencies.ilo").unwrap());
     }
 
     #[test]
     fn round_trip_example_03() {
-        assert_round_trip(
-            &std::fs::read_to_string(
-                "examples/03-data-transform.ilo",
-            )
-            .unwrap(),
-        );
+        assert_round_trip(&std::fs::read_to_string("examples/03-data-transform.ilo").unwrap());
     }
 
     #[test]
     fn round_trip_example_04() {
-        assert_round_trip(
-            &std::fs::read_to_string(
-                "examples/04-tool-interaction.ilo",
-            )
-            .unwrap(),
-        );
+        assert_round_trip(&std::fs::read_to_string("examples/04-tool-interaction.ilo").unwrap());
     }
 
     #[test]
     fn round_trip_example_05() {
-        assert_round_trip(
-            &std::fs::read_to_string(
-                "examples/05-workflow.ilo",
-            )
-            .unwrap(),
-        );
+        assert_round_trip(&std::fs::read_to_string("examples/05-workflow.ilo").unwrap());
     }
 
     // ---- Idempotency tests ----
@@ -818,22 +930,12 @@ mod tests {
 
     #[test]
     fn idempotent_example_04() {
-        assert_idempotent(
-            &std::fs::read_to_string(
-                "examples/04-tool-interaction.ilo",
-            )
-            .unwrap(),
-        );
+        assert_idempotent(&std::fs::read_to_string("examples/04-tool-interaction.ilo").unwrap());
     }
 
     #[test]
     fn idempotent_example_05() {
-        assert_idempotent(
-            &std::fs::read_to_string(
-                "examples/05-workflow.ilo",
-            )
-            .unwrap(),
-        );
+        assert_idempotent(&std::fs::read_to_string("examples/05-workflow.ilo").unwrap());
     }
 
     // ---- Expanded format structure tests ----
@@ -882,7 +984,10 @@ mod tests {
     #[test]
     fn expanded_tool() {
         let s = expanded(r#"tool send-email"Send an email" to:t body:t>R _ t timeout:30,retry:3"#);
-        assert!(s.contains("tool send-email \"Send an email\"\n"), "got: {s}");
+        assert!(
+            s.contains("tool send-email \"Send an email\"\n"),
+            "got: {s}"
+        );
         assert!(s.contains("> R _ t\n"), "got: {s}");
         assert!(s.contains("timeout: 30"), "got: {s}");
         assert!(s.contains("retry: 3"), "got: {s}");
@@ -890,14 +995,12 @@ mod tests {
 
     #[test]
     fn expanded_multiple_decls_separated_by_blank_line() {
-        let s = expanded(
-            &std::fs::read_to_string(
-                "examples/03-data-transform.ilo",
-            )
-            .unwrap(),
-        );
+        let s = expanded(&std::fs::read_to_string("examples/03-data-transform.ilo").unwrap());
         // Two declarations should be separated by a blank line in expanded mode.
-        assert!(s.contains("\n\n"), "expected blank line between decls, got: {s}");
+        assert!(
+            s.contains("\n\n"),
+            "expected blank line between decls, got: {s}"
+        );
     }
 
     #[test]
@@ -908,23 +1011,26 @@ mod tests {
 
     #[test]
     fn expanded_workflow() {
-        let s = expanded(
-            &std::fs::read_to_string(
-                "examples/05-workflow.ilo",
-            )
-            .unwrap(),
-        );
+        let s = expanded(&std::fs::read_to_string("examples/05-workflow.ilo").unwrap());
         assert!(s.contains("chk"), "got: {s}");
-        assert!(s.contains("  ? {\n"), "expected expanded match arms, got: {s}");
+        assert!(
+            s.contains("  ? {\n"),
+            "expected expanded match arms, got: {s}"
+        );
         // Nested match arms are indented further
-        assert!(s.contains("      ? {\n") || s.contains("    ? {\n"), "got: {s}");
+        assert!(
+            s.contains("      ? {\n") || s.contains("    ? {\n"),
+            "got: {s}"
+        );
     }
 
     #[test]
     fn error_decl_skipped() {
         use crate::ast::{Decl, Span};
         let mut prog = parse("f x:n>n;*x 2");
-        prog.declarations.push(Decl::Error { span: Span::UNKNOWN });
+        prog.declarations.push(Decl::Error {
+            span: Span::UNKNOWN,
+        });
         let s = format(&prog, FmtMode::Dense);
         assert!(s.contains("f x:n>n;*x 2"), "got: {s}");
         // Error node produces no output
@@ -938,8 +1044,10 @@ mod tests {
         // Braceless input should normalize to braced in dense format
         let prog = parse(r#"cls sp:n>t;>=sp 1000 "gold";>=sp 500 "silver";"bronze""#);
         let s = format(&prog, FmtMode::Dense);
-        assert_eq!(s, r#"cls sp:n>t;>=sp 1000{"gold"};>=sp 500{"silver"};"bronze""#,
-            "braceless guard should normalize to braced: {s}");
+        assert_eq!(
+            s, r#"cls sp:n>t;>=sp 1000{"gold"};>=sp 500{"silver"};"bronze""#,
+            "braceless guard should normalize to braced: {s}"
+        );
     }
 
     #[test]
@@ -949,15 +1057,20 @@ mod tests {
         let formatted = format(&prog, FmtMode::Dense);
         let prog2 = parse(&formatted);
         let formatted2 = format(&prog2, FmtMode::Dense);
-        assert_eq!(formatted, formatted2,
-            "braceless guard round-trip mismatch:\n  formatted: {formatted}\n  re-formatted: {formatted2}");
+        assert_eq!(
+            formatted, formatted2,
+            "braceless guard round-trip mismatch:\n  formatted: {formatted}\n  re-formatted: {formatted2}"
+        );
     }
 
     #[test]
     fn braceless_guard_expanded() {
         let prog = parse(r#"cls sp:n>t;>=sp 1000 "gold";"bronze""#);
         let s = format(&prog, FmtMode::Expanded);
-        assert!(s.contains(">= sp 1000 {"), "expanded should have braces: {s}");
+        assert!(
+            s.contains(">= sp 1000 {"),
+            "expanded should have braces: {s}"
+        );
         assert!(s.contains("\"gold\""), "expanded should contain body: {s}");
     }
 
@@ -1124,7 +1237,11 @@ mod tests {
     #[test]
     fn format_decl_skips_use_node() {
         use crate::ast::{Decl, Span};
-        let use_decl = Decl::Use { path: "x.ilo".into(), only: None, span: Span::UNKNOWN };
+        let use_decl = Decl::Use {
+            path: "x.ilo".into(),
+            only: None,
+            span: Span::UNKNOWN,
+        };
         let s = format_decl(&use_decl, FmtMode::Dense);
         assert!(s.is_empty(), "Use should produce no output, got: {s:?}");
     }
@@ -1132,7 +1249,9 @@ mod tests {
     #[test]
     fn format_decl_skips_error_node() {
         use crate::ast::{Decl, Span};
-        let err_decl = Decl::Error { span: Span::UNKNOWN };
+        let err_decl = Decl::Error {
+            span: Span::UNKNOWN,
+        };
         let s = format_decl(&err_decl, FmtMode::Dense);
         assert!(s.is_empty(), "Error should produce no output, got: {s:?}");
     }
@@ -1213,7 +1332,10 @@ mod tests {
         // type_str() is the public API for fmt_type — exercises Bool, Nil, Fn
         assert_eq!(type_str(&Type::Bool), "b");
         assert_eq!(type_str(&Type::Any), "_");
-        assert_eq!(type_str(&Type::Fn(vec![Type::Number], Box::new(Type::Text))), "F n t");
+        assert_eq!(
+            type_str(&Type::Fn(vec![Type::Number], Box::new(Type::Text))),
+            "F n t"
+        );
     }
 
     // ── Pattern::TypeIs in match ──────────────────────────────────────────────
@@ -1249,9 +1371,15 @@ mod tests {
     #[test]
     fn fmt_record_no_fields() {
         // Directly construct an Expr::Record with no fields to exercise L449
-        let expr = Expr::Record { type_name: "empty".to_string(), fields: vec![] };
+        let expr = Expr::Record {
+            type_name: "empty".to_string(),
+            fields: vec![],
+        };
         let s = fmt_expr(&expr, FmtMode::Dense);
-        assert_eq!(s, "empty", "expected bare type name for empty record, got: {s}");
+        assert_eq!(
+            s, "empty",
+            "expected bare type name for empty record, got: {s}"
+        );
     }
 
     // ── Ternary formatting (L463-464) ───────────────────────────────────────

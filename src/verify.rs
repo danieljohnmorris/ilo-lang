@@ -35,12 +35,16 @@ impl std::fmt::Display for Ty {
             Ty::Result(ok, err) => write!(f, "R {ok} {err}"),
             Ty::Sum(variants) => {
                 write!(f, "S")?;
-                for v in variants { write!(f, " {v}")?; }
+                for v in variants {
+                    write!(f, " {v}")?;
+                }
                 Ok(())
             }
             Ty::Fn(params, ret) => {
                 write!(f, "F")?;
-                for p in params { write!(f, " {p}")?; }
+                for p in params {
+                    write!(f, " {p}")?;
+                }
                 write!(f, " {ret}")
             }
             Ty::Named(name) => write!(f, "{name}"),
@@ -125,7 +129,9 @@ fn collect_named_refs_inner(ty: &Type, refs: &mut Vec<String>) {
             collect_named_refs_inner(err, refs);
         }
         Type::Fn(params, ret) => {
-            for p in params { collect_named_refs_inner(p, refs); }
+            for p in params {
+                collect_named_refs_inner(p, refs);
+            }
             collect_named_refs_inner(ret, refs);
         }
         Type::Sum(_) | Type::Number | Type::Text | Type::Bool | Type::Any => {}
@@ -155,7 +161,10 @@ fn convert_type_with_aliases(ast_ty: &Type, aliases: &HashMap<String, Ty>) -> Ty
         ),
         Type::Sum(variants) => Ty::Sum(variants.clone()),
         Type::Fn(params, ret) => Ty::Fn(
-            params.iter().map(|p| convert_type_with_aliases(p, aliases)).collect(),
+            params
+                .iter()
+                .map(|p| convert_type_with_aliases(p, aliases))
+                .collect(),
             Box::new(convert_type_with_aliases(ret, aliases)),
         ),
         Type::Named(name) => {
@@ -219,8 +228,12 @@ fn levenshtein(a: &str, b: &str) -> usize {
     let b: Vec<char> = b.chars().collect();
     let (m, n) = (a.len(), b.len());
     let mut dp = vec![vec![0usize; n + 1]; m + 1];
-    for (i, row) in dp.iter_mut().enumerate().take(m + 1) { row[0] = i; }
-    for (j, val) in dp[0].iter_mut().enumerate().take(n + 1) { *val = j; }
+    for (i, row) in dp.iter_mut().enumerate().take(m + 1) {
+        row[0] = i;
+    }
+    for (j, val) in dp[0].iter_mut().enumerate().take(n + 1) {
+        *val = j;
+    }
     for i in 1..=m {
         for j in 1..=n {
             let cost = if a[i - 1] == b[j - 1] { 0 } else { 1 };
@@ -272,7 +285,7 @@ const BUILTINS: &[(&str, &[&str], &str)] = &[
     ("jpth", &["t", "t"], "R t t"),
     ("jdmp", &["any"], "t"),
     ("prnt", &["any"], "any"),
-    ("fmt", &["t"], "t"),  // variadic: fmt template arg1 arg2 … — checked specially
+    ("fmt", &["t"], "t"), // variadic: fmt template arg1 arg2 … — checked specially
     ("jpar", &["t"], "R ? t"),
     // Higher-order: map/flt/fld take a function ref as first arg (special-cased in builtin_check_args)
     ("map", &["fn", "list"], "list"),
@@ -291,18 +304,25 @@ const BUILTINS: &[(&str, &[&str], &str)] = &[
     ("mkeys", &["map"], "L t"),
     ("mvals", &["map"], "list"),
     ("mdel", &["map", "t"], "map"),
-
 ];
 
 fn builtin_arity(name: &str) -> Option<usize> {
-    BUILTINS.iter().find(|(n, _, _)| *n == name).map(|(_, params, _)| params.len())
+    BUILTINS
+        .iter()
+        .find(|(n, _, _)| *n == name)
+        .map(|(_, params, _)| params.len())
 }
 
 fn is_builtin(name: &str) -> bool {
     Builtin::is_builtin(name)
 }
 
-fn builtin_check_args(name: &str, arg_types: &[Ty], func_ctx: &str, span: Option<Span>) -> (Ty, Vec<VerifyError>) {
+fn builtin_check_args(
+    name: &str,
+    arg_types: &[Ty],
+    func_ctx: &str,
+    span: Option<Span>,
+) -> (Ty, Vec<VerifyError>) {
     let mut errors = Vec::new();
     match name {
         "len" => {
@@ -331,7 +351,7 @@ fn builtin_check_args(name: &str, arg_types: &[Ty], func_ctx: &str, span: Option
                     message: format!("'str' expects n, got {arg}"),
                     hint: None,
                     span,
-                        is_warning: false,
+                    is_warning: false,
                 });
             }
             (Ty::Text, errors)
@@ -346,7 +366,7 @@ fn builtin_check_args(name: &str, arg_types: &[Ty], func_ctx: &str, span: Option
                     message: format!("'num' expects t, got {arg}"),
                     hint: None,
                     span,
-                        is_warning: false,
+                    is_warning: false,
                 });
             }
             (Ty::Result(Box::new(Ty::Number), Box::new(Ty::Text)), errors)
@@ -361,7 +381,7 @@ fn builtin_check_args(name: &str, arg_types: &[Ty], func_ctx: &str, span: Option
                     message: format!("'{name}' expects n, got {arg}"),
                     hint: None,
                     span,
-                        is_warning: false,
+                    is_warning: false,
                 });
             }
             (Ty::Number, errors)
@@ -421,7 +441,7 @@ fn builtin_check_args(name: &str, arg_types: &[Ty], func_ctx: &str, span: Option
                     message: format!("'cat' arg 1 expects L t, got {arg}"),
                     hint: None,
                     span,
-                        is_warning: false,
+                    is_warning: false,
                 });
             }
             if let Some(arg) = arg_types.get(1)
@@ -433,7 +453,7 @@ fn builtin_check_args(name: &str, arg_types: &[Ty], func_ctx: &str, span: Option
                     message: format!("'cat' arg 2 expects t, got {arg}"),
                     hint: None,
                     span,
-                        is_warning: false,
+                    is_warning: false,
                 });
             }
             (Ty::Text, errors)
@@ -720,13 +740,18 @@ fn builtin_check_args(name: &str, arg_types: &[Ty], func_ctx: &str, span: Option
                 errors.push(VerifyError {
                     code: "ILO-T013",
                     function: func_ctx.to_string(),
-                    message: format!("'{name}' format arg expects t (\"csv\", \"json\", \"raw\"…), got {fmt}"),
+                    message: format!(
+                        "'{name}' format arg expects t (\"csv\", \"json\", \"raw\"…), got {fmt}"
+                    ),
                     hint: None,
                     span,
                     is_warning: false,
                 });
             }
-            (Ty::Result(Box::new(Ty::Unknown), Box::new(Ty::Text)), errors)
+            (
+                Ty::Result(Box::new(Ty::Unknown), Box::new(Ty::Text)),
+                errors,
+            )
         }
         "rdl" => {
             if let Some(arg) = arg_types.first()
@@ -741,7 +766,10 @@ fn builtin_check_args(name: &str, arg_types: &[Ty], func_ctx: &str, span: Option
                     is_warning: false,
                 });
             }
-            (Ty::Result(Box::new(Ty::List(Box::new(Ty::Text))), Box::new(Ty::Text)), errors)
+            (
+                Ty::Result(Box::new(Ty::List(Box::new(Ty::Text))), Box::new(Ty::Text)),
+                errors,
+            )
         }
         "wr" | "wrl" => {
             if let Some(arg) = arg_types.first()
@@ -807,22 +835,26 @@ fn builtin_check_args(name: &str, arg_types: &[Ty], func_ctx: &str, span: Option
                     is_warning: false,
                 });
             }
-            (Ty::Result(Box::new(Ty::Unknown), Box::new(Ty::Text)), errors)
+            (
+                Ty::Result(Box::new(Ty::Unknown), Box::new(Ty::Text)),
+                errors,
+            )
         }
         "map" => {
             // map fn:F a b xs:L a → L b
             // First arg must be a function type; second must be a list.
             if let Some(fn_ty) = arg_types.first()
-                && !matches!(fn_ty, Ty::Fn(_, _) | Ty::Unknown) {
-                    errors.push(VerifyError {
-                        code: "ILO-T013",
-                        function: func_ctx.to_string(),
-                        message: format!("'map' first arg must be a function (F ...), got {fn_ty}"),
-                        hint: Some("pass a function name: map sq xs".to_string()),
-                        span,
-                        is_warning: false,
-                    });
-                }
+                && !matches!(fn_ty, Ty::Fn(_, _) | Ty::Unknown)
+            {
+                errors.push(VerifyError {
+                    code: "ILO-T013",
+                    function: func_ctx.to_string(),
+                    message: format!("'map' first arg must be a function (F ...), got {fn_ty}"),
+                    hint: Some("pass a function name: map sq xs".to_string()),
+                    span,
+                    is_warning: false,
+                });
+            }
             // Return type: L of the function's return type, or L Unknown
             let ret_elem = match arg_types.first() {
                 Some(Ty::Fn(_, ret)) => *ret.clone(),
@@ -834,16 +866,17 @@ fn builtin_check_args(name: &str, arg_types: &[Ty], func_ctx: &str, span: Option
             // flt fn:F a b xs:L a → L a
             // First arg: function returning bool; second: list.
             if let Some(fn_ty) = arg_types.first()
-                && !matches!(fn_ty, Ty::Fn(_, _) | Ty::Unknown) {
-                    errors.push(VerifyError {
-                        code: "ILO-T013",
-                        function: func_ctx.to_string(),
-                        message: format!("'flt' first arg must be a function (F ...), got {fn_ty}"),
-                        hint: Some("pass a function name: flt pred xs".to_string()),
-                        span,
-                        is_warning: false,
-                    });
-                }
+                && !matches!(fn_ty, Ty::Fn(_, _) | Ty::Unknown)
+            {
+                errors.push(VerifyError {
+                    code: "ILO-T013",
+                    function: func_ctx.to_string(),
+                    message: format!("'flt' first arg must be a function (F ...), got {fn_ty}"),
+                    hint: Some("pass a function name: flt pred xs".to_string()),
+                    span,
+                    is_warning: false,
+                });
+            }
             // Return type: same list type as input
             let ret = match arg_types.get(1) {
                 Some(ty @ Ty::List(_)) => ty.clone(),
@@ -855,16 +888,17 @@ fn builtin_check_args(name: &str, arg_types: &[Ty], func_ctx: &str, span: Option
             // fld fn:F a b b xs:L a init:b → b
             // First arg: function; second: list; third: initial accumulator.
             if let Some(fn_ty) = arg_types.first()
-                && !matches!(fn_ty, Ty::Fn(_, _) | Ty::Unknown) {
-                    errors.push(VerifyError {
-                        code: "ILO-T013",
-                        function: func_ctx.to_string(),
-                        message: format!("'fld' first arg must be a function (F ...), got {fn_ty}"),
-                        hint: Some("pass a function name: fld f xs init".to_string()),
-                        span,
-                        is_warning: false,
-                    });
-                }
+                && !matches!(fn_ty, Ty::Fn(_, _) | Ty::Unknown)
+            {
+                errors.push(VerifyError {
+                    code: "ILO-T013",
+                    function: func_ctx.to_string(),
+                    message: format!("'fld' first arg must be a function (F ...), got {fn_ty}"),
+                    hint: Some("pass a function name: fld f xs init".to_string()),
+                    span,
+                    is_warning: false,
+                });
+            }
             // Return type: accumulator type (third arg) or function return type
             let ret = match arg_types.get(2) {
                 Some(ty) if !matches!(ty, Ty::Unknown) => ty.clone(),
@@ -878,16 +912,17 @@ fn builtin_check_args(name: &str, arg_types: &[Ty], func_ctx: &str, span: Option
         "grp" => {
             // grp fn:F a k xs:L a → M k (L a)
             if let Some(fn_ty) = arg_types.first()
-                && !matches!(fn_ty, Ty::Fn(_, _) | Ty::Unknown) {
-                    errors.push(VerifyError {
-                        code: "ILO-T013",
-                        function: func_ctx.to_string(),
-                        message: format!("'grp' first arg must be a function (F ...), got {fn_ty}"),
-                        hint: Some("pass a function name: grp key-fn xs".to_string()),
-                        span,
-                        is_warning: false,
-                    });
-                }
+                && !matches!(fn_ty, Ty::Fn(_, _) | Ty::Unknown)
+            {
+                errors.push(VerifyError {
+                    code: "ILO-T013",
+                    function: func_ctx.to_string(),
+                    message: format!("'grp' first arg must be a function (F ...), got {fn_ty}"),
+                    hint: Some("pass a function name: grp key-fn xs".to_string()),
+                    span,
+                    is_warning: false,
+                });
+            }
             let key_ty = match arg_types.first() {
                 Some(Ty::Fn(_, ret)) => *ret.clone(),
                 _ => Ty::Unknown,
@@ -896,7 +931,10 @@ fn builtin_check_args(name: &str, arg_types: &[Ty], func_ctx: &str, span: Option
                 Some(Ty::List(inner)) => *inner.clone(),
                 _ => Ty::Unknown,
             };
-            (Ty::Map(Box::new(key_ty), Box::new(Ty::List(Box::new(elem_ty)))), errors)
+            (
+                Ty::Map(Box::new(key_ty), Box::new(Ty::List(Box::new(elem_ty)))),
+                errors,
+            )
         }
         "flat" => {
             // flat xs:L (L a) → L a — flatten one level
@@ -909,7 +947,10 @@ fn builtin_check_args(name: &str, arg_types: &[Ty], func_ctx: &str, span: Option
             };
             (Ty::List(Box::new(inner)), errors)
         }
-        "mmap" => (Ty::Map(Box::new(Ty::Unknown), Box::new(Ty::Unknown)), errors),
+        "mmap" => (
+            Ty::Map(Box::new(Ty::Unknown), Box::new(Ty::Unknown)),
+            errors,
+        ),
         "mget" => {
             // mget map key → O value_type
             let val_ty = match arg_types.first() {
@@ -1000,7 +1041,14 @@ impl VerifyContext {
         }
     }
 
-    fn err(&mut self, code: &'static str, function: &str, message: String, hint: Option<String>, span: Option<Span>) {
+    fn err(
+        &mut self,
+        code: &'static str,
+        function: &str,
+        message: String,
+        hint: Option<String>,
+        span: Option<Span>,
+    ) {
         self.errors.push(VerifyError {
             code,
             function: function.to_string(),
@@ -1011,7 +1059,14 @@ impl VerifyContext {
         });
     }
 
-    fn warn(&mut self, code: &'static str, function: &str, message: String, hint: Option<String>, span: Option<Span>) {
+    fn warn(
+        &mut self,
+        code: &'static str,
+        function: &str,
+        message: String,
+        hint: Option<String>,
+        span: Option<Span>,
+    ) {
         self.errors.push(VerifyError {
             code,
             function: function.to_string(),
@@ -1030,14 +1085,23 @@ impl VerifyContext {
         for decl in &program.declarations {
             if let Decl::Alias { name, target, span } = decl {
                 if builtin_type_names.contains(&name.as_str()) || name == "_" {
-                    self.err("ILO-T031", "<global>",
+                    self.err(
+                        "ILO-T031",
+                        "<global>",
                         format!("type alias '{name}' shadows a builtin type"),
                         Some("choose a different name for the alias".to_string()),
-                        Some(*span));
+                        Some(*span),
+                    );
                     continue;
                 }
                 if raw_aliases.contains_key(name) {
-                    self.err("ILO-T001", "<global>", format!("duplicate type alias '{name}'"), None, Some(*span));
+                    self.err(
+                        "ILO-T001",
+                        "<global>",
+                        format!("duplicate type alias '{name}'"),
+                        None,
+                        Some(*span),
+                    );
                 } else {
                     raw_aliases.insert(name.clone(), target.clone());
                 }
@@ -1050,13 +1114,30 @@ impl VerifyContext {
         for decl in &program.declarations {
             if let Decl::TypeDef { name, fields, .. } = decl {
                 if self.aliases.contains_key(name) {
-                    self.err("ILO-T001", "<global>", format!("type '{name}' conflicts with type alias of the same name"), None, None);
+                    self.err(
+                        "ILO-T001",
+                        "<global>",
+                        format!("type '{name}' conflicts with type alias of the same name"),
+                        None,
+                        None,
+                    );
                 } else if self.types.contains_key(name) {
-                    self.err("ILO-T001", "<global>", format!("duplicate type definition '{name}'"), None, None);
+                    self.err(
+                        "ILO-T001",
+                        "<global>",
+                        format!("duplicate type definition '{name}'"),
+                        None,
+                        None,
+                    );
                 } else {
                     let fields: Vec<(String, Ty)> = fields
                         .iter()
-                        .map(|p| (p.name.clone(), convert_type_with_aliases(&p.ty, &self.aliases)))
+                        .map(|p| {
+                            (
+                                p.name.clone(),
+                                convert_type_with_aliases(&p.ty, &self.aliases),
+                            )
+                        })
                         .collect();
                     self.types.insert(name.clone(), TypeDef { fields });
                 }
@@ -1066,31 +1147,75 @@ impl VerifyContext {
         // Second pass: collect functions and tools, validate Named types in signatures
         for decl in &program.declarations {
             match decl {
-                Decl::Function { name, params, return_type, .. } => {
+                Decl::Function {
+                    name,
+                    params,
+                    return_type,
+                    ..
+                } => {
                     if self.functions.contains_key(name) {
-                        self.err("ILO-T002", "<global>", format!("duplicate function definition '{name}'"), None, None);
+                        self.err(
+                            "ILO-T002",
+                            "<global>",
+                            format!("duplicate function definition '{name}'"),
+                            None,
+                            None,
+                        );
                         continue;
                     }
                     let params: Vec<(String, Ty)> = params
                         .iter()
-                        .map(|p| (p.name.clone(), convert_type_with_aliases(&p.ty, &self.aliases)))
+                        .map(|p| {
+                            (
+                                p.name.clone(),
+                                convert_type_with_aliases(&p.ty, &self.aliases),
+                            )
+                        })
                         .collect();
                     let ret = convert_type_with_aliases(return_type, &self.aliases);
                     self.validate_named_types_in_sig(name, &params, &ret);
-                    self.functions.insert(name.clone(), FuncSig { params, return_type: ret });
+                    self.functions.insert(
+                        name.clone(),
+                        FuncSig {
+                            params,
+                            return_type: ret,
+                        },
+                    );
                 }
-                Decl::Tool { name, params, return_type, .. } => {
+                Decl::Tool {
+                    name,
+                    params,
+                    return_type,
+                    ..
+                } => {
                     if self.functions.contains_key(name) {
-                        self.err("ILO-T002", "<global>", format!("duplicate definition '{name}' (tool conflicts with function)"), None, None);
+                        self.err(
+                            "ILO-T002",
+                            "<global>",
+                            format!("duplicate definition '{name}' (tool conflicts with function)"),
+                            None,
+                            None,
+                        );
                         continue;
                     }
                     let params: Vec<(String, Ty)> = params
                         .iter()
-                        .map(|p| (p.name.clone(), convert_type_with_aliases(&p.ty, &self.aliases)))
+                        .map(|p| {
+                            (
+                                p.name.clone(),
+                                convert_type_with_aliases(&p.ty, &self.aliases),
+                            )
+                        })
                         .collect();
                     let ret = convert_type_with_aliases(return_type, &self.aliases);
                     self.validate_named_types_in_sig(name, &params, &ret);
-                    self.functions.insert(name.clone(), FuncSig { params, return_type: ret });
+                    self.functions.insert(
+                        name.clone(),
+                        FuncSig {
+                            params,
+                            return_type: ret,
+                        },
+                    );
                 }
                 Decl::TypeDef { .. } => {} // already handled
                 Decl::Alias { .. } => {}   // already handled
@@ -1103,7 +1228,10 @@ impl VerifyContext {
         for decl in &program.declarations {
             if let Decl::TypeDef { name, fields, .. } = decl {
                 for field in fields {
-                    self.validate_named_type_recursive(&convert_type_with_aliases(&field.ty, &self.aliases), name);
+                    self.validate_named_type_recursive(
+                        &convert_type_with_aliases(&field.ty, &self.aliases),
+                        name,
+                    );
                 }
             }
         }
@@ -1114,13 +1242,16 @@ impl VerifyContext {
         use std::collections::HashSet;
 
         // Build dependency graph: for each alias, which other aliases does it reference?
-        let deps: HashMap<String, Vec<String>> = raw.iter().map(|(name, target)| {
-            let refs: Vec<String> = collect_named_refs(target)
-                .into_iter()
-                .filter(|r| raw.contains_key(r))
-                .collect();
-            (name.clone(), refs)
-        }).collect();
+        let deps: HashMap<String, Vec<String>> = raw
+            .iter()
+            .map(|(name, target)| {
+                let refs: Vec<String> = collect_named_refs(target)
+                    .into_iter()
+                    .filter(|r| raw.contains_key(r))
+                    .collect();
+                (name.clone(), refs)
+            })
+            .collect();
 
         // DFS cycle detection
         let mut in_cycle: HashSet<String> = HashSet::new();
@@ -1136,10 +1267,13 @@ impl VerifyContext {
         }
 
         for name in &in_cycle {
-            self.err("ILO-T030", "<global>",
+            self.err(
+                "ILO-T030",
+                "<global>",
                 format!("circular type alias '{name}'"),
                 Some("type aliases cannot reference each other in a cycle".to_string()),
-                None);
+                None,
+            );
         }
 
         // Resolve non-cyclic aliases
@@ -1208,7 +1342,13 @@ impl VerifyContext {
                 if !self.types.contains_key(name) {
                     let hint = closest_match(name, self.types.keys())
                         .map(|s| format!("did you mean '{s}'?"));
-                    self.err("ILO-T003", ctx, format!("undefined type '{name}'"), hint, None);
+                    self.err(
+                        "ILO-T003",
+                        ctx,
+                        format!("undefined type '{name}'"),
+                        hint,
+                        None,
+                    );
                 }
             }
             Ty::List(inner) => self.validate_named_type_recursive(inner, ctx),
@@ -1223,18 +1363,33 @@ impl VerifyContext {
     /// Phase 2: verify all function bodies.
     fn verify_bodies(&mut self, program: &Program) {
         for decl in &program.declarations {
-            if let Decl::Function { name, params, return_type, body, .. } = decl {
+            if let Decl::Function {
+                name,
+                params,
+                return_type,
+                body,
+                ..
+            } = decl
+            {
                 let mut scope: Scope = vec![HashMap::new()];
                 for p in params {
-                    scope_insert(&mut scope, p.name.clone(), convert_type_with_aliases(&p.ty, &self.aliases));
+                    scope_insert(
+                        &mut scope,
+                        p.name.clone(),
+                        convert_type_with_aliases(&p.ty, &self.aliases),
+                    );
                 }
 
                 let body_ty = self.verify_body(name, &mut scope, body);
                 let expected = convert_type_with_aliases(return_type, &self.aliases);
                 if !compatible(&body_ty, &expected) {
                     let hint = match (&body_ty, &expected) {
-                        (Ty::Number, Ty::Text) => Some("use 'str' to convert: str <expr>".to_string()),
-                        (Ty::Text, Ty::Number) => Some("use 'num' to parse text (returns R n t)".to_string()),
+                        (Ty::Number, Ty::Text) => {
+                            Some("use 'str' to convert: str <expr>".to_string())
+                        }
+                        (Ty::Text, Ty::Number) => {
+                            Some("use 'num' to parse text (returns R n t)".to_string())
+                        }
                         _ => None,
                     };
                     let last_span = body.last().map(|s| s.span);
@@ -1289,10 +1444,13 @@ impl VerifyContext {
                     Ty::Named(type_name) => {
                         if let Some(type_def) = self.types.get(type_name).cloned() {
                             for binding in bindings {
-                                if let Some((_, fty)) = type_def.fields.iter().find(|(n, _)| n == binding) {
+                                if let Some((_, fty)) =
+                                    type_def.fields.iter().find(|(n, _)| n == binding)
+                                {
                                     scope_insert(scope, binding.clone(), fty.clone());
                                 } else {
-                                    let field_names: Vec<String> = type_def.fields.iter().map(|(n, _)| n.clone()).collect();
+                                    let field_names: Vec<String> =
+                                        type_def.fields.iter().map(|(n, _)| n.clone()).collect();
                                     let hint = closest_match(binding, field_names.iter())
                                         .map(|s| format!("did you mean '{s}'?"));
                                     self.err(
@@ -1331,7 +1489,12 @@ impl VerifyContext {
                 }
                 Ty::Nil
             }
-            Stmt::Guard { condition, body, else_body, .. } => {
+            Stmt::Guard {
+                condition,
+                body,
+                else_body,
+                ..
+            } => {
                 let _ = self.infer_expr(func, scope, condition, span);
 
                 // Warn if a guard without else appears inside a loop — it causes early
@@ -1391,13 +1554,23 @@ impl VerifyContext {
                 self.check_match_exhaustiveness(func, &subject_ty, arms, span);
                 arm_ty
             }
-            Stmt::ForEach { binding, collection, body } => {
+            Stmt::ForEach {
+                binding,
+                collection,
+                body,
+            } => {
                 let coll_ty = self.infer_expr(func, scope, collection, span);
                 let elem_ty = match &coll_ty {
                     Ty::List(inner) => *inner.clone(),
                     Ty::Unknown => Ty::Unknown,
                     other => {
-                        self.err("ILO-T014", func, format!("foreach expects a list, got {other}"), None, Some(span));
+                        self.err(
+                            "ILO-T014",
+                            func,
+                            format!("foreach expects a list, got {other}"),
+                            None,
+                            Some(span),
+                        );
                         Ty::Unknown
                     }
                 };
@@ -1410,14 +1583,31 @@ impl VerifyContext {
                 scope.pop();
                 body_ty
             }
-            Stmt::ForRange { binding, start, end, body } => {
+            Stmt::ForRange {
+                binding,
+                start,
+                end,
+                body,
+            } => {
                 let start_ty = self.infer_expr(func, scope, start, span);
                 let end_ty = self.infer_expr(func, scope, end, span);
                 if !compatible(&start_ty, &Ty::Number) {
-                    self.err("ILO-T014", func, format!("range start must be n, got {start_ty}"), None, Some(span));
+                    self.err(
+                        "ILO-T014",
+                        func,
+                        format!("range start must be n, got {start_ty}"),
+                        None,
+                        Some(span),
+                    );
                 }
                 if !compatible(&end_ty, &Ty::Number) {
-                    self.err("ILO-T014", func, format!("range end must be n, got {end_ty}"), None, Some(span));
+                    self.err(
+                        "ILO-T014",
+                        func,
+                        format!("range end must be n, got {end_ty}"),
+                        None,
+                        Some(span),
+                    );
                 }
                 scope.push(HashMap::new());
                 scope_insert(scope, binding.clone(), Ty::Number);
@@ -1439,7 +1629,13 @@ impl VerifyContext {
             Stmt::Return(expr) => self.infer_expr(func, scope, expr, span),
             Stmt::Break(expr) => {
                 if !self.in_loop {
-                    self.err("ILO-T028", func, "brk can only be used inside a loop (@/wh)".to_string(), None, Some(span));
+                    self.err(
+                        "ILO-T028",
+                        func,
+                        "brk can only be used inside a loop (@/wh)".to_string(),
+                        None,
+                        Some(span),
+                    );
                 }
                 if let Some(e) = expr {
                     self.infer_expr(func, scope, e, span)
@@ -1449,7 +1645,13 @@ impl VerifyContext {
             }
             Stmt::Continue => {
                 if !self.in_loop {
-                    self.err("ILO-T028", func, "cnt can only be used inside a loop (@/wh)".to_string(), None, Some(span));
+                    self.err(
+                        "ILO-T028",
+                        func,
+                        "cnt can only be used inside a loop (@/wh)".to_string(),
+                        None,
+                        Some(span),
+                    );
                 }
                 Ty::Nil
             }
@@ -1512,24 +1714,39 @@ impl VerifyContext {
                     let params: Vec<Ty> = sig.params.iter().map(|(_, t)| t.clone()).collect();
                     Ty::Fn(params, Box::new(sig.return_type.clone()))
                 } else {
-                    let mut candidates: Vec<String> = scope.iter()
+                    let mut candidates: Vec<String> = scope
+                        .iter()
                         .flat_map(|frame| frame.keys().cloned())
                         .collect();
                     candidates.extend(self.functions.keys().cloned());
                     let hint = closest_match(name, candidates.iter())
                         .map(|s| format!("did you mean '{s}'?"));
-                    self.err("ILO-T004", func, format!("undefined variable '{name}'"), hint, Some(span));
+                    self.err(
+                        "ILO-T004",
+                        func,
+                        format!("undefined variable '{name}'"),
+                        hint,
+                        Some(span),
+                    );
                     Ty::Unknown
                 }
             }
 
-            Expr::Call { function: callee, args, unwrap } => {
+            Expr::Call {
+                function: callee,
+                args,
+                unwrap,
+            } => {
                 // Infer all arg types first
-                let arg_types: Vec<Ty> = args.iter().map(|a| self.infer_expr(func, scope, a, span)).collect();
+                let arg_types: Vec<Ty> = args
+                    .iter()
+                    .map(|a| self.infer_expr(func, scope, a, span))
+                    .collect();
 
                 let call_ty = if is_builtin(callee) {
                     // Check arity (rnd accepts 0 or 2 args)
-                    let expected_arity = builtin_arity(callee).expect("is_builtin guarantees arity exists");
+                    let expected_arity =
+                        builtin_arity(callee).expect("is_builtin guarantees arity exists");
                     let arity_ok = if callee == "rnd" {
                         args.is_empty() || args.len() == 2
                     } else if callee == "srt" || callee == "rd" {
@@ -1541,7 +1758,7 @@ impl VerifyContext {
                     } else if callee == "post" {
                         args.len() == 2 || args.len() == 3
                     } else if callee == "fmt" {
-                        !args.is_empty()  // variadic: template + 0 or more args
+                        !args.is_empty() // variadic: template + 0 or more args
                     } else {
                         args.len() == expected_arity
                     };
@@ -1558,7 +1775,10 @@ impl VerifyContext {
                         self.err(
                             "ILO-T006",
                             func,
-                            format!("arity mismatch: '{callee}' expects {arity_desc} args, got {}", args.len()),
+                            format!(
+                                "arity mismatch: '{callee}' expects {arity_desc} args, got {}",
+                                args.len()
+                            ),
                             None,
                             Some(span),
                         );
@@ -1573,7 +1793,8 @@ impl VerifyContext {
 
                     if args.len() != sig_params.len() {
                         let hint = {
-                            let sig_str: String = sig_params.iter()
+                            let sig_str: String = sig_params
+                                .iter()
                                 .map(|(n, t)| format!("{n}:{t}"))
                                 .collect::<Vec<_>>()
                                 .join(" ");
@@ -1593,11 +1814,17 @@ impl VerifyContext {
                         return sig_ret;
                     }
 
-                    for (i, ((param_name, param_ty), arg_ty)) in sig_params.iter().zip(arg_types.iter()).enumerate() {
+                    for (i, ((param_name, param_ty), arg_ty)) in
+                        sig_params.iter().zip(arg_types.iter()).enumerate()
+                    {
                         if !compatible(param_ty, arg_ty) {
                             let hint = match (param_ty, arg_ty) {
-                                (Ty::Text, Ty::Number) => Some("use 'str' to convert number to text".to_string()),
-                                (Ty::Number, Ty::Text) => Some("use 'num' to parse text as number (returns R n t)".to_string()),
+                                (Ty::Text, Ty::Number) => {
+                                    Some("use 'str' to convert number to text".to_string())
+                                }
+                                (Ty::Number, Ty::Text) => Some(
+                                    "use 'num' to parse text as number (returns R n t)".to_string(),
+                                ),
                                 _ => None,
                             };
                             self.err(
@@ -1615,7 +1842,9 @@ impl VerifyContext {
                     }
 
                     sig_ret
-                } else if let Some(Ty::Fn(param_types, ret_type)) = scope_lookup(scope, callee).cloned() {
+                } else if let Some(Ty::Fn(param_types, ret_type)) =
+                    scope_lookup(scope, callee).cloned()
+                {
                     // Dynamic dispatch: calling a function-ref held in a variable.
                     if args.len() != param_types.len() {
                         self.err(
@@ -1626,7 +1855,9 @@ impl VerifyContext {
                             Some(span),
                         );
                     } else {
-                        for (i, (param_ty, arg_ty)) in param_types.iter().zip(arg_types.iter()).enumerate() {
+                        for (i, (param_ty, arg_ty)) in
+                            param_types.iter().zip(arg_types.iter()).enumerate()
+                        {
                             if !compatible(param_ty, arg_ty) {
                                 self.err(
                                     "ILO-T007",
@@ -1649,7 +1880,10 @@ impl VerifyContext {
                     self.err(
                         "ILO-T005",
                         func,
-                        format!("undefined function '{callee}' (called with {} args)", args.len()),
+                        format!(
+                            "undefined function '{callee}' (called with {} args)",
+                            args.len()
+                        ),
                         hint,
                         Some(span),
                     );
@@ -1662,7 +1896,8 @@ impl VerifyContext {
                         Ty::Result(ok_ty, _err_ty) => {
                             // Check enclosing function returns a Result.
                             // Clone the return type to release the &self borrow before calling self.err.
-                            let enc_rt = self.functions.get(func).map(|sig| sig.return_type.clone());
+                            let enc_rt =
+                                self.functions.get(func).map(|sig| sig.return_type.clone());
                             // `for` over Option avoids a phantom else-branch in LLVM coverage
                             // (the None path is unreachable in practice — func is always registered).
                             #[allow(for_loops_over_fallibles)]
@@ -1710,7 +1945,13 @@ impl VerifyContext {
                 match op {
                     UnaryOp::Negate => {
                         if !compatible(&t, &Ty::Number) {
-                            self.err("ILO-T012", func, format!("negate expects n, got {t}"), None, Some(span));
+                            self.err(
+                                "ILO-T012",
+                                func,
+                                format!("negate expects n, got {t}"),
+                                None,
+                                Some(span),
+                            );
                         }
                         Ty::Number
                     }
@@ -1750,7 +1991,8 @@ impl VerifyContext {
             Expr::Record { type_name, fields } => {
                 if let Some(type_def) = self.types.get(type_name) {
                     let def_fields = type_def.fields.clone();
-                    let provided: HashMap<&str, &Expr> = fields.iter().map(|(n, e)| (n.as_str(), e)).collect();
+                    let provided: HashMap<&str, &Expr> =
+                        fields.iter().map(|(n, e)| (n.as_str(), e)).collect();
 
                     // Check for missing fields
                     for (fname, _) in &def_fields {
@@ -1766,10 +2008,12 @@ impl VerifyContext {
                     }
 
                     // Check for extra fields
-                    let def_field_names: Vec<&str> = def_fields.iter().map(|(n, _)| n.as_str()).collect();
+                    let def_field_names: Vec<&str> =
+                        def_fields.iter().map(|(n, _)| n.as_str()).collect();
                     for (fname, _) in fields {
                         if !def_field_names.contains(&fname.as_str()) {
-                            let def_field_strings: Vec<String> = def_field_names.iter().map(|s| s.to_string()).collect();
+                            let def_field_strings: Vec<String> =
+                                def_field_names.iter().map(|s| s.to_string()).collect();
                             let hint = closest_match(fname, def_field_strings.iter())
                                 .map(|s| format!("did you mean '{s}'?"));
                             self.err(
@@ -1802,12 +2046,22 @@ impl VerifyContext {
                 } else {
                     let hint = closest_match(type_name, self.types.keys())
                         .map(|s| format!("did you mean '{s}'?"));
-                    self.err("ILO-T003", func, format!("undefined type '{type_name}'"), hint, Some(span));
+                    self.err(
+                        "ILO-T003",
+                        func,
+                        format!("undefined type '{type_name}'"),
+                        hint,
+                        Some(span),
+                    );
                     Ty::Unknown
                 }
             }
 
-            Expr::Field { object, field, safe } => {
+            Expr::Field {
+                object,
+                field,
+                safe,
+            } => {
                 let obj_ty = self.infer_expr(func, scope, object, span);
                 if *safe && obj_ty == Ty::Nil {
                     return Ty::Nil;
@@ -1815,10 +2069,12 @@ impl VerifyContext {
                 match &obj_ty {
                     Ty::Named(type_name) => {
                         if let Some(type_def) = self.types.get(type_name) {
-                            if let Some((_, fty)) = type_def.fields.iter().find(|(n, _)| n == field) {
+                            if let Some((_, fty)) = type_def.fields.iter().find(|(n, _)| n == field)
+                            {
                                 fty.clone()
                             } else {
-                                let field_names: Vec<String> = type_def.fields.iter().map(|(n, _)| n.clone()).collect();
+                                let field_names: Vec<String> =
+                                    type_def.fields.iter().map(|(n, _)| n.clone()).collect();
                                 let hint = closest_match(field, field_names.iter())
                                     .map(|s| format!("did you mean '{s}'?"));
                                 self.err(
@@ -1836,7 +2092,13 @@ impl VerifyContext {
                     }
                     Ty::Unknown => Ty::Unknown,
                     other => {
-                        self.err("ILO-T018", func, format!("field access on non-record type {other}"), None, Some(span));
+                        self.err(
+                            "ILO-T018",
+                            func,
+                            format!("field access on non-record type {other}"),
+                            None,
+                            Some(span),
+                        );
                         Ty::Unknown
                     }
                 }
@@ -1851,7 +2113,13 @@ impl VerifyContext {
                     Ty::List(inner) => *inner.clone(),
                     Ty::Unknown => Ty::Unknown,
                     other => {
-                        self.err("ILO-T023", func, format!("index access on non-list type {other}"), None, Some(span));
+                        self.err(
+                            "ILO-T023",
+                            func,
+                            format!("index access on non-list type {other}"),
+                            None,
+                            Some(span),
+                        );
                         Ty::Unknown
                     }
                 }
@@ -1885,7 +2153,11 @@ impl VerifyContext {
                     other => other,
                 }
             }
-            Expr::Ternary { condition, then_expr, else_expr } => {
+            Expr::Ternary {
+                condition,
+                then_expr,
+                else_expr,
+            } => {
                 self.infer_expr(func, scope, condition, span);
                 let then_ty = self.infer_expr(func, scope, then_expr, span);
                 let else_ty = self.infer_expr(func, scope, else_expr, span);
@@ -1894,7 +2166,16 @@ impl VerifyContext {
                 } else if compatible(&else_ty, &then_ty) {
                     else_ty
                 } else {
-                    self.err("ILO-T003", func, format!("ternary branches have different types: {} vs {}", then_ty, else_ty), None, Some(span));
+                    self.err(
+                        "ILO-T003",
+                        func,
+                        format!(
+                            "ternary branches have different types: {} vs {}",
+                            then_ty, else_ty
+                        ),
+                        None,
+                        Some(span),
+                    );
                     then_ty
                 }
             }
@@ -1906,7 +2187,8 @@ impl VerifyContext {
                         if let Some(type_def) = self.types.get(type_name) {
                             let def_fields = type_def.fields.clone();
                             for (fname, expr) in updates {
-                                if let Some((_, fty)) = def_fields.iter().find(|(n, _)| n == fname) {
+                                if let Some((_, fty)) = def_fields.iter().find(|(n, _)| n == fname)
+                                {
                                     let actual = self.infer_expr(func, scope, expr, span);
                                     if !compatible(fty, &actual) {
                                         self.err(
@@ -1918,13 +2200,16 @@ impl VerifyContext {
                                         );
                                     }
                                 } else {
-                                    let def_field_strings: Vec<String> = def_fields.iter().map(|(n, _)| n.clone()).collect();
+                                    let def_field_strings: Vec<String> =
+                                        def_fields.iter().map(|(n, _)| n.clone()).collect();
                                     let hint = closest_match(fname, def_field_strings.iter())
                                         .map(|s| format!("did you mean '{s}'?"));
                                     self.err(
                                         "ILO-T021",
                                         func,
-                                        format!("unknown field '{fname}' in 'with' on '{type_name}'"),
+                                        format!(
+                                            "unknown field '{fname}' in 'with' on '{type_name}'"
+                                        ),
                                         hint,
                                         Some(span),
                                     );
@@ -1935,7 +2220,13 @@ impl VerifyContext {
                     }
                     Ty::Unknown => Ty::Unknown,
                     other => {
-                        self.err("ILO-T020", func, format!("'with' on non-record type {other}"), None, Some(span));
+                        self.err(
+                            "ILO-T020",
+                            func,
+                            format!("'with' on non-record type {other}"),
+                            None,
+                            Some(span),
+                        );
                         Ty::Unknown
                     }
                 }
@@ -1954,21 +2245,43 @@ impl VerifyContext {
                     (Ty::Unknown, _) | (_, Ty::Unknown) => Ty::Unknown,
                     _ => {
                         let hint = match (lt, rt) {
-                            (Ty::Number, Ty::Text) | (Ty::Text, Ty::Number) =>
-                                Some("convert number to text with 'str' before concatenating".to_string()),
+                            (Ty::Number, Ty::Text) | (Ty::Text, Ty::Number) => Some(
+                                "convert number to text with 'str' before concatenating"
+                                    .to_string(),
+                            ),
                             _ => None,
                         };
-                        self.err("ILO-T009", func, format!("'+' expects matching n, t, or L types, got {lt} and {rt}"), hint, Some(span));
+                        self.err(
+                            "ILO-T009",
+                            func,
+                            format!("'+' expects matching n, t, or L types, got {lt} and {rt}"),
+                            hint,
+                            Some(span),
+                        );
                         Ty::Unknown
                     }
                 }
             }
             BinOp::Subtract | BinOp::Multiply | BinOp::Divide => {
                 if !compatible(lt, &Ty::Number) || !compatible(rt, &Ty::Number) {
-                    let sym = match op { BinOp::Subtract => "-", BinOp::Multiply => "*", _ => "/" };
+                    let sym = match op {
+                        BinOp::Subtract => "-",
+                        BinOp::Multiply => "*",
+                        _ => "/",
+                    };
                     let has_text = matches!(lt, Ty::Text) || matches!(rt, Ty::Text);
-                    let hint = if has_text { Some("parse text as number with 'num' first".to_string()) } else { None };
-                    self.err("ILO-T009", func, format!("'{sym}' expects n and n, got {lt} and {rt}"), hint, Some(span));
+                    let hint = if has_text {
+                        Some("parse text as number with 'num' first".to_string())
+                    } else {
+                        None
+                    };
+                    self.err(
+                        "ILO-T009",
+                        func,
+                        format!("'{sym}' expects n and n, got {lt} and {rt}"),
+                        hint,
+                        Some(span),
+                    );
                 }
                 Ty::Number
             }
@@ -1977,7 +2290,13 @@ impl VerifyContext {
                     (Ty::Number, Ty::Number) | (Ty::Text, Ty::Text) => {}
                     (Ty::Unknown, _) | (_, Ty::Unknown) => {}
                     _ => {
-                        self.err("ILO-T010", func, format!("comparison expects matching n or t, got {lt} and {rt}"), None, Some(span));
+                        self.err(
+                            "ILO-T010",
+                            func,
+                            format!("comparison expects matching n or t, got {lt} and {rt}"),
+                            None,
+                            Some(span),
+                        );
                     }
                 }
                 Ty::Bool
@@ -1989,13 +2308,27 @@ impl VerifyContext {
                 match lt {
                     Ty::List(inner) => {
                         if !compatible(inner, rt) {
-                            self.err("ILO-T011", func, format!("'+=' list element type {inner} doesn't match appended {rt}"), None, Some(span));
+                            self.err(
+                                "ILO-T011",
+                                func,
+                                format!(
+                                    "'+=' list element type {inner} doesn't match appended {rt}"
+                                ),
+                                None,
+                                Some(span),
+                            );
                         }
                         lt.clone()
                     }
                     Ty::Unknown => Ty::Unknown,
                     _ => {
-                        self.err("ILO-T011", func, format!("'+=' expects a list on the left, got {lt}"), None, Some(span));
+                        self.err(
+                            "ILO-T011",
+                            func,
+                            format!("'+=' expects a list on the left, got {lt}"),
+                            None,
+                            Some(span),
+                        );
                         Ty::Unknown
                     }
                 }
@@ -2003,8 +2336,16 @@ impl VerifyContext {
         }
     }
 
-    fn check_match_exhaustiveness(&mut self, func: &str, subject_ty: &Ty, arms: &[MatchArm], span: Span) {
-        let has_wildcard = arms.iter().any(|a| matches!(a.pattern, Pattern::Wildcard | Pattern::TypeIs { .. }));
+    fn check_match_exhaustiveness(
+        &mut self,
+        func: &str,
+        subject_ty: &Ty,
+        arms: &[MatchArm],
+        span: Span,
+    ) {
+        let has_wildcard = arms
+            .iter()
+            .any(|a| matches!(a.pattern, Pattern::Wildcard | Pattern::TypeIs { .. }));
         if has_wildcard {
             return;
         }
@@ -2017,36 +2358,74 @@ impl VerifyContext {
                     let missing: Vec<&str> = [
                         if !has_ok { Some("~") } else { None },
                         if !has_err { Some("^") } else { None },
-                    ].into_iter().flatten().collect();
+                    ]
+                    .into_iter()
+                    .flatten()
+                    .collect();
                     let parts: Vec<String> = [
-                        if !has_ok { Some(format!("~v: <expr>  (v is of type {ok_ty})")) } else { None },
-                        if !has_err { Some(format!("^e: <expr>  (e is of type {err_ty})")) } else { None },
-                    ].into_iter().flatten().collect();
+                        if !has_ok {
+                            Some(format!("~v: <expr>  (v is of type {ok_ty})"))
+                        } else {
+                            None
+                        },
+                        if !has_err {
+                            Some(format!("^e: <expr>  (e is of type {err_ty})"))
+                        } else {
+                            None
+                        },
+                    ]
+                    .into_iter()
+                    .flatten()
+                    .collect();
                     self.err(
                         "ILO-T024",
                         func,
-                        format!("non-exhaustive match on Result: missing {}", missing.join(", ")),
+                        format!(
+                            "non-exhaustive match on Result: missing {}",
+                            missing.join(", ")
+                        ),
                         Some(format!("add: {}", parts.join(" or "))),
                         Some(span),
                     );
                 }
             }
             Ty::Bool => {
-                let has_true = arms.iter().any(|a| matches!(&a.pattern, Pattern::Literal(Literal::Bool(true))));
-                let has_false = arms.iter().any(|a| matches!(&a.pattern, Pattern::Literal(Literal::Bool(false))));
+                let has_true = arms
+                    .iter()
+                    .any(|a| matches!(&a.pattern, Pattern::Literal(Literal::Bool(true))));
+                let has_false = arms
+                    .iter()
+                    .any(|a| matches!(&a.pattern, Pattern::Literal(Literal::Bool(false))));
                 if !has_true || !has_false {
                     let missing: Vec<&str> = [
                         if !has_true { Some("true") } else { None },
                         if !has_false { Some("false") } else { None },
-                    ].into_iter().flatten().collect();
+                    ]
+                    .into_iter()
+                    .flatten()
+                    .collect();
                     let parts: Vec<&str> = [
-                        if !has_true { Some("true: <expr>") } else { None },
-                        if !has_false { Some("false: <expr>") } else { None },
-                    ].into_iter().flatten().collect();
+                        if !has_true {
+                            Some("true: <expr>")
+                        } else {
+                            None
+                        },
+                        if !has_false {
+                            Some("false: <expr>")
+                        } else {
+                            None
+                        },
+                    ]
+                    .into_iter()
+                    .flatten()
+                    .collect();
                     self.err(
                         "ILO-T024",
                         func,
-                        format!("non-exhaustive match on Bool: missing {}", missing.join(", ")),
+                        format!(
+                            "non-exhaustive match on Bool: missing {}",
+                            missing.join(", ")
+                        ),
                         Some(format!("add: {}", parts.join(" or "))),
                         Some(span),
                     );
@@ -2108,7 +2487,15 @@ mod tests {
         let tokens = crate::lexer::lex(code).expect("lex failed");
         let token_spans: Vec<(crate::lexer::Token, crate::ast::Span)> = tokens
             .into_iter()
-            .map(|(t, r)| (t, crate::ast::Span { start: r.start, end: r.end }))
+            .map(|(t, r)| {
+                (
+                    t,
+                    crate::ast::Span {
+                        start: r.start,
+                        end: r.end,
+                    },
+                )
+            })
             .collect();
         let (program, parse_errors) = crate::parser::parse(token_spans);
         assert!(parse_errors.is_empty(), "parse failed: {:?}", parse_errors);
@@ -2140,7 +2527,11 @@ mod tests {
         let result = parse_and_verify("f x:n>n;*y 2");
         assert!(result.is_err());
         let errors = result.unwrap_err();
-        assert!(errors.iter().any(|e| e.message.contains("undefined variable 'y'")));
+        assert!(
+            errors
+                .iter()
+                .any(|e| e.message.contains("undefined variable 'y'"))
+        );
     }
 
     #[test]
@@ -2148,7 +2539,11 @@ mod tests {
         let result = parse_and_verify("f x:n>n;foo x");
         assert!(result.is_err());
         let errors = result.unwrap_err();
-        assert!(errors.iter().any(|e| e.message.contains("undefined function 'foo'")));
+        assert!(
+            errors
+                .iter()
+                .any(|e| e.message.contains("undefined function 'foo'"))
+        );
     }
 
     #[test]
@@ -2172,7 +2567,11 @@ mod tests {
         let result = parse_and_verify("f x:t>n;*x 2");
         assert!(result.is_err());
         let errors = result.unwrap_err();
-        assert!(errors.iter().any(|e| e.message.contains("'*' expects n and n")));
+        assert!(
+            errors
+                .iter()
+                .any(|e| e.message.contains("'*' expects n and n"))
+        );
     }
 
     #[test]
@@ -2202,7 +2601,11 @@ mod tests {
         let result = parse_and_verify("f x:n>n;min x");
         assert!(result.is_err());
         let errors = result.unwrap_err();
-        assert!(errors.iter().any(|e| e.message.contains("arity mismatch") && e.message.contains("min")));
+        assert!(
+            errors
+                .iter()
+                .any(|e| e.message.contains("arity mismatch") && e.message.contains("min"))
+        );
     }
 
     #[test]
@@ -2242,7 +2645,11 @@ mod tests {
         let result = parse_and_verify("f x:n>n;@i x{i};0");
         assert!(result.is_err());
         let errors = result.unwrap_err();
-        assert!(errors.iter().any(|e| e.message.contains("foreach expects a list")));
+        assert!(
+            errors
+                .iter()
+                .any(|e| e.message.contains("foreach expects a list"))
+        );
     }
 
     #[test]
@@ -2251,7 +2658,11 @@ mod tests {
         let result = parse_and_verify("dup x:n>n;*x 2 dup x:n>n;+x 1");
         assert!(result.is_err());
         let errors = result.unwrap_err();
-        assert!(errors.iter().any(|e| e.message.contains("duplicate function")));
+        assert!(
+            errors
+                .iter()
+                .any(|e| e.message.contains("duplicate function"))
+        );
     }
 
     #[test]
@@ -2270,7 +2681,11 @@ mod tests {
         let result = parse_and_verify("f x:n>t;*x 2");
         assert!(result.is_err());
         let errors = result.unwrap_err();
-        assert!(errors.iter().any(|e| e.message.contains("return type mismatch")));
+        assert!(
+            errors
+                .iter()
+                .any(|e| e.message.contains("return type mismatch"))
+        );
     }
 
     #[test]
@@ -2283,7 +2698,11 @@ mod tests {
         let result = parse_and_verify("f x:n>n;x.0");
         assert!(result.is_err());
         let errors = result.unwrap_err();
-        assert!(errors.iter().any(|e| e.message.contains("index access on non-list")));
+        assert!(
+            errors
+                .iter()
+                .any(|e| e.message.contains("index access on non-list"))
+        );
     }
 
     #[test]
@@ -2291,8 +2710,15 @@ mod tests {
         let result = parse_and_verify("calc x:n>n;*x 2 f x:n>n;calx x");
         assert!(result.is_err());
         let errors = result.unwrap_err();
-        let err = errors.iter().find(|e| e.message.contains("undefined function 'calx'")).unwrap();
-        assert!(err.hint.as_ref().is_some_and(|h| h.contains("did you mean 'calc'?")));
+        let err = errors
+            .iter()
+            .find(|e| e.message.contains("undefined function 'calx'"))
+            .unwrap();
+        assert!(
+            err.hint
+                .as_ref()
+                .is_some_and(|h| h.contains("did you mean 'calc'?"))
+        );
     }
 
     // --- Match exhaustiveness tests ---
@@ -2314,7 +2740,11 @@ mod tests {
         let result = parse_and_verify("f x:R n t>n;?x{~v:v}");
         assert!(result.is_err());
         let errors = result.unwrap_err();
-        assert!(errors.iter().any(|e| e.message.contains("non-exhaustive") && e.message.contains("^")));
+        assert!(
+            errors
+                .iter()
+                .any(|e| e.message.contains("non-exhaustive") && e.message.contains("^"))
+        );
     }
 
     #[test]
@@ -2322,7 +2752,11 @@ mod tests {
         let result = parse_and_verify("f x:R n t>n;?x{^e:0}");
         assert!(result.is_err());
         let errors = result.unwrap_err();
-        assert!(errors.iter().any(|e| e.message.contains("non-exhaustive") && e.message.contains("~")));
+        assert!(
+            errors
+                .iter()
+                .any(|e| e.message.contains("non-exhaustive") && e.message.contains("~"))
+        );
     }
 
     #[test]
@@ -2335,7 +2769,11 @@ mod tests {
         let result = parse_and_verify("f x:b>n;?x{true:1}");
         assert!(result.is_err());
         let errors = result.unwrap_err();
-        assert!(errors.iter().any(|e| e.message.contains("non-exhaustive") && e.message.contains("false")));
+        assert!(
+            errors
+                .iter()
+                .any(|e| e.message.contains("non-exhaustive") && e.message.contains("false"))
+        );
     }
 
     #[test]
@@ -2343,7 +2781,11 @@ mod tests {
         let result = parse_and_verify("f x:n>t;?x{1:\"one\";2:\"two\"}");
         assert!(result.is_err());
         let errors = result.unwrap_err();
-        assert!(errors.iter().any(|e| e.message.contains("non-exhaustive") && e.message.contains("no wildcard")));
+        assert!(
+            errors
+                .iter()
+                .any(|e| e.message.contains("non-exhaustive") && e.message.contains("no wildcard"))
+        );
     }
 
     #[test]
@@ -2376,7 +2818,10 @@ mod tests {
 
     #[test]
     fn ty_display_result() {
-        assert_eq!(format!("{}", Ty::Result(Box::new(Ty::Number), Box::new(Ty::Text))), "R n t");
+        assert_eq!(
+            format!("{}", Ty::Result(Box::new(Ty::Number), Box::new(Ty::Text))),
+            "R n t"
+        );
     }
 
     #[test]
@@ -2430,12 +2875,18 @@ mod tests {
 
     #[test]
     fn compatible_named_same() {
-        assert!(compatible(&Ty::Named("point".to_string()), &Ty::Named("point".to_string())));
+        assert!(compatible(
+            &Ty::Named("point".to_string()),
+            &Ty::Named("point".to_string())
+        ));
     }
 
     #[test]
     fn compatible_named_different() {
-        assert!(!compatible(&Ty::Named("point".to_string()), &Ty::Named("rect".to_string())));
+        assert!(!compatible(
+            &Ty::Named("point".to_string()),
+            &Ty::Named("rect".to_string())
+        ));
     }
 
     #[test]
@@ -2478,7 +2929,11 @@ mod tests {
         let result = parse_and_verify("f x:t>t;str x");
         assert!(result.is_err());
         let errors = result.unwrap_err();
-        assert!(errors.iter().any(|e| e.message.contains("'str' expects n, got t")));
+        assert!(
+            errors
+                .iter()
+                .any(|e| e.message.contains("'str' expects n, got t"))
+        );
     }
 
     #[test]
@@ -2486,7 +2941,11 @@ mod tests {
         let result = parse_and_verify("f x:n>R n t;num x");
         assert!(result.is_err());
         let errors = result.unwrap_err();
-        assert!(errors.iter().any(|e| e.message.contains("'num' expects t, got n")));
+        assert!(
+            errors
+                .iter()
+                .any(|e| e.message.contains("'num' expects t, got n"))
+        );
     }
 
     #[test]
@@ -2494,7 +2953,11 @@ mod tests {
         let result = parse_and_verify("f x:t y:n>n;min x y");
         assert!(result.is_err());
         let errors = result.unwrap_err();
-        assert!(errors.iter().any(|e| e.message.contains("'min' arg 1 expects n, got t")));
+        assert!(
+            errors
+                .iter()
+                .any(|e| e.message.contains("'min' arg 1 expects n, got t"))
+        );
     }
 
     #[test]
@@ -2502,7 +2965,11 @@ mod tests {
         let result = parse_and_verify("f x:n y:t>n;max x y");
         assert!(result.is_err());
         let errors = result.unwrap_err();
-        assert!(errors.iter().any(|e| e.message.contains("'max' arg 2 expects n, got t")));
+        assert!(
+            errors
+                .iter()
+                .any(|e| e.message.contains("'max' arg 2 expects n, got t"))
+        );
     }
 
     // ---- Tool declaration processing ----
@@ -2510,21 +2977,22 @@ mod tests {
     #[test]
     fn tool_declaration_processed() {
         // A tool should be collected and callable from a function
-        let result = parse_and_verify(
-            r#"tool my-tool "desc" x:n>n f y:n>n;my-tool y"#
-        );
+        let result = parse_and_verify(r#"tool my-tool "desc" x:n>n f y:n>n;my-tool y"#);
         assert!(result.is_ok());
     }
 
     #[test]
     fn tool_conflicts_with_function_name() {
         // Tool name conflicts with function name
-        let result = parse_and_verify(
-            r#"f x:n>n;*x 2 tool f "desc" y:n>n"#
-        );
+        let result = parse_and_verify(r#"f x:n>n;*x 2 tool f "desc" y:n>n"#);
         assert!(result.is_err());
         let errors = result.unwrap_err();
-        assert!(errors.iter().any(|e| e.message.contains("duplicate definition") || e.message.contains("duplicate function")));
+        assert!(
+            errors
+                .iter()
+                .any(|e| e.message.contains("duplicate definition")
+                    || e.message.contains("duplicate function"))
+        );
     }
 
     // ---- TypeDef field validation ----
@@ -2535,7 +3003,11 @@ mod tests {
         let result = parse_and_verify("type edge{from:node;to:node} f x:n>n;x");
         assert!(result.is_err());
         let errors = result.unwrap_err();
-        assert!(errors.iter().any(|e| e.message.contains("undefined type 'node'")));
+        assert!(
+            errors
+                .iter()
+                .any(|e| e.message.contains("undefined type 'node'"))
+        );
     }
 
     // ---- Undefined type in function signature ----
@@ -2545,7 +3017,11 @@ mod tests {
         let result = parse_and_verify("f x:ghost>n;x");
         assert!(result.is_err());
         let errors = result.unwrap_err();
-        assert!(errors.iter().any(|e| e.message.contains("undefined type 'ghost'")));
+        assert!(
+            errors
+                .iter()
+                .any(|e| e.message.contains("undefined type 'ghost'"))
+        );
     }
 
     // ---- Record errors ----
@@ -2555,7 +3031,11 @@ mod tests {
         let result = parse_and_verify("type point{x:n;y:n} f>point;point x:1");
         assert!(result.is_err());
         let errors = result.unwrap_err();
-        assert!(errors.iter().any(|e| e.message.contains("missing field 'y'")));
+        assert!(
+            errors
+                .iter()
+                .any(|e| e.message.contains("missing field 'y'"))
+        );
     }
 
     #[test]
@@ -2563,7 +3043,11 @@ mod tests {
         let result = parse_and_verify("type point{x:n;y:n} f>point;point x:1 y:2 z:3");
         assert!(result.is_err());
         let errors = result.unwrap_err();
-        assert!(errors.iter().any(|e| e.message.contains("unknown field 'z'")));
+        assert!(
+            errors
+                .iter()
+                .any(|e| e.message.contains("unknown field 'z'"))
+        );
     }
 
     #[test]
@@ -2571,7 +3055,11 @@ mod tests {
         let result = parse_and_verify("type point{x:n;y:n} f>point;point x:1 y:\"bad\"");
         assert!(result.is_err());
         let errors = result.unwrap_err();
-        assert!(errors.iter().any(|e| e.message.contains("field 'y' of 'point' expects n, got t")));
+        assert!(
+            errors
+                .iter()
+                .any(|e| e.message.contains("field 'y' of 'point' expects n, got t"))
+        );
     }
 
     #[test]
@@ -2580,7 +3068,11 @@ mod tests {
         let result = parse_and_verify("f>n;x=ghost a:1;0");
         assert!(result.is_err());
         let errors = result.unwrap_err();
-        assert!(errors.iter().any(|e| e.message.contains("undefined type 'ghost'")));
+        assert!(
+            errors
+                .iter()
+                .any(|e| e.message.contains("undefined type 'ghost'"))
+        );
     }
 
     // ---- Field access errors ----
@@ -2590,7 +3082,11 @@ mod tests {
         let result = parse_and_verify("type point{x:n;y:n} f p:point>n;p.z");
         assert!(result.is_err());
         let errors = result.unwrap_err();
-        assert!(errors.iter().any(|e| e.message.contains("no field 'z' on type 'point'")));
+        assert!(
+            errors
+                .iter()
+                .any(|e| e.message.contains("no field 'z' on type 'point'"))
+        );
     }
 
     #[test]
@@ -2598,7 +3094,11 @@ mod tests {
         let result = parse_and_verify("f x:n>n;x.foo");
         assert!(result.is_err());
         let errors = result.unwrap_err();
-        assert!(errors.iter().any(|e| e.message.contains("field access on non-record type n")));
+        assert!(
+            errors
+                .iter()
+                .any(|e| e.message.contains("field access on non-record type n"))
+        );
     }
 
     // ---- With expression errors ----
@@ -2608,7 +3108,11 @@ mod tests {
         let result = parse_and_verify("f x:n>n;y=x with foo:1;0");
         assert!(result.is_err());
         let errors = result.unwrap_err();
-        assert!(errors.iter().any(|e| e.message.contains("'with' on non-record type n")));
+        assert!(
+            errors
+                .iter()
+                .any(|e| e.message.contains("'with' on non-record type n"))
+        );
     }
 
     #[test]
@@ -2616,7 +3120,11 @@ mod tests {
         let result = parse_and_verify("type point{x:n;y:n} f p:point>point;p with z:1");
         assert!(result.is_err());
         let errors = result.unwrap_err();
-        assert!(errors.iter().any(|e| e.message.contains("unknown field 'z' in 'with'")));
+        assert!(
+            errors
+                .iter()
+                .any(|e| e.message.contains("unknown field 'z' in 'with'"))
+        );
     }
 
     #[test]
@@ -2624,7 +3132,10 @@ mod tests {
         let result = parse_and_verify("type point{x:n;y:n} f p:point>point;p with x:\"bad\"");
         assert!(result.is_err());
         let errors = result.unwrap_err();
-        assert!(errors.iter().any(|e| e.message.contains("'with' field 'x' of 'point' expects n, got t")));
+        assert!(errors.iter().any(|e| {
+            e.message
+                .contains("'with' field 'x' of 'point' expects n, got t")
+        }));
     }
 
     // ---- BinOp errors ----
@@ -2634,7 +3145,10 @@ mod tests {
         let result = parse_and_verify("f x:n y:b>b;>x y");
         assert!(result.is_err());
         let errors = result.unwrap_err();
-        assert!(errors.iter().any(|e| e.message.contains("comparison expects matching n or t, got n and b")));
+        assert!(errors.iter().any(|e| {
+            e.message
+                .contains("comparison expects matching n or t, got n and b")
+        }));
     }
 
     #[test]
@@ -2642,7 +3156,11 @@ mod tests {
         let result = parse_and_verify("f x:n>n;y=+=x 1;0");
         assert!(result.is_err());
         let errors = result.unwrap_err();
-        assert!(errors.iter().any(|e| e.message.contains("'+=' expects a list on the left, got n")));
+        assert!(
+            errors
+                .iter()
+                .any(|e| e.message.contains("'+=' expects a list on the left, got n"))
+        );
     }
 
     #[test]
@@ -2650,7 +3168,10 @@ mod tests {
         let result = parse_and_verify("f xs:L n>L n;+=xs \"bad\"");
         assert!(result.is_err());
         let errors = result.unwrap_err();
-        assert!(errors.iter().any(|e| e.message.contains("'+=' list element type n doesn't match appended t")));
+        assert!(errors.iter().any(|e| {
+            e.message
+                .contains("'+=' list element type n doesn't match appended t")
+        }));
     }
 
     // ---- Expr::Match as expression (in let binding) ----
@@ -2667,7 +3188,11 @@ mod tests {
         let result = parse_and_verify("f x:t>n;?x{\"a\":1;\"b\":2}");
         assert!(result.is_err());
         let errors = result.unwrap_err();
-        assert!(errors.iter().any(|e| e.message.contains("non-exhaustive") && e.message.contains("no wildcard")));
+        assert!(
+            errors
+                .iter()
+                .any(|e| e.message.contains("non-exhaustive") && e.message.contains("no wildcard"))
+        );
     }
 
     // ---- Index access on non-list (when type is not Unknown) ----
@@ -2677,7 +3202,11 @@ mod tests {
         let result = parse_and_verify("f x:b>b;x.0");
         assert!(result.is_err());
         let errors = result.unwrap_err();
-        assert!(errors.iter().any(|e| e.message.contains("index access on non-list")));
+        assert!(
+            errors
+                .iter()
+                .any(|e| e.message.contains("index access on non-list"))
+        );
     }
 
     // ---- builtin len wrong type ----
@@ -2687,7 +3216,10 @@ mod tests {
         let result = parse_and_verify("f x:n>n;len x");
         assert!(result.is_err());
         let errors = result.unwrap_err();
-        assert!(errors.iter().any(|e| e.message.contains("'len' expects a list, map, or text, got n")));
+        assert!(errors.iter().any(|e| {
+            e.message
+                .contains("'len' expects a list, map, or text, got n")
+        }));
     }
 
     // ---- builtin abs/flr/cel wrong type ----
@@ -2697,7 +3229,11 @@ mod tests {
         let result = parse_and_verify("f x:t>n;abs x");
         assert!(result.is_err());
         let errors = result.unwrap_err();
-        assert!(errors.iter().any(|e| e.message.contains("'abs' expects n, got t")));
+        assert!(
+            errors
+                .iter()
+                .any(|e| e.message.contains("'abs' expects n, got t"))
+        );
     }
 
     // ---- duplicate type definition ----
@@ -2707,7 +3243,11 @@ mod tests {
         let result = parse_and_verify("type point{x:n;y:n} type point{a:n;b:n} f x:n>n;x");
         assert!(result.is_err());
         let errors = result.unwrap_err();
-        assert!(errors.iter().any(|e| e.message.contains("duplicate type definition 'point'")));
+        assert!(
+            errors
+                .iter()
+                .any(|e| e.message.contains("duplicate type definition 'point'"))
+        );
     }
 
     // ---- Bool literal in function body ----
@@ -2731,7 +3271,11 @@ mod tests {
         let result = parse_and_verify("f x:t>n;-x");
         assert!(result.is_err());
         let errors = result.unwrap_err();
-        assert!(errors.iter().any(|e| e.message.contains("negate expects n, got t")));
+        assert!(
+            errors
+                .iter()
+                .any(|e| e.message.contains("negate expects n, got t"))
+        );
     }
 
     // ---- BinOp::Add with mixed types (including text+text, list+list) ----
@@ -2751,7 +3295,11 @@ mod tests {
         let result = parse_and_verify("f x:n y:b>n;+x y");
         assert!(result.is_err());
         let errors = result.unwrap_err();
-        assert!(errors.iter().any(|e| e.message.contains("'+' expects matching n, t, or L types")));
+        assert!(
+            errors
+                .iter()
+                .any(|e| e.message.contains("'+' expects matching n, t, or L types"))
+        );
     }
 
     // ---- BinOp::Equals and BinOp::And (return Bool) ----
@@ -2785,7 +3333,11 @@ mod tests {
         assert!(result.is_err());
         // Should have an undefined type error for 'ghost'
         let errors = result.unwrap_err();
-        assert!(errors.iter().any(|e| e.message.contains("undefined type 'ghost'")));
+        assert!(
+            errors
+                .iter()
+                .any(|e| e.message.contains("undefined type 'ghost'"))
+        );
     }
 
     // ---- Match with subject (Expr::Match) ----
@@ -2989,7 +3541,10 @@ mod tests {
     fn suggestion_t006_user_defined_shows_signature() {
         let result = parse_and_verify("g a:n b:n>n;+a b f x:n>n;g x");
         let errors = result.unwrap_err();
-        let e = errors.iter().find(|e| e.code == "ILO-T006" && e.message.contains("'g'")).unwrap();
+        let e = errors
+            .iter()
+            .find(|e| e.code == "ILO-T006" && e.message.contains("'g'"))
+            .unwrap();
         let hint = e.hint.as_ref().unwrap();
         assert!(hint.contains("'g' expects:"));
         assert!(hint.contains("a:n"));
@@ -3018,7 +3573,10 @@ mod tests {
     fn suggestion_t009_add_mixed_nt_hint() {
         let result = parse_and_verify("f x:n y:t>n;+x y");
         let errors = result.unwrap_err();
-        let e = errors.iter().find(|e| e.code == "ILO-T009" && e.message.contains("'+'")).unwrap();
+        let e = errors
+            .iter()
+            .find(|e| e.code == "ILO-T009" && e.message.contains("'+'"))
+            .unwrap();
         assert!(e.hint.as_ref().is_some_and(|h| h.contains("str")));
     }
 
@@ -3026,7 +3584,10 @@ mod tests {
     fn suggestion_t009_multiply_text_hint() {
         let result = parse_and_verify("f x:t y:n>n;*x y");
         let errors = result.unwrap_err();
-        let e = errors.iter().find(|e| e.code == "ILO-T009" && e.message.contains("'*'")).unwrap();
+        let e = errors
+            .iter()
+            .find(|e| e.code == "ILO-T009" && e.message.contains("'*'"))
+            .unwrap();
         assert!(e.hint.as_ref().is_some_and(|h| h.contains("num")));
     }
 
@@ -3052,7 +3613,8 @@ mod tests {
     #[test]
     fn suggestion_t021_closest_match() {
         // "nam" is close to "name"
-        let result = parse_and_verify("type person{name:t;age:n} f p:person>person;p with nam:\"bob\"");
+        let result =
+            parse_and_verify("type person{name:t;age:n} f p:person>person;p with nam:\"bob\"");
         let errors = result.unwrap_err();
         let e = errors.iter().find(|e| e.code == "ILO-T021").unwrap();
         assert!(e.hint.as_ref().is_some_and(|h| h.contains("name")));
@@ -3114,21 +3676,35 @@ mod tests {
             declarations: vec![
                 Decl::Function {
                     name: "inner".to_string(),
-                    params: vec![Param { name: "x".to_string(), ty: Type::Number }],
+                    params: vec![Param {
+                        name: "x".to_string(),
+                        ty: Type::Number,
+                    }],
                     return_type: rnt.clone(),
-                    body: vec![Spanned::unknown(Stmt::Expr(Expr::Ok(Box::new(Expr::Ref("x".to_string())))))],
+                    body: vec![Spanned::unknown(Stmt::Expr(Expr::Ok(Box::new(Expr::Ref(
+                        "x".to_string(),
+                    )))))],
                     span: Span::UNKNOWN,
                 },
                 Decl::Function {
                     name: "outer".to_string(),
-                    params: vec![Param { name: "x".to_string(), ty: Type::Number }],
+                    params: vec![Param {
+                        name: "x".to_string(),
+                        ty: Type::Number,
+                    }],
                     return_type: rnt,
                     body: vec![
                         Spanned::unknown(Stmt::Let {
                             name: "d".to_string(),
-                            value: Expr::Call { function: "inner".to_string(), args: vec![Expr::Ref("x".to_string())], unwrap: true },
+                            value: Expr::Call {
+                                function: "inner".to_string(),
+                                args: vec![Expr::Ref("x".to_string())],
+                                unwrap: true,
+                            },
                         }),
-                        Spanned::unknown(Stmt::Expr(Expr::Ok(Box::new(Expr::Ref("d".to_string()))))),
+                        Spanned::unknown(Stmt::Expr(Expr::Ok(Box::new(Expr::Ref(
+                            "d".to_string(),
+                        ))))),
                     ],
                     span: Span::UNKNOWN,
                 },
@@ -3136,7 +3712,11 @@ mod tests {
             source: None,
         };
         let result = verify(&prog);
-        assert!(result.errors.is_empty(), "expected valid, got: {:?}", result);
+        assert!(
+            result.errors.is_empty(),
+            "expected valid, got: {:?}",
+            result
+        );
     }
 
     #[test]
@@ -3147,25 +3727,37 @@ mod tests {
             declarations: vec![
                 Decl::Function {
                     name: "inner".to_string(),
-                    params: vec![Param { name: "x".to_string(), ty: Type::Number }],
+                    params: vec![Param {
+                        name: "x".to_string(),
+                        ty: Type::Number,
+                    }],
                     return_type: Type::Number,
                     body: vec![Spanned::unknown(Stmt::Expr(Expr::Ref("x".to_string())))],
                     span: Span::UNKNOWN,
                 },
                 Decl::Function {
                     name: "outer".to_string(),
-                    params: vec![Param { name: "x".to_string(), ty: Type::Number }],
+                    params: vec![Param {
+                        name: "x".to_string(),
+                        ty: Type::Number,
+                    }],
                     return_type: Type::Result(Box::new(Type::Number), Box::new(Type::Text)),
-                    body: vec![Spanned::unknown(Stmt::Expr(
-                        Expr::Call { function: "inner".to_string(), args: vec![Expr::Ref("x".to_string())], unwrap: true },
-                    ))],
+                    body: vec![Spanned::unknown(Stmt::Expr(Expr::Call {
+                        function: "inner".to_string(),
+                        args: vec![Expr::Ref("x".to_string())],
+                        unwrap: true,
+                    }))],
                     span: Span::UNKNOWN,
                 },
             ],
             source: None,
         };
         let errors = &verify(&prog).errors;
-        assert!(errors.iter().any(|e| e.code == "ILO-T025"), "expected T025, got: {:?}", errors);
+        assert!(
+            errors.iter().any(|e| e.code == "ILO-T025"),
+            "expected T025, got: {:?}",
+            errors
+        );
     }
 
     #[test]
@@ -3177,25 +3769,39 @@ mod tests {
             declarations: vec![
                 Decl::Function {
                     name: "inner".to_string(),
-                    params: vec![Param { name: "x".to_string(), ty: Type::Number }],
+                    params: vec![Param {
+                        name: "x".to_string(),
+                        ty: Type::Number,
+                    }],
                     return_type: rnt,
-                    body: vec![Spanned::unknown(Stmt::Expr(Expr::Ok(Box::new(Expr::Ref("x".to_string())))))],
+                    body: vec![Spanned::unknown(Stmt::Expr(Expr::Ok(Box::new(Expr::Ref(
+                        "x".to_string(),
+                    )))))],
                     span: Span::UNKNOWN,
                 },
                 Decl::Function {
                     name: "outer".to_string(),
-                    params: vec![Param { name: "x".to_string(), ty: Type::Number }],
+                    params: vec![Param {
+                        name: "x".to_string(),
+                        ty: Type::Number,
+                    }],
                     return_type: Type::Number,
-                    body: vec![Spanned::unknown(Stmt::Expr(
-                        Expr::Call { function: "inner".to_string(), args: vec![Expr::Ref("x".to_string())], unwrap: true },
-                    ))],
+                    body: vec![Spanned::unknown(Stmt::Expr(Expr::Call {
+                        function: "inner".to_string(),
+                        args: vec![Expr::Ref("x".to_string())],
+                        unwrap: true,
+                    }))],
                     span: Span::UNKNOWN,
                 },
             ],
             source: None,
         };
         let errors = &verify(&prog).errors;
-        assert!(errors.iter().any(|e| e.code == "ILO-T026"), "expected T026, got: {:?}", errors);
+        assert!(
+            errors.iter().any(|e| e.code == "ILO-T026"),
+            "expected T026, got: {:?}",
+            errors
+        );
     }
 
     #[test]
@@ -3243,15 +3849,22 @@ mod tests {
     #[test]
     fn braceless_guard_body_is_function_name() {
         // `classify` is a known function — warn that it looks like a forgotten call
-        let result = parse_and_verify("classify n:n>t;\"done\"\ncls sp:n>t;>=sp 1000 classify;\"fallback\"");
+        let result =
+            parse_and_verify("classify n:n>t;\"done\"\ncls sp:n>t;>=sp 1000 classify;\"fallback\"");
         let errors = result.unwrap_err();
         assert!(
-            errors.iter().any(|e| e.code == "ILO-T027" && e.message.contains("classify")),
-            "expected ILO-T027 for function name in braceless guard body, got: {:?}", errors
+            errors
+                .iter()
+                .any(|e| e.code == "ILO-T027" && e.message.contains("classify")),
+            "expected ILO-T027 for function name in braceless guard body, got: {:?}",
+            errors
         );
         assert!(
-            errors.iter().any(|e| e.hint.as_ref().is_some_and(|h| h.contains("braces"))),
-            "expected hint about braces, got: {:?}", errors
+            errors
+                .iter()
+                .any(|e| e.hint.as_ref().is_some_and(|h| h.contains("braces"))),
+            "expected hint about braces, got: {:?}",
+            errors
         );
     }
 
@@ -3267,15 +3880,22 @@ mod tests {
         let result = parse_and_verify("f x:n>n;>=x 0 len;x");
         let errors = result.unwrap_err();
         assert!(
-            errors.iter().any(|e| e.code == "ILO-T027" && e.message.contains("len")),
-            "expected ILO-T027 for builtin name in braceless guard body, got: {:?}", errors
+            errors
+                .iter()
+                .any(|e| e.code == "ILO-T027" && e.message.contains("len")),
+            "expected ILO-T027 for builtin name in braceless guard body, got: {:?}",
+            errors
         );
     }
 
     #[test]
     fn spl_valid() {
         let result = parse_and_verify(r#"f s:t sep:t>L t;spl s sep"#);
-        assert!(result.is_ok(), "spl with two text args should verify: {:?}", result);
+        assert!(
+            result.is_ok(),
+            "spl with two text args should verify: {:?}",
+            result
+        );
     }
 
     #[test]
@@ -3283,7 +3903,11 @@ mod tests {
         let result = parse_and_verify(r#"f s:t n:n>L t;spl s n"#);
         assert!(result.is_err());
         let errors = result.unwrap_err();
-        assert!(errors.iter().any(|e| e.code == "ILO-T013" && e.message.contains("spl")));
+        assert!(
+            errors
+                .iter()
+                .any(|e| e.code == "ILO-T013" && e.message.contains("spl"))
+        );
     }
 
     #[test]
@@ -3303,14 +3927,22 @@ mod tests {
     fn cat_wrong_type_arg1() {
         let result = parse_and_verify("f x:n>t;cat x \",\"");
         let errors = result.unwrap_err();
-        assert!(errors.iter().any(|e| e.code == "ILO-T013" && e.message.contains("cat")));
+        assert!(
+            errors
+                .iter()
+                .any(|e| e.code == "ILO-T013" && e.message.contains("cat"))
+        );
     }
 
     #[test]
     fn cat_wrong_arity() {
         let result = parse_and_verify("f items:L t>t;cat items");
         let errors = result.unwrap_err();
-        assert!(errors.iter().any(|e| e.message.contains("cat") && e.message.contains("2")));
+        assert!(
+            errors
+                .iter()
+                .any(|e| e.message.contains("cat") && e.message.contains("2"))
+        );
     }
 
     #[test]
@@ -3328,7 +3960,11 @@ mod tests {
         let result = parse_and_verify("f x:n y:n>b;has x y");
         assert!(result.is_err());
         let errors = result.unwrap_err();
-        assert!(errors.iter().any(|e| e.message.contains("'has' arg 1 expects a list or text")));
+        assert!(
+            errors
+                .iter()
+                .any(|e| e.message.contains("'has' arg 1 expects a list or text"))
+        );
     }
 
     #[test]
@@ -3351,7 +3987,11 @@ mod tests {
         let result = parse_and_verify("f x:n>n;hd x");
         assert!(result.is_err());
         let errors = result.unwrap_err();
-        assert!(errors.iter().any(|e| e.message.contains("'hd' expects a list or text, got n")));
+        assert!(
+            errors
+                .iter()
+                .any(|e| e.message.contains("'hd' expects a list or text, got n"))
+        );
     }
 
     #[test]
@@ -3359,7 +3999,11 @@ mod tests {
         let result = parse_and_verify("f x:n>n;tl x");
         assert!(result.is_err());
         let errors = result.unwrap_err();
-        assert!(errors.iter().any(|e| e.message.contains("'tl' expects a list or text, got n")));
+        assert!(
+            errors
+                .iter()
+                .any(|e| e.message.contains("'tl' expects a list or text, got n"))
+        );
     }
 
     #[test]
@@ -3377,7 +4021,11 @@ mod tests {
         let result = parse_and_verify("f n:n>L n;rev n");
         assert!(result.is_err());
         let errors = result.unwrap_err();
-        assert!(errors.iter().any(|e| e.code == "ILO-T013" && e.message.contains("rev")));
+        assert!(
+            errors
+                .iter()
+                .any(|e| e.code == "ILO-T013" && e.message.contains("rev"))
+        );
     }
 
     #[test]
@@ -3389,7 +4037,11 @@ mod tests {
     fn srt_wrong_type() {
         let result = parse_and_verify("f x:n>n;srt x");
         let errors = result.unwrap_err();
-        assert!(errors.iter().any(|e| e.code == "ILO-T013" && e.message.contains("srt")));
+        assert!(
+            errors
+                .iter()
+                .any(|e| e.code == "ILO-T013" && e.message.contains("srt"))
+        );
     }
 
     #[test]
@@ -3406,14 +4058,22 @@ mod tests {
     fn slc_wrong_collection_type() {
         let result = parse_and_verify("f x:n>n;slc x 0 2");
         let errors = result.unwrap_err();
-        assert!(errors.iter().any(|e| e.code == "ILO-T013" && e.message.contains("slc")));
+        assert!(
+            errors
+                .iter()
+                .any(|e| e.code == "ILO-T013" && e.message.contains("slc"))
+        );
     }
 
     #[test]
     fn slc_wrong_index_type() {
         let result = parse_and_verify("f x:L n s:t>L n;slc x s 2");
         let errors = result.unwrap_err();
-        assert!(errors.iter().any(|e| e.code == "ILO-T013" && e.message.contains("slc")));
+        assert!(
+            errors
+                .iter()
+                .any(|e| e.code == "ILO-T013" && e.message.contains("slc"))
+        );
     }
 
     #[test]
@@ -3436,13 +4096,21 @@ mod tests {
     #[test]
     fn brk_outside_loop() {
         let errors = parse_and_verify("f>n;brk").unwrap_err();
-        assert!(errors.iter().any(|e| e.code == "ILO-T028" && e.message.contains("brk")));
+        assert!(
+            errors
+                .iter()
+                .any(|e| e.code == "ILO-T028" && e.message.contains("brk"))
+        );
     }
 
     #[test]
     fn cnt_outside_loop() {
         let errors = parse_and_verify("f>n;cnt").unwrap_err();
-        assert!(errors.iter().any(|e| e.code == "ILO-T028" && e.message.contains("cnt")));
+        assert!(
+            errors
+                .iter()
+                .any(|e| e.code == "ILO-T028" && e.message.contains("cnt"))
+        );
     }
 
     #[test]
@@ -3471,7 +4139,11 @@ mod tests {
     fn guard_in_foreach_warns() {
         let result = parse_and_verify_full("f xs:L n>n;r=0;@x xs{>=x 10{r= +r x}};r");
         assert!(result.errors.is_empty());
-        let w001: Vec<_> = result.warnings.iter().filter(|w| w.code == "ILO-W001").collect();
+        let w001: Vec<_> = result
+            .warnings
+            .iter()
+            .filter(|w| w.code == "ILO-W001")
+            .collect();
         assert_eq!(w001.len(), 1);
         assert!(w001[0].message.contains("guard without else inside loop"));
     }
@@ -3480,7 +4152,11 @@ mod tests {
     fn guard_in_while_warns() {
         let result = parse_and_verify_full("f>n;i=0;wh <i 10{>i 5{ret i};i= +i 1};i");
         assert!(result.errors.is_empty());
-        let w001: Vec<_> = result.warnings.iter().filter(|w| w.code == "ILO-W001").collect();
+        let w001: Vec<_> = result
+            .warnings
+            .iter()
+            .filter(|w| w.code == "ILO-W001")
+            .collect();
         assert_eq!(w001.len(), 1);
     }
 
@@ -3488,7 +4164,11 @@ mod tests {
     fn guard_in_range_warns() {
         let result = parse_and_verify_full("f>n;r=0;@i 0..10{>=i 5{r= +r i}};r");
         assert!(result.errors.is_empty());
-        let w001: Vec<_> = result.warnings.iter().filter(|w| w.code == "ILO-W001").collect();
+        let w001: Vec<_> = result
+            .warnings
+            .iter()
+            .filter(|w| w.code == "ILO-W001")
+            .collect();
         assert_eq!(w001.len(), 1);
     }
 
@@ -3496,7 +4176,11 @@ mod tests {
     fn guard_with_else_in_loop_no_warning() {
         // Ternary form {then}{else} is fine — no early return
         let result = parse_and_verify_full("f xs:L n>n;r=0;@x xs{>=x 10{r= +r x}{r}};r");
-        let w001: Vec<_> = result.warnings.iter().filter(|w| w.code == "ILO-W001").collect();
+        let w001: Vec<_> = result
+            .warnings
+            .iter()
+            .filter(|w| w.code == "ILO-W001")
+            .collect();
         assert_eq!(w001.len(), 0);
     }
 
@@ -3504,7 +4188,11 @@ mod tests {
     fn guard_outside_loop_no_warning() {
         // Guard at function level is normal — no warning
         let result = parse_and_verify_full("f x:n>n;>=x 0{x};-x");
-        let w001: Vec<_> = result.warnings.iter().filter(|w| w.code == "ILO-W001").collect();
+        let w001: Vec<_> = result
+            .warnings
+            .iter()
+            .filter(|w| w.code == "ILO-W001")
+            .collect();
         assert_eq!(w001.len(), 0);
     }
 
@@ -3567,7 +4255,11 @@ mod tests {
         let result = parse_and_verify("f x:n>n;rnd x");
         assert!(result.is_err());
         let errors = result.unwrap_err();
-        assert!(errors.iter().any(|e| e.message.contains("arity mismatch") && e.message.contains("rnd")));
+        assert!(
+            errors
+                .iter()
+                .any(|e| e.message.contains("arity mismatch") && e.message.contains("rnd"))
+        );
     }
 
     #[test]
@@ -3575,7 +4267,11 @@ mod tests {
         let result = parse_and_verify(r#"f>n;rnd "hello" 5"#);
         assert!(result.is_err());
         let errors = result.unwrap_err();
-        assert!(errors.iter().any(|e| e.code == "ILO-T013" && e.message.contains("rnd")));
+        assert!(
+            errors
+                .iter()
+                .any(|e| e.code == "ILO-T013" && e.message.contains("rnd"))
+        );
     }
 
     // ---- now builtin ----
@@ -3590,7 +4286,11 @@ mod tests {
         let result = parse_and_verify("f x:n>n;now x");
         assert!(result.is_err());
         let errors = result.unwrap_err();
-        assert!(errors.iter().any(|e| e.message.contains("arity mismatch") && e.message.contains("now")));
+        assert!(
+            errors
+                .iter()
+                .any(|e| e.message.contains("arity mismatch") && e.message.contains("now"))
+        );
     }
 
     // ── Range iteration verifier tests ──────────────────────────────────
@@ -3611,7 +4311,11 @@ mod tests {
         let result = parse_and_verify(r#"f>n;@i "a"..3{i}"#);
         assert!(result.is_err());
         let errors = result.unwrap_err();
-        assert!(errors.iter().any(|e| e.message.contains("range start must be n")));
+        assert!(
+            errors
+                .iter()
+                .any(|e| e.message.contains("range start must be n"))
+        );
     }
 
     #[test]
@@ -3619,7 +4323,11 @@ mod tests {
         let result = parse_and_verify(r#"f>n;@i 0.."b"{i}"#);
         assert!(result.is_err());
         let errors = result.unwrap_err();
-        assert!(errors.iter().any(|e| e.message.contains("range end must be n")));
+        assert!(
+            errors
+                .iter()
+                .any(|e| e.message.contains("range end must be n"))
+        );
     }
 
     #[test]
@@ -3669,7 +4377,10 @@ mod tests {
     #[test]
     fn alias_duplicate_error() {
         let errs = parse_and_verify("alias res R n t\nalias res L n\nf>n;1").unwrap_err();
-        assert!(errs.iter().any(|e| e.code == "ILO-T001" && e.message.contains("duplicate type alias")));
+        assert!(
+            errs.iter()
+                .any(|e| e.code == "ILO-T001" && e.message.contains("duplicate type alias"))
+        );
     }
 
     #[test]
@@ -3680,7 +4391,10 @@ mod tests {
     #[test]
     fn alias_conflicts_with_type_def() {
         let errs = parse_and_verify("alias pt n\ntype pt{x:n;y:n}\nf>n;1").unwrap_err();
-        assert!(errs.iter().any(|e| e.code == "ILO-T001" && e.message.contains("conflicts with type alias")));
+        assert!(
+            errs.iter()
+                .any(|e| e.code == "ILO-T001" && e.message.contains("conflicts with type alias"))
+        );
     }
 
     #[test]
@@ -3705,19 +4419,28 @@ mod tests {
     #[test]
     fn destructure_wrong_field() {
         let errs = parse_and_verify("type pt{x:n;y:n}\nf p:pt>n;{x;z}=p;x").unwrap_err();
-        assert!(errs.iter().any(|e| e.code == "ILO-T019" && e.message.contains("no field 'z'")));
+        assert!(
+            errs.iter()
+                .any(|e| e.code == "ILO-T019" && e.message.contains("no field 'z'"))
+        );
     }
 
     #[test]
     fn destructure_non_record() {
         let errs = parse_and_verify("f x:n>n;{a}=x;a").unwrap_err();
-        assert!(errs.iter().any(|e| e.message.contains("destructure requires a record")));
+        assert!(
+            errs.iter()
+                .any(|e| e.message.contains("destructure requires a record"))
+        );
     }
 
     #[test]
     fn destructure_text_type_error() {
         let errs = parse_and_verify("f x:t>n;{a}=x;a").unwrap_err();
-        assert!(errs.iter().any(|e| e.message.contains("destructure requires a record")));
+        assert!(
+            errs.iter()
+                .any(|e| e.message.contains("destructure requires a record"))
+        );
     }
 
     // --- mkeys / mvals type errors ---
@@ -3726,7 +4449,10 @@ mod tests {
     fn mkeys_non_map_arg_error() {
         // mkeys expects a map; passing a number produces ILO-T013
         let errs = parse_and_verify("f x:n>L t;mkeys x").unwrap_err();
-        assert!(errs.iter().any(|e| e.code == "ILO-T013" && e.message.contains("mkeys")));
+        assert!(
+            errs.iter()
+                .any(|e| e.code == "ILO-T013" && e.message.contains("mkeys"))
+        );
     }
 
     // --- match exhaustiveness ---
@@ -3749,28 +4475,38 @@ mod tests {
     fn match_result_missing_err_arm() {
         // Matching on Result but only ~ok arm — missing ^err arm
         let errs = parse_and_verify("f x:R n t>n;?x{~v:v}").unwrap_err();
-        assert!(errs.iter().any(|e| e.code == "ILO-T024" && e.message.contains("missing") && e.message.contains("^")));
+        assert!(errs.iter().any(|e| e.code == "ILO-T024"
+            && e.message.contains("missing")
+            && e.message.contains("^")));
     }
 
     #[test]
     fn match_result_missing_ok_arm() {
         // Matching on Result but only ^err arm — missing ~ok arm
         let errs = parse_and_verify("f x:R n t>t;?x{^e:e}").unwrap_err();
-        assert!(errs.iter().any(|e| e.code == "ILO-T024" && e.message.contains("missing") && e.message.contains("~")));
+        assert!(errs.iter().any(|e| e.code == "ILO-T024"
+            && e.message.contains("missing")
+            && e.message.contains("~")));
     }
 
     #[test]
     fn match_bool_missing_false_arm() {
         // Bool match missing false arm
         let errs = parse_and_verify("f x:b>n;?x{true:1}").unwrap_err();
-        assert!(errs.iter().any(|e| e.code == "ILO-T024" && e.message.contains("false")));
+        assert!(
+            errs.iter()
+                .any(|e| e.code == "ILO-T024" && e.message.contains("false"))
+        );
     }
 
     #[test]
     fn match_bool_missing_true_arm() {
         // Bool match missing true arm
         let errs = parse_and_verify("f x:b>n;?x{false:0}").unwrap_err();
-        assert!(errs.iter().any(|e| e.code == "ILO-T024" && e.message.contains("true")));
+        assert!(
+            errs.iter()
+                .any(|e| e.code == "ILO-T024" && e.message.contains("true"))
+        );
     }
 
     // ---- Builtin-specific type checks ----
@@ -3779,7 +4515,10 @@ mod tests {
     fn trm_wrong_type() {
         // trm expects t; passing n should error
         let errs = parse_and_verify("f x:n>t;trm x").unwrap_err();
-        assert!(errs.iter().any(|e| e.code == "ILO-T013" && e.message.contains("trm")));
+        assert!(
+            errs.iter()
+                .any(|e| e.code == "ILO-T013" && e.message.contains("trm"))
+        );
     }
 
     #[test]
@@ -3792,28 +4531,40 @@ mod tests {
     fn fmt_non_text_template() {
         // fmt first arg must be t; passing n should error
         let errs = parse_and_verify("f x:n>t;fmt x").unwrap_err();
-        assert!(errs.iter().any(|e| e.code == "ILO-T013" && e.message.contains("fmt")));
+        assert!(
+            errs.iter()
+                .any(|e| e.code == "ILO-T013" && e.message.contains("fmt"))
+        );
     }
 
     #[test]
     fn jpth_wrong_first_arg() {
         // jpth expects t for first arg; passing n should error
         let errs = parse_and_verify(r#"f x:n>R t t;jpth x "path""#).unwrap_err();
-        assert!(errs.iter().any(|e| e.code == "ILO-T013" && e.message.contains("jpth")));
+        assert!(
+            errs.iter()
+                .any(|e| e.code == "ILO-T013" && e.message.contains("jpth"))
+        );
     }
 
     #[test]
     fn jpth_wrong_second_arg() {
         // jpth expects t for second arg (path); passing n should error
         let errs = parse_and_verify(r#"f x:t y:n>R t t;jpth x y"#).unwrap_err();
-        assert!(errs.iter().any(|e| e.code == "ILO-T013" && e.message.contains("jpth")));
+        assert!(
+            errs.iter()
+                .any(|e| e.code == "ILO-T013" && e.message.contains("jpth"))
+        );
     }
 
     #[test]
     fn jpar_wrong_type() {
         // jpar expects t; passing n should error (return type uses R n t since ? is not valid in signatures)
         let errs = parse_and_verify("f x:n>R n t;jpar x").unwrap_err();
-        assert!(errs.iter().any(|e| e.code == "ILO-T013" && e.message.contains("jpar")));
+        assert!(
+            errs.iter()
+                .any(|e| e.code == "ILO-T013" && e.message.contains("jpar"))
+        );
     }
 
     #[test]
@@ -3832,41 +4583,59 @@ mod tests {
     fn map_non_function_first_arg() {
         // map first arg must be a function; passing a literal 123 should error
         let errs = parse_and_verify("f xs:L n>L n;map 123 xs").unwrap_err();
-        assert!(errs.iter().any(|e| e.code == "ILO-T013" && e.message.contains("map")));
+        assert!(
+            errs.iter()
+                .any(|e| e.code == "ILO-T013" && e.message.contains("map"))
+        );
     }
 
     #[test]
     fn flt_non_function_first_arg() {
         // flt first arg must be a function; passing a literal 123 should error
         let errs = parse_and_verify("f xs:L n>L n;flt 123 xs").unwrap_err();
-        assert!(errs.iter().any(|e| e.code == "ILO-T013" && e.message.contains("flt")));
+        assert!(
+            errs.iter()
+                .any(|e| e.code == "ILO-T013" && e.message.contains("flt"))
+        );
     }
 
     #[test]
     fn fld_non_function_first_arg() {
         // fld first arg must be a function; passing a literal 123 should error
         let errs = parse_and_verify("f xs:L n>n;fld 123 xs 0").unwrap_err();
-        assert!(errs.iter().any(|e| e.code == "ILO-T013" && e.message.contains("fld")));
+        assert!(
+            errs.iter()
+                .any(|e| e.code == "ILO-T013" && e.message.contains("fld"))
+        );
     }
 
     #[test]
     fn grp_non_function_first_arg() {
         let errs = parse_and_verify("f xs:L n>M t L n;grp 123 xs").unwrap_err();
-        assert!(errs.iter().any(|e| e.code == "ILO-T013" && e.message.contains("grp")));
+        assert!(
+            errs.iter()
+                .any(|e| e.code == "ILO-T013" && e.message.contains("grp"))
+        );
     }
 
     #[test]
     fn mget_key_non_text() {
         // mget key must be t; passing n (123) should error
         let errs = parse_and_verify("f m:M t n>O n;mget m 123").unwrap_err();
-        assert!(errs.iter().any(|e| e.code == "ILO-T013" && e.message.contains("mget")));
+        assert!(
+            errs.iter()
+                .any(|e| e.code == "ILO-T013" && e.message.contains("mget"))
+        );
     }
 
     #[test]
     fn mhas_non_map_first_arg() {
         // mhas expects a map as first arg; passing 123 should error
         let errs = parse_and_verify(r#"f>b;mhas 123 "k""#).unwrap_err();
-        assert!(errs.iter().any(|e| e.code == "ILO-T013" && e.message.contains("mhas")));
+        assert!(
+            errs.iter()
+                .any(|e| e.code == "ILO-T013" && e.message.contains("mhas"))
+        );
     }
 
     #[test]
@@ -3891,14 +4660,20 @@ mod tests {
     fn rd_wrong_type_path() {
         // rd expects t (path); passing n should error (return type uses R n t since ? is not valid in signatures)
         let errs = parse_and_verify("f x:n>R n t;rd x").unwrap_err();
-        assert!(errs.iter().any(|e| e.code == "ILO-T013" && e.message.contains("rd")));
+        assert!(
+            errs.iter()
+                .any(|e| e.code == "ILO-T013" && e.message.contains("rd"))
+        );
     }
 
     #[test]
     fn wr_wrong_content_type() {
         // wr arg 2 must be t (content); passing n (123) should error
         let errs = parse_and_verify(r#"f x:t>R t t;wr x 123"#).unwrap_err();
-        assert!(errs.iter().any(|e| e.code == "ILO-T013" && e.message.contains("wr")));
+        assert!(
+            errs.iter()
+                .any(|e| e.code == "ILO-T013" && e.message.contains("wr"))
+        );
     }
 
     #[test]
@@ -3987,7 +4762,10 @@ mod tests {
     fn verify_cat_arg2_wrong_type() {
         // cat expects t for arg 2; passing n should produce ILO-T013
         let errs = parse_and_verify("f a:t>t;cat a 42").unwrap_err();
-        assert!(errs.iter().any(|e| e.code == "ILO-T013" && e.message.contains("cat")));
+        assert!(
+            errs.iter()
+                .any(|e| e.code == "ILO-T013" && e.message.contains("cat"))
+        );
     }
 
     #[test]
@@ -4000,7 +4778,10 @@ mod tests {
     fn verify_hd_wrong_type() {
         // hd expects list or text; passing n should error
         let errs = parse_and_verify("f x:n>t;hd x").unwrap_err();
-        assert!(errs.iter().any(|e| e.code == "ILO-T013" && e.message.contains("hd")));
+        assert!(
+            errs.iter()
+                .any(|e| e.code == "ILO-T013" && e.message.contains("hd"))
+        );
     }
 
     #[test]
@@ -4013,21 +4794,30 @@ mod tests {
     fn verify_tl_wrong_type() {
         // tl expects list or text; n is wrong
         let errs = parse_and_verify("f x:n>t;tl x").unwrap_err();
-        assert!(errs.iter().any(|e| e.code == "ILO-T013" && e.message.contains("tl")));
+        assert!(
+            errs.iter()
+                .any(|e| e.code == "ILO-T013" && e.message.contains("tl"))
+        );
     }
 
     #[test]
     fn verify_rev_wrong_type() {
         // rev expects list or text; n is wrong
         let errs = parse_and_verify("f x:n>L t;rev x").unwrap_err();
-        assert!(errs.iter().any(|e| e.code == "ILO-T013" && e.message.contains("rev")));
+        assert!(
+            errs.iter()
+                .any(|e| e.code == "ILO-T013" && e.message.contains("rev"))
+        );
     }
 
     #[test]
     fn verify_unq_wrong_type() {
         // unq expects list or text; n is wrong
         let errs = parse_and_verify("f x:n>L t;unq x").unwrap_err();
-        assert!(errs.iter().any(|e| e.code == "ILO-T013" && e.message.contains("unq")));
+        assert!(
+            errs.iter()
+                .any(|e| e.code == "ILO-T013" && e.message.contains("unq"))
+        );
     }
 
     #[test]
@@ -4046,7 +4836,10 @@ mod tests {
     fn verify_srt_wrong_key_fn() {
         // srt with non-function key arg should produce ILO-T013
         let errs = parse_and_verify("f xs:L n>L n;srt 42 xs").unwrap_err();
-        assert!(errs.iter().any(|e| e.code == "ILO-T013" && e.message.contains("srt")));
+        assert!(
+            errs.iter()
+                .any(|e| e.code == "ILO-T013" && e.message.contains("srt"))
+        );
     }
 
     #[test]
@@ -4059,14 +4852,20 @@ mod tests {
     fn verify_srt_wrong_single_arg() {
         // srt with wrong type (n) → ILO-T013
         let errs = parse_and_verify("f x:n>t;srt x").unwrap_err();
-        assert!(errs.iter().any(|e| e.code == "ILO-T013" && e.message.contains("srt")));
+        assert!(
+            errs.iter()
+                .any(|e| e.code == "ILO-T013" && e.message.contains("srt"))
+        );
     }
 
     #[test]
     fn verify_slc_wrong_type() {
         // slc expects list or text for first arg; n is wrong
         let errs = parse_and_verify("f x:n>L n;slc x 0 1").unwrap_err();
-        assert!(errs.iter().any(|e| e.code == "ILO-T013" && e.message.contains("slc")));
+        assert!(
+            errs.iter()
+                .any(|e| e.code == "ILO-T013" && e.message.contains("slc"))
+        );
     }
 
     #[test]
@@ -4182,7 +4981,10 @@ mod tests {
     #[test]
     fn compat_fn_to_fn_param() {
         // Passing function ref to Fn param → compatible(Fn, Fn) (lines 195-198)
-        assert!(parse_and_verify("double x:n>n;*x 2   apply cb:F n n x:n>n;cb x   h>n;apply double 5").is_ok());
+        assert!(
+            parse_and_verify("double x:n>n;*x 2   apply cb:F n n x:n>n;cb x   h>n;apply double 5")
+                .is_ok()
+        );
     }
 
     // ── Unknown-typed args in hd/tl/srt (lines 454, 472, 583) ───────────────
@@ -4219,14 +5021,18 @@ mod tests {
     fn get_wrong_headers_type_error() {
         // get url n (headers not M t t) → ILO-T013 (lines 649-656)
         let errs = parse_and_verify("f url:t hdrs:n>R t t;get url hdrs").unwrap_err();
-        assert!(errs.iter().any(|e| e.code == "ILO-T013" && e.message.contains("get") && e.message.contains("headers")));
+        assert!(errs.iter().any(|e| e.code == "ILO-T013"
+            && e.message.contains("get")
+            && e.message.contains("headers")));
     }
 
     #[test]
     fn post_wrong_headers_type_error() {
         // post url body n (headers not M t t) → ILO-T013 (lines 680-687)
         let errs = parse_and_verify("f url:t body:t hdrs:n>R t t;post url body hdrs").unwrap_err();
-        assert!(errs.iter().any(|e| e.code == "ILO-T013" && e.message.contains("post") && e.message.contains("headers")));
+        assert!(errs.iter().any(|e| e.code == "ILO-T013"
+            && e.message.contains("post")
+            && e.message.contains("headers")));
     }
 
     // ── rd format arg wrong type, rdl/wr wrong path (lines 709-749) ──────────
@@ -4235,21 +5041,29 @@ mod tests {
     fn rd_wrong_format_arg_type() {
         // rd path n (format not t) → ILO-T013 (lines 709-719)
         let errs = parse_and_verify("f p:t fmt:n>R n t;rd p fmt").unwrap_err();
-        assert!(errs.iter().any(|e| e.code == "ILO-T013" && e.message.contains("rd")));
+        assert!(
+            errs.iter()
+                .any(|e| e.code == "ILO-T013" && e.message.contains("rd"))
+        );
     }
 
     #[test]
     fn rdl_wrong_path_type() {
         // rdl expects t path; passing n → ILO-T013 (lines 724-736)
         let errs = parse_and_verify("f x:n>R L t t;rdl x").unwrap_err();
-        assert!(errs.iter().any(|e| e.code == "ILO-T013" && e.message.contains("rdl")));
+        assert!(
+            errs.iter()
+                .any(|e| e.code == "ILO-T013" && e.message.contains("rdl"))
+        );
     }
 
     #[test]
     fn wr_wrong_path_type() {
         // wr expects t path as arg 1; passing n → ILO-T013 (lines 741-749)
         let errs = parse_and_verify(r#"f x:n>R t t;wr x "content""#).unwrap_err();
-        assert!(errs.iter().any(|e| e.code == "ILO-T013" && e.message.contains("wr") && e.message.contains("arg 1")));
+        assert!(errs.iter().any(|e| e.code == "ILO-T013"
+            && e.message.contains("wr")
+            && e.message.contains("arg 1")));
     }
 
     // ── map/flt/fld return type inference (lines 820, 842, 863-865) ──────────
@@ -4296,10 +5110,22 @@ mod tests {
         let tokens = crate::lexer::lex("f>n;1").expect("lex failed");
         let token_spans: Vec<(crate::lexer::Token, crate::ast::Span)> = tokens
             .into_iter()
-            .map(|(t, r)| (t, crate::ast::Span { start: r.start, end: r.end }))
+            .map(|(t, r)| {
+                (
+                    t,
+                    crate::ast::Span {
+                        start: r.start,
+                        end: r.end,
+                    },
+                )
+            })
             .collect();
         let (mut program, _) = crate::parser::parse(token_spans);
-        program.declarations.push(Decl::Use { path: "x.ilo".into(), only: None, span: Span::UNKNOWN });
+        program.declarations.push(Decl::Use {
+            path: "x.ilo".into(),
+            only: None,
+            span: Span::UNKNOWN,
+        });
         let result = verify(&program);
         assert!(result.errors.is_empty());
     }
@@ -4317,7 +5143,9 @@ mod tests {
     #[test]
     fn alias_shared_dep_resolved_once() {
         // a and b both depend on shared; shared resolved first time, skipped second
-        let result = parse_and_verify_full("alias shared n\nalias a L shared\nalias b L shared\nf x:a y:b>n;0");
+        let result = parse_and_verify_full(
+            "alias shared n\nalias a L shared\nalias b L shared\nf x:a y:b>n;0",
+        );
         // May have errors if "shared" / "a" / "b" aren't usable as param types; just assert no panics
         let _ = result;
     }
@@ -4344,14 +5172,20 @@ mod tests {
     fn rd_three_args_arity_error_description() {
         // rd with 3 args → arity error using "1 or 2" description (line 1495)
         let errs = parse_and_verify("f p:t fmt:t extra:t>R n t;rd p fmt extra").unwrap_err();
-        assert!(errs.iter().any(|e| e.message.contains("arity") && e.message.contains("rd")));
+        assert!(
+            errs.iter()
+                .any(|e| e.message.contains("arity") && e.message.contains("rd"))
+        );
     }
 
     #[test]
     fn post_one_arg_arity_error_description() {
         // post with 1 arg → arity error using "2 or 3" description (line 1499)
         let errs = parse_and_verify(r#"f url:t>R t t;post url"#).unwrap_err();
-        assert!(errs.iter().any(|e| e.message.contains("arity") && e.message.contains("post")));
+        assert!(
+            errs.iter()
+                .any(|e| e.message.contains("arity") && e.message.contains("post"))
+        );
     }
 
     // ── Type mismatch no specific hint (line 1546 _ => None) ─────────────────
@@ -4369,14 +5203,20 @@ mod tests {
     fn dynamic_dispatch_wrong_arity() {
         // Call function-ref with wrong number of args → ILO-T006 (lines 1566-1572)
         let errs = parse_and_verify("f cb:F n n>n;cb 1 2 3").unwrap_err();
-        assert!(errs.iter().any(|e| e.code == "ILO-T006" && e.message.contains("cb")));
+        assert!(
+            errs.iter()
+                .any(|e| e.code == "ILO-T006" && e.message.contains("cb"))
+        );
     }
 
     #[test]
     fn dynamic_dispatch_wrong_type() {
         // Call function-ref with wrong arg type → ILO-T007 (lines 1573-1584)
         let errs = parse_and_verify(r#"f cb:F n n>n;cb "text""#).unwrap_err();
-        assert!(errs.iter().any(|e| e.code == "ILO-T007" && e.message.contains("cb")));
+        assert!(
+            errs.iter()
+                .any(|e| e.code == "ILO-T007" && e.message.contains("cb"))
+        );
     }
 
     // ── Unwrap in non-Result function (lines 1622-1625) ──────────────────────
@@ -4385,7 +5225,10 @@ mod tests {
     fn unwrap_in_non_result_enclosing_fn() {
         // get! in a function that returns t (not R) → ILO-T026
         let errs = parse_and_verify(r#"f url:t>t;x=get! url;x"#).unwrap_err();
-        assert!(errs.iter().any(|e| e.code == "ILO-T026" && e.message.contains("t")));
+        assert!(
+            errs.iter()
+                .any(|e| e.code == "ILO-T026" && e.message.contains("t"))
+        );
     }
 
     // ── NilCoalesce expression (lines 1816-1822) ──────────────────────────────
@@ -4464,7 +5307,10 @@ mod tests {
         // x:foo where foo is undefined → Ty::Named("foo") not in types → else branch
         // Produces ILO-T003 for param type but body still verified (lines 1267-1269)
         let result = parse_and_verify_full("f x:foo>n;{a}=x;a");
-        assert!(result.errors.iter().any(|e| e.code == "ILO-T003"), "expected ILO-T003");
+        assert!(
+            result.errors.iter().any(|e| e.code == "ILO-T003"),
+            "expected ILO-T003"
+        );
     }
 
     // ── TypeIs pattern in Stmt::Match bind_pattern (lines 1429-1439) ─────────
@@ -4483,7 +5329,10 @@ mod tests {
         let lit_list = Expr::Literal(crate::ast::Literal::Text("list".to_string()));
         let lit_other = Expr::Literal(crate::ast::Literal::Text("other".to_string()));
         let arm_list = MatchArm {
-            pattern: Pattern::TypeIs { ty: Type::List(Box::new(Type::Text)), binding: "v".to_string() },
+            pattern: Pattern::TypeIs {
+                ty: Type::List(Box::new(Type::Text)),
+                binding: "v".to_string(),
+            },
             body: vec![Spanned::unknown(Stmt::Expr(lit_list))],
         };
         let arm_wild = MatchArm {
@@ -4493,7 +5342,10 @@ mod tests {
         let prog = Program {
             declarations: vec![Decl::Function {
                 name: "f".to_string(),
-                params: vec![crate::ast::Param { name: "x".to_string(), ty: Type::List(Box::new(Type::Text)) }],
+                params: vec![crate::ast::Param {
+                    name: "x".to_string(),
+                    ty: Type::List(Box::new(Type::Text)),
+                }],
                 return_type: Type::Text,
                 body: vec![Spanned::unknown(Stmt::Match {
                     subject: Some(Expr::Ref("x".to_string())),
@@ -4547,7 +5399,12 @@ mod tests {
     fn alias_diamond_dependency_hits_early_return() {
         // alias myint n; alias mynum myint; alias mycount myint
         // When mynum and mycount both depend on myint: first resolution caches myint, second hits early return.
-        assert!(parse_and_verify("alias myint n\nalias mynum myint\nalias mycount myint\nf x:mynum y:mycount>n;+x y").is_ok());
+        assert!(
+            parse_and_verify(
+                "alias myint n\nalias mynum myint\nalias mycount myint\nf x:mynum y:mycount>n;+x y"
+            )
+            .is_ok()
+        );
     }
 
     // ── grp key-type fallback (line 894) ─────────────────────────────────────
@@ -4650,7 +5507,11 @@ mod tests {
         // alias a2 = b2; alias b2 = n — resolving a2 resolves b2 first, then the outer
         // loop hits b2 again → resolve_alias_recursive returns early at L1179
         let result = parse_and_verify("alias a2 b2 alias b2 n f x:a2>n;x");
-        assert!(result.is_ok(), "expected ok, got: {:?}", result.unwrap_err());
+        assert!(
+            result.is_ok(),
+            "expected ok, got: {:?}",
+            result.unwrap_err()
+        );
     }
 
     // ── safe field access on Nil type (line 1791) ────────────────────────────
@@ -4691,7 +5552,11 @@ mod tests {
         // When resolving c3: first resolves b3 (which resolves a3), then b3 is already
         // in self.aliases. The outer loop iteration for b3 hits L1182 return.
         let result = parse_and_verify("alias a3 n\nalias b3 a3\nalias c3 b3\nf x:c3>n;x");
-        assert!(result.is_ok(), "expected ok, got: {:?}", result.unwrap_err());
+        assert!(
+            result.is_ok(),
+            "expected ok, got: {:?}",
+            result.unwrap_err()
+        );
     }
 
     // ── Coverage: L1490 — TypeIs pattern with non-standard type (e.g., List) → Ty::Unknown ──
@@ -4700,22 +5565,34 @@ mod tests {
     fn match_type_is_non_standard_type_binds_unknown() {
         // Construct AST directly with TypeIs { ty: Type::Named("foo"), binding: "v" }
         // to hit the _ => Ty::Unknown branch at L1490
-        use crate::ast::{Decl, Expr, Literal, MatchArm, Param, Pattern, Program, Span, Spanned, Stmt, Type};
+        use crate::ast::{
+            Decl, Expr, Literal, MatchArm, Param, Pattern, Program, Span, Spanned, Stmt, Type,
+        };
         let prog = Program {
             declarations: vec![Decl::Function {
                 name: "f".to_string(),
-                params: vec![Param { name: "x".to_string(), ty: Type::Number }],
+                params: vec![Param {
+                    name: "x".to_string(),
+                    ty: Type::Number,
+                }],
                 return_type: Type::Number,
                 body: vec![Spanned::unknown(Stmt::Match {
                     subject: Some(Expr::Ref("x".to_string())),
                     arms: vec![
                         MatchArm {
-                            pattern: Pattern::TypeIs { ty: Type::Named("foo".to_string()), binding: "v".to_string() },
-                            body: vec![Spanned::unknown(Stmt::Expr(Expr::Literal(Literal::Number(0.0))))],
+                            pattern: Pattern::TypeIs {
+                                ty: Type::Named("foo".to_string()),
+                                binding: "v".to_string(),
+                            },
+                            body: vec![Spanned::unknown(Stmt::Expr(Expr::Literal(
+                                Literal::Number(0.0),
+                            )))],
                         },
                         MatchArm {
                             pattern: Pattern::Wildcard,
-                            body: vec![Spanned::unknown(Stmt::Expr(Expr::Literal(Literal::Number(1.0))))],
+                            body: vec![Spanned::unknown(Stmt::Expr(Expr::Literal(
+                                Literal::Number(1.0),
+                            )))],
                         },
                     ],
                 })],
@@ -4745,7 +5622,11 @@ mod tests {
             source: None,
         };
         let result = verify(&prog);
-        assert!(result.errors.is_empty(), "nil literal should verify ok: {:?}", result.errors);
+        assert!(
+            result.errors.is_empty(),
+            "nil literal should verify ok: {:?}",
+            result.errors
+        );
     }
 
     // ── Coverage: L1891-1895 — Ternary branch type mismatch ───────────────────
@@ -4754,11 +5635,14 @@ mod tests {
     fn ternary_branch_type_mismatch_error() {
         // ?=x 0 "text" 42 — then_expr is Text, else_expr is Number → incompatible
         // Exercises L1893-1895 (the error path)
-        use crate::ast::{Decl, Expr, Literal, Param, Program, Span, Spanned, Stmt, Type, BinOp};
+        use crate::ast::{BinOp, Decl, Expr, Literal, Param, Program, Span, Spanned, Stmt, Type};
         let prog = Program {
             declarations: vec![Decl::Function {
                 name: "f".to_string(),
-                params: vec![Param { name: "x".to_string(), ty: Type::Number }],
+                params: vec![Param {
+                    name: "x".to_string(),
+                    ty: Type::Number,
+                }],
                 return_type: Type::Text,
                 body: vec![Spanned::unknown(Stmt::Expr(Expr::Ternary {
                     condition: Box::new(Expr::BinOp {
@@ -4775,8 +5659,12 @@ mod tests {
         };
         let result = verify(&prog);
         assert!(
-            result.errors.iter().any(|e| e.code == "ILO-T003" && e.message.contains("ternary")),
-            "expected ILO-T003 ternary mismatch error, got: {:?}", result.errors
+            result
+                .errors
+                .iter()
+                .any(|e| e.code == "ILO-T003" && e.message.contains("ternary")),
+            "expected ILO-T003 ternary mismatch error, got: {:?}",
+            result.errors
         );
     }
 
@@ -4882,7 +5770,12 @@ mod tests {
 
     #[test]
     fn builtin_check_args_has_list() {
-        let (ty, errors) = builtin_check_args("has", &[Ty::List(Box::new(Ty::Number)), Ty::Number], "f", None);
+        let (ty, errors) = builtin_check_args(
+            "has",
+            &[Ty::List(Box::new(Ty::Number)), Ty::Number],
+            "f",
+            None,
+        );
         assert_eq!(ty, Ty::Bool);
         assert!(errors.is_empty());
     }
@@ -4961,7 +5854,12 @@ mod tests {
 
     #[test]
     fn builtin_check_args_slc_list() {
-        let (ty, errors) = builtin_check_args("slc", &[Ty::List(Box::new(Ty::Number)), Ty::Number, Ty::Number], "f", None);
+        let (ty, errors) = builtin_check_args(
+            "slc",
+            &[Ty::List(Box::new(Ty::Number)), Ty::Number, Ty::Number],
+            "f",
+            None,
+        );
         assert_eq!(ty, Ty::List(Box::new(Ty::Number)));
         assert!(errors.is_empty());
     }
@@ -4972,33 +5870,48 @@ mod tests {
     fn verify_circular_alias_self_referencing() {
         // Single alias referencing itself: alias foo foo → ILO-T030 (L1138-1142)
         let errs = parse_and_verify("alias foo foo\nf>n;1").unwrap_err();
-        assert!(errs.iter().any(|e| e.code == "ILO-T030" && e.message.contains("circular")),
-            "expected ILO-T030 circular error, got: {:?}", errs);
+        assert!(
+            errs.iter()
+                .any(|e| e.code == "ILO-T030" && e.message.contains("circular")),
+            "expected ILO-T030 circular error, got: {:?}",
+            errs
+        );
     }
 
     #[test]
     fn verify_circular_alias_three_way_cycle() {
         // Three-way circular dependency: xx → yy → zz → xx (L1126-1143)
         let errs = parse_and_verify("alias xx yy\nalias yy zz\nalias zz xx\nf>n;1").unwrap_err();
-        assert!(errs.iter().any(|e| e.code == "ILO-T030"),
-            "expected ILO-T030 for 3-way cycle, got: {:?}", errs);
+        assert!(
+            errs.iter().any(|e| e.code == "ILO-T030"),
+            "expected ILO-T030 for 3-way cycle, got: {:?}",
+            errs
+        );
     }
 
     #[test]
     fn verify_circular_alias_mixed_with_valid() {
         // Mix of circular aliases and valid ones — only circular ones error
-        let result = parse_and_verify_full("alias good n\nalias bad1 bad2\nalias bad2 bad1\nf x:good>n;x");
-        let circular_errors: Vec<_> = result.errors.iter()
+        let result =
+            parse_and_verify_full("alias good n\nalias bad1 bad2\nalias bad2 bad1\nf x:good>n;x");
+        let circular_errors: Vec<_> = result
+            .errors
+            .iter()
             .filter(|e| e.code == "ILO-T030")
             .collect();
-        assert!(circular_errors.len() >= 2, "expected at least 2 circular errors for bad1/bad2, got: {:?}", circular_errors);
+        assert!(
+            circular_errors.len() >= 2,
+            "expected at least 2 circular errors for bad1/bad2, got: {:?}",
+            circular_errors
+        );
     }
 
     #[test]
     fn verify_non_circular_alias_chain_resolves() {
         // Long non-circular chain: dd → cc → bb → aa → n (exercises resolve_alias_recursive L1179-1194)
-        assert!(parse_and_verify("alias aa n\nalias bb aa\nalias cc bb\nalias dd cc\nf x:dd>n;x").is_ok());
+        assert!(
+            parse_and_verify("alias aa n\nalias bb aa\nalias cc bb\nalias dd cc\nf x:dd>n;x")
+                .is_ok()
+        );
     }
 }
-
-

@@ -56,7 +56,10 @@ mod tests {
     #[test]
     fn tool_error_display_http() {
         let e = ToolError::Http("fetch".into(), "connection refused".into());
-        assert_eq!(e.to_string(), "HTTP error calling 'fetch': connection refused");
+        assert_eq!(
+            e.to_string(),
+            "HTTP error calling 'fetch': connection refused"
+        );
     }
 
     #[test]
@@ -79,7 +82,9 @@ mod tests {
             .build()
             .unwrap()
             .block_on(fut);
-        let Ok(Value::Ok(inner)) = result else { panic!("expected Ok(Ok(_))") };
+        let Ok(Value::Ok(inner)) = result else {
+            panic!("expected Ok(Ok(_))")
+        };
         assert_eq!(*inner, Value::Nil);
     }
 }

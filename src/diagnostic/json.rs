@@ -1,5 +1,5 @@
-use crate::ast::SourceMap;
 use super::{Diagnostic, Severity};
+use crate::ast::SourceMap;
 
 pub fn render(d: &Diagnostic) -> String {
     let severity = match d.severity {
@@ -10,20 +10,24 @@ pub fn render(d: &Diagnostic) -> String {
     // Build SourceMap once (not per-label) if source is available
     let source_map = d.source.as_deref().map(SourceMap::new);
 
-    let labels: Vec<serde_json::Value> = d.labels.iter().map(|l| {
-        let mut obj = serde_json::json!({
-            "start": l.span.start,
-            "end": l.span.end,
-            "message": l.message,
-            "primary": l.is_primary,
-        });
-        if let Some(map) = &source_map {
-            let (line, col) = map.lookup(l.span.start);
-            obj["line"] = serde_json::Value::from(line);
-            obj["col"] = serde_json::Value::from(col);
-        }
-        obj
-    }).collect();
+    let labels: Vec<serde_json::Value> = d
+        .labels
+        .iter()
+        .map(|l| {
+            let mut obj = serde_json::json!({
+                "start": l.span.start,
+                "end": l.span.end,
+                "message": l.message,
+                "primary": l.is_primary,
+            });
+            if let Some(map) = &source_map {
+                let (line, col) = map.lookup(l.span.start);
+                obj["line"] = serde_json::Value::from(line);
+                obj["col"] = serde_json::Value::from(col);
+            }
+            obj
+        })
+        .collect();
 
     let mut obj = serde_json::json!({
         "severity": severity,
@@ -40,7 +44,9 @@ pub fn render(d: &Diagnostic) -> String {
         obj["suggestion"] = serde_json::Value::String(s.clone());
     }
 
-    serde_json::to_string(&obj).unwrap_or_else(|_| r#"{"severity":"error","message":"internal error serializing diagnostic"}"#.to_string())
+    serde_json::to_string(&obj).unwrap_or_else(|_| {
+        r#"{"severity":"error","message":"internal error serializing diagnostic"}"#.to_string()
+    })
 }
 
 #[cfg(test)]
@@ -79,8 +85,7 @@ mod tests {
 
     #[test]
     fn render_with_suggestion() {
-        let d = Diagnostic::error("bad")
-            .with_suggestion("try this instead");
+        let d = Diagnostic::error("bad").with_suggestion("try this instead");
         let out = render(&d);
         let v = parse_json(&out);
         assert_eq!(v["suggestion"], "try this instead");
@@ -109,8 +114,7 @@ mod tests {
 
     #[test]
     fn render_label_without_source_no_line_col() {
-        let d = Diagnostic::error("bad")
-            .with_span(Span { start: 5, end: 8 }, "here");
+        let d = Diagnostic::error("bad").with_span(Span { start: 5, end: 8 }, "here");
         let out = render(&d);
         let v = parse_json(&out);
         let label = &v["labels"][0];

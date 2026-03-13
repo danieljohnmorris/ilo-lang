@@ -12,7 +12,10 @@ use tokio::sync::Mutex;
 ///
 /// In production this is instantiated with `ChildStdin`/`BufReader<ChildStdout>`.
 /// In tests it can use any `AsyncWrite`/`AsyncBufRead` implementation.
-pub(crate) struct McpClientInner<W: tokio::io::AsyncWrite + Unpin, R: tokio::io::AsyncBufRead + Unpin> {
+pub(crate) struct McpClientInner<
+    W: tokio::io::AsyncWrite + Unpin,
+    R: tokio::io::AsyncBufRead + Unpin,
+> {
     writer: W,
     reader: R,
     next_id: u64,
@@ -33,8 +36,8 @@ impl<W: tokio::io::AsyncWrite + Unpin, R: tokio::io::AsyncBufRead + Unpin> McpCl
             "method": method,
             "params": params,
         });
-        let mut line = serde_json::to_string(&request)
-            .map_err(|e| format!("MCP serialize error: {e}"))?;
+        let mut line =
+            serde_json::to_string(&request).map_err(|e| format!("MCP serialize error: {e}"))?;
         line.push('\n');
         self.writer
             .write_all(line.as_bytes())
@@ -219,7 +222,9 @@ mod tests {
         // Server responds with a valid JSON-RPC result for id=1
         let response = r#"{"jsonrpc":"2.0","id":1,"result":{"ok":true}}"#.to_string() + "\n";
         let mut inner = mock_inner(&response);
-        let result = inner.send_request("test/method", serde_json::json!({"key": "val"})).await;
+        let result = inner
+            .send_request("test/method", serde_json::json!({"key": "val"}))
+            .await;
         assert!(result.is_ok());
 
         // Check what was written to the "stdin"
@@ -235,15 +240,23 @@ mod tests {
     async fn request_id_increments() {
         // Two responses for two sequential requests
         let responses = concat!(
-            r#"{"jsonrpc":"2.0","id":1,"result":"first"}"#, "\n",
-            r#"{"jsonrpc":"2.0","id":2,"result":"second"}"#, "\n",
+            r#"{"jsonrpc":"2.0","id":1,"result":"first"}"#,
+            "\n",
+            r#"{"jsonrpc":"2.0","id":2,"result":"second"}"#,
+            "\n",
         );
         let mut inner = mock_inner(responses);
 
-        let r1 = inner.send_request("m1", serde_json::json!({})).await.unwrap();
+        let r1 = inner
+            .send_request("m1", serde_json::json!({}))
+            .await
+            .unwrap();
         assert_eq!(r1, "first");
 
-        let r2 = inner.send_request("m2", serde_json::json!({})).await.unwrap();
+        let r2 = inner
+            .send_request("m2", serde_json::json!({}))
+            .await
+            .unwrap();
         assert_eq!(r2, "second");
 
         assert_eq!(inner.next_id, 3);
@@ -264,13 +277,19 @@ mod tests {
     async fn response_success_returns_result_field() {
         let response = r#"{"jsonrpc":"2.0","id":1,"result":{"tools":[]}}"#.to_string() + "\n";
         let mut inner = mock_inner(&response);
-        let result = inner.send_request("tools/list", serde_json::json!({})).await.unwrap();
+        let result = inner
+            .send_request("tools/list", serde_json::json!({}))
+            .await
+            .unwrap();
         assert_eq!(result, serde_json::json!({"tools": []}));
     }
 
     #[tokio::test]
     async fn response_error_returns_err() {
-        let response = r#"{"jsonrpc":"2.0","id":1,"error":{"code":-32600,"message":"Invalid Request"}}"#.to_string() + "\n";
+        let response =
+            r#"{"jsonrpc":"2.0","id":1,"error":{"code":-32600,"message":"Invalid Request"}}"#
+                .to_string()
+                + "\n";
         let mut inner = mock_inner(&response);
         let result = inner.send_request("bad", serde_json::json!({})).await;
         assert!(result.is_err());
@@ -283,7 +302,10 @@ mod tests {
     async fn response_null_result_returns_null() {
         let response = r#"{"jsonrpc":"2.0","id":1,"result":null}"#.to_string() + "\n";
         let mut inner = mock_inner(&response);
-        let result = inner.send_request("test", serde_json::json!({})).await.unwrap();
+        let result = inner
+            .send_request("test", serde_json::json!({}))
+            .await
+            .unwrap();
         assert!(result.is_null());
     }
 
@@ -292,13 +314,18 @@ mod tests {
     #[tokio::test]
     async fn notification_has_no_id() {
         let mut inner = mock_inner("");
-        let _ = inner.send_notification("notifications/initialized", serde_json::json!({})).await;
+        let _ = inner
+            .send_notification("notifications/initialized", serde_json::json!({}))
+            .await;
 
         let written = String::from_utf8(inner.writer).unwrap();
         let notif: serde_json::Value = serde_json::from_str(written.trim()).unwrap();
         assert_eq!(notif["jsonrpc"], "2.0");
         assert_eq!(notif["method"], "notifications/initialized");
-        assert!(notif.get("id").is_none(), "notification must not have an id field");
+        assert!(
+            notif.get("id").is_none(),
+            "notification must not have an id field"
+        );
     }
 
     #[tokio::test]
@@ -307,11 +334,17 @@ mod tests {
         let mut inner = mock_inner(&responses);
 
         // Send notification — should not change next_id
-        inner.send_notification("notify", serde_json::json!({})).await.unwrap();
+        inner
+            .send_notification("notify", serde_json::json!({}))
+            .await
+            .unwrap();
         assert_eq!(inner.next_id, 1);
 
         // Send request — should use id=1
-        let result = inner.send_request("req", serde_json::json!({})).await.unwrap();
+        let result = inner
+            .send_request("req", serde_json::json!({}))
+            .await
+            .unwrap();
         assert_eq!(result, "ok");
         assert_eq!(inner.next_id, 2);
     }
@@ -322,14 +355,20 @@ mod tests {
     async fn skips_server_notifications_to_find_matching_response() {
         let responses = concat!(
             // Server sends a notification (no id) before the actual response
-            r#"{"jsonrpc":"2.0","method":"log","params":{"message":"starting"}}"#, "\n",
+            r#"{"jsonrpc":"2.0","method":"log","params":{"message":"starting"}}"#,
+            "\n",
             // Then sends an unrelated response with different id
-            r#"{"jsonrpc":"2.0","id":99,"result":"wrong"}"#, "\n",
+            r#"{"jsonrpc":"2.0","id":99,"result":"wrong"}"#,
+            "\n",
             // Then the actual matching response
-            r#"{"jsonrpc":"2.0","id":1,"result":"correct"}"#, "\n",
+            r#"{"jsonrpc":"2.0","id":1,"result":"correct"}"#,
+            "\n",
         );
         let mut inner = mock_inner(responses);
-        let result = inner.send_request("test", serde_json::json!({})).await.unwrap();
+        let result = inner
+            .send_request("test", serde_json::json!({}))
+            .await
+            .unwrap();
         assert_eq!(result, "correct");
     }
 
@@ -337,7 +376,10 @@ mod tests {
     async fn skips_empty_lines() {
         let responses = "\n\n".to_string() + r#"{"jsonrpc":"2.0","id":1,"result":42}"# + "\n";
         let mut inner = mock_inner(&responses);
-        let result = inner.send_request("test", serde_json::json!({})).await.unwrap();
+        let result = inner
+            .send_request("test", serde_json::json!({}))
+            .await
+            .unwrap();
         assert_eq!(result, 42);
     }
 
@@ -360,7 +402,10 @@ mod tests {
         assert!(result.is_err());
         let err = result.unwrap_err();
         assert!(err.contains("parse error"), "got: {err}");
-        assert!(err.contains("this is not json"), "raw line should be included, got: {err}");
+        assert!(
+            err.contains("this is not json"),
+            "raw line should be included, got: {err}"
+        );
     }
 
     #[tokio::test]
@@ -378,15 +423,36 @@ mod tests {
     #[tokio::test]
     async fn multiple_requests_work_sequentially() {
         let responses = concat!(
-            r#"{"jsonrpc":"2.0","id":1,"result":"alpha"}"#, "\n",
-            r#"{"jsonrpc":"2.0","id":2,"result":"beta"}"#, "\n",
-            r#"{"jsonrpc":"2.0","id":3,"result":"gamma"}"#, "\n",
+            r#"{"jsonrpc":"2.0","id":1,"result":"alpha"}"#,
+            "\n",
+            r#"{"jsonrpc":"2.0","id":2,"result":"beta"}"#,
+            "\n",
+            r#"{"jsonrpc":"2.0","id":3,"result":"gamma"}"#,
+            "\n",
         );
         let mut inner = mock_inner(responses);
 
-        assert_eq!(inner.send_request("a", serde_json::json!({})).await.unwrap(), "alpha");
-        assert_eq!(inner.send_request("b", serde_json::json!({})).await.unwrap(), "beta");
-        assert_eq!(inner.send_request("c", serde_json::json!({})).await.unwrap(), "gamma");
+        assert_eq!(
+            inner
+                .send_request("a", serde_json::json!({}))
+                .await
+                .unwrap(),
+            "alpha"
+        );
+        assert_eq!(
+            inner
+                .send_request("b", serde_json::json!({}))
+                .await
+                .unwrap(),
+            "beta"
+        );
+        assert_eq!(
+            inner
+                .send_request("c", serde_json::json!({}))
+                .await
+                .unwrap(),
+            "gamma"
+        );
     }
 
     // ── Request with complex params ────────────────────────────────────
@@ -399,7 +465,10 @@ mod tests {
             "name": "fetch",
             "arguments": {"url": "https://example.com", "nested": [1, 2, 3]}
         });
-        inner.send_request("tools/call", params.clone()).await.unwrap();
+        inner
+            .send_request("tools/call", params.clone())
+            .await
+            .unwrap();
 
         let written = String::from_utf8(inner.writer).unwrap();
         let req: serde_json::Value = serde_json::from_str(written.trim()).unwrap();

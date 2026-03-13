@@ -59,13 +59,21 @@ impl Diagnostic {
     }
 
     pub fn with_span(mut self, span: Span, label: impl Into<String>) -> Self {
-        self.labels.push(Label { span, message: label.into(), is_primary: true });
+        self.labels.push(Label {
+            span,
+            message: label.into(),
+            is_primary: true,
+        });
         self
     }
 
     #[allow(dead_code)] // forward infrastructure for multi-label diagnostics (C3+)
     pub fn with_secondary_span(mut self, span: Span, label: impl Into<String>) -> Self {
-        self.labels.push(Label { span, message: label.into(), is_primary: false });
+        self.labels.push(Label {
+            span,
+            message: label.into(),
+            is_primary: false,
+        });
         self
     }
 
@@ -105,7 +113,9 @@ impl From<&crate::lexer::LexError> for Diagnostic {
 
 impl From<&crate::parser::ParseError> for Diagnostic {
     fn from(e: &crate::parser::ParseError) -> Self {
-        let mut d = Diagnostic::error(&e.message).with_code(e.code).with_span(e.span, "here");
+        let mut d = Diagnostic::error(&e.message)
+            .with_code(e.code)
+            .with_span(e.span, "here");
         if let Some(hint) = &e.hint {
             d = d.with_suggestion(hint.clone());
         }
@@ -201,8 +211,7 @@ mod tests {
 
     #[test]
     fn diagnostic_with_span() {
-        let d = Diagnostic::error("bad token")
-            .with_span(Span { start: 5, end: 8 }, "here");
+        let d = Diagnostic::error("bad token").with_span(Span { start: 5, end: 8 }, "here");
         assert_eq!(d.labels.len(), 1);
         assert_eq!(d.labels[0].span.start, 5);
         assert_eq!(d.labels[0].span.end, 8);
@@ -261,7 +270,10 @@ mod tests {
             hint: Some("ilo function syntax: name param:type > return-type; body".to_string()),
         };
         let d = Diagnostic::from(&e);
-        assert_eq!(d.suggestion.as_deref(), Some("ilo function syntax: name param:type > return-type; body"));
+        assert_eq!(
+            d.suggestion.as_deref(),
+            Some("ilo function syntax: name param:type > return-type; body")
+        );
     }
 
     #[test]
@@ -354,14 +366,18 @@ mod tests {
 
     #[test]
     fn from_vm_error() {
-        let e = crate::vm::VmError::UndefinedFunction { name: "foo".to_string() };
+        let e = crate::vm::VmError::UndefinedFunction {
+            name: "foo".to_string(),
+        };
         let d = Diagnostic::from(&e);
         assert!(d.message.contains("foo"));
     }
 
     #[test]
     fn from_compile_error() {
-        let e = crate::vm::CompileError::UndefinedVariable { name: "x".to_string() };
+        let e = crate::vm::CompileError::UndefinedVariable {
+            name: "x".to_string(),
+        };
         let d = Diagnostic::from(&e);
         assert!(d.message.contains("x"));
     }
@@ -386,7 +402,9 @@ mod tests {
 
     #[test]
     fn from_vm_error_field_not_found() {
-        let e = crate::vm::VmError::FieldNotFound { field: "foo".to_string() };
+        let e = crate::vm::VmError::FieldNotFound {
+            field: "foo".to_string(),
+        };
         let d = Diagnostic::from(&e);
         assert_eq!(d.code, Some("ILO-R005"));
         assert!(d.message.contains("foo"));
@@ -410,7 +428,9 @@ mod tests {
 
     #[test]
     fn from_compile_error_undefined_function() {
-        let e = crate::vm::CompileError::UndefinedFunction { name: "bar".to_string() };
+        let e = crate::vm::CompileError::UndefinedFunction {
+            name: "bar".to_string(),
+        };
         let d = Diagnostic::from(&e);
         assert_eq!(d.code, Some("ILO-R011"));
         assert!(d.message.contains("bar"));

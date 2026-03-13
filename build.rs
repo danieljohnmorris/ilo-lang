@@ -6,11 +6,8 @@ fn main() {
     let spec = std::fs::read_to_string("SPEC.md").expect("SPEC.md not found");
     let compact = compact_spec(&spec);
     let out_dir = std::env::var("OUT_DIR").expect("OUT_DIR not set by Cargo");
-    std::fs::write(
-        std::path::Path::new(&out_dir).join("spec_ai.txt"),
-        compact,
-    )
-    .expect("failed to write spec_ai.txt");
+    std::fs::write(std::path::Path::new(&out_dir).join("spec_ai.txt"), compact)
+        .expect("failed to write spec_ai.txt");
 }
 
 /// Compress the spec into one line per `## Section`.
@@ -29,7 +26,11 @@ fn compact_spec(src: &str) -> String {
         if let Some(h) = trimmed.strip_prefix("## ") {
             sections.push((h.to_uppercase(), vec![]));
         } else {
-            sections.last_mut().expect("sections always non-empty").1.push(trimmed.to_string());
+            sections
+                .last_mut()
+                .expect("sections always non-empty")
+                .1
+                .push(trimmed.to_string());
         }
     }
 
@@ -58,8 +59,8 @@ fn compress_section(lines: &[String]) -> String {
     #[derive(PartialEq)]
     enum TableState {
         NotInTable,
-        InHeader,  // first data row seen, separator not yet seen
-        InData,    // past the separator row — real data rows
+        InHeader, // first data row seen, separator not yet seen
+        InData,   // past the separator row — real data rows
     }
 
     let mut items: Vec<String> = Vec::new();

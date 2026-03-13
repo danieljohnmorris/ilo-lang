@@ -133,14 +133,14 @@ pub struct McpProvider {
 impl McpProvider {
     /// Connect to all servers in the config and discover their tools.
     pub async fn connect(config: &McpConfig) -> Result<Self, String> {
-        let mut clients: Vec<(McpClient, Vec<McpToolDef>)> = Vec::with_capacity(config.mcp_servers.len());
+        let mut clients: Vec<(McpClient, Vec<McpToolDef>)> =
+            Vec::with_capacity(config.mcp_servers.len());
         let mut tool_index: HashMap<String, (usize, Vec<String>)> = HashMap::new();
 
         for (server_name, server_cfg) in &config.mcp_servers {
-            let client =
-                McpClient::connect(&server_cfg.command, &server_cfg.args, &server_cfg.env)
-                    .await
-                    .map_err(|e| format!("MCP server '{server_name}': {e}"))?;
+            let client = McpClient::connect(&server_cfg.command, &server_cfg.args, &server_cfg.env)
+                .await
+                .map_err(|e| format!("MCP server '{server_name}': {e}"))?;
 
             let raw_tools = client
                 .list_tools()
@@ -172,10 +172,7 @@ impl McpProvider {
     /// Inject these into the program before verification so ilo type-checks calls.
     pub fn tool_decls(&self) -> Vec<ast::Decl> {
         // MCP tools always return R t t
-        let return_type = ast::Type::Result(
-            Box::new(ast::Type::Text),
-            Box::new(ast::Type::Text),
-        );
+        let return_type = ast::Type::Result(Box::new(ast::Type::Text), Box::new(ast::Type::Text));
 
         self.clients
             .iter()

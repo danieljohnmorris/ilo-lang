@@ -69,19 +69,21 @@ fn uses_rd(program: &Program) -> bool {
 fn stmt_uses_rd(stmt: &Stmt) -> bool {
     match stmt {
         Stmt::Let { value, .. } => expr_uses_rd(value),
-        Stmt::Guard { condition, body, .. } => {
-            expr_uses_rd(condition) || body.iter().any(|s| stmt_uses_rd(&s.node))
-        }
+        Stmt::Guard {
+            condition, body, ..
+        } => expr_uses_rd(condition) || body.iter().any(|s| stmt_uses_rd(&s.node)),
         Stmt::Match { subject, arms } => {
             subject.as_ref().is_some_and(expr_uses_rd)
-                || arms.iter().any(|a| a.body.iter().any(|s| stmt_uses_rd(&s.node)))
+                || arms
+                    .iter()
+                    .any(|a| a.body.iter().any(|s| stmt_uses_rd(&s.node)))
         }
-        Stmt::ForEach { collection, body, .. } => {
-            expr_uses_rd(collection) || body.iter().any(|s| stmt_uses_rd(&s.node))
-        }
-        Stmt::ForRange { start, end, body, .. } => {
-            expr_uses_rd(start) || expr_uses_rd(end) || body.iter().any(|s| stmt_uses_rd(&s.node))
-        }
+        Stmt::ForEach {
+            collection, body, ..
+        } => expr_uses_rd(collection) || body.iter().any(|s| stmt_uses_rd(&s.node)),
+        Stmt::ForRange {
+            start, end, body, ..
+        } => expr_uses_rd(start) || expr_uses_rd(end) || body.iter().any(|s| stmt_uses_rd(&s.node)),
         Stmt::While { condition, body } => {
             expr_uses_rd(condition) || body.iter().any(|s| stmt_uses_rd(&s.node))
         }
@@ -106,7 +108,9 @@ fn expr_uses_rd(expr: &Expr) -> bool {
         Expr::Record { fields, .. } => fields.iter().any(|(_, e)| expr_uses_rd(e)),
         Expr::Match { subject, arms } => {
             subject.as_ref().is_some_and(|s| expr_uses_rd(s))
-                || arms.iter().any(|a| a.body.iter().any(|s| stmt_uses_rd(&s.node)))
+                || arms
+                    .iter()
+                    .any(|a| a.body.iter().any(|s| stmt_uses_rd(&s.node)))
         }
         Expr::NilCoalesce { value, default } => expr_uses_rd(value) || expr_uses_rd(default),
         _ => false,
@@ -123,18 +127,24 @@ fn uses_unwrap(program: &Program) -> bool {
 fn stmt_uses_unwrap(stmt: &Stmt) -> bool {
     match stmt {
         Stmt::Let { value, .. } => expr_uses_unwrap(value),
-        Stmt::Guard { condition, body, .. } => {
-            expr_uses_unwrap(condition) || body.iter().any(|s| stmt_uses_unwrap(&s.node))
-        }
+        Stmt::Guard {
+            condition, body, ..
+        } => expr_uses_unwrap(condition) || body.iter().any(|s| stmt_uses_unwrap(&s.node)),
         Stmt::Match { subject, arms } => {
             subject.as_ref().is_some_and(expr_uses_unwrap)
-                || arms.iter().any(|a| a.body.iter().any(|s| stmt_uses_unwrap(&s.node)))
+                || arms
+                    .iter()
+                    .any(|a| a.body.iter().any(|s| stmt_uses_unwrap(&s.node)))
         }
-        Stmt::ForEach { collection, body, .. } => {
-            expr_uses_unwrap(collection) || body.iter().any(|s| stmt_uses_unwrap(&s.node))
-        }
-        Stmt::ForRange { start, end, body, .. } => {
-            expr_uses_unwrap(start) || expr_uses_unwrap(end) || body.iter().any(|s| stmt_uses_unwrap(&s.node))
+        Stmt::ForEach {
+            collection, body, ..
+        } => expr_uses_unwrap(collection) || body.iter().any(|s| stmt_uses_unwrap(&s.node)),
+        Stmt::ForRange {
+            start, end, body, ..
+        } => {
+            expr_uses_unwrap(start)
+                || expr_uses_unwrap(end)
+                || body.iter().any(|s| stmt_uses_unwrap(&s.node))
         }
         Stmt::While { condition, body } => {
             expr_uses_unwrap(condition) || body.iter().any(|s| stmt_uses_unwrap(&s.node))
@@ -159,13 +169,21 @@ fn expr_uses_unwrap(expr: &Expr) -> bool {
         Expr::Record { fields, .. } => fields.iter().any(|(_, e)| expr_uses_unwrap(e)),
         Expr::Match { subject, arms } => {
             subject.as_ref().is_some_and(|s| expr_uses_unwrap(s))
-                || arms.iter().any(|a| a.body.iter().any(|s| stmt_uses_unwrap(&s.node)))
+                || arms
+                    .iter()
+                    .any(|a| a.body.iter().any(|s| stmt_uses_unwrap(&s.node)))
         }
         Expr::NilCoalesce { value, default } => {
             expr_uses_unwrap(value) || expr_uses_unwrap(default)
         }
-        Expr::Ternary { condition, then_expr, else_expr } => {
-            expr_uses_unwrap(condition) || expr_uses_unwrap(then_expr) || expr_uses_unwrap(else_expr)
+        Expr::Ternary {
+            condition,
+            then_expr,
+            else_expr,
+        } => {
+            expr_uses_unwrap(condition)
+                || expr_uses_unwrap(then_expr)
+                || expr_uses_unwrap(else_expr)
         }
         Expr::With { object, updates } => {
             expr_uses_unwrap(object) || updates.iter().any(|(_, e)| expr_uses_unwrap(e))
@@ -182,7 +200,13 @@ fn indent(out: &mut String, level: usize) {
 
 fn emit_decl(out: &mut String, decl: &Decl, level: usize) {
     match decl {
-        Decl::Function { name, params, return_type, body, .. } => {
+        Decl::Function {
+            name,
+            params,
+            return_type,
+            body,
+            ..
+        } => {
             indent(out, level);
             out.push_str(&format!("def {}(", py_name(name)));
             for (i, p) in params.iter().enumerate() {
@@ -205,7 +229,13 @@ fn emit_decl(out: &mut String, decl: &Decl, level: usize) {
             }
             out.push_str("}\n");
         }
-        Decl::Tool { name, description, params, return_type, .. } => {
+        Decl::Tool {
+            name,
+            description,
+            params,
+            return_type,
+            ..
+        } => {
             indent(out, level);
             out.push_str(&format!("def {}(", py_name(name)));
             for (i, p) in params.iter().enumerate() {
@@ -253,10 +283,20 @@ fn emit_stmt(out: &mut String, stmt: &Stmt, level: usize, implicit_return: bool)
             let record = emit_expr(out, level, value);
             for binding in bindings {
                 indent(out, level);
-                out.push_str(&format!("{} = {}[\"{}\"]\n", py_name(binding), record, binding));
+                out.push_str(&format!(
+                    "{} = {}[\"{}\"]\n",
+                    py_name(binding),
+                    record,
+                    binding
+                ));
             }
         }
-        Stmt::Guard { condition, negated, body, else_body } => {
+        Stmt::Guard {
+            condition,
+            negated,
+            body,
+            else_body,
+        } => {
             let cond = emit_expr(out, level, condition);
             indent(out, level);
             if *negated {
@@ -275,17 +315,31 @@ fn emit_stmt(out: &mut String, stmt: &Stmt, level: usize, implicit_return: bool)
         Stmt::Match { subject, arms } => {
             emit_match_stmt(out, subject, arms, level);
         }
-        Stmt::ForEach { binding, collection, body } => {
+        Stmt::ForEach {
+            binding,
+            collection,
+            body,
+        } => {
             let coll = emit_expr(out, level, collection);
             indent(out, level);
             out.push_str(&format!("for {} in {}:\n", py_name(binding), coll));
             emit_body(out, body, level + 1, false);
         }
-        Stmt::ForRange { binding, start, end, body } => {
+        Stmt::ForRange {
+            binding,
+            start,
+            end,
+            body,
+        } => {
             let s = emit_expr(out, level, start);
             let e = emit_expr(out, level, end);
             indent(out, level);
-            out.push_str(&format!("for {} in range(int({}), int({})):\n", py_name(binding), s, e));
+            out.push_str(&format!(
+                "for {} in range(int({}), int({})):\n",
+                py_name(binding),
+                s,
+                e
+            ));
             emit_body(out, body, level + 1, false);
         }
         Stmt::While { condition, body } => {
@@ -368,13 +422,17 @@ fn emit_match_stmt(out: &mut String, subject: &Option<Expr>, arms: &[MatchArm], 
             Pattern::Literal(lit) => {
                 out.push_str(&format!(
                     "{} {} == {}:\n",
-                    keyword, subj_str, emit_literal(lit)
+                    keyword,
+                    subj_str,
+                    emit_literal(lit)
                 ));
             }
             Pattern::TypeIs { ty, binding } => {
                 out.push_str(&format!(
                     "{} isinstance({}, {}):\n",
-                    keyword, subj_str, type_to_py(ty)
+                    keyword,
+                    subj_str,
+                    type_to_py(ty)
                 ));
                 if binding != "_" {
                     indent(out, level + 1);
@@ -394,7 +452,10 @@ fn arm_needs_statements(arm: &MatchArm) -> bool {
         _ => {}
     }
     arm.body.len() > 1
-        || arm.body.first().is_some_and(|s| matches!(s.node, Stmt::Let { .. }))
+        || arm
+            .body
+            .first()
+            .is_some_and(|s| matches!(s.node, Stmt::Let { .. }))
 }
 
 /// Emit an expression, potentially writing preamble statements to `out`.
@@ -403,7 +464,11 @@ fn emit_expr(out: &mut String, level: usize, expr: &Expr) -> String {
     match expr {
         Expr::Literal(lit) => emit_literal(lit),
         Expr::Ref(name) => py_name(name),
-        Expr::Field { object, field, safe } => {
+        Expr::Field {
+            object,
+            field,
+            safe,
+        } => {
             let obj = emit_expr(out, level, object);
             if *safe {
                 format!("({0}[\"{1}\"] if {0} is not None else None)", obj, field)
@@ -411,7 +476,11 @@ fn emit_expr(out: &mut String, level: usize, expr: &Expr) -> String {
                 format!("{}[\"{}\"]", obj, field)
             }
         }
-        Expr::Index { object, index, safe } => {
+        Expr::Index {
+            object,
+            index,
+            safe,
+        } => {
             let obj = emit_expr(out, level, object);
             if *safe {
                 format!("({0}[{1}] if {0} is not None else None)", obj, index)
@@ -419,11 +488,22 @@ fn emit_expr(out: &mut String, level: usize, expr: &Expr) -> String {
                 format!("{}[{}]", obj, index)
             }
         }
-        Expr::Call { function, args, unwrap } => {
+        Expr::Call {
+            function,
+            args,
+            unwrap,
+        } => {
             if function == "num" && args.len() == 1 {
                 let arg = emit_expr(out, level, &args[0]);
-                let call = format!("(lambda s: (\"ok\", float(s)) if s.replace('.','',1).replace('-','',1).isdigit() else (\"err\", s))({})", arg);
-                return if *unwrap { format!("_ilo_unwrap({})", call) } else { call };
+                let call = format!(
+                    "(lambda s: (\"ok\", float(s)) if s.replace('.','',1).replace('-','',1).isdigit() else (\"err\", s))({})",
+                    arg
+                );
+                return if *unwrap {
+                    format!("_ilo_unwrap({})", call)
+                } else {
+                    call
+                };
             }
             if function == "now" && args.is_empty() {
                 return "(__import__('time').time())".to_string();
@@ -431,9 +511,16 @@ fn emit_expr(out: &mut String, level: usize, expr: &Expr) -> String {
             if function == "jpth" && args.len() == 2 {
                 let json_arg = emit_expr(out, level, &args[0]);
                 let path_arg = emit_expr(out, level, &args[1]);
-                let call = format!("(lambda j, p: (lambda c: (\"ok\", str(c) if not isinstance(c, str) else c))((__import__('functools').reduce(lambda c, k: c[int(k)] if isinstance(c, list) and k.isdigit() else c[k], p.split('.'), __import__('json').loads(j)))) if True else None)({}, {})", json_arg, path_arg);
+                let call = format!(
+                    "(lambda j, p: (lambda c: (\"ok\", str(c) if not isinstance(c, str) else c))((__import__('functools').reduce(lambda c, k: c[int(k)] if isinstance(c, list) and k.isdigit() else c[k], p.split('.'), __import__('json').loads(j)))) if True else None)({}, {})",
+                    json_arg, path_arg
+                );
                 let call = format!("(lambda: {})()", call);
-                return if *unwrap { format!("_ilo_unwrap({})", call) } else { call };
+                return if *unwrap {
+                    format!("_ilo_unwrap({})", call)
+                } else {
+                    call
+                };
             }
             if function == "prnt" && args.len() == 1 {
                 let arg = emit_expr(out, level, &args[0]);
@@ -443,36 +530,69 @@ fn emit_expr(out: &mut String, level: usize, expr: &Expr) -> String {
             if function == "rd" && args.len() == 1 {
                 let arg = emit_expr(out, level, &args[0]);
                 let call = format!("_ilo_rd({})", arg);
-                return if *unwrap { format!("_ilo_unwrap({})", call) } else { call };
+                return if *unwrap {
+                    format!("_ilo_unwrap({})", call)
+                } else {
+                    call
+                };
             }
             if function == "rd" && args.len() == 2 {
                 let path = emit_expr(out, level, &args[0]);
                 let fmt = emit_expr(out, level, &args[1]);
                 let call = format!("_ilo_rd({}, {})", path, fmt);
-                return if *unwrap { format!("_ilo_unwrap({})", call) } else { call };
+                return if *unwrap {
+                    format!("_ilo_unwrap({})", call)
+                } else {
+                    call
+                };
             }
             if function == "rdb" && args.len() == 2 {
                 let s = emit_expr(out, level, &args[0]);
                 let fmt = emit_expr(out, level, &args[1]);
                 let call = format!("_ilo_rdb({}, {})", s, fmt);
-                return if *unwrap { format!("_ilo_unwrap({})", call) } else { call };
+                return if *unwrap {
+                    format!("_ilo_unwrap({})", call)
+                } else {
+                    call
+                };
             }
             if function == "rdl" && args.len() == 1 {
                 let arg = emit_expr(out, level, &args[0]);
-                let call = format!("(lambda p: (\"ok\", open(p).read().splitlines()) if __import__('os.path', fromlist=['']).exists(p) else (\"err\", f\"{{p}}: no such file\"))({})", arg);
-                return if *unwrap { format!("_ilo_unwrap({})", call) } else { call };
+                let call = format!(
+                    "(lambda p: (\"ok\", open(p).read().splitlines()) if __import__('os.path', fromlist=['']).exists(p) else (\"err\", f\"{{p}}: no such file\"))({})",
+                    arg
+                );
+                return if *unwrap {
+                    format!("_ilo_unwrap({})", call)
+                } else {
+                    call
+                };
             }
             if function == "wr" && args.len() == 2 {
                 let pa = emit_expr(out, level, &args[0]);
                 let content = emit_expr(out, level, &args[1]);
-                let call = format!("(lambda p, c: (open(p, 'w').write(c), (\"ok\", p))[1])({}, {})", pa, content);
-                return if *unwrap { format!("_ilo_unwrap({})", call) } else { call };
+                let call = format!(
+                    "(lambda p, c: (open(p, 'w').write(c), (\"ok\", p))[1])({}, {})",
+                    pa, content
+                );
+                return if *unwrap {
+                    format!("_ilo_unwrap({})", call)
+                } else {
+                    call
+                };
             }
             if function == "wrl" && args.len() == 2 {
                 let pa = emit_expr(out, level, &args[0]);
                 let lines = emit_expr(out, level, &args[1]);
-                let call = format!("(lambda p, ls: (open(p, 'w').write('\\n'.join(ls) + '\\n'), (\"ok\", p))[1])({}, {})", pa, lines);
-                return if *unwrap { format!("_ilo_unwrap({})", call) } else { call };
+                let call = format!(
+                    "(lambda p, ls: (open(p, 'w').write('\\n'.join(ls) + '\\n'), (\"ok\", p))[1])({}, {})",
+                    pa, lines
+                );
+                return if *unwrap {
+                    format!("_ilo_unwrap({})", call)
+                } else {
+                    call
+                };
             }
             if function == "jdmp" && args.len() == 1 {
                 let arg = emit_expr(out, level, &args[0]);
@@ -481,25 +601,46 @@ fn emit_expr(out: &mut String, level: usize, expr: &Expr) -> String {
             if function == "jpar" && args.len() == 1 {
                 let arg = emit_expr(out, level, &args[0]);
                 let call = format!("(lambda s: (\"ok\", __import__('json').loads(s)))({})", arg);
-                return if *unwrap { format!("_ilo_unwrap({})", call) } else { call };
+                return if *unwrap {
+                    format!("_ilo_unwrap({})", call)
+                } else {
+                    call
+                };
             }
 
             if function == "env" && args.len() == 1 {
                 let arg = emit_expr(out, level, &args[0]);
-                let call = format!("(lambda k: (\"ok\", __import__('os').environ[k]) if k in __import__('os').environ else (\"err\", f\"env var '{{k}}' not set\"))({})", arg);
-                return if *unwrap { format!("_ilo_unwrap({})", call) } else { call };
+                let call = format!(
+                    "(lambda k: (\"ok\", __import__('os').environ[k]) if k in __import__('os').environ else (\"err\", f\"env var '{{k}}' not set\"))({})",
+                    arg
+                );
+                return if *unwrap {
+                    format!("_ilo_unwrap({})", call)
+                } else {
+                    call
+                };
             }
             if function == "rnd" && args.is_empty() {
                 return "(__import__('random').random())".to_string();
             }
             if function == "rnd" && args.len() == 2 {
-                return format!("float(__import__('random').randint({}, {}))", emit_expr(out, level, &args[0]), emit_expr(out, level, &args[1]));
+                return format!(
+                    "float(__import__('random').randint({}, {}))",
+                    emit_expr(out, level, &args[0]),
+                    emit_expr(out, level, &args[1])
+                );
             }
             if function == "flr" && args.len() == 1 {
-                return format!("float(__import__('math').floor({}))", emit_expr(out, level, &args[0]));
+                return format!(
+                    "float(__import__('math').floor({}))",
+                    emit_expr(out, level, &args[0])
+                );
             }
             if function == "cel" && args.len() == 1 {
-                return format!("float(__import__('math').ceil({}))", emit_expr(out, level, &args[0]));
+                return format!(
+                    "float(__import__('math').ceil({}))",
+                    emit_expr(out, level, &args[0])
+                );
             }
             if function == "rou" && args.len() == 1 {
                 return format!("float(round({}))", emit_expr(out, level, &args[0]));
@@ -518,7 +659,8 @@ fn emit_expr(out: &mut String, level: usize, expr: &Expr) -> String {
             }
             if function == "fmt" && !args.is_empty() {
                 let tmpl = emit_expr(out, level, &args[0]);
-                let rest: Vec<String> = args[1..].iter().map(|a| emit_expr(out, level, a)).collect();
+                let rest: Vec<String> =
+                    args[1..].iter().map(|a| emit_expr(out, level, a)).collect();
                 if rest.is_empty() {
                     return tmpl;
                 }
@@ -526,7 +668,11 @@ fn emit_expr(out: &mut String, level: usize, expr: &Expr) -> String {
             }
             let args_str: Vec<String> = args.iter().map(|a| emit_expr(out, level, a)).collect();
             let call = format!("{}({})", py_name(function), args_str.join(", "));
-            if *unwrap { format!("_ilo_unwrap({})", call) } else { call }
+            if *unwrap {
+                format!("_ilo_unwrap({})", call)
+            } else {
+                call
+            }
         }
         Expr::BinOp { op, left, right } => {
             let op_str = match op {
@@ -572,15 +718,17 @@ fn emit_expr(out: &mut String, level: usize, expr: &Expr) -> String {
             }
             format!("{{{}}}", parts.join(", "))
         }
-        Expr::Match { subject, arms } => {
-            emit_match_expr(out, level, subject, arms)
-        }
+        Expr::Match { subject, arms } => emit_match_expr(out, level, subject, arms),
         Expr::NilCoalesce { value, default } => {
             let v = emit_expr(out, level, value);
             let d = emit_expr(out, level, default);
             format!("({v} if {v} is not None else {d})")
         }
-        Expr::Ternary { condition, then_expr, else_expr } => {
+        Expr::Ternary {
+            condition,
+            then_expr,
+            else_expr,
+        } => {
             let c = emit_expr(out, level, condition);
             let t = emit_expr(out, level, then_expr);
             let e = emit_expr(out, level, else_expr);
@@ -597,7 +745,12 @@ fn emit_expr(out: &mut String, level: usize, expr: &Expr) -> String {
     }
 }
 
-fn emit_match_expr(out: &mut String, level: usize, subject: &Option<Box<Expr>>, arms: &[MatchArm]) -> String {
+fn emit_match_expr(
+    out: &mut String,
+    level: usize,
+    subject: &Option<Box<Expr>>,
+    arms: &[MatchArm],
+) -> String {
     let needs_statements = arms.iter().any(arm_needs_statements);
 
     if needs_statements {
@@ -620,7 +773,12 @@ fn emit_match_expr(out: &mut String, level: usize, subject: &Option<Box<Expr>>, 
                 default = arm_val;
             }
             Pattern::Literal(lit) => {
-                parts.push(format!("{} if {} == {} else", arm_val, subj, emit_literal(lit)));
+                parts.push(format!(
+                    "{} if {} == {} else",
+                    arm_val,
+                    subj,
+                    emit_literal(lit)
+                ));
             }
             Pattern::Ok(_) => {
                 parts.push(format!(
@@ -635,7 +793,12 @@ fn emit_match_expr(out: &mut String, level: usize, subject: &Option<Box<Expr>>, 
                 ));
             }
             Pattern::TypeIs { ty, .. } => {
-                parts.push(format!("{} if isinstance({}, {}) else", arm_val, subj, type_to_py(ty)));
+                parts.push(format!(
+                    "{} if isinstance({}, {}) else",
+                    arm_val,
+                    subj,
+                    type_to_py(ty)
+                ));
             }
         }
     }
@@ -650,7 +813,12 @@ fn emit_match_expr(out: &mut String, level: usize, subject: &Option<Box<Expr>>, 
 
 /// Emit a complex match expression using if/elif chain with a temp variable.
 /// Writes statements to `out` and returns the temp variable name.
-fn emit_match_expr_complex(out: &mut String, level: usize, subject: &Option<Box<Expr>>, arms: &[MatchArm]) -> String {
+fn emit_match_expr_complex(
+    out: &mut String,
+    level: usize,
+    subject: &Option<Box<Expr>>,
+    arms: &[MatchArm],
+) -> String {
     let subj_str = match subject {
         Some(e) => emit_expr(out, level, e),
         None => "_subject".to_string(),
@@ -692,13 +860,17 @@ fn emit_match_expr_complex(out: &mut String, level: usize, subject: &Option<Box<
             Pattern::Literal(lit) => {
                 out.push_str(&format!(
                     "{} {} == {}:\n",
-                    keyword, subj_str, emit_literal(lit)
+                    keyword,
+                    subj_str,
+                    emit_literal(lit)
                 ));
             }
             Pattern::TypeIs { ty, binding } => {
                 out.push_str(&format!(
                     "{} isinstance({}, {}):\n",
-                    keyword, subj_str, type_to_py(ty)
+                    keyword,
+                    subj_str,
+                    type_to_py(ty)
                 ));
                 if binding != "_" {
                     indent(out, level + 1);
@@ -771,7 +943,13 @@ fn emit_literal(lit: &Literal) -> String {
                 .replace('\r', "\\r");
             format!("\"{}\"", escaped)
         }
-        Literal::Bool(b) => if *b { "True".to_string() } else { "False".to_string() },
+        Literal::Bool(b) => {
+            if *b {
+                "True".to_string()
+            } else {
+                "False".to_string()
+            }
+        }
         Literal::Nil => "None".to_string(),
     }
 }
@@ -893,7 +1071,9 @@ mod tests {
 
     #[test]
     fn emit_tool() {
-        let py = parse_and_emit(r#"tool send-email"Send an email" to:t body:t>R _ t timeout:30,retry:3"#);
+        let py = parse_and_emit(
+            r#"tool send-email"Send an email" to:t body:t>R _ t timeout:30,retry:3"#,
+        );
         assert!(py.contains("def send_email(to: str, body: str)"));
         assert!(py.contains("Send an email"));
         assert!(py.contains("raise NotImplementedError"));
@@ -1143,9 +1323,21 @@ mod tests {
         let py = parse_and_emit(r#"f x:R n t>n;y=?x{~v:v;^e:0};y"#);
         // Should use complex path with if/elif and temp var
         assert!(py.contains("v = x[1]"), "should bind v: got: {}", py);
-        assert!(py.contains("_m = v"), "should assign v to temp: got: {}", py);
-        assert!(py.contains("_m = 0"), "should assign 0 to temp: got: {}", py);
-        assert!(py.contains("y = _m"), "should assign temp to y: got: {}", py);
+        assert!(
+            py.contains("_m = v"),
+            "should assign v to temp: got: {}",
+            py
+        );
+        assert!(
+            py.contains("_m = 0"),
+            "should assign 0 to temp: got: {}",
+            py
+        );
+        assert!(
+            py.contains("y = _m"),
+            "should assign temp to y: got: {}",
+            py
+        );
     }
 
     #[test]
@@ -1154,9 +1346,21 @@ mod tests {
         let py = parse_and_emit(r#"f x:R n t>n;y=?x{~v:z=+v 1;z;^e:0};y"#);
         // Should use complex path
         assert!(py.contains("v = x[1]"), "should bind v: got: {}", py);
-        assert!(py.contains("z = (v + 1)"), "should emit let binding: got: {}", py);
-        assert!(py.contains("_m = z"), "should assign z to temp: got: {}", py);
-        assert!(py.contains("y = _m"), "should assign temp to y: got: {}", py);
+        assert!(
+            py.contains("z = (v + 1)"),
+            "should emit let binding: got: {}",
+            py
+        );
+        assert!(
+            py.contains("_m = z"),
+            "should assign z to temp: got: {}",
+            py
+        );
+        assert!(
+            py.contains("y = _m"),
+            "should assign temp to y: got: {}",
+            py
+        );
     }
 
     #[test]
@@ -1164,7 +1368,11 @@ mod tests {
         // Match expr with simple arms (no bindings needed) should still use ternary
         let py = parse_and_emit(r#"f x:R n t>n;y=?x{~_:1;^_:0};y"#);
         // Wildcard bindings — should use simple ternary path
-        assert!(py.contains("1 if isinstance(x, tuple)"), "should use ternary: got: {}", py);
+        assert!(
+            py.contains("1 if isinstance(x, tuple)"),
+            "should use ternary: got: {}",
+            py
+        );
     }
 
     #[test]
@@ -1172,7 +1380,10 @@ mod tests {
         // Guard with empty brace body → emit_body with empty stmts → "pass" (L65-67)
         // Also exercises parse_expr_or_guard returning a Guard (parser L621-625)
         let py = parse_and_emit("f x:b>n;x{};0");
-        assert!(py.contains("pass"), "expected 'pass' for empty body in: {py}");
+        assert!(
+            py.contains("pass"),
+            "expected 'pass' for empty body in: {py}"
+        );
     }
 
     #[test]
@@ -1197,7 +1408,10 @@ mod tests {
         // Match expr needing complex emit with a literal pattern → Pattern::Literal in complex (L349-354)
         // Arm body has 2 stmts (Let + Expr) → arm_needs_statements=true → complex path
         let py = parse_and_emit("f x:n>n;y=?x{1:z=1;+z 1;_:0};y");
-        assert!(py.contains("== 1"), "expected literal pattern comparison in: {py}");
+        assert!(
+            py.contains("== 1"),
+            "expected literal pattern comparison in: {py}"
+        );
     }
 
     #[test]
@@ -1216,21 +1430,25 @@ mod tests {
         // We pass AST directly to bypass parser validation of arm order
         use crate::ast::{Expr, Literal, MatchArm, Pattern, Spanned, Stmt};
         let tokens: Vec<crate::lexer::Token> = lexer::lex("f>n;42")
-            .unwrap().into_iter().map(|(t, _)| t).collect();
+            .unwrap()
+            .into_iter()
+            .map(|(t, _)| t)
+            .collect();
         let mut prog = parser::parse_tokens(tokens).unwrap();
         // Replace the function body with a let binding to a match expr
         // match expr: first arm is wildcard with multi-stmt body
         let match_expr = Expr::Match {
             subject: None,
-            arms: vec![
-                MatchArm {
-                    pattern: Pattern::Wildcard,
-                    body: vec![
-                        Spanned::unknown(Stmt::Let { name: "z".to_string(), value: Expr::Literal(Literal::Number(1.0)) }),
-                        Spanned::unknown(Stmt::Expr(Expr::Ref("z".to_string()))),
-                    ],
-                },
-            ],
+            arms: vec![MatchArm {
+                pattern: Pattern::Wildcard,
+                body: vec![
+                    Spanned::unknown(Stmt::Let {
+                        name: "z".to_string(),
+                        value: Expr::Literal(Literal::Number(1.0)),
+                    }),
+                    Spanned::unknown(Stmt::Expr(Expr::Ref("z".to_string()))),
+                ],
+            }],
         };
         if let crate::ast::Decl::Function { ref mut body, .. } = prog.declarations[0] {
             *body = vec![Spanned::unknown(Stmt::Expr(match_expr))];
@@ -1256,11 +1474,13 @@ mod tests {
             arms: vec![
                 MatchArm {
                     pattern: Pattern::Ok("v".to_string()), // named binding → needs_statements=true
-                    body: vec![],                           // empty body → L365-367
+                    body: vec![],                          // empty body → L365-367
                 },
                 MatchArm {
                     pattern: Pattern::Wildcard,
-                    body: vec![Spanned::unknown(Stmt::Expr(Expr::Literal(Literal::Number(0.0))))],
+                    body: vec![Spanned::unknown(Stmt::Expr(Expr::Literal(
+                        Literal::Number(0.0),
+                    )))],
                 },
             ],
         };
@@ -1269,7 +1489,10 @@ mod tests {
         }
         let py = emit(&prog);
         // The arm body was empty → `_m = None` was emitted
-        assert!(py.contains("= None"), "expected '= None' for empty arm body in: {py}");
+        assert!(
+            py.contains("= None"),
+            "expected '= None' for empty arm body in: {py}"
+        );
     }
 
     #[test]
@@ -1298,7 +1521,9 @@ mod tests {
                 },
                 MatchArm {
                     pattern: Pattern::Wildcard,
-                    body: vec![Spanned::unknown(Stmt::Expr(Expr::Literal(Literal::Number(0.0))))],
+                    body: vec![Spanned::unknown(Stmt::Expr(Expr::Literal(
+                        Literal::Number(0.0),
+                    )))],
                 },
             ],
         };
@@ -1307,7 +1532,10 @@ mod tests {
         }
         let py = emit(&prog);
         // The Guard arm returns None from emit_arm_value (L396)
-        assert!(py.contains("None"), "expected None for guard-body arm in: {py}");
+        assert!(
+            py.contains("None"),
+            "expected None for guard-body arm in: {py}"
+        );
     }
 
     #[test]
@@ -1331,7 +1559,9 @@ mod tests {
                 },
                 MatchArm {
                     pattern: Pattern::Wildcard,
-                    body: vec![Spanned::unknown(Stmt::Expr(Expr::Literal(Literal::Number(0.0))))],
+                    body: vec![Spanned::unknown(Stmt::Expr(Expr::Literal(
+                        Literal::Number(0.0),
+                    )))],
                 },
             ],
         };
@@ -1340,7 +1570,10 @@ mod tests {
         }
         let py = emit(&prog);
         // The empty arm returns None from emit_arm_value (L399)
-        assert!(py.contains("None"), "expected None for empty-body arm in: {py}");
+        assert!(
+            py.contains("None"),
+            "expected None for empty-body arm in: {py}"
+        );
     }
 
     #[test]
@@ -1374,7 +1607,9 @@ mod tests {
             .collect();
         let mut prog = parser::parse_tokens(tokens).unwrap();
         // Inject a poison node
-        prog.declarations.push(Decl::Error { span: Span { start: 0, end: 1 } });
+        prog.declarations.push(Decl::Error {
+            span: Span { start: 0, end: 1 },
+        });
         let py = emit(&prog);
         // The valid function should appear; the error node should be silently skipped
         assert!(py.contains("def f("), "missing valid function in: {py}");
@@ -1569,7 +1804,10 @@ mod tests {
         let prog = Program {
             declarations: vec![Decl::Function {
                 name: "f".into(),
-                params: vec![Param { name: "s".into(), ty: Type::Text }],
+                params: vec![Param {
+                    name: "s".into(),
+                    ty: Type::Text,
+                }],
                 return_type: Type::Number,
                 body: vec![Spanned::unknown(Stmt::Expr(Expr::Call {
                     function: "num".into(),
@@ -1581,7 +1819,10 @@ mod tests {
             source: None,
         };
         let py = emit(&prog);
-        assert!(py.contains("def _ilo_unwrap"), "unwrap helper should be defined: {py}");
+        assert!(
+            py.contains("def _ilo_unwrap"),
+            "unwrap helper should be defined: {py}"
+        );
     }
 
     // ── Guard with else_body (ternary as stmt, lines 267-269) ─────────────────
@@ -1652,8 +1893,15 @@ mod tests {
     #[test]
     fn emit_use_decl_skipped() {
         use crate::ast::{Decl, Program, Span};
-        let mut prog = Program { declarations: vec![], source: None };
-        prog.declarations.push(Decl::Use { path: "x.ilo".into(), only: None, span: Span::UNKNOWN });
+        let mut prog = Program {
+            declarations: vec![],
+            source: None,
+        };
+        prog.declarations.push(Decl::Use {
+            path: "x.ilo".into(),
+            only: None,
+            span: Span::UNKNOWN,
+        });
         let py = emit(&prog);
         assert!(!py.contains("use"), "Use should produce no output: {py}");
     }
@@ -1677,12 +1925,18 @@ mod tests {
 
     #[test]
     fn type_to_py_map() {
-        assert_eq!(type_to_py(&Type::Map(Box::new(Type::Text), Box::new(Type::Number))), "dict");
+        assert_eq!(
+            type_to_py(&Type::Map(Box::new(Type::Text), Box::new(Type::Number))),
+            "dict"
+        );
     }
 
     #[test]
     fn type_to_py_optional() {
-        assert_eq!(type_to_py(&Type::Optional(Box::new(Type::Number))), "object | None");
+        assert_eq!(
+            type_to_py(&Type::Optional(Box::new(Type::Number))),
+            "object | None"
+        );
     }
 
     #[test]
@@ -1718,7 +1972,10 @@ mod tests {
             }),
             else_expr: Box::new(Expr::Literal(Literal::Number(0.0))),
         };
-        assert!(expr_uses_unwrap(&ternary), "ternary with unwrap call should be detected");
+        assert!(
+            expr_uses_unwrap(&ternary),
+            "ternary with unwrap call should be detected"
+        );
     }
 
     // ── rou codegen (L505) ──────────────────────────────────────────────────

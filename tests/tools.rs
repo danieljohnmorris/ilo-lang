@@ -58,7 +58,14 @@ fn tools_flag_nonexistent_path() {
     let prog = r#"tool mytool"a helper" x:t>R _ t
 main x:t>R _ t;mytool x"#;
     let out = ilo()
-        .args([prog, "--tools", "/nonexistent/path/to/config.json", "--run-tree", "main", "hello"])
+        .args([
+            prog,
+            "--tools",
+            "/nonexistent/path/to/config.json",
+            "--run-tree",
+            "main",
+            "hello",
+        ])
         .output()
         .expect("ilo failed to start");
     assert!(
@@ -115,11 +122,12 @@ main x:t>t;"hello""#;
 #[test]
 fn tool_decl_in_ast_json() {
     let prog = r#"tool mytool"a helper" x:t>R _ t"#;
-    let out = ilo()
-        .args([prog])
-        .output()
-        .expect("ilo failed to start");
-    assert!(out.status.success(), "stderr: {}", String::from_utf8_lossy(&out.stderr));
+    let out = ilo().args([prog]).output().expect("ilo failed to start");
+    assert!(
+        out.status.success(),
+        "stderr: {}",
+        String::from_utf8_lossy(&out.stderr)
+    );
     let stdout = String::from_utf8_lossy(&out.stdout);
     // The AST JSON should contain "Tool" and "mytool"
     assert!(
@@ -147,10 +155,15 @@ main x:t>R _ t;mytool x"#;
         .output()
         .expect("ilo failed to start");
 
-    assert!(!out.status.success(), "expected failure for invalid JSON config");
+    assert!(
+        !out.status.success(),
+        "expected failure for invalid JSON config"
+    );
     let stderr = String::from_utf8_lossy(&out.stderr);
     assert!(
-        stderr.contains("failed to parse tools config") || stderr.contains("parse") || stderr.contains("JSON"),
+        stderr.contains("failed to parse tools config")
+            || stderr.contains("parse")
+            || stderr.contains("JSON"),
         "expected parse error in stderr, got: {}",
         stderr
     );
@@ -188,7 +201,11 @@ f>R _ t;b "test""#;
         .args([prog, "--run-vm", "f"])
         .output()
         .expect("ilo failed to start");
-    assert!(out.status.success(), "stderr: {}", String::from_utf8_lossy(&out.stderr));
+    assert!(
+        out.status.success(),
+        "stderr: {}",
+        String::from_utf8_lossy(&out.stderr)
+    );
     assert_eq!(String::from_utf8_lossy(&out.stdout).trim(), "~nil");
 }
 
@@ -203,7 +220,11 @@ fn get_builtin_real_http() {
         .args([prog, "--run-tree", "main", "https://httpbin.org/get"])
         .output()
         .expect("ilo failed to start");
-    assert!(out.status.success(), "stderr: {}", String::from_utf8_lossy(&out.stderr));
+    assert!(
+        out.status.success(),
+        "stderr: {}",
+        String::from_utf8_lossy(&out.stderr)
+    );
 }
 
 // ── `ilo tools --mcp` with empty config (no servers) ─────────────────────
@@ -241,7 +262,11 @@ fn tools_cmd_mcp_empty_servers() {
 fn tools_cmd_http_human_format() {
     use std::io::Write;
     let (path, mut file) = tempfile_in_tmp("tools_cmd_human.json");
-    writeln!(file, r#"{{"tools": {{"mytool": {{"url": "http://127.0.0.1:19999/mytool"}}}}}}"#).unwrap();
+    writeln!(
+        file,
+        r#"{{"tools": {{"mytool": {{"url": "http://127.0.0.1:19999/mytool"}}}}}}"#
+    )
+    .unwrap();
     drop(file);
 
     let out = ilo()
@@ -249,9 +274,16 @@ fn tools_cmd_http_human_format() {
         .output()
         .expect("ilo failed to start");
 
-    assert!(out.status.success(), "stderr: {}", String::from_utf8_lossy(&out.stderr));
+    assert!(
+        out.status.success(),
+        "stderr: {}",
+        String::from_utf8_lossy(&out.stderr)
+    );
     let stdout = String::from_utf8_lossy(&out.stdout);
-    assert!(stdout.contains("mytool"), "expected tool name in output, got: {stdout}");
+    assert!(
+        stdout.contains("mytool"),
+        "expected tool name in output, got: {stdout}"
+    );
 
     std::fs::remove_file(&path).ok();
 }
@@ -262,7 +294,11 @@ fn tools_cmd_http_human_format() {
 fn tools_cmd_http_human_full() {
     use std::io::Write;
     let (path, mut file) = tempfile_in_tmp("tools_cmd_human_full.json");
-    writeln!(file, r#"{{"tools": {{"bigtool": {{"url": "http://127.0.0.1:19999/bigtool"}}}}}}"#).unwrap();
+    writeln!(
+        file,
+        r#"{{"tools": {{"bigtool": {{"url": "http://127.0.0.1:19999/bigtool"}}}}}}"#
+    )
+    .unwrap();
     drop(file);
 
     let out = ilo()
@@ -270,9 +306,16 @@ fn tools_cmd_http_human_full() {
         .output()
         .expect("ilo failed to start");
 
-    assert!(out.status.success(), "stderr: {}", String::from_utf8_lossy(&out.stderr));
+    assert!(
+        out.status.success(),
+        "stderr: {}",
+        String::from_utf8_lossy(&out.stderr)
+    );
     let stdout = String::from_utf8_lossy(&out.stdout);
-    assert!(stdout.contains("bigtool"), "expected tool name in full output, got: {stdout}");
+    assert!(
+        stdout.contains("bigtool"),
+        "expected tool name in full output, got: {stdout}"
+    );
 
     std::fs::remove_file(&path).ok();
 }
@@ -283,7 +326,11 @@ fn tools_cmd_http_human_full() {
 fn tools_cmd_http_ilo_format() {
     use std::io::Write;
     let (path, mut file) = tempfile_in_tmp("tools_cmd_ilo.json");
-    writeln!(file, r#"{{"tools": {{"hello": {{"url": "http://127.0.0.1:19999/hello"}}}}}}"#).unwrap();
+    writeln!(
+        file,
+        r#"{{"tools": {{"hello": {{"url": "http://127.0.0.1:19999/hello"}}}}}}"#
+    )
+    .unwrap();
     drop(file);
 
     let out = ilo()
@@ -291,10 +338,20 @@ fn tools_cmd_http_ilo_format() {
         .output()
         .expect("ilo failed to start");
 
-    assert!(out.status.success(), "stderr: {}", String::from_utf8_lossy(&out.stderr));
+    assert!(
+        out.status.success(),
+        "stderr: {}",
+        String::from_utf8_lossy(&out.stderr)
+    );
     let stdout = String::from_utf8_lossy(&out.stdout);
-    assert!(stdout.contains("hello"), "expected tool in ilo output, got: {stdout}");
-    assert!(stdout.contains("tool"), "expected 'tool' keyword in ilo output, got: {stdout}");
+    assert!(
+        stdout.contains("hello"),
+        "expected tool in ilo output, got: {stdout}"
+    );
+    assert!(
+        stdout.contains("tool"),
+        "expected 'tool' keyword in ilo output, got: {stdout}"
+    );
 
     std::fs::remove_file(&path).ok();
 }
@@ -305,7 +362,11 @@ fn tools_cmd_http_ilo_format() {
 fn tools_cmd_http_json_format() {
     use std::io::Write;
     let (path, mut file) = tempfile_in_tmp("tools_cmd_json.json");
-    writeln!(file, r#"{{"tools": {{"greet": {{"url": "http://127.0.0.1:19999/greet"}}}}}}"#).unwrap();
+    writeln!(
+        file,
+        r#"{{"tools": {{"greet": {{"url": "http://127.0.0.1:19999/greet"}}}}}}"#
+    )
+    .unwrap();
     drop(file);
 
     let out = ilo()
@@ -313,14 +374,21 @@ fn tools_cmd_http_json_format() {
         .output()
         .expect("ilo failed to start");
 
-    assert!(out.status.success(), "stderr: {}", String::from_utf8_lossy(&out.stderr));
+    assert!(
+        out.status.success(),
+        "stderr: {}",
+        String::from_utf8_lossy(&out.stderr)
+    );
     let stdout = String::from_utf8_lossy(&out.stdout);
     // Should be valid JSON array
-    let parsed: serde_json::Value = serde_json::from_str(stdout.trim())
-        .expect("expected valid JSON output");
+    let parsed: serde_json::Value =
+        serde_json::from_str(stdout.trim()).expect("expected valid JSON output");
     assert!(parsed.is_array(), "expected JSON array, got: {parsed}");
     let arr = parsed.as_array().unwrap();
-    assert!(arr.iter().any(|t| t["name"] == "greet"), "expected greet tool in JSON output");
+    assert!(
+        arr.iter().any(|t| t["name"] == "greet"),
+        "expected greet tool in JSON output"
+    );
 
     std::fs::remove_file(&path).ok();
 }
@@ -408,7 +476,10 @@ main x:n>R n n;double x"#;
             .expect("ilo failed to start");
 
         // The call fails with "tool not configured: double" → RuntimeError → exit 1
-        assert!(!out.status.success(), "expected failure for unconfigured tool");
+        assert!(
+            !out.status.success(),
+            "expected failure for unconfigured tool"
+        );
 
         std::fs::remove_file(&p).ok();
     }
@@ -420,8 +491,7 @@ main x:n>R n n;double x"#;
         Mock::given(method("POST"))
             .and(path("/double"))
             .respond_with(
-                ResponseTemplate::new(500)
-                    .set_body_json(serde_json::json!({"error": "internal"})),
+                ResponseTemplate::new(500).set_body_json(serde_json::json!({"error": "internal"})),
             )
             .mount(&server)
             .await;

@@ -50,8 +50,14 @@ fn parse_cases(src: &str) -> Vec<TestCase> {
         if let Some(rest) = line.strip_prefix("-- run:") {
             let args = rest.split_whitespace().map(str::to_string).collect();
             pending = Some((args, i + 1));
-        } else if let (Some(rest), Some((args, ln))) = (line.strip_prefix("-- out:"), pending.take()) {
-            cases.push(TestCase { run_args: args, expected: rest.trim().to_string(), line: ln });
+        } else if let (Some(rest), Some((args, ln))) =
+            (line.strip_prefix("-- out:"), pending.take())
+        {
+            cases.push(TestCase {
+                run_args: args,
+                expected: rest.trim().to_string(),
+                line: ln,
+            });
         }
     }
     cases
@@ -85,11 +91,20 @@ struct Engine {
 
 fn engines() -> Vec<Engine> {
     let mut list = vec![
-        Engine { name: "tree", flag: "--run-tree" },
-        Engine { name: "vm",   flag: "--run-vm"   },
+        Engine {
+            name: "tree",
+            flag: "--run-tree",
+        },
+        Engine {
+            name: "vm",
+            flag: "--run-vm",
+        },
     ];
     if jit_supported() {
-        list.push(Engine { name: "jit", flag: "--run-jit" });
+        list.push(Engine {
+            name: "jit",
+            flag: "--run-jit",
+        });
     }
     list
 }
@@ -105,8 +120,8 @@ fn examples_all_engines() {
 
     for path in &files {
         let name = path.file_name().unwrap().to_string_lossy().into_owned();
-        let src = std::fs::read_to_string(path)
-            .unwrap_or_else(|e| panic!("cannot read {name}: {e}"));
+        let src =
+            std::fs::read_to_string(path).unwrap_or_else(|e| panic!("cannot read {name}: {e}"));
         let cases = parse_cases(&src);
 
         if cases.is_empty() {
@@ -128,7 +143,12 @@ fn examples_all_engines() {
                     .arg(engine.flag)
                     .args(&case.run_args)
                     .output()
-                    .unwrap_or_else(|e| panic!("failed to run ilo for {name} ({engine_name}): {e}", engine_name = engine.name));
+                    .unwrap_or_else(|e| {
+                        panic!(
+                            "failed to run ilo for {name} ({engine_name}): {e}",
+                            engine_name = engine.name
+                        )
+                    });
 
                 let actual = String::from_utf8_lossy(&out.stdout).trim().to_string();
 
@@ -173,7 +193,9 @@ fn examples_all_engines() {
         );
     }
 
-    println!("{total} multi-engine example tests passed across {} files using {} engines",
+    println!(
+        "{total} multi-engine example tests passed across {} files using {} engines",
         files.len(),
-        all_engines.len());
+        all_engines.len()
+    );
 }
