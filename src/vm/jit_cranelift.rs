@@ -2411,15 +2411,38 @@ mod tests {
         }
     }
 
-    // ── OP_LISTGET fallback in JIT (L1122-1124) ─────────────────────────────
+    // ── OP_LISTGET inline in JIT ─────────────────────────────────────────────
 
     #[test]
     fn cranelift_foreach_loop() {
-        // foreach loop: exercises OP_LISTGET in JIT (L1089-1125)
+        // Numeric foreach: exercises inline OP_LISTGET fast path (no RC clone).
         let result = jit_run("f xs:L n>n;s=0;@x xs{s=+s x};s", "f", &[
             Value::List(vec![Value::Number(1.0), Value::Number(2.0), Value::Number(3.0)]),
         ]);
         assert_eq!(result, Some(Value::Number(6.0)));
+    }
+
+    #[test]
+    fn cranelift_foreach_loop_heap_elements() {
+        // Foreach over strings: exercises the RC clone (elem_is_heap) branch
+        // in the inline OP_LISTGET fast path.
+        let result = jit_run("f xs:L n>n;s=0;@x xs{s=+s 1};s", "f", &[
+            Value::List(vec![
+                Value::Text("a".to_string()),
+                Value::Text("b".to_string()),
+                Value::Text("c".to_string()),
+            ]),
+        ]);
+        assert_eq!(result, Some(Value::Number(3.0)));
+    }
+
+    #[test]
+    fn cranelift_foreach_empty_list() {
+        // Foreach over empty list: bounds check fails immediately, sum stays 0.
+        let result = jit_run("f xs:L n>n;s=0;@x xs{s=+s x};s", "f", &[
+            Value::List(vec![]),
+        ]);
+        assert_eq!(result, Some(Value::Number(0.0)));
     }
 
     #[test]
