@@ -183,6 +183,8 @@ pub fn normalize_newlines(source: &str) -> String {
 
     let mut out = String::with_capacity(source.len());
     let mut chars = source.chars().peekable();
+    // Track the last non-whitespace char pushed to `out` to avoid O(n) trim_end scans.
+    let mut last_significant: Option<char> = None;
 
     while let Some(c) = chars.next() {
         if c == '\n' {
@@ -190,7 +192,6 @@ pub fn normalize_newlines(source: &str) -> String {
             if matches!(chars.peek(), Some(' ') | Some('\t')) {
                 // Indented continuation → emit `;` and skip the whitespace
                 // But first check if the last non-whitespace char was `{` — if so, skip the `;`
-                let last_significant = out.trim_end().chars().last();
                 if last_significant == Some('{') {
                     // Don't emit `;` after `{`, just skip whitespace
                 } else {
@@ -212,6 +213,9 @@ pub fn normalize_newlines(source: &str) -> String {
             }
         } else {
             out.push(c);
+            if !c.is_ascii_whitespace() {
+                last_significant = Some(c);
+            }
         }
     }
 
