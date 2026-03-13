@@ -3263,6 +3263,7 @@ mod tests {
         let key = "ILO_TEST_NO_OVERWRITE_C5D1";
         // SAFETY: test-only, no concurrent env access
         unsafe { std::env::remove_var(key) };
+        // SAFETY: test-only, no concurrent env access
         unsafe { std::env::set_var(key, "original") };
 
         let mut f = std::fs::File::create(path).unwrap();
