@@ -348,6 +348,7 @@ pub fn compile_to_binary(
             func_ids[i],
             &helpers,
             Some(&func_ids),
+            Some(program),
         )?;
     }
 
@@ -410,7 +411,281 @@ pub fn compile_to_binary(
     Ok(())
 }
 
+/// Check whether a callee chunk can be safely inlined at an AOT call site.
+///
+/// A chunk is inlinable when every opcode is from the "pure numeric guard chain"
+/// set (CMPK_*_N, JMP, LOADK with numeric constants only, RET, and the fused
+/// arithmetic ops), all registers are numeric, and the register file is <= 16.
+fn is_inlinable(chunk: &Chunk, nan_consts: &[NanVal]) -> bool {
+    if !chunk.all_regs_numeric {
+        return false;
+    }
+    if chunk.reg_count as usize > 16 {
+        return false;
+    }
+    if chunk.code.is_empty() {
+        return false;
+    }
+
+    let mut has_ret = false;
+    for &inst in &chunk.code {
+        let op = (inst >> 24) as u8;
+        match op {
+            op if op == OP_CMPK_GE_N
+                || op == OP_CMPK_GT_N
+                || op == OP_CMPK_LT_N
+                || op == OP_CMPK_LE_N
+                || op == OP_CMPK_EQ_N
+                || op == OP_CMPK_NE_N => {}
+            OP_JMP => {}
+            OP_RET => {
+                has_ret = true;
+            }
+            OP_LOADK => {
+                let bx = (inst & 0xFFFF) as usize;
+                if bx >= nan_consts.len() || !nan_consts[bx].is_number() {
+                    return false;
+                }
+            }
+            OP_ADD_NN | OP_SUB_NN | OP_MUL_NN | OP_DIV_NN | OP_ADDK_N | OP_SUBK_N | OP_MULK_N
+            | OP_DIVK_N => {}
+            _ => return false,
+        }
+    }
+    has_ret
+}
+
+/// Inline a callee chunk directly into the caller's Cranelift IR stream (AOT).
+///
+/// `arg_vars`     -- caller `Variable`s for callee params (indices 0..n_params)
+/// `result_var`   -- caller `Variable` that receives the inlined return value
+/// `extra_vars`   -- caller `Variable`s for callee non-param regs
+/// `f64_arg_vars` -- F64 shadow `Variable`s corresponding to `arg_vars`
+/// `merge_block`  -- block to jump to after the inlined return
+///
+/// Returns `true` on success, `false` if inlining should be abandoned.
+#[allow(clippy::too_many_arguments)]
+fn inline_chunk(
+    builder: &mut FunctionBuilder<'_>,
+    callee_chunk: &Chunk,
+    callee_consts: &[NanVal],
+    arg_vars: &[Variable],
+    result_var: Variable,
+    extra_vars: &[Variable],
+    f64_arg_vars: &[Variable],
+    merge_block: cranelift_codegen::ir::Block,
+) -> bool {
+    let n_params = callee_chunk.param_count as usize;
+    let mf = cranelift_codegen::ir::MemFlags::new();
+
+    let reg_var = |r: usize| -> Variable {
+        if r < n_params {
+            arg_vars[r]
+        } else {
+            extra_vars[r - n_params]
+        }
+    };
+
+    // Retrieve the f64 Value for callee register `r`.
+    let f64_val_for =
+        |r: usize, builder: &mut FunctionBuilder<'_>| -> cranelift_codegen::ir::Value {
+            if r < n_params {
+                builder.use_var(f64_arg_vars[r])
+            } else {
+                let iv = builder.use_var(extra_vars[r - n_params]);
+                builder.ins().bitcast(F64, mf, iv)
+            }
+        };
+
+    let leaders = find_block_leaders(&callee_chunk.code);
+    let mut imap: HashMap<usize, cranelift_codegen::ir::Block> = HashMap::new();
+    for &l in &leaders {
+        imap.insert(l, builder.create_block());
+    }
+
+    builder.ins().jump(imap[&0], &[]);
+    let mut terminated = true;
+
+    for (ip, &inst) in callee_chunk.code.iter().enumerate() {
+        if let Some(&blk) = imap.get(&ip) {
+            if !terminated {
+                builder.ins().jump(blk, &[]);
+            }
+            builder.switch_to_block(blk);
+            terminated = false;
+        }
+        if terminated {
+            continue;
+        }
+
+        let op = (inst >> 24) as u8;
+        let a_raw = ((inst >> 16) & 0xFF) as usize;
+
+        match op {
+            OP_RET => {
+                let rv = builder.use_var(reg_var(a_raw));
+                builder.def_var(result_var, rv);
+                builder.ins().jump(merge_block, &[]);
+                terminated = true;
+            }
+            OP_JMP => {
+                let sbx = (inst & 0xFFFF) as i16;
+                let t = (ip as isize + 1 + sbx as isize) as usize;
+                if let Some(&tb) = imap.get(&t) {
+                    builder.ins().jump(tb, &[]);
+                    terminated = true;
+                } else {
+                    return false;
+                }
+            }
+            OP_LOADK => {
+                let bx = (inst & 0xFFFF) as usize;
+                let bits = callee_consts[bx].0;
+                let kval = builder.ins().iconst(I64, bits as i64);
+                builder.def_var(reg_var(a_raw), kval);
+            }
+            op if op == OP_CMPK_GE_N
+                || op == OP_CMPK_GT_N
+                || op == OP_CMPK_LT_N
+                || op == OP_CMPK_LE_N
+                || op == OP_CMPK_EQ_N
+                || op == OP_CMPK_NE_N =>
+            {
+                let ki = (inst & 0xFF) as usize;
+                let lhs_f64 = f64_val_for(a_raw, builder);
+                let rhs_k = if ki < callee_consts.len() {
+                    callee_consts[ki].as_number()
+                } else {
+                    0.0
+                };
+                let rhs_f64 = builder.ins().f64const(rhs_k);
+
+                use cranelift_codegen::ir::condcodes::FloatCC;
+                let cc = match op {
+                    op if op == OP_CMPK_GE_N => FloatCC::GreaterThanOrEqual,
+                    op if op == OP_CMPK_GT_N => FloatCC::GreaterThan,
+                    op if op == OP_CMPK_LT_N => FloatCC::LessThan,
+                    op if op == OP_CMPK_LE_N => FloatCC::LessThanOrEqual,
+                    op if op == OP_CMPK_EQ_N => FloatCC::Equal,
+                    _ => FloatCC::NotEqual,
+                };
+                let cmp = builder.ins().fcmp(cc, lhs_f64, rhs_f64);
+                let body = imap.get(&(ip + 2)).copied();
+                let miss = callee_chunk
+                    .code
+                    .get(ip + 1)
+                    .and_then(|&j| {
+                        if (j >> 24) as u8 == OP_JMP {
+                            let sbx = (j & 0xFFFF) as i16;
+                            imap.get(&((ip as isize + 2 + sbx as isize) as usize))
+                                .copied()
+                        } else {
+                            None
+                        }
+                    })
+                    .or_else(|| imap.get(&(ip + 1)).copied());
+
+                match (miss, body) {
+                    (Some(fb), Some(bb)) => {
+                        builder.ins().brif(cmp, bb, &[], fb, &[]);
+                        terminated = true;
+                    }
+                    _ => return false,
+                }
+            }
+            OP_ADD_NN => {
+                let b = ((inst >> 8) & 0xFF) as usize;
+                let c = (inst & 0xFF) as usize;
+                let bv = f64_val_for(b, builder);
+                let cv = f64_val_for(c, builder);
+                let rf = builder.ins().fadd(bv, cv);
+                let ri = builder.ins().bitcast(I64, mf, rf);
+                builder.def_var(reg_var(a_raw), ri);
+            }
+            OP_SUB_NN => {
+                let b = ((inst >> 8) & 0xFF) as usize;
+                let c = (inst & 0xFF) as usize;
+                let bv = f64_val_for(b, builder);
+                let cv = f64_val_for(c, builder);
+                let rf = builder.ins().fsub(bv, cv);
+                let ri = builder.ins().bitcast(I64, mf, rf);
+                builder.def_var(reg_var(a_raw), ri);
+            }
+            OP_MUL_NN => {
+                let b = ((inst >> 8) & 0xFF) as usize;
+                let c = (inst & 0xFF) as usize;
+                let bv = f64_val_for(b, builder);
+                let cv = f64_val_for(c, builder);
+                let rf = builder.ins().fmul(bv, cv);
+                let ri = builder.ins().bitcast(I64, mf, rf);
+                builder.def_var(reg_var(a_raw), ri);
+            }
+            OP_DIV_NN => {
+                let b = ((inst >> 8) & 0xFF) as usize;
+                let c = (inst & 0xFF) as usize;
+                let bv = f64_val_for(b, builder);
+                let cv = f64_val_for(c, builder);
+                let rf = builder.ins().fdiv(bv, cv);
+                let ri = builder.ins().bitcast(I64, mf, rf);
+                builder.def_var(reg_var(a_raw), ri);
+            }
+            OP_ADDK_N => {
+                let b = ((inst >> 8) & 0xFF) as usize;
+                let ki = (inst & 0xFF) as usize;
+                let bv = f64_val_for(b, builder);
+                let kv = builder
+                    .ins()
+                    .f64const(callee_consts.get(ki).map(|c| c.as_number()).unwrap_or(0.0));
+                let rf = builder.ins().fadd(bv, kv);
+                let ri = builder.ins().bitcast(I64, mf, rf);
+                builder.def_var(reg_var(a_raw), ri);
+            }
+            OP_SUBK_N => {
+                let b = ((inst >> 8) & 0xFF) as usize;
+                let ki = (inst & 0xFF) as usize;
+                let bv = f64_val_for(b, builder);
+                let kv = builder
+                    .ins()
+                    .f64const(callee_consts.get(ki).map(|c| c.as_number()).unwrap_or(0.0));
+                let rf = builder.ins().fsub(bv, kv);
+                let ri = builder.ins().bitcast(I64, mf, rf);
+                builder.def_var(reg_var(a_raw), ri);
+            }
+            OP_MULK_N => {
+                let b = ((inst >> 8) & 0xFF) as usize;
+                let ki = (inst & 0xFF) as usize;
+                let bv = f64_val_for(b, builder);
+                let kv = builder
+                    .ins()
+                    .f64const(callee_consts.get(ki).map(|c| c.as_number()).unwrap_or(0.0));
+                let rf = builder.ins().fmul(bv, kv);
+                let ri = builder.ins().bitcast(I64, mf, rf);
+                builder.def_var(reg_var(a_raw), ri);
+            }
+            OP_DIVK_N => {
+                let b = ((inst >> 8) & 0xFF) as usize;
+                let ki = (inst & 0xFF) as usize;
+                let bv = f64_val_for(b, builder);
+                let kv = builder
+                    .ins()
+                    .f64const(callee_consts.get(ki).map(|c| c.as_number()).unwrap_or(0.0));
+                let rf = builder.ins().fdiv(bv, kv);
+                let ri = builder.ins().bitcast(I64, mf, rf);
+                builder.def_var(reg_var(a_raw), ri);
+            }
+            _ => return false,
+        }
+    }
+    if !terminated {
+        let nil = builder.ins().iconst(I64, TAG_NIL as i64);
+        builder.def_var(result_var, nil);
+        builder.ins().jump(merge_block, &[]);
+    }
+    true
+}
+
 /// Compile a function body into the ObjectModule (function already declared).
+#[allow(clippy::too_many_arguments)]
 fn compile_function_body(
     module: &mut ObjectModule,
     chunk: &Chunk,
@@ -419,6 +694,7 @@ fn compile_function_body(
     func_id: FuncId,
     helpers: &HelperFuncs,
     all_func_ids: Option<&[FuncId]>,
+    program: Option<&CompiledProgram>,
 ) -> Result<(), String> {
     let mut sig = module.make_signature();
     for _ in 0..chunk.param_count {
@@ -438,6 +714,85 @@ fn compile_function_body(
         let var = Variable::from_u32(i as u32);
         builder.declare_var(var, I64);
         vars.push(var);
+    }
+
+    // Declare extra F64 shadow variables for registers that will be proven always-numeric.
+    // These allow guard chains to reuse a single bitcast across multiple CMPK instructions
+    // without redundant i64->f64 conversions on every comparison.
+    // Variable indices [reg_count .. reg_count*2) are the F64 shadows.
+    let f64_var_offset = reg_count;
+    let mut f64_vars: Vec<Variable> = Vec::with_capacity(reg_count);
+    for i in 0..reg_count {
+        let var = Variable::from_u32((f64_var_offset + i) as u32);
+        builder.declare_var(var, F64);
+        f64_vars.push(var);
+    }
+
+    // ── Inline callee variable pool ───────────────────────────────────────────
+    // For each OP_CALL that targets an inlinable callee we need variables for the
+    // callee's non-parameter registers.  We pre-scan OP_CALL instructions and
+    // allocate a variable block per unique (call-site-ip, callee-reg-index) pair.
+    //
+    // Variable layout:
+    //   [0 .. reg_count)            I64  VM register vars
+    //   [reg_count .. 2*reg_count)  F64  shadow vars
+    //   [2*reg_count .. )           I64  inline callee vars
+    let inline_var_base = 2 * reg_count;
+    let mut inline_var_map: HashMap<usize, Vec<Variable>> = HashMap::new();
+    {
+        let mut next_var_idx = inline_var_base;
+        if let Some(prog) = program {
+            for (ip, &inst) in chunk.code.iter().enumerate() {
+                let op = (inst >> 24) as u8;
+                if op != OP_CALL {
+                    continue;
+                }
+                let bx = (inst & 0xFFFF) as usize;
+                let func_idx = bx >> 8;
+                if func_idx >= prog.chunks.len() {
+                    continue;
+                }
+                let callee_chunk = &prog.chunks[func_idx];
+                let callee_consts = &prog.nan_constants[func_idx];
+                if !is_inlinable(callee_chunk, callee_consts) {
+                    continue;
+                }
+                let n_extra = (callee_chunk.reg_count as usize)
+                    .saturating_sub(callee_chunk.param_count as usize);
+                let mut slot_vars = Vec::with_capacity(n_extra);
+                for _ in 0..n_extra {
+                    let v = Variable::from_u32(next_var_idx as u32);
+                    builder.declare_var(v, I64);
+                    slot_vars.push(v);
+                    next_var_idx += 1;
+                }
+                inline_var_map.insert(ip, slot_vars);
+            }
+        }
+    }
+
+    // Pre-allocate one extra F64 shadow variable per inline arg register.
+    let total_inline_i64: usize = inline_var_map.values().map(|v| v.len()).sum();
+    let inline_f64_var_base = inline_var_base + total_inline_i64;
+    let mut inline_f64_var_map: HashMap<usize, Vec<Variable>> = HashMap::new();
+    {
+        let mut next_f64_idx = inline_f64_var_base;
+        if let Some(prog) = program {
+            for &ip in inline_var_map.keys() {
+                let bx = (chunk.code[ip] & 0xFFFF) as usize;
+                let func_idx = bx >> 8;
+                let callee = &prog.chunks[func_idx];
+                let np = callee.param_count as usize;
+                let mut fvs = Vec::with_capacity(np);
+                for _ in 0..np {
+                    let v = Variable::from_u32(next_f64_idx as u32);
+                    builder.declare_var(v, F64);
+                    fvs.push(v);
+                    next_f64_idx += 1;
+                }
+                inline_f64_var_map.insert(ip, fvs);
+            }
+        }
     }
 
     let leaders = find_block_leaders(&chunk.code);
@@ -473,6 +828,155 @@ fn compile_function_body(
             .or_insert_with(|| module.declare_func_in_func(id, builder.func))
     };
 
+    // ── Pre-pass: determine which registers are always numeric / always boolean ──
+    //
+    // Numeric analysis (reg_always_num):
+    //   num_write[r]     -- at least one write to r is definitely numeric
+    //   non_num_write[r] -- at least one write to r may produce a non-number
+    //   A register is "always numeric" iff num_write && !non_num_write.
+    //
+    // Boolean analysis (reg_always_bool):
+    //   bool_write[r]     -- every write to r produces TAG_TRUE or TAG_FALSE
+    //   non_bool_write[r] -- at least one write to r may produce a non-bool
+    //   A register is "always boolean" iff bool_write && !non_bool_write.
+    let mut reg_always_num = vec![false; reg_count];
+    let mut reg_always_bool = vec![false; reg_count];
+    {
+        let mut non_num_write = vec![false; reg_count];
+        let mut num_write = vec![false; reg_count];
+        let mut bool_write = vec![false; reg_count];
+        let mut non_bool_write = vec![false; reg_count];
+
+        // Function parameters: the VM compiler sets all_regs_numeric when it has
+        // proven every param is numeric.
+        if chunk.all_regs_numeric {
+            for slot in num_write.iter_mut().take(chunk.param_count as usize) {
+                *slot = true;
+            }
+        }
+
+        // First pass: classify all non-MOVE instructions.
+        for &inst in &chunk.code {
+            let op = (inst >> 24) as u8;
+            let a = ((inst >> 16) & 0xFF) as usize;
+            if a >= reg_count {
+                continue;
+            }
+            match op {
+                // Guaranteed numeric outputs.
+                OP_ADD_NN | OP_SUB_NN | OP_MUL_NN | OP_DIV_NN | OP_ADDK_N | OP_SUBK_N
+                | OP_MULK_N | OP_DIVK_N | OP_LEN | OP_ABS | OP_MIN | OP_MAX | OP_FLR | OP_CEL
+                | OP_ROU | OP_RND0 | OP_RND2 | OP_NOW | OP_MOD => {
+                    num_write[a] = true;
+                }
+                // LOADK: numeric only when the constant itself is a number.
+                OP_LOADK => {
+                    let bx = (inst & 0xFFFF) as usize;
+                    if bx < nan_consts.len() && nan_consts[bx].is_number() {
+                        num_write[a] = true;
+                    } else {
+                        non_num_write[a] = true;
+                    }
+                }
+                // Boolean outputs: comparison and type-test ops.
+                OP_LT | OP_GT | OP_LE | OP_GE | OP_EQ | OP_NE | OP_NOT | OP_HAS | OP_ISNUM
+                | OP_ISTEXT | OP_ISBOOL | OP_ISLIST | OP_MHAS | OP_ISOK | OP_ISERR => {
+                    bool_write[a] = true;
+                    non_num_write[a] = true;
+                }
+                // MOVE: skip here, handled by fixpoint below.
+                OP_MOVE => {}
+                // Ops that write a non-numeric or unknown type to R[A].
+                OP_ADD | OP_SUB | OP_MUL | OP_DIV | OP_NEG | OP_WRAPOK | OP_WRAPERR | OP_UNWRAP
+                | OP_RECFLD | OP_RECFLD_NAME | OP_LISTGET | OP_INDEX | OP_STR | OP_HD | OP_TL
+                | OP_REV | OP_SRT | OP_SLC | OP_SPL | OP_CAT | OP_GET | OP_POST | OP_GETH
+                | OP_POSTH | OP_ENV | OP_JPTH | OP_JDMP | OP_JPAR | OP_MAPNEW | OP_MGET
+                | OP_MSET | OP_MDEL | OP_MKEYS | OP_MVALS | OP_LISTNEW | OP_LISTAPPEND
+                | OP_RECNEW | OP_RECWITH | OP_PRT | OP_RD | OP_RDL | OP_WR | OP_WRL | OP_TRM
+                | OP_UNQ | OP_NUM => {
+                    non_num_write[a] = true;
+                    non_bool_write[a] = true;
+                }
+                // OP_CALL: if callee is known all-numeric, result is numeric.
+                OP_CALL => {
+                    if let Some(prog) = program {
+                        let bx = (inst & 0xFFFF) as usize;
+                        let func_idx = bx >> 8;
+                        if func_idx < prog.chunks.len() && prog.chunks[func_idx].all_regs_numeric {
+                            num_write[a] = true;
+                        } else {
+                            non_num_write[a] = true;
+                            non_bool_write[a] = true;
+                        }
+                    } else {
+                        non_num_write[a] = true;
+                        non_bool_write[a] = true;
+                    }
+                }
+                // Unknown / non-writing ops (JMP, RET, CMPK_*, etc.): leave flags unset.
+                _ => {}
+            }
+        }
+
+        // Fixpoint: propagate MOVE a, b by copying b's proven type to a.
+        loop {
+            let mut changed = false;
+            for &inst in &chunk.code {
+                let op = (inst >> 24) as u8;
+                if op != OP_MOVE {
+                    continue;
+                }
+                let a = ((inst >> 16) & 0xFF) as usize;
+                let b = ((inst >> 8) & 0xFF) as usize;
+                if a >= reg_count || b >= reg_count {
+                    continue;
+                }
+
+                let b_always_num = num_write[b] && !non_num_write[b];
+                let b_always_bool = bool_write[b] && !non_bool_write[b];
+
+                if b_always_num {
+                    if !num_write[a] {
+                        num_write[a] = true;
+                        changed = true;
+                    }
+                } else if !non_num_write[a] {
+                    non_num_write[a] = true;
+                    changed = true;
+                }
+                if b_always_bool {
+                    if !bool_write[a] {
+                        bool_write[a] = true;
+                        changed = true;
+                    }
+                } else if !non_bool_write[a] {
+                    non_bool_write[a] = true;
+                    changed = true;
+                }
+            }
+            if !changed {
+                break;
+            }
+        }
+
+        for i in 0..reg_count {
+            reg_always_num[i] = num_write[i] && !non_num_write[i];
+            reg_always_bool[i] = bool_write[i] && !non_bool_write[i];
+        }
+    }
+
+    // Initialise F64 shadow variables for always-numeric parameter registers.
+    {
+        let mf_init = cranelift_codegen::ir::MemFlags::new();
+        for i in 0..(chunk.param_count as usize) {
+            if i < reg_count && reg_always_num[i] {
+                let iv = builder.use_var(vars[i]);
+                let fv = builder.ins().bitcast(F64, mf_init, iv);
+                builder.def_var(f64_vars[i], fv);
+            }
+        }
+    }
+
     let mut block_terminated = false;
     let mut skip_next = false;
     let mf = MemFlags::new();
@@ -504,57 +1008,108 @@ fn compile_function_body(
         let c_idx = (inst & 0xFF) as usize;
 
         match op {
-            // ── Optimized numeric opcodes (kept from original AOT) ──
+            // ── Optimized numeric opcodes with F64 shadow support ──
             OP_ADD_NN => {
-                let bv = builder.use_var(vars[b_idx]);
-                let cv = builder.use_var(vars[c_idx]);
-                let bf = builder.ins().bitcast(F64, mf, bv);
-                let cf = builder.ins().bitcast(F64, mf, cv);
-                let r = builder.ins().fadd(bf, cf);
-                let result = builder.ins().bitcast(I64, mf, r);
+                let bf = if b_idx < reg_count && reg_always_num[b_idx] {
+                    builder.use_var(f64_vars[b_idx])
+                } else {
+                    let bv = builder.use_var(vars[b_idx]);
+                    builder.ins().bitcast(F64, mf, bv)
+                };
+                let cf = if c_idx < reg_count && reg_always_num[c_idx] {
+                    builder.use_var(f64_vars[c_idx])
+                } else {
+                    let cv = builder.use_var(vars[c_idx]);
+                    builder.ins().bitcast(F64, mf, cv)
+                };
+                let result_f = builder.ins().fadd(bf, cf);
+                let result = builder.ins().bitcast(I64, mf, result_f);
                 builder.def_var(vars[a_idx], result);
+                if a_idx < reg_count && reg_always_num[a_idx] {
+                    builder.def_var(f64_vars[a_idx], result_f);
+                }
             }
             OP_SUB_NN => {
-                let bv = builder.use_var(vars[b_idx]);
-                let cv = builder.use_var(vars[c_idx]);
-                let bf = builder.ins().bitcast(F64, mf, bv);
-                let cf = builder.ins().bitcast(F64, mf, cv);
-                let r = builder.ins().fsub(bf, cf);
-                let result = builder.ins().bitcast(I64, mf, r);
+                let bf = if b_idx < reg_count && reg_always_num[b_idx] {
+                    builder.use_var(f64_vars[b_idx])
+                } else {
+                    let bv = builder.use_var(vars[b_idx]);
+                    builder.ins().bitcast(F64, mf, bv)
+                };
+                let cf = if c_idx < reg_count && reg_always_num[c_idx] {
+                    builder.use_var(f64_vars[c_idx])
+                } else {
+                    let cv = builder.use_var(vars[c_idx]);
+                    builder.ins().bitcast(F64, mf, cv)
+                };
+                let result_f = builder.ins().fsub(bf, cf);
+                let result = builder.ins().bitcast(I64, mf, result_f);
                 builder.def_var(vars[a_idx], result);
+                if a_idx < reg_count && reg_always_num[a_idx] {
+                    builder.def_var(f64_vars[a_idx], result_f);
+                }
             }
             OP_MUL_NN => {
-                let bv = builder.use_var(vars[b_idx]);
-                let cv = builder.use_var(vars[c_idx]);
-                let bf = builder.ins().bitcast(F64, mf, bv);
-                let cf = builder.ins().bitcast(F64, mf, cv);
-                let r = builder.ins().fmul(bf, cf);
-                let result = builder.ins().bitcast(I64, mf, r);
+                let bf = if b_idx < reg_count && reg_always_num[b_idx] {
+                    builder.use_var(f64_vars[b_idx])
+                } else {
+                    let bv = builder.use_var(vars[b_idx]);
+                    builder.ins().bitcast(F64, mf, bv)
+                };
+                let cf = if c_idx < reg_count && reg_always_num[c_idx] {
+                    builder.use_var(f64_vars[c_idx])
+                } else {
+                    let cv = builder.use_var(vars[c_idx]);
+                    builder.ins().bitcast(F64, mf, cv)
+                };
+                let result_f = builder.ins().fmul(bf, cf);
+                let result = builder.ins().bitcast(I64, mf, result_f);
                 builder.def_var(vars[a_idx], result);
+                if a_idx < reg_count && reg_always_num[a_idx] {
+                    builder.def_var(f64_vars[a_idx], result_f);
+                }
             }
             OP_DIV_NN => {
-                let bv = builder.use_var(vars[b_idx]);
-                let cv = builder.use_var(vars[c_idx]);
-                let bf = builder.ins().bitcast(F64, mf, bv);
-                let cf = builder.ins().bitcast(F64, mf, cv);
-                let r = builder.ins().fdiv(bf, cf);
-                let result = builder.ins().bitcast(I64, mf, r);
+                let bf = if b_idx < reg_count && reg_always_num[b_idx] {
+                    builder.use_var(f64_vars[b_idx])
+                } else {
+                    let bv = builder.use_var(vars[b_idx]);
+                    builder.ins().bitcast(F64, mf, bv)
+                };
+                let cf = if c_idx < reg_count && reg_always_num[c_idx] {
+                    builder.use_var(f64_vars[c_idx])
+                } else {
+                    let cv = builder.use_var(vars[c_idx]);
+                    builder.ins().bitcast(F64, mf, cv)
+                };
+                let result_f = builder.ins().fdiv(bf, cf);
+                let result = builder.ins().bitcast(I64, mf, result_f);
                 builder.def_var(vars[a_idx], result);
+                if a_idx < reg_count && reg_always_num[a_idx] {
+                    builder.def_var(f64_vars[a_idx], result_f);
+                }
             }
             OP_ADDK_N | OP_SUBK_N | OP_MULK_N | OP_DIVK_N => {
-                let bv = builder.use_var(vars[b_idx]);
+                let bf = if b_idx < reg_count && reg_always_num[b_idx] {
+                    builder.use_var(f64_vars[b_idx])
+                } else {
+                    let bv = builder.use_var(vars[b_idx]);
+                    builder.ins().bitcast(F64, mf, bv)
+                };
                 let kv = nan_consts[c_idx].as_number();
-                let bf = builder.ins().bitcast(F64, mf, bv);
                 let kval = builder.ins().f64const(kv);
-                let r = match op {
+                let result_f = match op {
                     OP_ADDK_N => builder.ins().fadd(bf, kval),
                     OP_SUBK_N => builder.ins().fsub(bf, kval),
                     OP_MULK_N => builder.ins().fmul(bf, kval),
                     OP_DIVK_N => builder.ins().fdiv(bf, kval),
                     _ => unreachable!(),
                 };
-                let result = builder.ins().bitcast(I64, mf, r);
+                let result = builder.ins().bitcast(I64, mf, result_f);
                 builder.def_var(vars[a_idx], result);
+                if a_idx < reg_count && reg_always_num[a_idx] {
+                    builder.def_var(f64_vars[a_idx], result_f);
+                }
             }
             // ── Generic arithmetic with inline numeric fast path + helper slow path ──
             OP_ADD | OP_SUB | OP_MUL | OP_DIV => {
@@ -612,34 +1167,8 @@ fn compile_function_body(
                 let result = builder.block_params(merge_block)[0];
                 builder.def_var(vars[a_idx], result);
             }
-            // ── Comparisons with inline numeric fast path ──
+            // ── Comparisons with inline numeric fast path + fused compare-and-branch ──
             OP_LT | OP_GT | OP_LE | OP_GE | OP_EQ | OP_NE => {
-                let bv = builder.use_var(vars[b_idx]);
-                let cv = builder.use_var(vars[c_idx]);
-
-                let qnan_val = builder.ins().iconst(I64, QNAN as i64);
-                let b_masked = builder.ins().band(bv, qnan_val);
-                let c_masked = builder.ins().band(cv, qnan_val);
-                let b_or_c = builder.ins().bor(b_masked, c_masked);
-                let both_num = builder.ins().icmp(
-                    cranelift_codegen::ir::condcodes::IntCC::NotEqual,
-                    b_or_c,
-                    qnan_val,
-                );
-
-                let num_block = builder.create_block();
-                let slow_block = builder.create_block();
-                let merge_block = builder.create_block();
-                builder.append_block_param(merge_block, I64);
-
-                builder
-                    .ins()
-                    .brif(both_num, num_block, &[], slow_block, &[]);
-
-                // Fast path: inline float comparison
-                builder.switch_to_block(num_block);
-                let bf = builder.ins().bitcast(F64, mf, bv);
-                let cf = builder.ins().bitcast(F64, mf, cv);
                 use cranelift_codegen::ir::condcodes::FloatCC;
                 let cc = match op {
                     OP_LT => FloatCC::LessThan,
@@ -650,56 +1179,169 @@ fn compile_function_body(
                     OP_NE => FloatCC::NotEqual,
                     _ => unreachable!(),
                 };
-                let cmp = builder.ins().fcmp(cc, bf, cf);
-                let true_val = builder.ins().iconst(I64, TAG_TRUE as i64);
-                let false_val = builder.ins().iconst(I64, TAG_FALSE as i64);
-                let fast_result = builder.ins().select(cmp, true_val, false_val);
-                builder.ins().jump(merge_block, &[fast_result]);
+                let bv = builder.use_var(vars[b_idx]);
+                let cv = builder.use_var(vars[c_idx]);
 
-                // Slow path: call helper
-                builder.switch_to_block(slow_block);
-                let helper = match op {
-                    OP_LT => helpers.lt,
-                    OP_GT => helpers.gt,
-                    OP_LE => helpers.le,
-                    OP_GE => helpers.ge,
-                    OP_EQ => helpers.eq,
-                    OP_NE => helpers.ne,
-                    _ => unreachable!(),
-                };
-                let fref = get_func_ref(&mut builder, module, helper);
-                let call_inst = builder.ins().call(fref, &[bv, cv]);
-                let slow_result = builder.inst_results(call_inst)[0];
-                builder.ins().jump(merge_block, &[slow_result]);
+                // Pre-pass proved both operands are always numeric?
+                let both_always_num = b_idx < reg_always_num.len()
+                    && reg_always_num[b_idx]
+                    && c_idx < reg_always_num.len()
+                    && reg_always_num[c_idx];
 
-                builder.switch_to_block(merge_block);
-                let result = builder.block_params(merge_block)[0];
-                builder.def_var(vars[a_idx], result);
+                if both_always_num {
+                    // Use F64 shadow vars for inputs to skip bitcasts.
+                    let bf = if b_idx < reg_count && reg_always_num[b_idx] {
+                        builder.use_var(f64_vars[b_idx])
+                    } else {
+                        builder.ins().bitcast(F64, mf, bv)
+                    };
+                    let cf = if c_idx < reg_count && reg_always_num[c_idx] {
+                        builder.use_var(f64_vars[c_idx])
+                    } else {
+                        builder.ins().bitcast(F64, mf, cv)
+                    };
+
+                    // Check if the immediately following instruction is JMPF or JMPT on
+                    // the same destination register. If so, fuse into single compare-and-branch.
+                    let next_inst = chunk.code.get(ip + 1).copied();
+                    let fused = if let Some(next) = next_inst {
+                        let next_op = (next >> 24) as u8;
+                        let next_a = ((next >> 16) & 0xFF) as usize;
+                        (next_op == OP_JMPF || next_op == OP_JMPT)
+                            && next_a == a_idx
+                            && !block_map.contains_key(&(ip + 1))
+                    } else {
+                        false
+                    };
+
+                    if fused {
+                        // Fused compare-and-branch: emit fcmp + brif, skip next JMPF/JMPT.
+                        let next = chunk.code[ip + 1];
+                        let next_op = (next >> 24) as u8;
+                        let sbx = (next & 0xFFFF) as i16;
+                        let target = (ip as isize + 2 + sbx as isize) as usize;
+                        let fallthrough = ip + 2;
+
+                        let cmp = builder.ins().fcmp(cc, bf, cf);
+
+                        let (true_dest, false_dest) = if next_op == OP_JMPF {
+                            (fallthrough, target)
+                        } else {
+                            (target, fallthrough)
+                        };
+
+                        let true_block = block_map.get(&true_dest).copied();
+                        let false_block = block_map.get(&false_dest).copied();
+
+                        if let (Some(tb), Some(fb)) = (true_block, false_block) {
+                            builder.ins().brif(cmp, tb, &[], fb, &[]);
+                            block_terminated = true;
+                            skip_next = true;
+                        } else {
+                            // Block targets not found -- fall back to non-fused path.
+                            let true_val = builder.ins().iconst(I64, TAG_TRUE as i64);
+                            let false_val = builder.ins().iconst(I64, TAG_FALSE as i64);
+                            let result = builder.ins().select(cmp, true_val, false_val);
+                            builder.def_var(vars[a_idx], result);
+                        }
+                    } else {
+                        // No fusion -- emit direct float comparison without QNAN check.
+                        let cmp = builder.ins().fcmp(cc, bf, cf);
+                        let true_val = builder.ins().iconst(I64, TAG_TRUE as i64);
+                        let false_val = builder.ins().iconst(I64, TAG_FALSE as i64);
+                        let result = builder.ins().select(cmp, true_val, false_val);
+                        builder.def_var(vars[a_idx], result);
+                    }
+                } else {
+                    // General case: check both are numeric at runtime before comparing.
+                    let qnan_val = builder.ins().iconst(I64, QNAN as i64);
+                    let b_masked = builder.ins().band(bv, qnan_val);
+                    let c_masked = builder.ins().band(cv, qnan_val);
+                    let b_or_c = builder.ins().bor(b_masked, c_masked);
+                    let both_num = builder.ins().icmp(
+                        cranelift_codegen::ir::condcodes::IntCC::NotEqual,
+                        b_or_c,
+                        qnan_val,
+                    );
+
+                    let num_block = builder.create_block();
+                    let slow_block = builder.create_block();
+                    let merge_block = builder.create_block();
+                    builder.append_block_param(merge_block, I64);
+
+                    builder
+                        .ins()
+                        .brif(both_num, num_block, &[], slow_block, &[]);
+
+                    // Fast path: inline float comparison
+                    builder.switch_to_block(num_block);
+                    let bf = builder.ins().bitcast(F64, mf, bv);
+                    let cf = builder.ins().bitcast(F64, mf, cv);
+                    let cmp = builder.ins().fcmp(cc, bf, cf);
+                    let true_val = builder.ins().iconst(I64, TAG_TRUE as i64);
+                    let false_val = builder.ins().iconst(I64, TAG_FALSE as i64);
+                    let fast_result = builder.ins().select(cmp, true_val, false_val);
+                    builder.ins().jump(merge_block, &[fast_result]);
+
+                    // Slow path: call helper
+                    builder.switch_to_block(slow_block);
+                    let helper = match op {
+                        OP_LT => helpers.lt,
+                        OP_GT => helpers.gt,
+                        OP_LE => helpers.le,
+                        OP_GE => helpers.ge,
+                        OP_EQ => helpers.eq,
+                        OP_NE => helpers.ne,
+                        _ => unreachable!(),
+                    };
+                    let fref = get_func_ref(&mut builder, module, helper);
+                    let call_inst = builder.ins().call(fref, &[bv, cv]);
+                    let slow_result = builder.inst_results(call_inst)[0];
+                    builder.ins().jump(merge_block, &[slow_result]);
+
+                    builder.switch_to_block(merge_block);
+                    let result = builder.block_params(merge_block)[0];
+                    builder.def_var(vars[a_idx], result);
+                }
             }
             OP_MOVE => {
                 if a_idx != b_idx {
                     let bv = builder.use_var(vars[b_idx]);
-                    // Inline is_heap check: skip clone_rc for numbers (hot path)
-                    let qnan_val = builder.ins().iconst(I64, QNAN as i64);
-                    let masked = builder.ins().band(bv, qnan_val);
-                    let is_heap = builder.ins().icmp(
-                        cranelift_codegen::ir::condcodes::IntCC::Equal,
-                        masked,
-                        qnan_val,
-                    );
-                    let clone_block = builder.create_block();
-                    let after_block = builder.create_block();
-                    builder
-                        .ins()
-                        .brif(is_heap, clone_block, &[], after_block, &[]);
+                    // Fast path: if source is always numeric or always boolean, no RC
+                    // management is needed (numbers/booleans are not heap-allocated).
+                    let src_always_num = b_idx < reg_always_num.len() && reg_always_num[b_idx];
+                    let src_always_bool = b_idx < reg_always_bool.len() && reg_always_bool[b_idx];
+                    if src_always_num || src_always_bool {
+                        // No QNAN check, no clone_rc -- just copy the bits.
+                        builder.def_var(vars[a_idx], bv);
+                        // Propagate f64 shadow so destination can skip bitcasts too.
+                        if src_always_num && a_idx < reg_always_num.len() && reg_always_num[a_idx] {
+                            let bf = builder.use_var(f64_vars[b_idx]);
+                            builder.def_var(f64_vars[a_idx], bf);
+                        }
+                    } else {
+                        // General path: inline is_heap check; clone_rc only for heap values.
+                        let qnan_val = builder.ins().iconst(I64, QNAN as i64);
+                        let masked = builder.ins().band(bv, qnan_val);
+                        let is_heap = builder.ins().icmp(
+                            cranelift_codegen::ir::condcodes::IntCC::Equal,
+                            masked,
+                            qnan_val,
+                        );
+                        let clone_block = builder.create_block();
+                        let after_block = builder.create_block();
+                        builder
+                            .ins()
+                            .brif(is_heap, clone_block, &[], after_block, &[]);
 
-                    builder.switch_to_block(clone_block);
-                    let fref = get_func_ref(&mut builder, module, helpers.jit_move);
-                    builder.ins().call(fref, &[bv]);
-                    builder.ins().jump(after_block, &[]);
+                        builder.switch_to_block(clone_block);
+                        let fref = get_func_ref(&mut builder, module, helpers.jit_move);
+                        builder.ins().call(fref, &[bv]);
+                        builder.ins().jump(after_block, &[]);
 
-                    builder.switch_to_block(after_block);
-                    builder.def_var(vars[a_idx], bv);
+                        builder.switch_to_block(after_block);
+                        builder.def_var(vars[a_idx], bv);
+                    }
                 }
             }
             OP_NOT => {
@@ -710,11 +1352,22 @@ fn compile_function_body(
                 builder.def_var(vars[a_idx], result);
             }
             OP_NEG => {
-                let bv = builder.use_var(vars[b_idx]);
-                let fref = get_func_ref(&mut builder, module, helpers.neg);
-                let call_inst = builder.ins().call(fref, &[bv]);
-                let result = builder.inst_results(call_inst)[0];
-                builder.def_var(vars[a_idx], result);
+                // Inline fneg for always-numeric operands; call helper otherwise.
+                if b_idx < reg_always_num.len() && reg_always_num[b_idx] {
+                    let bf = builder.use_var(f64_vars[b_idx]);
+                    let result_f = builder.ins().fneg(bf);
+                    let result = builder.ins().bitcast(I64, mf, result_f);
+                    builder.def_var(vars[a_idx], result);
+                    if a_idx < reg_count && reg_always_num[a_idx] {
+                        builder.def_var(f64_vars[a_idx], result_f);
+                    }
+                } else {
+                    let bv = builder.use_var(vars[b_idx]);
+                    let fref = get_func_ref(&mut builder, module, helpers.neg);
+                    let call_inst = builder.ins().call(fref, &[bv]);
+                    let result = builder.inst_results(call_inst)[0];
+                    builder.def_var(vars[a_idx], result);
+                }
             }
             OP_MOD => {
                 let bv = builder.use_var(vars[b_idx]);
@@ -724,9 +1377,12 @@ fn compile_function_body(
                 let div = builder.ins().fdiv(bf, cf);
                 let trunc = builder.ins().trunc(div);
                 let prod = builder.ins().fmul(trunc, cf);
-                let r = builder.ins().fsub(bf, prod);
-                let result = builder.ins().bitcast(I64, mf, r);
+                let result_f = builder.ins().fsub(bf, prod);
+                let result = builder.ins().bitcast(I64, mf, result_f);
                 builder.def_var(vars[a_idx], result);
+                if a_idx < reg_count && reg_always_num[a_idx] {
+                    builder.def_var(f64_vars[a_idx], result_f);
+                }
             }
             // ── Result/Option wrapping ──
             OP_WRAPOK => {
@@ -799,6 +1455,12 @@ fn compile_function_body(
                 } else {
                     let kval = builder.ins().iconst(I64, bits as i64);
                     builder.def_var(vars[a_idx], kval);
+                    // Initialise F64 shadow for numeric constants so arithmetic ops
+                    // can skip the bitcast when reading this register.
+                    if nv.is_number() && a_idx < reg_count && reg_always_num[a_idx] {
+                        let fv = builder.ins().bitcast(F64, mf, kval);
+                        builder.def_var(f64_vars[a_idx], fv);
+                    }
                 }
             }
             // ── Control flow ──
@@ -817,54 +1479,6 @@ fn compile_function_body(
                 let fallthrough = ip + 1;
                 let av = builder.use_var(vars[a_idx]);
 
-                let qnan_val = builder.ins().iconst(I64, QNAN as i64);
-                let masked = builder.ins().band(av, qnan_val);
-                let is_num = builder.ins().icmp(
-                    cranelift_codegen::ir::condcodes::IntCC::NotEqual,
-                    masked,
-                    qnan_val,
-                );
-
-                let num_truthy_block = builder.create_block();
-                let tag_truthy_block = builder.create_block();
-                let merge_truthy = builder.create_block();
-                builder.append_block_param(merge_truthy, I64);
-
-                builder
-                    .ins()
-                    .brif(is_num, num_truthy_block, &[], tag_truthy_block, &[]);
-
-                builder.switch_to_block(num_truthy_block);
-                let af = builder.ins().bitcast(F64, mf, av);
-                let zero = builder.ins().f64const(0.0);
-                let cmp = builder.ins().fcmp(
-                    cranelift_codegen::ir::condcodes::FloatCC::NotEqual,
-                    af,
-                    zero,
-                );
-                let num_result = builder.ins().uextend(I64, cmp);
-                builder.ins().jump(merge_truthy, &[num_result]);
-
-                builder.switch_to_block(tag_truthy_block);
-                let nil_val = builder.ins().iconst(I64, TAG_NIL as i64);
-                let false_val = builder.ins().iconst(I64, TAG_FALSE as i64);
-                let not_nil = builder.ins().icmp(
-                    cranelift_codegen::ir::condcodes::IntCC::NotEqual,
-                    av,
-                    nil_val,
-                );
-                let not_false = builder.ins().icmp(
-                    cranelift_codegen::ir::condcodes::IntCC::NotEqual,
-                    av,
-                    false_val,
-                );
-                let tag_truthy = builder.ins().band(not_nil, not_false);
-                let tag_result = builder.ins().uextend(I64, tag_truthy);
-                builder.ins().jump(merge_truthy, &[tag_result]);
-
-                builder.switch_to_block(merge_truthy);
-                let truthy_val = builder.block_params(merge_truthy)[0];
-
                 let target_block = block_map.get(&target).ok_or_else(|| {
                     format!(
                         "JMPF/JMPT target {} at ip {} has no block leader",
@@ -877,16 +1491,87 @@ fn compile_function_body(
                         fallthrough, ip
                     )
                 })?;
-                if op == OP_JMPF {
-                    builder
-                        .ins()
-                        .brif(truthy_val, *fall_block, &[], *target_block, &[]);
+
+                // Fast path: register is always a boolean (TAG_TRUE or TAG_FALSE).
+                // Single icmp + brif instead of 3-block truthy dispatch.
+                if a_idx < reg_always_bool.len() && reg_always_bool[a_idx] {
+                    let false_val = builder.ins().iconst(I64, TAG_FALSE as i64);
+                    let is_false = builder.ins().icmp(
+                        cranelift_codegen::ir::condcodes::IntCC::Equal,
+                        av,
+                        false_val,
+                    );
+                    if op == OP_JMPF {
+                        builder
+                            .ins()
+                            .brif(is_false, *target_block, &[], *fall_block, &[]);
+                    } else {
+                        builder
+                            .ins()
+                            .brif(is_false, *fall_block, &[], *target_block, &[]);
+                    }
+                    block_terminated = true;
                 } else {
+                    // General case: full truthy check.
+                    let qnan_val = builder.ins().iconst(I64, QNAN as i64);
+                    let masked = builder.ins().band(av, qnan_val);
+                    let is_num = builder.ins().icmp(
+                        cranelift_codegen::ir::condcodes::IntCC::NotEqual,
+                        masked,
+                        qnan_val,
+                    );
+
+                    let num_truthy_block = builder.create_block();
+                    let tag_truthy_block = builder.create_block();
+                    let merge_truthy = builder.create_block();
+                    builder.append_block_param(merge_truthy, I64);
+
                     builder
                         .ins()
-                        .brif(truthy_val, *target_block, &[], *fall_block, &[]);
+                        .brif(is_num, num_truthy_block, &[], tag_truthy_block, &[]);
+
+                    builder.switch_to_block(num_truthy_block);
+                    let af = builder.ins().bitcast(F64, mf, av);
+                    let zero = builder.ins().f64const(0.0);
+                    let cmp = builder.ins().fcmp(
+                        cranelift_codegen::ir::condcodes::FloatCC::NotEqual,
+                        af,
+                        zero,
+                    );
+                    let num_result = builder.ins().uextend(I64, cmp);
+                    builder.ins().jump(merge_truthy, &[num_result]);
+
+                    builder.switch_to_block(tag_truthy_block);
+                    let nil_val = builder.ins().iconst(I64, TAG_NIL as i64);
+                    let false_val = builder.ins().iconst(I64, TAG_FALSE as i64);
+                    let not_nil = builder.ins().icmp(
+                        cranelift_codegen::ir::condcodes::IntCC::NotEqual,
+                        av,
+                        nil_val,
+                    );
+                    let not_false = builder.ins().icmp(
+                        cranelift_codegen::ir::condcodes::IntCC::NotEqual,
+                        av,
+                        false_val,
+                    );
+                    let tag_truthy = builder.ins().band(not_nil, not_false);
+                    let tag_result = builder.ins().uextend(I64, tag_truthy);
+                    builder.ins().jump(merge_truthy, &[tag_result]);
+
+                    builder.switch_to_block(merge_truthy);
+                    let truthy_val = builder.block_params(merge_truthy)[0];
+
+                    if op == OP_JMPF {
+                        builder
+                            .ins()
+                            .brif(truthy_val, *fall_block, &[], *target_block, &[]);
+                    } else {
+                        builder
+                            .ins()
+                            .brif(truthy_val, *target_block, &[], *fall_block, &[]);
+                    }
+                    block_terminated = true;
                 }
-                block_terminated = true;
             }
             OP_JMPNN => {
                 let sbx = (inst & 0xFFFF) as i16;
@@ -923,6 +1608,10 @@ fn compile_function_body(
                 let call_inst = builder.ins().call(fref, &[bv]);
                 let result = builder.inst_results(call_inst)[0];
                 builder.def_var(vars[a_idx], result);
+                if a_idx < reg_count && reg_always_num[a_idx] {
+                    let rf = builder.ins().bitcast(F64, mf, result);
+                    builder.def_var(f64_vars[a_idx], rf);
+                }
             }
             OP_STR => {
                 let bv = builder.use_var(vars[b_idx]);
@@ -944,6 +1633,10 @@ fn compile_function_body(
                 let call_inst = builder.ins().call(fref, &[bv]);
                 let result = builder.inst_results(call_inst)[0];
                 builder.def_var(vars[a_idx], result);
+                if a_idx < reg_count && reg_always_num[a_idx] {
+                    let rf = builder.ins().bitcast(F64, mf, result);
+                    builder.def_var(f64_vars[a_idx], rf);
+                }
             }
             OP_MIN => {
                 let bv = builder.use_var(vars[b_idx]);
@@ -952,6 +1645,10 @@ fn compile_function_body(
                 let call_inst = builder.ins().call(fref, &[bv, cv]);
                 let result = builder.inst_results(call_inst)[0];
                 builder.def_var(vars[a_idx], result);
+                if a_idx < reg_count && reg_always_num[a_idx] {
+                    let rf = builder.ins().bitcast(F64, mf, result);
+                    builder.def_var(f64_vars[a_idx], rf);
+                }
             }
             OP_MAX => {
                 let bv = builder.use_var(vars[b_idx]);
@@ -960,6 +1657,10 @@ fn compile_function_body(
                 let call_inst = builder.ins().call(fref, &[bv, cv]);
                 let result = builder.inst_results(call_inst)[0];
                 builder.def_var(vars[a_idx], result);
+                if a_idx < reg_count && reg_always_num[a_idx] {
+                    let rf = builder.ins().bitcast(F64, mf, result);
+                    builder.def_var(f64_vars[a_idx], rf);
+                }
             }
             OP_FLR => {
                 let bv = builder.use_var(vars[b_idx]);
@@ -967,6 +1668,10 @@ fn compile_function_body(
                 let call_inst = builder.ins().call(fref, &[bv]);
                 let result = builder.inst_results(call_inst)[0];
                 builder.def_var(vars[a_idx], result);
+                if a_idx < reg_count && reg_always_num[a_idx] {
+                    let rf = builder.ins().bitcast(F64, mf, result);
+                    builder.def_var(f64_vars[a_idx], rf);
+                }
             }
             OP_CEL => {
                 let bv = builder.use_var(vars[b_idx]);
@@ -974,6 +1679,10 @@ fn compile_function_body(
                 let call_inst = builder.ins().call(fref, &[bv]);
                 let result = builder.inst_results(call_inst)[0];
                 builder.def_var(vars[a_idx], result);
+                if a_idx < reg_count && reg_always_num[a_idx] {
+                    let rf = builder.ins().bitcast(F64, mf, result);
+                    builder.def_var(f64_vars[a_idx], rf);
+                }
             }
             OP_ROU => {
                 let bv = builder.use_var(vars[b_idx]);
@@ -981,12 +1690,20 @@ fn compile_function_body(
                 let call_inst = builder.ins().call(fref, &[bv]);
                 let result = builder.inst_results(call_inst)[0];
                 builder.def_var(vars[a_idx], result);
+                if a_idx < reg_count && reg_always_num[a_idx] {
+                    let rf = builder.ins().bitcast(F64, mf, result);
+                    builder.def_var(f64_vars[a_idx], rf);
+                }
             }
             OP_RND0 => {
                 let fref = get_func_ref(&mut builder, module, helpers.rnd0);
                 let call_inst = builder.ins().call(fref, &[]);
                 let result = builder.inst_results(call_inst)[0];
                 builder.def_var(vars[a_idx], result);
+                if a_idx < reg_count && reg_always_num[a_idx] {
+                    let rf = builder.ins().bitcast(F64, mf, result);
+                    builder.def_var(f64_vars[a_idx], rf);
+                }
             }
             OP_RND2 => {
                 let bv = builder.use_var(vars[b_idx]);
@@ -995,12 +1712,20 @@ fn compile_function_body(
                 let call_inst = builder.ins().call(fref, &[bv, cv]);
                 let result = builder.inst_results(call_inst)[0];
                 builder.def_var(vars[a_idx], result);
+                if a_idx < reg_count && reg_always_num[a_idx] {
+                    let rf = builder.ins().bitcast(F64, mf, result);
+                    builder.def_var(f64_vars[a_idx], rf);
+                }
             }
             OP_NOW => {
                 let fref = get_func_ref(&mut builder, module, helpers.now);
                 let call_inst = builder.ins().call(fref, &[]);
                 let result = builder.inst_results(call_inst)[0];
                 builder.def_var(vars[a_idx], result);
+                if a_idx < reg_count && reg_always_num[a_idx] {
+                    let rf = builder.ins().bitcast(F64, mf, result);
+                    builder.def_var(f64_vars[a_idx], rf);
+                }
             }
             OP_ENV => {
                 let bv = builder.use_var(vars[b_idx]);
@@ -1653,8 +2378,11 @@ fn compile_function_body(
             }
             // ── Fused compare-and-skip for numeric guard chains ──────────────
             // ABC: A = reg, B = unused, C = constant pool index (ki).
-            // If condition TRUE → skip next instruction (the OP_JMP), enter body.
-            // If condition FALSE → fall through to the OP_JMP that skips the body.
+            // If condition TRUE -> skip next instruction (the OP_JMP), enter body.
+            // If condition FALSE -> fall through to the OP_JMP that skips the body.
+            //
+            // Optimisation 1: use the pre-converted F64 shadow when available.
+            // Optimisation 2: jump threading -- decode ip+1 JMP target directly.
             op if op == OP_CMPK_GE_N
                 || op == OP_CMPK_GT_N
                 || op == OP_CMPK_LT_N
@@ -1663,11 +2391,16 @@ fn compile_function_body(
                 || op == OP_CMPK_NE_N =>
             {
                 let ki = (inst & 0xFF) as usize;
-                let lhs = builder.use_var(vars[a_idx]);
 
-                // Both operands are guaranteed numeric by the compiler; bitcast to f64.
-                let mf = cranelift_codegen::ir::MemFlags::new();
-                let lhs_f64 = builder.ins().bitcast(F64, mf, lhs);
+                // Optimisation 1: use the pre-converted F64 shadow when available.
+                let lhs_f64 = if a_idx < reg_count && reg_always_num[a_idx] {
+                    builder.use_var(f64_vars[a_idx])
+                } else {
+                    let lhs = builder.use_var(vars[a_idx]);
+                    let mf_cmpk = cranelift_codegen::ir::MemFlags::new();
+                    builder.ins().bitcast(F64, mf_cmpk, lhs)
+                };
+
                 let rhs_f64 = if ki < nan_consts.len() {
                     builder.ins().f64const(nan_consts[ki].as_number())
                 } else {
@@ -1675,49 +2408,140 @@ fn compile_function_body(
                 };
 
                 use cranelift_codegen::ir::condcodes::FloatCC;
-                let cc = if op == OP_CMPK_GE_N {
-                    FloatCC::GreaterThanOrEqual
-                } else if op == OP_CMPK_GT_N {
-                    FloatCC::GreaterThan
-                } else if op == OP_CMPK_LT_N {
-                    FloatCC::LessThan
-                } else if op == OP_CMPK_LE_N {
-                    FloatCC::LessThanOrEqual
-                } else if op == OP_CMPK_EQ_N {
-                    FloatCC::Equal
-                } else {
-                    FloatCC::NotEqual // OP_CMPK_NE_N
+                let cc = match op {
+                    op if op == OP_CMPK_GE_N => FloatCC::GreaterThanOrEqual,
+                    op if op == OP_CMPK_GT_N => FloatCC::GreaterThan,
+                    op if op == OP_CMPK_LT_N => FloatCC::LessThan,
+                    op if op == OP_CMPK_LE_N => FloatCC::LessThanOrEqual,
+                    op if op == OP_CMPK_EQ_N => FloatCC::Equal,
+                    _ => FloatCC::NotEqual, // OP_CMPK_NE_N
                 };
                 let cmp = builder.ins().fcmp(cc, lhs_f64, rhs_f64);
 
-                // ip + 1 = the OP_JMP that skips the body (taken when condition FALSE)
                 // ip + 2 = first instruction of the guard body (taken when condition TRUE)
-                let jmp_block = block_map.get(&(ip + 1)).copied();
                 let body_block = block_map.get(&(ip + 2)).copied();
-                if let (Some(jb), Some(bb)) = (jmp_block, body_block) {
-                    // condition TRUE → body (skip the JMP); condition FALSE → JMP block
-                    builder.ins().brif(cmp, bb, &[], jb, &[]);
+
+                // Optimisation 2: jump threading.
+                // The instruction at ip+1 is always OP_JMP. Decode its target now so
+                // that the false branch goes directly there, skipping the intermediate
+                // JMP block entirely.
+                let false_dest_block = chunk
+                    .code
+                    .get(ip + 1)
+                    .and_then(|&jmp_inst| {
+                        let jmp_op = (jmp_inst >> 24) as u8;
+                        if jmp_op == OP_JMP {
+                            let sbx = (jmp_inst & 0xFFFF) as i16;
+                            let jmp_target = (ip as isize + 2 + sbx as isize) as usize;
+                            block_map.get(&jmp_target).copied()
+                        } else {
+                            None
+                        }
+                    })
+                    .or_else(|| block_map.get(&(ip + 1)).copied());
+
+                if let (Some(false_block), Some(bb)) = (false_dest_block, body_block) {
+                    // condition TRUE -> body; condition FALSE -> threaded miss target
+                    builder.ins().brif(cmp, bb, &[], false_block, &[]);
                     block_terminated = true;
                 }
             }
-            // ── Function call (direct Cranelift call within the same module) ──
+            // ── Function call with inlining + F64 shadow support ──
             OP_CALL => {
                 let a = ((inst >> 16) & 0xFF) as u8;
                 let bx = (inst & 0xFFFF) as usize;
                 let func_idx = bx >> 8;
                 let n_args = bx & 0xFF;
+                let a_idx_call = a as usize;
 
                 if let Some(fids) = all_func_ids {
-                    // Direct call: the target function is compiled in this module
-                    let target_fid = fids[func_idx];
-                    let target_fref = get_func_ref(&mut builder, module, target_fid);
-                    let mut call_args = Vec::with_capacity(n_args);
-                    for i in 0..n_args {
-                        call_args.push(builder.use_var(vars[a as usize + 1 + i]));
+                    // Check if the target function is inlinable (pure numeric guard chain).
+                    let can_inline = program
+                        .map(|prog| {
+                            func_idx < prog.chunks.len()
+                                && is_inlinable(
+                                    &prog.chunks[func_idx],
+                                    &prog.nan_constants[func_idx],
+                                )
+                                && n_args == prog.chunks[func_idx].param_count as usize
+                                && inline_var_map.contains_key(&ip)
+                        })
+                        .unwrap_or(false);
+
+                    if can_inline {
+                        let prog = program.unwrap();
+                        let callee_chunk = &prog.chunks[func_idx];
+                        let callee_consts = &prog.nan_constants[func_idx];
+                        let result_var = vars[a_idx_call];
+
+                        // Collect arg Variables and build F64 shadows for them.
+                        let arg_var_list: Vec<Variable> =
+                            (0..n_args).map(|i| vars[a_idx_call + 1 + i]).collect();
+                        let f64_arg_list: Vec<Variable> = {
+                            let mf_inline = cranelift_codegen::ir::MemFlags::new();
+                            let f64_slots = inline_f64_var_map
+                                .get(&ip)
+                                .map(|v| v.as_slice())
+                                .unwrap_or(&[]);
+                            for (i, &av) in arg_var_list.iter().enumerate() {
+                                if i < f64_slots.len() {
+                                    let iv = builder.use_var(av);
+                                    let fv = builder.ins().bitcast(F64, mf_inline, iv);
+                                    builder.def_var(f64_slots[i], fv);
+                                }
+                            }
+                            f64_slots.to_vec()
+                        };
+
+                        let extra_var_list = inline_var_map
+                            .get(&ip)
+                            .map(|v| v.as_slice())
+                            .unwrap_or(&[])
+                            .to_vec();
+
+                        // Create a merge block where inline code converges after each RET.
+                        let merge_blk = builder.create_block();
+
+                        let ok = inline_chunk(
+                            &mut builder,
+                            callee_chunk,
+                            callee_consts,
+                            &arg_var_list,
+                            result_var,
+                            &extra_var_list,
+                            &f64_arg_list,
+                            merge_blk,
+                        );
+
+                        if ok {
+                            builder.switch_to_block(merge_blk);
+                            block_terminated = false;
+                        } else {
+                            // Inlining failed mid-way; fall back to a real call.
+                            builder.ins().jump(merge_blk, &[]);
+                            builder.switch_to_block(merge_blk);
+
+                            let target_fid = fids[func_idx];
+                            let target_fref = get_func_ref(&mut builder, module, target_fid);
+                            let call_args: Vec<_> = (0..n_args)
+                                .map(|i| builder.use_var(vars[a_idx_call + 1 + i]))
+                                .collect();
+                            let call_inst = builder.ins().call(target_fref, &call_args);
+                            let result = builder.inst_results(call_inst)[0];
+                            builder.def_var(result_var, result);
+                        }
+                    } else {
+                        // Direct call: the target function is compiled in this module
+                        let target_fid = fids[func_idx];
+                        let target_fref = get_func_ref(&mut builder, module, target_fid);
+                        let mut call_args = Vec::with_capacity(n_args);
+                        for i in 0..n_args {
+                            call_args.push(builder.use_var(vars[a_idx_call + 1 + i]));
+                        }
+                        let call_inst = builder.ins().call(target_fref, &call_args);
+                        let result = builder.inst_results(call_inst)[0];
+                        builder.def_var(vars[a_idx_call], result);
                     }
-                    let call_inst = builder.ins().call(target_fref, &call_args);
-                    let result = builder.inst_results(call_inst)[0];
-                    builder.def_var(vars[a as usize], result);
                 } else {
                     // Fallback: use jit_call helper (should not happen if all_func_ids is provided)
                     if n_args > 0 {
@@ -1729,11 +2553,11 @@ fn compile_function_body(
                             ),
                         );
                         for i in 0..n_args {
-                            let v = builder.use_var(vars[a as usize + 1 + i]);
+                            let v = builder.use_var(vars[a_idx_call + 1 + i]);
                             builder.ins().stack_store(v, slot, (i * 8) as i32);
                         }
                         let args_ptr = builder.ins().stack_addr(I64, slot, 0);
-                        let prog_ptr = builder.ins().iconst(I64, 0i64); // null — not available in AOT
+                        let prog_ptr = builder.ins().iconst(I64, 0i64);
                         let func_idx_val = builder.ins().iconst(I64, func_idx as i64);
                         let n_args_val = builder.ins().iconst(I64, n_args as i64);
                         let fref = get_func_ref(&mut builder, module, helpers.call);
@@ -1741,7 +2565,7 @@ fn compile_function_body(
                             .ins()
                             .call(fref, &[prog_ptr, func_idx_val, args_ptr, n_args_val]);
                         let result = builder.inst_results(call_inst)[0];
-                        builder.def_var(vars[a as usize], result);
+                        builder.def_var(vars[a_idx_call], result);
                     } else {
                         let null_ptr = builder.ins().iconst(I64, 0i64);
                         let prog_ptr = builder.ins().iconst(I64, 0i64);
@@ -1752,8 +2576,15 @@ fn compile_function_body(
                             .ins()
                             .call(fref, &[prog_ptr, func_idx_val, null_ptr, n_args_val]);
                         let result = builder.inst_results(call_inst)[0];
-                        builder.def_var(vars[a as usize], result);
+                        builder.def_var(vars[a_idx_call], result);
                     }
+                }
+                // Update F64 shadow so arithmetic ops can skip bitcast when using this
+                // register as input.
+                if a_idx_call < reg_count && reg_always_num[a_idx_call] {
+                    let rv = builder.use_var(vars[a_idx_call]);
+                    let rf = builder.ins().bitcast(F64, mf, rv);
+                    builder.def_var(f64_vars[a_idx_call], rf);
                 }
             }
             // ── JSON ──
@@ -2150,6 +2981,7 @@ pub fn compile_to_bench_binary(
             func_ids[i],
             &helpers,
             Some(&func_ids),
+            Some(program),
         )?;
     }
 
@@ -2508,6 +3340,7 @@ mod tests {
                 func_ids[i],
                 &helpers,
                 Some(&func_ids),
+                Some(&compiled),
             )?;
         }
 
