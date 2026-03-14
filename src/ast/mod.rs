@@ -998,4 +998,75 @@ mod tests {
         assert_eq!(deserialized.declarations.len(), 1);
         assert!(deserialized.source.is_none());
     }
+
+    // resolve_aliases_stmt: Stmt::Match with subject = None
+    // Covers the `^0` else-branch at line 457 where `if let Some(expr) = subject` is false
+    #[test]
+    fn resolve_aliases_stmt_match_no_subject() {
+        let mut prog = Program {
+            declarations: vec![Decl::Function {
+                name: "f".to_string(),
+                params: vec![],
+                return_type: Type::Number,
+                body: vec![Spanned::unknown(Stmt::Match {
+                    subject: None,
+                    arms: vec![MatchArm {
+                        pattern: Pattern::Wildcard,
+                        body: vec![Spanned::unknown(Stmt::Expr(Expr::Call {
+                            function: "len".to_string(),
+                            args: vec![Expr::Ref("x".to_string())],
+                            unwrap: false,
+                        }))],
+                    }],
+                })],
+                span: Span::UNKNOWN,
+            }],
+            source: None,
+        };
+        // resolve_aliases replaces known aliases; "len" → "length" (if aliased) or stays
+        resolve_aliases(&mut prog);
+        let Decl::Function { body, .. } = &prog.declarations[0] else {
+            panic!()
+        };
+        // After resolve_aliases, the Match node should still be present
+        assert!(
+            matches!(&body[0].node, Stmt::Match { subject: None, arms } if arms.len() == 1),
+            "expected Match{{None}} after resolve_aliases"
+        );
+    }
+
+    // resolve_aliases_expr: Expr::Match with subject = None
+    // Covers the `^0` else-branch at line 527 where `if let Some(s) = subject` is false
+    #[test]
+    fn resolve_aliases_expr_match_no_subject() {
+        let mut prog = Program {
+            declarations: vec![Decl::Function {
+                name: "f".to_string(),
+                params: vec![],
+                return_type: Type::Number,
+                body: vec![Spanned::unknown(Stmt::Expr(Expr::Match {
+                    subject: None,
+                    arms: vec![MatchArm {
+                        pattern: Pattern::Wildcard,
+                        body: vec![Spanned::unknown(Stmt::Expr(Expr::Call {
+                            function: "len".to_string(),
+                            args: vec![Expr::Ref("y".to_string())],
+                            unwrap: false,
+                        }))],
+                    }],
+                }))],
+                span: Span::UNKNOWN,
+            }],
+            source: None,
+        };
+        resolve_aliases(&mut prog);
+        let Decl::Function { body, .. } = &prog.declarations[0] else {
+            panic!()
+        };
+        // After resolve_aliases, the Expr::Match node should still be present
+        assert!(
+            matches!(&body[0].node, Stmt::Expr(Expr::Match { subject: None, arms }) if arms.len() == 1),
+            "expected Expr::Match{{None}} after resolve_aliases"
+        );
+    }
 }
