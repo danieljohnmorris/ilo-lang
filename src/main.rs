@@ -648,8 +648,9 @@ fn process_serv_request(
     }
 
     // Run
-    let run_args: Vec<interpreter::Value> = req.args.iter().map(|a| parse_cli_arg(a)).collect();
     let func_name = req.func.as_deref();
+    let run_args: Vec<interpreter::Value> = req.args.iter().map(|a| parse_cli_arg(a)).collect();
+    let run_args = coerce_cli_args(&program, func_name, run_args);
 
     #[cfg(feature = "tools")]
     let result = if let Some(p) = provider {
@@ -2296,6 +2297,7 @@ fn dispatch_run(r: cli::RunArgs, mode: OutputMode, explicit_json: bool, no_hints
         } else {
             vec![]
         };
+        let run_args = coerce_cli_args(&program, func_name, run_args);
         run_bench(&program, func_name, &run_args);
         0
     } else if r.explain {
@@ -2342,6 +2344,7 @@ fn dispatch_run(r: cli::RunArgs, mode: OutputMode, explicit_json: bool, no_hints
                 } else {
                     vec![]
                 };
+                let run_args = coerce_cli_args(&program, func_name, run_args);
                 let compiled = match vm::compile(&program) {
                     Ok(c) => c,
                     Err(e) => {
@@ -2370,6 +2373,7 @@ fn dispatch_run(r: cli::RunArgs, mode: OutputMode, explicit_json: bool, no_hints
                 } else {
                     vec![]
                 };
+                let run_args = coerce_cli_args(&program, func_name, run_args);
                 run_interp_with_provider(
                     &program,
                     func_name,
@@ -2397,9 +2401,11 @@ fn dispatch_run(r: cli::RunArgs, mode: OutputMode, explicit_json: bool, no_hints
 
                 let (func_name, run_args) = if let Some(first) = rest.first() {
                     if func_names.contains(&first.as_str()) {
+                        let args: Vec<_> =
+                            rest[1..].iter().map(|a| parse_cli_arg(a)).collect();
                         (
                             Some(first.as_str()),
-                            rest[1..].iter().map(|a| parse_cli_arg(a)).collect(),
+                            coerce_cli_args(&program, Some(first.as_str()), args),
                         )
                     } else {
                         (None, rest.iter().map(|a| parse_cli_arg(a)).collect())
@@ -2507,6 +2513,7 @@ fn run_cranelift_engine(program: &ast::Program, rest: &[String], explicit_json: 
     } else {
         vec![]
     };
+    let run_args = coerce_cli_args(program, func_name, run_args);
 
     #[cfg(feature = "cranelift")]
     {
@@ -3333,6 +3340,9 @@ fn parse_cli_arg(s: &str) -> interpreter::Value {
             .collect();
         return interpreter::Value::List(items);
     }
+    if s == "nil" {
+        return interpreter::Value::Nil;
+    }
     if let Ok(n) = s.parse::<f64>()
         && n.is_finite()
     {
@@ -3345,6 +3355,36 @@ fn parse_cli_arg(s: &str) -> interpreter::Value {
     } else {
         interpreter::Value::Text(s.to_string())
     }
+}
+
+/// Coerce CLI args to match a function's parameter types.
+/// - Wraps a non-list value in `[value]` when the param type is `L _`
+fn coerce_cli_args(
+    program: &ast::Program,
+    func_name: Option<&str>,
+    mut args: Vec<interpreter::Value>,
+) -> Vec<interpreter::Value> {
+    let Some(name) = func_name else {
+        return args;
+    };
+    let params: Option<&[ast::Param]> = program.declarations.iter().find_map(|d| match d {
+        ast::Decl::Function { name: n, params, .. } if n == name => Some(params.as_slice()),
+        _ => None,
+    });
+    let Some(params) = params else {
+        return args;
+    };
+    for (i, param) in params.iter().enumerate() {
+        if i >= args.len() {
+            break;
+        }
+        if matches!(&param.ty, ast::Type::List(_))
+            && !matches!(&args[i], interpreter::Value::List(_))
+        {
+            args[i] = interpreter::Value::List(vec![args[i].clone()]);
+        }
+    }
+    args
 }
 
 // ── Unit tests ────────────────────────────────────────────────────────────────
@@ -4474,6 +4514,95 @@ mod tests {
     #[test]
     fn cli_arg_negative_number() {
         assert_eq!(parse_cli_arg("-5"), interpreter::Value::Number(-5.0));
+    }
+
+    #[test]
+    fn cli_arg_nil() {
+        assert_eq!(parse_cli_arg("nil"), interpreter::Value::Nil);
+    }
+
+    #[test]
+    fn cli_arg_nil_not_text() {
+        // "nil" should parse as Nil, not Text("nil")
+        assert_ne!(
+            parse_cli_arg("nil"),
+            interpreter::Value::Text("nil".into())
+        );
+    }
+
+    // ── coerce_cli_args ──────────────────────────────────────────────────────
+
+    #[test]
+    fn coerce_single_number_to_list() {
+        let src = "f xs:L n>n;sum xs";
+        let tokens = crate::lexer::lex(src).unwrap();
+        let spans: Vec<_> = tokens.into_iter().map(|(t, r)| (t, crate::ast::Span { start: r.start, end: r.end })).collect();
+        let (program, _) = crate::parser::parse(spans);
+        let args = vec![interpreter::Value::Number(10.0)];
+        let coerced = coerce_cli_args(&program, Some("f"), args);
+        assert_eq!(
+            coerced,
+            vec![interpreter::Value::List(vec![
+                interpreter::Value::Number(10.0)
+            ])]
+        );
+    }
+
+    #[test]
+    fn coerce_list_unchanged() {
+        let src = "f xs:L n>n;sum xs";
+        let tokens = crate::lexer::lex(src).unwrap();
+        let spans: Vec<_> = tokens.into_iter().map(|(t, r)| (t, crate::ast::Span { start: r.start, end: r.end })).collect();
+        let (program, _) = crate::parser::parse(spans);
+        let args = vec![interpreter::Value::List(vec![
+            interpreter::Value::Number(1.0),
+            interpreter::Value::Number(2.0),
+        ])];
+        let coerced = coerce_cli_args(&program, Some("f"), args.clone());
+        assert_eq!(coerced, args);
+    }
+
+    #[test]
+    fn coerce_non_list_param_unchanged() {
+        let src = "f x:n>n;+x 0";
+        let tokens = crate::lexer::lex(src).unwrap();
+        let spans: Vec<_> = tokens.into_iter().map(|(t, r)| (t, crate::ast::Span { start: r.start, end: r.end })).collect();
+        let (program, _) = crate::parser::parse(spans);
+        let args = vec![interpreter::Value::Number(10.0)];
+        let coerced = coerce_cli_args(&program, Some("f"), args.clone());
+        assert_eq!(coerced, args);
+    }
+
+    #[test]
+    fn coerce_mixed_params() {
+        let src = "f xs:L n v:n>n;+v 0";
+        let tokens = crate::lexer::lex(src).unwrap();
+        let spans: Vec<_> = tokens.into_iter().map(|(t, r)| (t, crate::ast::Span { start: r.start, end: r.end })).collect();
+        let (program, _) = crate::parser::parse(spans);
+        let args = vec![
+            interpreter::Value::Number(5.0),
+            interpreter::Value::Number(3.0),
+        ];
+        let coerced = coerce_cli_args(&program, Some("f"), args);
+        // xs should be wrapped, v should stay
+        assert_eq!(
+            coerced,
+            vec![
+                interpreter::Value::List(vec![interpreter::Value::Number(5.0)]),
+                interpreter::Value::Number(3.0),
+            ]
+        );
+    }
+
+    #[test]
+    fn coerce_no_func_name_unchanged() {
+        let src = "f xs:L n>n;sum xs";
+        let tokens = crate::lexer::lex(src).unwrap();
+        let spans: Vec<_> = tokens.into_iter().map(|(t, r)| (t, crate::ast::Span { start: r.start, end: r.end })).collect();
+        let (program, _) = crate::parser::parse(spans);
+        let args = vec![interpreter::Value::Number(10.0)];
+        let coerced = coerce_cli_args(&program, None, args.clone());
+        assert_eq!(coerced, args);
     }
 
     // ── load_dotenv: priority ordering ───────────────────────────────────────

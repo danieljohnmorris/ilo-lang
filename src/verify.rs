@@ -2419,6 +2419,40 @@ impl VerifyContext {
                     );
                 }
             }
+            // Sum types: exhaustive if every variant has a literal text arm
+            Ty::Sum(variants) => {
+                let covered: Vec<&str> = arms
+                    .iter()
+                    .filter_map(|a| match &a.pattern {
+                        Pattern::Literal(Literal::Text(s)) => Some(s.as_str()),
+                        _ => None,
+                    })
+                    .collect();
+                let missing: Vec<&String> = variants
+                    .iter()
+                    .filter(|v| !covered.contains(&v.as_str()))
+                    .collect();
+                if !missing.is_empty() {
+                    let names: Vec<&str> = missing.iter().map(|s| s.as_str()).collect();
+                    self.err(
+                        "ILO-T024",
+                        func,
+                        format!(
+                            "non-exhaustive match on sum type: missing {}",
+                            names.join(", ")
+                        ),
+                        Some(format!(
+                            "add: {}",
+                            names
+                                .iter()
+                                .map(|n| format!("\"{n}\": <expr>"))
+                                .collect::<Vec<_>>()
+                                .join(" or ")
+                        )),
+                        Some(span),
+                    );
+                }
+            }
             // For other types (Number, Text, Named, etc.) we can't enumerate
             // all possible values, so warn if there's no wildcard.
             // Nil arises from subjectless match (?{...}) where the actual type
@@ -4495,6 +4529,49 @@ mod tests {
             errs.iter()
                 .any(|e| e.code == "ILO-T024" && e.message.contains("true"))
         );
+    }
+
+    // ---- Sum type match exhaustiveness ----
+
+    #[test]
+    fn sum_match_all_variants_exhaustive() {
+        assert!(parse_and_verify(
+            r#"f x:S red green blue>t;?x{"red":"r";"green":"g";"blue":"b"}"#
+        )
+        .is_ok());
+    }
+
+    #[test]
+    fn sum_match_with_wildcard_exhaustive() {
+        assert!(
+            parse_and_verify(r#"f x:S red green blue>t;?x{"red":"r";_:"other"}"#).is_ok()
+        );
+    }
+
+    #[test]
+    fn sum_match_missing_variant() {
+        let errs =
+            parse_and_verify(r#"f x:S red green blue>t;?x{"red":"r";"green":"g"}"#).unwrap_err();
+        assert!(errs
+            .iter()
+            .any(|e| e.code == "ILO-T024" && e.message.contains("blue")));
+    }
+
+    #[test]
+    fn sum_match_missing_multiple_variants() {
+        let errs = parse_and_verify(r#"f x:S a b c>t;?x{"a":"1"}"#).unwrap_err();
+        assert!(errs
+            .iter()
+            .any(|e| e.code == "ILO-T024" && e.message.contains("b") && e.message.contains("c")));
+    }
+
+    #[test]
+    fn sum_match_hint_includes_missing_variant() {
+        let errs =
+            parse_and_verify(r#"f x:S red green blue>t;?x{"red":"r";"green":"g"}"#).unwrap_err();
+        let e = errs.iter().find(|e| e.code == "ILO-T024").unwrap();
+        let hint = e.hint.as_ref().unwrap();
+        assert!(hint.contains("\"blue\""));
     }
 
     // ---- Builtin-specific type checks ----

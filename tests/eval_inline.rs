@@ -3689,3 +3689,88 @@ fn serv_invalid_json_request() {
         "expected error in response, got: {resp}"
     );
 }
+
+// --- CLI nil arg ---
+
+#[test]
+fn cli_nil_arg_to_optional_param() {
+    let out = ilo()
+        .args(["f x:O n>n;x??0", "f", "nil"])
+        .output()
+        .expect("failed to run ilo");
+    assert!(out.status.success(), "stderr: {}", String::from_utf8_lossy(&out.stderr));
+    assert_eq!(String::from_utf8_lossy(&out.stdout).trim(), "0");
+}
+
+#[test]
+fn cli_nil_arg_equality() {
+    let out = ilo()
+        .args(["f x:O n>b;=x nil", "f", "nil"])
+        .output()
+        .expect("failed to run ilo");
+    assert!(out.status.success(), "stderr: {}", String::from_utf8_lossy(&out.stderr));
+    assert_eq!(String::from_utf8_lossy(&out.stdout).trim(), "true");
+}
+
+// --- CLI single value auto-wrapped as list ---
+
+#[test]
+fn cli_single_number_coerced_to_list() {
+    let out = ilo()
+        .args(["f xs:L n>n;sum xs", "f", "10"])
+        .output()
+        .expect("failed to run ilo");
+    assert!(out.status.success(), "stderr: {}", String::from_utf8_lossy(&out.stderr));
+    assert_eq!(String::from_utf8_lossy(&out.stdout).trim(), "10");
+}
+
+#[test]
+fn cli_single_text_coerced_to_list() {
+    let out = ilo()
+        .args(["f xs:L t>n;len xs", "f", "hello"])
+        .output()
+        .expect("failed to run ilo");
+    assert!(out.status.success(), "stderr: {}", String::from_utf8_lossy(&out.stderr));
+    assert_eq!(String::from_utf8_lossy(&out.stdout).trim(), "1");
+}
+
+#[test]
+fn cli_comma_list_still_works() {
+    let out = ilo()
+        .args(["f xs:L n>n;sum xs", "f", "1,2,3"])
+        .output()
+        .expect("failed to run ilo");
+    assert!(out.status.success(), "stderr: {}", String::from_utf8_lossy(&out.stderr));
+    assert_eq!(String::from_utf8_lossy(&out.stdout).trim(), "6");
+}
+
+// --- Sum type exhaustive match ---
+
+#[test]
+fn sum_type_match_all_variants_runs() {
+    let out = ilo()
+        .args([
+            r#"f x:S red green blue>t;?x{"red":"r";"green":"g";"blue":"b"}"#,
+            "f",
+            "red",
+        ])
+        .output()
+        .expect("failed to run ilo");
+    assert!(out.status.success(), "stderr: {}", String::from_utf8_lossy(&out.stderr));
+    assert_eq!(String::from_utf8_lossy(&out.stdout).trim(), "r");
+}
+
+#[test]
+fn sum_type_match_missing_variant_errors() {
+    let out = ilo()
+        .args([
+            r#"f x:S red green blue>t;?x{"red":"r";"green":"g"}"#,
+            "f",
+            "red",
+        ])
+        .output()
+        .expect("failed to run ilo");
+    assert!(!out.status.success());
+    let stderr = String::from_utf8_lossy(&out.stderr);
+    assert!(stderr.contains("ILO-T024") || stderr.contains("non-exhaustive"));
+}
