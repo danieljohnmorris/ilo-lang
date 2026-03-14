@@ -4,7 +4,7 @@
 
 - GitHub: https://github.com/ilo-lang/ilo
 - Language spec: [SPEC.md](SPEC.md)
-- Current version: **0.9.1** (installed at `~/.cargo/bin/ilo` via `cargo install`)
+- Current version: **0.10.0** (installed at `~/.cargo/bin/ilo` via `cargo install`)
 
 ## What ilo is
 
@@ -47,3 +47,17 @@ cargo test                       # full test suite
 ## WASM / npm
 
 `cargo build --target wasm32-wasip1 --release --no-default-features` produces `ilo.wasm` (2.1MB). The `npm/` directory wraps it in a Node.js WASI shim published as `ilo-lang` on npm. Requires `NPM_TOKEN` secret in GitHub repo settings.
+
+## Agent teams
+
+When parallelisable work arises (coverage gaps, multi-file refactors, independent bug fixes), prefer **agent teams** over single subagents:
+
+- Use `model: "sonnet"` for implementation work, `model: "haiku"` for comprehension/validation
+- Use `isolation: "worktree"` so each agent gets its own copy — no merge conflicts
+- One focused task per agent (e.g. "cover vm/mod.rs" not "improve all coverage")
+- Run agents in parallel with `run_in_background: true`, collect and merge results after
+- After agents complete, review their worktree branches and cherry-pick/merge into main
+
+## Benchmarks
+
+The canonical benchmark suite is `research/bench/run.sh`. It compares ilo's 4 execution engines (interpreter, VM, JIT, AOT) against 12+ languages across 11 micro-benchmark categories. Results auto-generate the website benchmarks page.
