@@ -48,7 +48,7 @@ impl std::fmt::Display for Ty {
                 write!(f, " {ret}")
             }
             Ty::Named(name) => write!(f, "{name}"),
-            Ty::Unknown => write!(f, "?"),
+            Ty::Unknown => write!(f, "_"),
         }
     }
 }
@@ -2831,7 +2831,7 @@ mod tests {
 
     #[test]
     fn ty_display_unknown() {
-        assert_eq!(format!("{}", Ty::Unknown), "?");
+        assert_eq!(format!("{}", Ty::Unknown), "_");
     }
 
     // ---- Display for VerifyError ----
