@@ -1566,15 +1566,17 @@ FOOTEOF
   SITE_DIR="$(cd "$SITE_DIR" && pwd)"
   if [[ -d "$SITE_DIR/.git" ]]; then
     echo "  Committing and pushing site changes..." >&2
-    cd "$SITE_DIR"
-    git add src/content/docs/docs/reference/benchmarks.md astro.config.mjs
-    if git diff --cached --quiet; then
-      echo "  No changes to commit." >&2
-    else
-      git commit -m "docs: update benchmark results ($DATE)"
-      git push
-      echo "  Pushed to site repo." >&2
-    fi
+    (
+      cd "$SITE_DIR"
+      git add src/content/docs/docs/reference/benchmarks.md
+      if git diff --cached --quiet; then
+        echo "  No changes to commit." >&2
+      else
+        git commit -m "docs: update benchmark results ($DATE)"
+        git push
+        echo "  Pushed to site repo." >&2
+      fi
+    )
   fi
 fi
 
@@ -1653,13 +1655,15 @@ if [[ -f "$README" ]]; then
   echo "  Updated: $README" >&2
 
   # Auto-commit and push to ilo repo
-  cd "$ILO_DIR"
-  git add README.md
-  if git diff --cached --quiet; then
-    echo "  No README changes to commit." >&2
-  else
-    git commit -m "docs: update benchmark matrix in README ($DATE)"
-    git push
-    echo "  Pushed to ilo repo." >&2
-  fi
+  (
+    cd "$ILO_DIR"
+    git add README.md
+    if git diff --cached --quiet; then
+      echo "  No README changes to commit." >&2
+    else
+      git commit -m "docs: update benchmark matrix in README ($DATE)"
+      git push
+      echo "  Pushed to ilo repo." >&2
+    fi
+  )
 fi

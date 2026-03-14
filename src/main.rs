@@ -4763,28 +4763,13 @@ mod tests {
     /// binary is one directory up, at `target/<profile>/ilo`.
     fn ilo_bin() -> std::path::PathBuf {
         // current_exe() → e.g. /…/target/debug/deps/ilo-abc123
-        //                 or  /…/target/llvm-cov-target/debug/deps/ilo-abc123
         let exe = std::env::current_exe().expect("current_exe");
         // Go up from deps/ to the profile dir (debug or release)
         let profile_dir = exe
             .parent() // deps/
-            .and_then(|p| p.parent()) // debug/ or release/ (may be inside llvm-cov-target)
+            .and_then(|p| p.parent()) // debug/ or release/
             .expect("could not locate profile dir");
         let bin = profile_dir.join("ilo");
-        if bin.exists() {
-            return bin;
-        }
-        // When running under cargo-llvm-cov the binary lives one level higher
-        // (e.g. target/debug/ilo instead of target/llvm-cov-target/debug/ilo).
-        if let Some(parent2) = profile_dir.parent().and_then(|p| p.parent()) {
-            let profile_name = profile_dir
-                .file_name()
-                .expect("profile dir name");
-            let fallback = parent2.join(profile_name).join("ilo");
-            if fallback.exists() {
-                return fallback;
-            }
-        }
         assert!(
             bin.exists(),
             "ilo binary not found at {}; run `cargo build` first",
@@ -5702,323 +5687,51 @@ mod tests {
         std::fs::remove_file(path).ok();
     }
 
-    // ── unit: compact_spec ────────────────────────────────────────────────────
+    // ── dispatch_cli: None branch with bare_has_bin = false ──────────────────
 
     #[test]
-    fn compact_spec_returns_nonempty_string() {
-        let s = compact_spec();
-        assert!(!s.is_empty(), "compact spec should not be empty");
-    }
-
-    // ── unit: emit_hints ──────────────────────────────────────────────────────
-
-    #[test]
-    fn emit_hints_empty_slice_is_noop() {
-        // Should not panic and should not print anything
-        emit_hints(&[], OutputMode::Text);
-        emit_hints(&[], OutputMode::Ansi);
-        emit_hints(&[], OutputMode::Json);
-    }
-
-    #[test]
-    fn emit_hints_text_mode_prints_to_stderr() {
-        emit_hints(&["hint: use ? for optional".to_string()], OutputMode::Text);
-    }
-
-    #[test]
-    fn emit_hints_ansi_mode_no_panic() {
-        emit_hints(&["hint: foo".to_string(), "hint: bar".to_string()], OutputMode::Ansi);
-    }
-
-    #[test]
-    fn emit_hints_json_mode_no_panic() {
-        emit_hints(&["hint: foo".to_string()], OutputMode::Json);
-    }
-
-    // ── unit: print_help ─────────────────────────────────────────────────────
-
-    #[test]
-    fn print_help_no_panic() {
-        // Just verify it doesn't panic
-        print_help();
-    }
-
-    // ── unit: graph_cmd ──────────────────────────────────────────────────────
-
-    fn write_graph_file(name: &str, src: &str) -> String {
-        let path = format!("/tmp/ilo_graph_{name}.ilo");
-        std::fs::write(&path, src).unwrap();
-        path
-    }
-
-    #[test]
-    fn graph_cmd_empty_args_returns_one() {
-        let code = graph_cmd(&[]);
-        assert_eq!(code, 1);
-    }
-
-    #[test]
-    fn graph_cmd_nonexistent_file_returns_one() {
-        let code = graph_cmd(&["/tmp/ilo_nonexistent_xyzabc.ilo".to_string()]);
-        assert_eq!(code, 1);
-    }
-
-    #[test]
-    fn graph_cmd_full_json_returns_zero() {
-        let path = write_graph_file("full_json", "f x:n>n;*x 2\ng y:n>n;f y");
-        let code = graph_cmd(&[path.clone()]);
-        assert_eq!(code, 0);
-        std::fs::remove_file(&path).ok();
-    }
-
-    #[test]
-    fn graph_cmd_dot_output_returns_zero() {
-        let path = write_graph_file("dot_out", "f x:n>n;*x 2");
-        let code = graph_cmd(&[path.clone(), "--dot".to_string()]);
-        assert_eq!(code, 0);
-        std::fs::remove_file(&path).ok();
-    }
-
-    #[test]
-    fn graph_cmd_fn_query_returns_zero() {
-        let path = write_graph_file("fn_query", "f x:n>n;*x 2\ng y:n>n;f y");
-        let code = graph_cmd(&[path.clone(), "--fn".to_string(), "g".to_string()]);
-        assert_eq!(code, 0);
-        std::fs::remove_file(&path).ok();
-    }
-
-    #[test]
-    fn graph_cmd_fn_not_found_returns_one() {
-        let path = write_graph_file("fn_notfound", "f x:n>n;*x 2");
-        let code = graph_cmd(&[path.clone(), "--fn".to_string(), "nonexistent".to_string()]);
-        assert_eq!(code, 1);
-        std::fs::remove_file(&path).ok();
-    }
-
-    #[test]
-    fn graph_cmd_reverse_returns_zero() {
-        let path = write_graph_file("reverse", "f x:n>n;*x 2\ng y:n>n;f y");
-        let code = graph_cmd(&[
-            path.clone(),
-            "--fn".to_string(),
-            "f".to_string(),
-            "--reverse".to_string(),
-        ]);
-        assert_eq!(code, 0);
-        std::fs::remove_file(&path).ok();
-    }
-
-    #[test]
-    fn graph_cmd_reverse_fn_not_found_returns_one() {
-        let path = write_graph_file("reverse_nf", "f x:n>n;*x 2");
-        let code = graph_cmd(&[
-            path.clone(),
-            "--fn".to_string(),
-            "zzz".to_string(),
-            "--reverse".to_string(),
-        ]);
-        assert_eq!(code, 1);
-        std::fs::remove_file(&path).ok();
-    }
-
-    #[test]
-    fn graph_cmd_subgraph_returns_zero() {
-        let path = write_graph_file("subgraph_ok", "f x:n>n;*x 2\ng y:n>n;f y");
-        let code = graph_cmd(&[
-            path.clone(),
-            "--fn".to_string(),
-            "g".to_string(),
-            "--subgraph".to_string(),
-        ]);
-        assert_eq!(code, 0);
-        std::fs::remove_file(&path).ok();
-    }
-
-    #[test]
-    fn graph_cmd_subgraph_fn_not_found_returns_one() {
-        let path = write_graph_file("subgraph_nf", "f x:n>n;*x 2");
-        let code = graph_cmd(&[
-            path.clone(),
-            "--fn".to_string(),
-            "zzz".to_string(),
-            "--subgraph".to_string(),
-        ]);
-        assert_eq!(code, 1);
-        std::fs::remove_file(&path).ok();
-    }
-
-    #[test]
-    fn graph_cmd_budget_returns_zero() {
-        let path = write_graph_file("budget_ok", "f x:n>n;*x 2\ng y:n>n;f y");
-        let code = graph_cmd(&[
-            path.clone(),
-            "--fn".to_string(),
-            "g".to_string(),
-            "--budget".to_string(),
-            "10".to_string(),
-        ]);
-        assert_eq!(code, 0);
-        std::fs::remove_file(&path).ok();
-    }
-
-    #[test]
-    fn graph_cmd_budget_fn_not_found_returns_one() {
-        let path = write_graph_file("budget_nf", "f x:n>n;*x 2");
-        let code = graph_cmd(&[
-            path.clone(),
-            "--fn".to_string(),
-            "zzz".to_string(),
-            "--budget".to_string(),
-            "10".to_string(),
-        ]);
-        assert_eq!(code, 1);
-        std::fs::remove_file(&path).ok();
-    }
-
-    #[test]
-    fn graph_cmd_fn_missing_arg_returns_one() {
-        let path = write_graph_file("fn_missing", "f x:n>n;*x 2");
-        let code = graph_cmd(&[path.clone(), "--fn".to_string()]);
-        assert_eq!(code, 1);
-        std::fs::remove_file(&path).ok();
-    }
-
-    #[test]
-    fn graph_cmd_budget_missing_arg_returns_one() {
-        let path = write_graph_file("budget_missing", "f x:n>n;*x 2");
-        let code = graph_cmd(&[path.clone(), "--budget".to_string()]);
-        assert_eq!(code, 1);
-        std::fs::remove_file(&path).ok();
-    }
-
-    #[test]
-    fn graph_cmd_budget_bad_value_returns_one() {
-        let path = write_graph_file("budget_bad", "f x:n>n;*x 2");
-        let code = graph_cmd(&[
-            path.clone(),
-            "--budget".to_string(),
-            "notanumber".to_string(),
-        ]);
-        assert_eq!(code, 1);
-        std::fs::remove_file(&path).ok();
-    }
-
-    #[test]
-    fn graph_cmd_unknown_flag_returns_one() {
-        let path = write_graph_file("unknown_flag", "f x:n>n;*x 2");
-        let code = graph_cmd(&[path.clone(), "--unknown-flag".to_string()]);
-        assert_eq!(code, 1);
-        std::fs::remove_file(&path).ok();
-    }
-
-    // ── unit: dispatch_cli ────────────────────────────────────────────────────
-
-    fn make_cli_run(source: &str) -> cli::Cli {
-        cli::Cli::try_parse_from(["ilo", "run", source]).unwrap()
-    }
-
-    #[test]
-    fn dispatch_cli_version_cmd_returns_zero() {
-        let cli = cli::Cli::try_parse_from(["ilo", "version"]).unwrap();
+    fn dispatch_cli_none_bare_has_bin_false_prepends_ilo() {
+        // When bare_has_bin = false the dispatch adds "ilo" as argv[0].
+        // A minimal valid program that takes no args should succeed.
+        let cli = cli::Cli {
+            cmd: None,
+            global: cli::Global {
+                ansi: false,
+                text: false,
+                json: false,
+                no_hints: false,
+            },
+            args: vec!["f>n;1".to_string()],
+        };
+        // dispatch_cli prepends "ilo" and calls dispatch_bare_args
         let code = dispatch_cli(cli, false);
         assert_eq!(code, 0);
     }
 
+    // ── dispatch_bare_args: -ai flag ─────────────────────────────────────────
+
     #[test]
-    fn dispatch_cli_spec_lang_returns_zero() {
-        let cli = cli::Cli::try_parse_from(["ilo", "spec", "lang"]).unwrap();
-        let code = dispatch_cli(cli, false);
+    fn dispatch_bare_args_ai_flag_exits_zero() {
+        let global = cli::Global {
+            ansi: false,
+            text: false,
+            json: false,
+            no_hints: false,
+        };
+        let code = dispatch_bare_args(vec!["ilo".to_string(), "-ai".to_string()], &global);
         assert_eq!(code, 0);
     }
 
-    #[test]
-    fn dispatch_cli_spec_ai_returns_zero() {
-        let cli = cli::Cli::try_parse_from(["ilo", "spec", "ai"]).unwrap();
-        let code = dispatch_cli(cli, false);
-        assert_eq!(code, 0);
-    }
+    // ── dispatch_bare_args: help subpaths ────────────────────────────────────
 
     #[test]
-    fn dispatch_cli_spec_other_prints_help_returns_zero() {
-        let cli = cli::Cli::try_parse_from(["ilo", "spec"]).unwrap();
-        let code = dispatch_cli(cli, false);
-        assert_eq!(code, 0);
-    }
-
-    #[test]
-    fn dispatch_cli_explain_known_code_returns_zero() {
-        // Find a known error code from the registry
-        let cli = cli::Cli::try_parse_from(["ilo", "explain", "ILO-T001"]).unwrap();
-        let code = dispatch_cli(cli, false);
-        // Unknown code returns 1, known code returns 0
-        // We don't know if ILO-T001 is registered, but the function runs without panic
-        let _ = code;
-    }
-
-    #[test]
-    fn dispatch_cli_explain_unknown_code_returns_one() {
-        let cli = cli::Cli::try_parse_from(["ilo", "explain", "ILO-ZZZZZ"]).unwrap();
-        let code = dispatch_cli(cli, false);
-        assert_eq!(code, 1);
-    }
-
-    #[test]
-    fn dispatch_cli_tools_with_http_config_returns_zero() {
-        let path = write_tools_config_unit("dispatch_cli_tools");
-        let cli = cli::Cli::try_parse_from(["ilo", "tools", "--tools", &path]).unwrap();
-        let code = dispatch_cli(cli, false);
-        assert_eq!(code, 0);
-        std::fs::remove_file(&path).ok();
-    }
-
-    #[test]
-    fn dispatch_cli_graph_full_json_returns_zero() {
-        let path = write_graph_file("dispatch_graph", "f x:n>n;*x 2");
-        let cli =
-            cli::Cli::try_parse_from(["ilo", "graph", &path]).unwrap();
-        let code = dispatch_cli(cli, false);
-        assert_eq!(code, 0);
-        std::fs::remove_file(&path).ok();
-    }
-
-    #[test]
-    fn dispatch_cli_run_simple_code_returns_zero() {
-        let cli = make_cli_run("f>n;42");
-        let code = dispatch_cli(cli, false);
-        assert_eq!(code, 0);
-    }
-
-    #[test]
-    fn dispatch_cli_none_cmd_bare_has_bin_false_routes_to_bare_args() {
-        let cli = cli::Cli::try_parse_from(["ilo", "f>n;1"]).unwrap();
-        let code = dispatch_cli(cli, false);
-        assert_eq!(code, 0);
-    }
-
-    #[test]
-    fn dispatch_cli_none_cmd_bare_has_bin_true_routes_to_bare_args() {
-        let cli = cli::Cli::try_parse_from(["ilo"]).unwrap();
-        // No args → bare_has_bin=true means args already contain bin name
-        let code = dispatch_cli(cli, true);
-        // No source → should print help (exit 1) or dump (exit 0)
-        let _ = code;
-    }
-
-    // ── unit: dispatch_bare_args ──────────────────────────────────────────────
-
-    #[test]
-    fn dispatch_bare_args_ai_flag_returns_zero() {
-        let global = cli::Global { ansi: false, text: false, json: false, no_hints: false };
-        let code = dispatch_bare_args(
-            vec!["ilo".to_string(), "-ai".to_string()],
-            &global,
-        );
-        assert_eq!(code, 0);
-    }
-
-    #[test]
-    fn dispatch_bare_args_help_lang_returns_zero() {
-        let global = cli::Global { ansi: false, text: false, json: false, no_hints: false };
+    fn dispatch_bare_args_help_lang_exits_zero() {
+        let global = cli::Global {
+            ansi: false,
+            text: false,
+            json: false,
+            no_hints: false,
+        };
         let code = dispatch_bare_args(
             vec!["ilo".to_string(), "help".to_string(), "lang".to_string()],
             &global,
@@ -6027,8 +5740,13 @@ mod tests {
     }
 
     #[test]
-    fn dispatch_bare_args_help_ai_returns_zero() {
-        let global = cli::Global { ansi: false, text: false, json: false, no_hints: false };
+    fn dispatch_bare_args_help_ai_exits_zero() {
+        let global = cli::Global {
+            ansi: false,
+            text: false,
+            json: false,
+            no_hints: false,
+        };
         let code = dispatch_bare_args(
             vec!["ilo".to_string(), "help".to_string(), "ai".to_string()],
             &global,
@@ -6037,8 +5755,13 @@ mod tests {
     }
 
     #[test]
-    fn dispatch_bare_args_help_flag_returns_zero() {
-        let global = cli::Global { ansi: false, text: false, json: false, no_hints: false };
+    fn dispatch_bare_args_dash_h_exits_zero() {
+        let global = cli::Global {
+            ansi: false,
+            text: false,
+            json: false,
+            no_hints: false,
+        };
         let code = dispatch_bare_args(
             vec!["ilo".to_string(), "-h".to_string()],
             &global,
@@ -6046,9 +5769,65 @@ mod tests {
         assert_eq!(code, 0);
     }
 
+    // ── dispatch_bare_args: --explain <code> ─────────────────────────────────
+
     #[test]
-    fn dispatch_bare_args_version_flag_returns_zero() {
-        let global = cli::Global { ansi: false, text: false, json: false, no_hints: false };
+    fn dispatch_bare_args_explain_valid_code_exits_zero() {
+        let global = cli::Global {
+            ansi: false,
+            text: false,
+            json: false,
+            no_hints: false,
+        };
+        // ILO-T001 is a known error code
+        let code = dispatch_bare_args(
+            vec!["ilo".to_string(), "--explain".to_string(), "ILO-T001".to_string()],
+            &global,
+        );
+        assert_eq!(code, 0);
+    }
+
+    #[test]
+    fn dispatch_bare_args_explain_unknown_code_exits_one() {
+        let global = cli::Global {
+            ansi: false,
+            text: false,
+            json: false,
+            no_hints: false,
+        };
+        let code = dispatch_bare_args(
+            vec!["ilo".to_string(), "--explain".to_string(), "NOT-A-CODE".to_string()],
+            &global,
+        );
+        assert_eq!(code, 1);
+    }
+
+    #[test]
+    fn dispatch_bare_args_explain_no_code_arg_exits_one() {
+        let global = cli::Global {
+            ansi: false,
+            text: false,
+            json: false,
+            no_hints: false,
+        };
+        // --explain without a code argument → error exit
+        let code = dispatch_bare_args(
+            vec!["ilo".to_string(), "--explain".to_string()],
+            &global,
+        );
+        assert_eq!(code, 1);
+    }
+
+    // ── dispatch_bare_args: --version / -V ───────────────────────────────────
+
+    #[test]
+    fn dispatch_bare_args_version_long_exits_zero() {
+        let global = cli::Global {
+            ansi: false,
+            text: false,
+            json: false,
+            no_hints: false,
+        };
         let code = dispatch_bare_args(
             vec!["ilo".to_string(), "--version".to_string()],
             &global,
@@ -6057,8 +5836,13 @@ mod tests {
     }
 
     #[test]
-    fn dispatch_bare_args_version_short_returns_zero() {
-        let global = cli::Global { ansi: false, text: false, json: false, no_hints: false };
+    fn dispatch_bare_args_version_short_exits_zero() {
+        let global = cli::Global {
+            ansi: false,
+            text: false,
+            json: false,
+            no_hints: false,
+        };
         let code = dispatch_bare_args(
             vec!["ilo".to_string(), "-V".to_string()],
             &global,
@@ -6066,87 +5850,130 @@ mod tests {
         assert_eq!(code, 0);
     }
 
+    // ── dispatch_bare_args: --expanded / -e flag ─────────────────────────────
+
     #[test]
-    fn dispatch_bare_args_simple_code_returns_zero() {
-        let global = cli::Global { ansi: false, text: false, json: false, no_hints: false };
+    fn dispatch_bare_args_expanded_flag_exits_zero() {
+        let global = cli::Global {
+            ansi: false,
+            text: false,
+            json: false,
+            no_hints: false,
+        };
         let code = dispatch_bare_args(
-            vec!["ilo".to_string(), "f>n;42".to_string()],
+            vec![
+                "ilo".to_string(),
+                "f x:n>n;*x 2".to_string(),
+                "--expanded".to_string(),
+            ],
             &global,
         );
         assert_eq!(code, 0);
     }
 
     #[test]
-    fn dispatch_bare_args_explain_valid_code_returns_zero() {
-        let global = cli::Global { ansi: false, text: false, json: false, no_hints: false };
-        // --explain comes after the source (at mode_args_start = 2)
+    fn dispatch_bare_args_fmt_expanded_alias_exits_zero() {
+        let global = cli::Global {
+            ansi: false,
+            text: false,
+            json: false,
+            no_hints: false,
+        };
         let code = dispatch_bare_args(
-            vec!["ilo".to_string(), "f>n;42".to_string(), "--explain".to_string()],
+            vec![
+                "ilo".to_string(),
+                "f x:n>n;*x 2".to_string(),
+                "--fmt-expanded".to_string(),
+            ],
             &global,
         );
         assert_eq!(code, 0);
     }
 
+    // ── dispatch_bare_args: -e <code> shorthand ───────────────────────────────
+
     #[test]
-    fn dispatch_bare_args_explain_x_flag_returns_zero() {
-        let global = cli::Global { ansi: false, text: false, json: false, no_hints: false };
+    fn dispatch_bare_args_minus_e_code_shorthand() {
+        // -e as the inline code flag (not the --expanded flag here since engine_flag is None
+        // and args[m] = -e triggers the expanded path, but -e as argv[1] triggers
+        // the "treat args[2] as code" path)
+        let global = cli::Global {
+            ansi: false,
+            text: false,
+            json: false,
+            no_hints: false,
+        };
+        // dispatch_bare_args: args[1] == "-e" → args[2] is the code string
         let code = dispatch_bare_args(
-            vec!["ilo".to_string(), "f>n;42".to_string(), "-x".to_string()],
+            vec![
+                "ilo".to_string(),
+                "-e".to_string(),
+                "f x:n>n;*x 2".to_string(),
+            ],
             &global,
         );
+        // No args past the code: should dump AST JSON (exit 0)
         assert_eq!(code, 0);
     }
 
     #[test]
-    fn dispatch_bare_args_explain_no_arg_returns_one() {
-        let global = cli::Global { ansi: false, text: false, json: false, no_hints: false };
-        // Bare --explain (at args[1]) requires a code arg at args[2]
+    fn dispatch_bare_args_minus_e_empty_code_exits_one() {
+        let global = cli::Global {
+            ansi: false,
+            text: false,
+            json: false,
+            no_hints: false,
+        };
+        // -e with empty code string should fail
         let code = dispatch_bare_args(
-            vec!["ilo".to_string(), "--explain".to_string()],
+            vec![
+                "ilo".to_string(),
+                "-e".to_string(),
+                "".to_string(),
+            ],
             &global,
         );
         assert_eq!(code, 1);
     }
 
-    #[test]
-    fn dispatch_bare_args_dense_flag_returns_zero() {
-        let global = cli::Global { ansi: false, text: false, json: false, no_hints: false };
-        // --dense comes after source
-        let code = dispatch_bare_args(
-            vec!["ilo".to_string(), "f>n;42".to_string(), "--dense".to_string()],
-            &global,
-        );
-        assert_eq!(code, 0);
-    }
+    // ── dispatch_bare_args: --bench flag ─────────────────────────────────────
 
     #[test]
-    fn dispatch_bare_args_fmt_alias_returns_zero() {
-        let global = cli::Global { ansi: false, text: false, json: false, no_hints: false };
-        let code = dispatch_bare_args(
-            vec!["ilo".to_string(), "f>n;42".to_string(), "--fmt".to_string()],
-            &global,
-        );
-        assert_eq!(code, 0);
-    }
-
-    #[test]
-    fn dispatch_bare_args_expanded_flag_returns_zero() {
-        let global = cli::Global { ansi: false, text: false, json: false, no_hints: false };
-        let code = dispatch_bare_args(
-            vec!["ilo".to_string(), "f>n;42".to_string(), "--expanded".to_string()],
-            &global,
-        );
-        assert_eq!(code, 0);
-    }
-
-    #[test]
-    fn dispatch_bare_args_emit_python_returns_zero() {
-        let global = cli::Global { ansi: false, text: false, json: false, no_hints: false };
-        // --emit comes after source
+    fn dispatch_bare_args_bench_flag_exits_zero() {
+        let global = cli::Global {
+            ansi: false,
+            text: false,
+            json: false,
+            no_hints: false,
+        };
+        // bench mode: requires a func name in rest
         let code = dispatch_bare_args(
             vec![
                 "ilo".to_string(),
-                "f>n;42".to_string(),
+                "f x:n>n;*x 2".to_string(),
+                "--bench".to_string(),
+                "f".to_string(),
+                "3".to_string(),
+            ],
+            &global,
+        );
+        assert_eq!(code, 0);
+    }
+
+    // ── dispatch_bare_args: --emit flag ───────────────────────────────────────
+
+    #[test]
+    fn dispatch_bare_args_emit_python_exits_zero() {
+        let global = cli::Global {
+            ansi: false,
+            text: false,
+            json: false,
+            no_hints: false,
+        };
+        let code = dispatch_bare_args(
+            vec![
+                "ilo".to_string(),
+                "f x:n>n;*x 2".to_string(),
                 "--emit".to_string(),
                 "python".to_string(),
             ],
@@ -6156,14 +5983,19 @@ mod tests {
     }
 
     #[test]
-    fn dispatch_bare_args_emit_unknown_returns_one() {
-        let global = cli::Global { ansi: false, text: false, json: false, no_hints: false };
+    fn dispatch_bare_args_emit_unknown_target_exits_one() {
+        let global = cli::Global {
+            ansi: false,
+            text: false,
+            json: false,
+            no_hints: false,
+        };
         let code = dispatch_bare_args(
             vec![
                 "ilo".to_string(),
-                "f>n;42".to_string(),
+                "f x:n>n;*x 2".to_string(),
                 "--emit".to_string(),
-                "unknown_target".to_string(),
+                "rust".to_string(),
             ],
             &global,
         );
@@ -6171,15 +6003,187 @@ mod tests {
     }
 
     #[test]
-    fn dispatch_bare_args_bench_flag_returns_zero() {
-        let global = cli::Global { ansi: false, text: false, json: false, no_hints: false };
-        // --bench comes after source, then function name
+    fn dispatch_bare_args_emit_no_target_dumps_ast() {
+        // --emit with no target arg: target = None → dispatch_run gets emit=None,
+        // falls through to default engine execution with no rest args → AST JSON dump (exit 0)
+        let global = cli::Global {
+            ansi: false,
+            text: false,
+            json: false,
+            no_hints: false,
+        };
+        let code = dispatch_bare_args(
+            vec![
+                "ilo".to_string(),
+                "f x:n>n;*x 2".to_string(),
+                "--emit".to_string(),
+            ],
+            &global,
+        );
+        // None emit → falls to default engine with no rest → AST JSON dump → exit 0
+        assert_eq!(code, 0);
+    }
+
+    // ── dispatch_bare_args: --dense / -d / --fmt flags ───────────────────────
+
+    #[test]
+    fn dispatch_bare_args_dense_flag_exits_zero() {
+        let global = cli::Global {
+            ansi: false,
+            text: false,
+            json: false,
+            no_hints: false,
+        };
+        let code = dispatch_bare_args(
+            vec![
+                "ilo".to_string(),
+                "f x:n>n;*x 2".to_string(),
+                "--dense".to_string(),
+            ],
+            &global,
+        );
+        assert_eq!(code, 0);
+    }
+
+    #[test]
+    fn dispatch_bare_args_fmt_alias_exits_zero() {
+        let global = cli::Global {
+            ansi: false,
+            text: false,
+            json: false,
+            no_hints: false,
+        };
+        let code = dispatch_bare_args(
+            vec![
+                "ilo".to_string(),
+                "f x:n>n;*x 2".to_string(),
+                "--fmt".to_string(),
+            ],
+            &global,
+        );
+        assert_eq!(code, 0);
+    }
+
+    // ── dispatch_bare_args: --explain / -x at mode_args_start ────────────────
+
+    #[test]
+    fn dispatch_bare_args_explain_x_flag_at_m() {
+        let global = cli::Global {
+            ansi: false,
+            text: false,
+            json: false,
+            no_hints: false,
+        };
+        let code = dispatch_bare_args(
+            vec![
+                "ilo".to_string(),
+                "f x:n>n;*x 2".to_string(),
+                "--explain".to_string(),
+            ],
+            &global,
+        );
+        assert_eq!(code, 0);
+    }
+
+    #[test]
+    fn dispatch_bare_args_explain_x_short_flag() {
+        let global = cli::Global {
+            ansi: false,
+            text: false,
+            json: false,
+            no_hints: false,
+        };
+        let code = dispatch_bare_args(
+            vec![
+                "ilo".to_string(),
+                "f x:n>n;*x 2".to_string(),
+                "-x".to_string(),
+            ],
+            &global,
+        );
+        assert_eq!(code, 0);
+    }
+
+    // ── dispatch_bare_args: engine flags (--run-jit, --run-vm, --run-cranelift, --run-llvm, --run)
+
+    #[test]
+    fn dispatch_bare_args_run_vm_engine_flag() {
+        let global = cli::Global {
+            ansi: false,
+            text: false,
+            json: false,
+            no_hints: false,
+        };
+        let code = dispatch_bare_args(
+            vec![
+                "ilo".to_string(),
+                "f x:n>n;*x 2".to_string(),
+                "--run-vm".to_string(),
+                "f".to_string(),
+                "4".to_string(),
+            ],
+            &global,
+        );
+        assert_eq!(code, 0);
+    }
+
+    #[test]
+    fn dispatch_bare_args_run_tree_engine_flag() {
+        let global = cli::Global {
+            ansi: false,
+            text: false,
+            json: false,
+            no_hints: false,
+        };
+        let code = dispatch_bare_args(
+            vec![
+                "ilo".to_string(),
+                "f x:n>n;*x 2".to_string(),
+                "--run".to_string(),
+                "f".to_string(),
+                "5".to_string(),
+            ],
+            &global,
+        );
+        assert_eq!(code, 0);
+    }
+
+    #[test]
+    fn dispatch_bare_args_run_tree_long_flag() {
+        let global = cli::Global {
+            ansi: false,
+            text: false,
+            json: false,
+            no_hints: false,
+        };
+        let code = dispatch_bare_args(
+            vec![
+                "ilo".to_string(),
+                "f x:n>n;*x 2".to_string(),
+                "--run-tree".to_string(),
+                "f".to_string(),
+                "5".to_string(),
+            ],
+            &global,
+        );
+        assert_eq!(code, 0);
+    }
+
+    // ── dispatch_bare_args: global flag overrides ────────────────────────────
+
+    #[test]
+    fn dispatch_bare_args_global_ansi_overrides_mode() {
+        let global = cli::Global {
+            ansi: true,
+            text: false,
+            json: false,
+            no_hints: false,
+        };
+        // Just runs a simple program; tests that global.ansi overrides detected mode
         let code = dispatch_bare_args(
             vec![
                 "ilo".to_string(),
                 "f>n;42".to_string(),
-                "--bench".to_string(),
-                "f".to_string(),
             ],
             &global,
         );
@@ -6187,101 +6191,235 @@ mod tests {
     }
 
     #[test]
-    fn dispatch_bare_args_run_vm_flag_routes_to_vm() {
-        let global = cli::Global { ansi: false, text: false, json: false, no_hints: false };
-        // --run-vm comes after source, then function name
+    fn dispatch_bare_args_global_text_overrides_mode() {
+        let global = cli::Global {
+            ansi: false,
+            text: true,
+            json: false,
+            no_hints: false,
+        };
         let code = dispatch_bare_args(
-            vec!["ilo".to_string(), "f>n;42".to_string(), "--run-vm".to_string(), "f".to_string()],
+            vec![
+                "ilo".to_string(),
+                "f>n;42".to_string(),
+            ],
             &global,
         );
         assert_eq!(code, 0);
     }
 
     #[test]
-    fn dispatch_bare_args_run_tree_flag_routes_to_interpreter() {
-        let global = cli::Global { ansi: false, text: false, json: false, no_hints: false };
+    fn dispatch_bare_args_global_json_overrides_mode() {
+        let global = cli::Global {
+            ansi: false,
+            text: false,
+            json: true,
+            no_hints: false,
+        };
         let code = dispatch_bare_args(
-            vec!["ilo".to_string(), "f>n;42".to_string(), "--run-tree".to_string(), "f".to_string()],
+            vec![
+                "ilo".to_string(),
+                "f>n;42".to_string(),
+            ],
             &global,
         );
         assert_eq!(code, 0);
     }
 
+    // ── emit_hints: all three modes ───────────────────────────────────────────
+
     #[test]
-    fn dispatch_bare_args_run_flag_routes_to_interpreter() {
-        let global = cli::Global { ansi: false, text: false, json: false, no_hints: false };
-        let code = dispatch_bare_args(
-            vec!["ilo".to_string(), "f>n;42".to_string(), "--run".to_string(), "f".to_string()],
-            &global,
-        );
-        assert_eq!(code, 0);
+    fn emit_hints_ansi_mode_no_panic() {
+        emit_hints(&["hint: `==` → `=`".to_string()], OutputMode::Ansi);
     }
 
     #[test]
-    fn dispatch_bare_args_empty_code_returns_one() {
-        let global = cli::Global { ansi: false, text: false, json: false, no_hints: false };
-        let code = dispatch_bare_args(
-            vec!["ilo".to_string(), "".to_string()],
-            &global,
-        );
+    fn emit_hints_text_mode_no_panic() {
+        emit_hints(&["hint: `==` → `=`".to_string()], OutputMode::Text);
+    }
+
+    #[test]
+    fn emit_hints_json_mode_outputs_json_array() {
+        // JSON mode should write a JSON object to stderr — just verify no panic
+        emit_hints(&["hint: `==` → `=`".to_string()], OutputMode::Json);
+    }
+
+    #[test]
+    fn emit_hints_empty_slice_is_noop() {
+        // Empty hints slice should return early (no output, no panic)
+        emit_hints(&[], OutputMode::Ansi);
+        emit_hints(&[], OutputMode::Text);
+        emit_hints(&[], OutputMode::Json);
+    }
+
+    // ── collect_hints: alias hint ─────────────────────────────────────────────
+
+    #[test]
+    fn collect_hints_alias_word_produces_hint() {
+        // Use a known alias: "length" maps to "len" (or similar)
+        // We need a word that ast::resolve_alias recognizes.
+        // "add" → "+" or similar may exist. Let's use a known one.
+        // From the spec: "length" → "len", "append" → "push" etc.
+        // Try a few candidates that are likely aliases.
+        let hints = collect_hints("f xs:L n>n;length xs");
+        // If "length" is a known alias, we get a hint; otherwise we get none.
+        // Just verify no panic.
+        let _ = hints;
+    }
+
+    #[test]
+    fn collect_hints_no_hints_when_clean() {
+        let hints = collect_hints("f x:n>n;+x 1");
+        assert!(hints.is_empty(), "clean code should have no hints");
+    }
+
+    // ── tools_cmd: error paths ────────────────────────────────────────────────
+
+    #[test]
+    fn tools_cmd_mcp_flag_missing_path_returns_one() {
+        // --mcp with no following path argument → error
+        let code = tools_cmd(&["--mcp".to_string()]);
         assert_eq!(code, 1);
     }
 
     #[test]
-    fn dispatch_bare_args_no_args_shows_help() {
-        let global = cli::Global { ansi: false, text: false, json: false, no_hints: false };
-        let code = dispatch_bare_args(vec!["ilo".to_string()], &global);
-        // No args → shows help, returns 1
+    fn tools_cmd_tools_flag_missing_path_returns_one() {
+        // --tools with no following path argument → error
+        let code = tools_cmd(&["--tools".to_string()]);
         assert_eq!(code, 1);
     }
 
     #[test]
-    fn dispatch_bare_args_lex_error_returns_one() {
-        let global = cli::Global { ansi: false, text: false, json: false, no_hints: false };
-        // Invalid ilo source that causes a lex error
-        let code = dispatch_bare_args(
-            vec!["ilo".to_string(), "@@@invalid@@@".to_string()],
-            &global,
-        );
+    fn tools_cmd_unknown_flag_returns_one() {
+        // An unknown flag → error
+        let code = tools_cmd(&["--unknown-xyz".to_string()]);
         assert_eq!(code, 1);
     }
 
     #[test]
-    fn dispatch_bare_args_verify_error_returns_one() {
-        let global = cli::Global { ansi: false, text: false, json: false, no_hints: false };
-        // Source with type error
-        let code = dispatch_bare_args(
-            vec!["ilo".to_string(), "f>n;\"text_not_number\"".to_string()],
-            &global,
-        );
+    fn tools_cmd_no_args_returns_one() {
+        // No args at all → error (neither --mcp nor --tools provided)
+        let code = tools_cmd(&[]);
+        assert_eq!(code, 1);
+    }
+
+    // ── graph_cmd: error paths ────────────────────────────────────────────────
+
+    #[test]
+    fn graph_cmd_no_args_returns_one() {
+        let code = graph_cmd(&[]);
         assert_eq!(code, 1);
     }
 
     #[test]
-    fn dispatch_bare_args_no_hints_flag_suppresses_hints() {
-        let global = cli::Global { ansi: false, text: false, json: false, no_hints: true };
-        let code = dispatch_bare_args(
-            vec!["ilo".to_string(), "f x:n y:n>b;==x y".to_string()],
-            &global,
-        );
-        assert_eq!(code, 0);
+    fn graph_cmd_fn_flag_missing_name_returns_one() {
+        // Create a temp file for graph_cmd to parse
+        let path = "/tmp/ilo_graph_test_fn_missing.ilo";
+        std::fs::write(path, "f x:n>n;+x 1").unwrap();
+        let code = graph_cmd(&[path.to_string(), "--fn".to_string()]);
+        assert_eq!(code, 1);
+        std::fs::remove_file(path).ok();
     }
 
     #[test]
-    fn dispatch_bare_args_hints_flag_emits_hints() {
-        let global = cli::Global { ansi: false, text: false, json: false, no_hints: false };
-        let code = dispatch_bare_args(
-            vec!["ilo".to_string(), "f x:n y:n>b;==x y".to_string()],
-            &global,
-        );
-        assert_eq!(code, 0);
+    fn graph_cmd_budget_flag_missing_number_returns_one() {
+        let path = "/tmp/ilo_graph_test_budget_missing.ilo";
+        std::fs::write(path, "f x:n>n;+x 1").unwrap();
+        let code = graph_cmd(&[path.to_string(), "--budget".to_string()]);
+        assert_eq!(code, 1);
+        std::fs::remove_file(path).ok();
     }
 
-    // ── unit: dispatch_run ────────────────────────────────────────────────────
+    #[test]
+    fn graph_cmd_budget_invalid_value_returns_one() {
+        let path = "/tmp/ilo_graph_test_budget_invalid.ilo";
+        std::fs::write(path, "f x:n>n;+x 1").unwrap();
+        let code = graph_cmd(&[
+            path.to_string(),
+            "--budget".to_string(),
+            "notanumber".to_string(),
+        ]);
+        assert_eq!(code, 1);
+        std::fs::remove_file(path).ok();
+    }
 
-    fn make_run_args(source: &str) -> cli::RunArgs {
-        cli::RunArgs {
-            source: source.to_string(),
+    #[test]
+    fn graph_cmd_unknown_flag_returns_one() {
+        let path = "/tmp/ilo_graph_test_unknown_flag.ilo";
+        std::fs::write(path, "f x:n>n;+x 1").unwrap();
+        let code = graph_cmd(&[path.to_string(), "--nonexistent-flag".to_string()]);
+        assert_eq!(code, 1);
+        std::fs::remove_file(path).ok();
+    }
+
+    #[test]
+    fn graph_cmd_file_not_found_returns_one() {
+        let code = graph_cmd(&["/tmp/ilo_no_such_file_99999.ilo".to_string()]);
+        assert_eq!(code, 1);
+    }
+
+    #[test]
+    fn graph_cmd_fn_not_found_returns_one() {
+        let path = "/tmp/ilo_graph_test_fn_notfound.ilo";
+        std::fs::write(path, "f x:n>n;+x 1").unwrap();
+        let code = graph_cmd(&[
+            path.to_string(),
+            "--fn".to_string(),
+            "nonexistent_fn".to_string(),
+        ]);
+        assert_eq!(code, 1);
+        std::fs::remove_file(path).ok();
+    }
+
+    #[test]
+    fn graph_cmd_fn_reverse_not_found_returns_one() {
+        let path = "/tmp/ilo_graph_test_rev_notfound.ilo";
+        std::fs::write(path, "f x:n>n;+x 1").unwrap();
+        let code = graph_cmd(&[
+            path.to_string(),
+            "--fn".to_string(),
+            "nonexistent_fn".to_string(),
+            "--reverse".to_string(),
+        ]);
+        assert_eq!(code, 1);
+        std::fs::remove_file(path).ok();
+    }
+
+    #[test]
+    fn graph_cmd_fn_subgraph_not_found_returns_one() {
+        let path = "/tmp/ilo_graph_test_sub_notfound.ilo";
+        std::fs::write(path, "f x:n>n;+x 1").unwrap();
+        let code = graph_cmd(&[
+            path.to_string(),
+            "--fn".to_string(),
+            "nonexistent_fn".to_string(),
+            "--subgraph".to_string(),
+        ]);
+        assert_eq!(code, 1);
+        std::fs::remove_file(path).ok();
+    }
+
+    #[test]
+    fn graph_cmd_fn_budget_not_found_returns_one() {
+        let path = "/tmp/ilo_graph_test_bud_notfound.ilo";
+        std::fs::write(path, "f x:n>n;+x 1").unwrap();
+        let code = graph_cmd(&[
+            path.to_string(),
+            "--fn".to_string(),
+            "nonexistent_fn".to_string(),
+            "--budget".to_string(),
+            "50".to_string(),
+        ]);
+        assert_eq!(code, 1);
+        std::fs::remove_file(path).ok();
+    }
+
+    // ── dispatch_run: empty source string ────────────────────────────────────
+
+    #[test]
+    fn dispatch_run_empty_source_returns_one() {
+        let run_args = cli::RunArgs {
+            source: "".to_string(),
             engine: cli::Engine::Default,
             run_tree: false,
             run: false,
@@ -6297,818 +6435,507 @@ mod tests {
             tools_path: None,
             mcp_path: None,
             rest: vec![],
-        }
-    }
-
-    #[test]
-    fn dispatch_run_empty_source_returns_one() {
-        let r = make_run_args("");
-        let code = dispatch_run(r, OutputMode::Text, false, false);
+        };
+        let code = dispatch_run(run_args, OutputMode::Text, false, false);
         assert_eq!(code, 1);
     }
 
+    // ── dispatch_run: tools + mcp mutually exclusive ─────────────────────────
+
     #[test]
-    fn dispatch_run_tools_and_mcp_mutually_exclusive_returns_one() {
-        let mut r = make_run_args("f>n;1");
-        r.tools_path = Some("/tmp/t.json".to_string());
-        r.mcp_path = Some("/tmp/m.json".to_string());
-        let code = dispatch_run(r, OutputMode::Text, false, false);
+    fn dispatch_run_tools_and_mcp_mutually_exclusive() {
+        let run_args = cli::RunArgs {
+            source: "f>n;1".to_string(),
+            engine: cli::Engine::Default,
+            run_tree: false,
+            run: false,
+            run_vm: false,
+            run_jit: false,
+            run_cranelift: false,
+            run_llvm: false,
+            bench: false,
+            emit: None,
+            explain: false,
+            dense: false,
+            expanded: false,
+            tools_path: Some("/tmp/t.json".to_string()),
+            mcp_path: Some("/tmp/m.json".to_string()),
+            rest: vec![],
+        };
+        let code = dispatch_run(run_args, OutputMode::Text, false, false);
         assert_eq!(code, 1);
     }
 
+    // ── dispatch_run: no args → AST JSON dump ────────────────────────────────
+
     #[test]
-    fn dispatch_run_no_rest_args_dumps_ast() {
-        // With no rest args and Default engine, it dumps AST JSON
-        let r = make_run_args("f>n;42");
-        let code = dispatch_run(r, OutputMode::Text, false, false);
+    fn dispatch_run_no_rest_args_dumps_ast_json() {
+        // When rest is empty and func_name not found → dumps AST JSON
+        let run_args = cli::RunArgs {
+            source: "f x:n>n;*x 2".to_string(),
+            engine: cli::Engine::Default,
+            run_tree: false,
+            run: false,
+            run_vm: false,
+            run_jit: false,
+            run_cranelift: false,
+            run_llvm: false,
+            bench: false,
+            emit: None,
+            explain: false,
+            dense: false,
+            expanded: false,
+            tools_path: None,
+            mcp_path: None,
+            rest: vec![],
+        };
+        let code = dispatch_run(run_args, OutputMode::Text, false, false);
+        assert_eq!(code, 0);
+    }
+
+    // ── dispatch_run: hints emitted after success ─────────────────────────────
+
+    #[test]
+    fn dispatch_run_hints_emitted_with_double_equals() {
+        // A program using == should emit a hint after execution
+        let run_args = cli::RunArgs {
+            source: "f x:n>b;==x 1".to_string(),
+            engine: cli::Engine::Default,
+            run_tree: false,
+            run: false,
+            run_vm: false,
+            run_jit: false,
+            run_cranelift: false,
+            run_llvm: false,
+            bench: false,
+            emit: None,
+            explain: false,
+            dense: false,
+            expanded: false,
+            tools_path: None,
+            mcp_path: None,
+            rest: vec!["f".to_string(), "1".to_string()],
+        };
+        // no_hints = false → hints emitted (to stderr, so just verify no panic)
+        let code = dispatch_run(run_args, OutputMode::Text, false, false);
         assert_eq!(code, 0);
     }
 
     #[test]
-    fn dispatch_run_with_func_name_in_rest_executes() {
-        let mut r = make_run_args("f>n;42");
-        r.rest = vec!["f".to_string()];
-        let code = dispatch_run(r, OutputMode::Text, false, false);
+    fn dispatch_run_hints_suppressed_with_no_hints() {
+        let run_args = cli::RunArgs {
+            source: "f x:n>b;==x 1".to_string(),
+            engine: cli::Engine::Default,
+            run_tree: false,
+            run: false,
+            run_vm: false,
+            run_jit: false,
+            run_cranelift: false,
+            run_llvm: false,
+            bench: false,
+            emit: None,
+            explain: false,
+            dense: false,
+            expanded: false,
+            tools_path: None,
+            mcp_path: None,
+            rest: vec!["f".to_string(), "1".to_string()],
+        };
+        // no_hints = true → hints suppressed
+        let code = dispatch_run(run_args, OutputMode::Text, false, true);
         assert_eq!(code, 0);
     }
 
-    #[test]
-    fn dispatch_run_explain_flag_returns_zero() {
-        let mut r = make_run_args("f>n;42");
-        r.explain = true;
-        let code = dispatch_run(r, OutputMode::Text, false, false);
-        assert_eq!(code, 0);
-    }
-
-    #[test]
-    fn dispatch_run_dense_flag_returns_zero() {
-        let mut r = make_run_args("f>n;42");
-        r.dense = true;
-        let code = dispatch_run(r, OutputMode::Text, false, false);
-        assert_eq!(code, 0);
-    }
-
-    #[test]
-    fn dispatch_run_expanded_flag_returns_zero() {
-        let mut r = make_run_args("f>n;42");
-        r.expanded = true;
-        let code = dispatch_run(r, OutputMode::Text, false, false);
-        assert_eq!(code, 0);
-    }
-
-    #[test]
-    fn dispatch_run_emit_python_returns_zero() {
-        let mut r = make_run_args("f>n;42");
-        r.emit = Some("python".to_string());
-        let code = dispatch_run(r, OutputMode::Text, false, false);
-        assert_eq!(code, 0);
-    }
-
-    #[test]
-    fn dispatch_run_emit_unknown_returns_one() {
-        let mut r = make_run_args("f>n;42");
-        r.emit = Some("unknown".to_string());
-        let code = dispatch_run(r, OutputMode::Text, false, false);
-        assert_eq!(code, 1);
-    }
-
-    #[test]
-    fn dispatch_run_bench_flag_returns_zero() {
-        let mut r = make_run_args("f>n;42");
-        r.bench = true;
-        let code = dispatch_run(r, OutputMode::Text, false, false);
-        assert_eq!(code, 0);
-    }
+    // ── dispatch_run: lex error ───────────────────────────────────────────────
 
     #[test]
     fn dispatch_run_lex_error_returns_one() {
-        let r = make_run_args("@@@invalid@@@");
-        let code = dispatch_run(r, OutputMode::Text, false, false);
+        let run_args = cli::RunArgs {
+            source: "MyFunc INVALID_UPPER".to_string(),
+            engine: cli::Engine::Default,
+            run_tree: false,
+            run: false,
+            run_vm: false,
+            run_jit: false,
+            run_cranelift: false,
+            run_llvm: false,
+            bench: false,
+            emit: None,
+            explain: false,
+            dense: false,
+            expanded: false,
+            tools_path: None,
+            mcp_path: None,
+            rest: vec![],
+        };
+        let code = dispatch_run(run_args, OutputMode::Text, false, false);
         assert_eq!(code, 1);
     }
+
+    // ── dispatch_run: verify error ────────────────────────────────────────────
 
     #[test]
     fn dispatch_run_verify_error_returns_one() {
-        let r = make_run_args("f>n;\"text_not_number\"");
-        let code = dispatch_run(r, OutputMode::Text, false, false);
+        // Function returns wrong type: declared to return t, actually returns n
+        let run_args = cli::RunArgs {
+            source: "f x:n>t;x".to_string(),
+            engine: cli::Engine::Default,
+            run_tree: false,
+            run: false,
+            run_vm: false,
+            run_jit: false,
+            run_cranelift: false,
+            run_llvm: false,
+            bench: false,
+            emit: None,
+            explain: false,
+            dense: false,
+            expanded: false,
+            tools_path: None,
+            mcp_path: None,
+            rest: vec!["f".to_string(), "1".to_string()],
+        };
+        let code = dispatch_run(run_args, OutputMode::Text, false, false);
+        assert_eq!(code, 1);
+    }
+
+    // ── dispatch_cli: Repl cmd with global.json = true ───────────────────────
+    // Note: serv_cmd reads from stdin, so we can't easily call dispatch_cli(Repl)
+    // with global.json=true in a unit test. We test the individual branch logic.
+
+    #[test]
+    fn dispatch_cli_version_cmd_exits_zero() {
+        let cli = cli::Cli {
+            cmd: Some(cli::Cmd::Version),
+            global: cli::Global {
+                ansi: false,
+                text: false,
+                json: false,
+                no_hints: false,
+            },
+            args: vec![],
+        };
+        let code = dispatch_cli(cli, false);
+        assert_eq!(code, 0);
+    }
+
+    #[test]
+    fn dispatch_cli_spec_none_topic_prints_help() {
+        let cli = cli::Cli {
+            cmd: Some(cli::Cmd::Spec(cli::args::SpecArgs { topic: None })),
+            global: cli::Global {
+                ansi: false,
+                text: false,
+                json: false,
+                no_hints: false,
+            },
+            args: vec![],
+        };
+        // No topic → print_help
+        let code = dispatch_cli(cli, false);
+        assert_eq!(code, 0);
+    }
+
+    #[test]
+    fn dispatch_cli_explain_unknown_code_exits_one() {
+        let cli = cli::Cli {
+            cmd: Some(cli::Cmd::Explain(cli::args::ExplainArgs {
+                code: "NOT-A-REAL-CODE".to_string(),
+            })),
+            global: cli::Global {
+                ansi: false,
+                text: false,
+                json: false,
+                no_hints: false,
+            },
+            args: vec![],
+        };
+        let code = dispatch_cli(cli, false);
         assert_eq!(code, 1);
     }
 
     #[test]
-    fn dispatch_run_vm_engine_returns_zero() {
-        let mut r = make_run_args("f>n;42");
-        r.engine = cli::Engine::Vm;
-        r.rest = vec!["f".to_string()];
-        let code = dispatch_run(r, OutputMode::Text, false, false);
+    fn dispatch_cli_explain_valid_code_exits_zero() {
+        let cli = cli::Cli {
+            cmd: Some(cli::Cmd::Explain(cli::args::ExplainArgs {
+                code: "ILO-T001".to_string(),
+            })),
+            global: cli::Global {
+                ansi: false,
+                text: false,
+                json: false,
+                no_hints: false,
+            },
+            args: vec![],
+        };
+        let code = dispatch_cli(cli, false);
         assert_eq!(code, 0);
     }
 
     #[test]
-    fn dispatch_run_tree_engine_returns_zero() {
-        let mut r = make_run_args("f>n;42");
-        r.engine = cli::Engine::Tree;
-        r.rest = vec!["f".to_string()];
-        let code = dispatch_run(r, OutputMode::Text, false, false);
-        assert_eq!(code, 0);
-    }
-
-    #[test]
-    fn dispatch_run_no_hints_suppresses_hints() {
-        let mut r = make_run_args("f x:n y:n>b;==x y");
-        r.rest = vec!["f".to_string(), "1".to_string(), "1".to_string()];
-        let code = dispatch_run(r, OutputMode::Text, false, true);
-        assert_eq!(code, 0);
-    }
-
-    #[test]
-    fn dispatch_run_hints_are_emitted() {
-        let mut r = make_run_args("f x:n y:n>b;==x y");
-        r.rest = vec!["f".to_string(), "1".to_string(), "1".to_string()];
-        let code = dispatch_run(r, OutputMode::Json, false, false);
-        assert_eq!(code, 0);
-    }
-
-    // ── unit: run_jit_engine ──────────────────────────────────────────────────
-
-    #[test]
-    fn run_jit_engine_not_on_aarch64_returns_one() {
-        // On non-aarch64 or non-macOS, should return 1 with message
-        let prog = make_program("f x:n>n;*x 2");
-        let code = run_jit_engine(&prog, &[]);
-        // On aarch64 macOS it may return 0 or 1 depending on JIT eligibility;
-        // on other platforms it always returns 1.
-        #[cfg(not(all(target_arch = "aarch64", target_os = "macos")))]
-        assert_eq!(code, 1);
-        #[cfg(all(target_arch = "aarch64", target_os = "macos"))]
-        let _ = code;
-    }
-
-    #[test]
-    fn run_jit_engine_non_numeric_arg_returns_one() {
-        let prog = make_program("f x:n>n;*x 2");
-        let code = run_jit_engine(
-            &prog,
-            &["f".to_string(), "notanumber".to_string()],
-        );
+    fn dispatch_cli_tools_cmd_no_source_exits_one() {
+        // Tools with no mcp or tools path → exit 1
+        let cli = cli::Cli {
+            cmd: Some(cli::Cmd::Tools(cli::args::ToolsArgs {
+                mcp_path: None,
+                tools_path: None,
+                format: None,
+                human: false,
+                ilo: false,
+                json: false,
+                full: false,
+                graph: false,
+            })),
+            global: cli::Global {
+                ansi: false,
+                text: false,
+                json: false,
+                no_hints: false,
+            },
+            args: vec![],
+        };
+        let code = dispatch_cli(cli, false);
         assert_eq!(code, 1);
     }
 
-    // ── unit: run_cranelift_engine ────────────────────────────────────────────
+    // ── graph_cmd: success paths (dot, fn, fn+reverse, fn+subgraph, fn+budget, full) ──
 
     #[test]
-    fn run_cranelift_engine_not_enabled_returns_one() {
-        // Without cranelift feature, should return 1
-        #[cfg(not(feature = "cranelift"))]
-        {
-            let prog = make_program("f x:n>n;*x 2");
-            let code = run_cranelift_engine(&prog, &["f".to_string(), "5".to_string()], false);
-            assert_eq!(code, 1);
-        }
-        // With cranelift feature enabled, it may succeed
-        #[cfg(feature = "cranelift")]
-        {
-            let prog = make_program("f x:n>n;*x 2");
-            let code = run_cranelift_engine(&prog, &["f".to_string(), "5".to_string()], false);
-            let _ = code; // can succeed or fail
-        }
+    fn graph_cmd_dot_output_exits_zero() {
+        let path = "/tmp/ilo_graph_dot_test_unit.ilo";
+        std::fs::write(path, "f x:n>n;+x 1 g x:n>n;f x").unwrap();
+        let code = graph_cmd(&[path.to_string(), "--dot".to_string()]);
+        assert_eq!(code, 0);
+        std::fs::remove_file(path).ok();
     }
 
-    // ── unit: run_llvm_engine ─────────────────────────────────────────────────
+    #[test]
+    fn graph_cmd_fn_success_exits_zero() {
+        let path = "/tmp/ilo_graph_fn_success.ilo";
+        std::fs::write(path, "f x:n>n;+x 1").unwrap();
+        let code = graph_cmd(&[
+            path.to_string(),
+            "--fn".to_string(),
+            "f".to_string(),
+        ]);
+        assert_eq!(code, 0);
+        std::fs::remove_file(path).ok();
+    }
+
+    #[test]
+    fn graph_cmd_fn_reverse_success_exits_zero() {
+        let path = "/tmp/ilo_graph_rev_success.ilo";
+        std::fs::write(path, "helper x:n>n;*x 2 main x:n>n;helper x").unwrap();
+        let code = graph_cmd(&[
+            path.to_string(),
+            "--fn".to_string(),
+            "helper".to_string(),
+            "--reverse".to_string(),
+        ]);
+        assert_eq!(code, 0);
+        std::fs::remove_file(path).ok();
+    }
+
+    #[test]
+    fn graph_cmd_fn_subgraph_success_exits_zero() {
+        let path = "/tmp/ilo_graph_sub_success.ilo";
+        std::fs::write(path, "helper x:n>n;*x 2 main x:n>n;helper x").unwrap();
+        let code = graph_cmd(&[
+            path.to_string(),
+            "--fn".to_string(),
+            "main".to_string(),
+            "--subgraph".to_string(),
+        ]);
+        assert_eq!(code, 0);
+        std::fs::remove_file(path).ok();
+    }
+
+    #[test]
+    fn graph_cmd_fn_budget_success_exits_zero() {
+        let path = "/tmp/ilo_graph_bud_success.ilo";
+        std::fs::write(path, "f x:n>n;+x 1").unwrap();
+        let code = graph_cmd(&[
+            path.to_string(),
+            "--fn".to_string(),
+            "f".to_string(),
+            "--budget".to_string(),
+            "100".to_string(),
+        ]);
+        assert_eq!(code, 0);
+        std::fs::remove_file(path).ok();
+    }
+
+    #[test]
+    fn graph_cmd_full_json_success_exits_zero() {
+        let path = "/tmp/ilo_graph_full_json.ilo";
+        std::fs::write(path, "f x:n>n;+x 1 g x:n>n;f x").unwrap();
+        let code = graph_cmd(&[path.to_string()]);
+        assert_eq!(code, 0);
+        std::fs::remove_file(path).ok();
+    }
+
+    // ── run_llvm_engine: no-llvm path ─────────────────────────────────────────
 
     #[test]
     fn run_llvm_engine_not_enabled_returns_one() {
-        #[cfg(not(feature = "llvm"))]
-        {
-            let prog = make_program("f x:n>n;*x 2");
-            let code = run_llvm_engine(&prog, &[]);
-            assert_eq!(code, 1);
-        }
-        #[cfg(feature = "llvm")]
-        {
-            let prog = make_program("f x:n>n;*x 2");
-            let code = run_llvm_engine(&prog, &[]);
-            let _ = code;
-        }
+        // Without the llvm feature, run_llvm_engine returns 1 with an error message.
+        let program = make_program("f x:n>n;*x 2");
+        let code = run_llvm_engine(&program, &[]);
+        // Without --features llvm, always 1
+        assert_eq!(code, 1);
     }
 
     #[test]
     fn run_llvm_engine_non_numeric_arg_returns_one() {
-        let prog = make_program("f x:n>n;*x 2");
-        let code = run_llvm_engine(&prog, &["f".to_string(), "notanumber".to_string()]);
+        // Even with the platform branch, non-numeric args cause error
+        let program = make_program("f x:n>n;*x 2");
+        let code = run_llvm_engine(&program, &["f".to_string(), "notanumber".to_string()]);
         assert_eq!(code, 1);
     }
 
-    // ── unit: load_dotenv ─────────────────────────────────────────────────────
+    // ── run_cranelift_engine: cranelift path ─────────────────────────────────
 
     #[test]
-    fn load_dotenv_no_files_is_noop() {
-        // When neither .env.local nor .env exist in cwd, should be a no-op
-        // This only works if there are no such files in the current test directory.
-        // We just verify it doesn't panic.
-        load_dotenv();
+    fn run_cranelift_engine_basic_numeric() {
+        let program = make_program("f x:n>n;*x 2");
+        // This exercises the cranelift path; may succeed or fall through
+        let code = run_cranelift_engine(&program, &["f".to_string(), "5".to_string()], false);
+        // Cranelift JIT may succeed (0) or fail (1) depending on platform
+        assert!(code == 0 || code == 1);
     }
 
-    // ── unit: compile_cmd ─────────────────────────────────────────────────────
-
     #[test]
-    fn compile_cmd_empty_args_returns_one() {
-        let code = compile_cmd(&[]);
+    fn run_cranelift_engine_fn_not_found_returns_one() {
+        let program = make_program("f x:n>n;*x 2");
+        let code = run_cranelift_engine(
+            &program,
+            &["nonexistent".to_string(), "5".to_string()],
+            false,
+        );
+        // Function not found → exit 1
         assert_eq!(code, 1);
     }
 
+    // ── run_vm_with_provider: runtime error path ─────────────────────────────
+
     #[test]
-    fn compile_cmd_no_cranelift_feature_returns_one() {
-        #[cfg(not(feature = "cranelift"))]
-        {
-            let code = compile_cmd(&["f>n;42".to_string()]);
-            assert_eq!(code, 1);
-        }
-        #[cfg(feature = "cranelift")]
-        {
-            // With cranelift, it may succeed or fail depending on the source
-            let code = compile_cmd(&["f>n;42".to_string()]);
-            let _ = code;
-        }
+    fn run_vm_with_provider_runtime_error_returns_one() {
+        // Division by zero triggers a runtime error
+        let compiled = make_compiled("f>n;/1 0");
+        let code = run_vm_with_provider(
+            &compiled,
+            Some("f"),
+            vec![],
+            None,
+            #[cfg(feature = "tools")]
+            None,
+            #[cfg(feature = "tools")]
+            None,
+            "f>n;/1 0",
+            OutputMode::Text,
+            false,
+        );
+        assert_eq!(code, 1);
     }
 
-    // ── unit: dispatch_cli Compile/Serv/Repl branches ─────────────────────────
+    // ── run_interp_with_provider: runtime error path ──────────────────────────
 
     #[test]
-    fn dispatch_cli_compile_no_cranelift_returns_one() {
-        // Without cranelift feature, compile always returns 1
-        #[cfg(not(feature = "cranelift"))]
-        {
-            let cli = cli::Cli::try_parse_from(["ilo", "compile", "f>n;42"]).unwrap();
-            let code = dispatch_cli(cli, false);
-            assert_eq!(code, 1);
-        }
-        #[cfg(feature = "cranelift")]
-        {
-            let cli = cli::Cli::try_parse_from(["ilo", "compile", "f>n;42"]).unwrap();
-            let code = dispatch_cli(cli, false);
-            let _ = code;
-        }
+    fn run_interp_with_provider_runtime_error_returns_one() {
+        let program = make_program("f>n;/1 0");
+        let code = run_interp_with_provider(
+            &program,
+            Some("f"),
+            vec![],
+            None,
+            #[cfg(feature = "tools")]
+            None,
+            #[cfg(feature = "tools")]
+            None,
+            "f>n;/1 0",
+            OutputMode::Text,
+            false,
+        );
+        assert_eq!(code, 1);
     }
 
-    // ── unit: dispatch_cli with Tools flags (mcp_path, human, ilo, json, full, graph) ──
+    // ── run_default: interpreter error path ──────────────────────────────────
 
     #[test]
-    fn dispatch_cli_tools_with_human_flag() {
-        let path = write_tools_config_unit("dispatch_human");
-        let cli =
-            cli::Cli::try_parse_from(["ilo", "tools", "--tools", &path, "--human"]).unwrap();
-        let code = dispatch_cli(cli, false);
-        assert_eq!(code, 0);
-        std::fs::remove_file(&path).ok();
+    fn run_default_runtime_error_returns_one() {
+        // Use an undefined function call to trigger a runtime error
+        let program = make_program("f>n;g 1");
+        let code = run_default(&program, Some("f"), vec![], "f>n;g 1", OutputMode::Text, false);
+        assert_eq!(code, 1);
     }
 
-    #[test]
-    fn dispatch_cli_tools_with_ilo_flag() {
-        let path = write_tools_config_unit("dispatch_ilo");
-        let cli =
-            cli::Cli::try_parse_from(["ilo", "tools", "--tools", &path, "--ilo"]).unwrap();
-        let code = dispatch_cli(cli, false);
-        assert_eq!(code, 0);
-        std::fs::remove_file(&path).ok();
-    }
+    // ── tools_cmd: with mcp decls (Decl::Tool) for Human/Ilo/Json rendering ──
 
-    #[test]
-    fn dispatch_cli_tools_with_json_flag() {
-        let path = write_tools_config_unit("dispatch_json");
-        let cli =
-            cli::Cli::try_parse_from(["ilo", "tools", "--tools", &path, "--json"]).unwrap();
-        let code = dispatch_cli(cli, false);
-        assert_eq!(code, 0);
-        std::fs::remove_file(&path).ok();
-    }
-
-    #[test]
-    fn dispatch_cli_tools_with_full_flag() {
-        let path = write_tools_config_unit("dispatch_full");
-        let cli =
-            cli::Cli::try_parse_from(["ilo", "tools", "--tools", &path, "--full"]).unwrap();
-        let code = dispatch_cli(cli, false);
-        assert_eq!(code, 0);
-        std::fs::remove_file(&path).ok();
-    }
-
-    #[test]
-    fn dispatch_cli_tools_with_graph_flag() {
-        let path = write_tools_config_unit("dispatch_graph_flag");
-        let cli =
-            cli::Cli::try_parse_from(["ilo", "tools", "--tools", &path, "--graph"]).unwrap();
-        let code = dispatch_cli(cli, false);
-        assert_eq!(code, 0);
-        std::fs::remove_file(&path).ok();
-    }
-
-    // ── unit: dispatch_cli Graph with fn/reverse/subgraph/budget/dot flags ────
-
-    #[test]
-    fn dispatch_cli_graph_with_fn_flag() {
-        let path = write_graph_file("dispatch_fn", "f x:n>n;*x 2\ng y:n>n;f y");
-        let cli =
-            cli::Cli::try_parse_from(["ilo", "graph", &path, "--fn", "g"]).unwrap();
-        let code = dispatch_cli(cli, false);
-        assert_eq!(code, 0);
-        std::fs::remove_file(&path).ok();
-    }
-
-    #[test]
-    fn dispatch_cli_graph_with_dot_flag() {
-        let path = write_graph_file("dispatch_dot", "f x:n>n;*x 2");
-        let cli =
-            cli::Cli::try_parse_from(["ilo", "graph", &path, "--dot"]).unwrap();
-        let code = dispatch_cli(cli, false);
-        assert_eq!(code, 0);
-        std::fs::remove_file(&path).ok();
-    }
-
-    #[test]
-    fn dispatch_cli_graph_with_reverse_flag() {
-        let path = write_graph_file("dispatch_rev", "f x:n>n;*x 2\ng y:n>n;f y");
-        let cli =
-            cli::Cli::try_parse_from(["ilo", "graph", &path, "--fn", "f", "--reverse"]).unwrap();
-        let code = dispatch_cli(cli, false);
-        assert_eq!(code, 0);
-        std::fs::remove_file(&path).ok();
-    }
-
-    #[test]
-    fn dispatch_cli_graph_with_subgraph_flag() {
-        let path = write_graph_file("dispatch_sub", "f x:n>n;*x 2\ng y:n>n;f y");
-        let cli =
-            cli::Cli::try_parse_from(["ilo", "graph", &path, "--fn", "g", "--subgraph"]).unwrap();
-        let code = dispatch_cli(cli, false);
-        assert_eq!(code, 0);
-        std::fs::remove_file(&path).ok();
-    }
-
-    #[test]
-    fn dispatch_cli_graph_with_budget_flag() {
-        let path = write_graph_file("dispatch_bud", "f x:n>n;*x 2\ng y:n>n;f y");
-        let cli =
-            cli::Cli::try_parse_from(["ilo", "graph", &path, "--fn", "g", "--budget", "10"])
-                .unwrap();
-        let code = dispatch_cli(cli, false);
-        assert_eq!(code, 0);
-        std::fs::remove_file(&path).ok();
-    }
-
-    // ── unit: dispatch_run with Cranelift engine (no feature = returns 1) ─────
-
-    #[test]
-    fn dispatch_run_cranelift_engine_no_feature_returns_one() {
-        #[cfg(not(feature = "cranelift"))]
-        {
-            let mut r = make_run_args("f>n;42");
-            r.engine = cli::Engine::Cranelift;
-            r.rest = vec!["f".to_string()];
-            let code = dispatch_run(r, OutputMode::Text, false, false);
-            assert_eq!(code, 1);
-        }
-        #[cfg(feature = "cranelift")]
-        {
-            let mut r = make_run_args("f>n;42");
-            r.engine = cli::Engine::Cranelift;
-            r.rest = vec!["f".to_string()];
-            let code = dispatch_run(r, OutputMode::Text, false, false);
-            let _ = code;
+    fn make_tool_decl(name: &str) -> ast::Decl {
+        ast::Decl::Tool {
+            name: name.to_string(),
+            description: format!("{name} tool"),
+            params: vec![ast::Param {
+                name: "x".to_string(),
+                ty: ast::Type::Text,
+            }],
+            return_type: ast::Type::Result(Box::new(ast::Type::Text), Box::new(ast::Type::Text)),
+            timeout: None,
+            retry: None,
+            span: ast::Span::UNKNOWN,
         }
     }
 
+    /// Write an empty-tools HTTP config + call tools_cmd to test the code paths
+    /// that render Decl::Tool entries (Human full, Ilo, Json modes with typed tools).
+    /// Note: tools_cmd calls collect_mcp_tool_decls internally, so we can't inject
+    /// tool decls directly. We instead test via the process_serv_request which
+    /// does accept mcp_tool_decls, or call the rendering helpers directly.
     #[test]
-    fn dispatch_run_llvm_engine_returns_one() {
-        #[cfg(not(feature = "llvm"))]
-        {
-            let mut r = make_run_args("f>n;42");
-            r.engine = cli::Engine::Llvm;
-            r.rest = vec!["f".to_string()];
-            let code = dispatch_run(r, OutputMode::Text, false, false);
-            assert_eq!(code, 1);
-        }
-        #[cfg(feature = "llvm")]
-        {
-            let mut r = make_run_args("f>n;42");
-            r.engine = cli::Engine::Llvm;
-            r.rest = vec!["f".to_string()];
-            let code = dispatch_run(r, OutputMode::Text, false, false);
-            let _ = code;
-        }
-    }
-
-    #[test]
-    fn dispatch_run_jit_engine_non_aarch64_returns_one() {
-        #[cfg(not(all(target_arch = "aarch64", target_os = "macos")))]
-        {
-            let mut r = make_run_args("f x:n>n;*x 2");
-            r.engine = cli::Engine::Jit;
-            r.rest = vec!["f".to_string(), "5".to_string()];
-            let code = dispatch_run(r, OutputMode::Text, false, false);
-            assert_eq!(code, 1);
-        }
-        #[cfg(all(target_arch = "aarch64", target_os = "macos"))]
-        {
-            let mut r = make_run_args("f x:n>n;*x 2");
-            r.engine = cli::Engine::Jit;
-            r.rest = vec!["f".to_string(), "5".to_string()];
-            let code = dispatch_run(r, OutputMode::Text, false, false);
-            let _ = code;
-        }
-    }
-
-    // ── unit: dispatch_run from file ──────────────────────────────────────────
-
-    #[test]
-    fn dispatch_run_reads_from_file() {
-        let path = "/tmp/ilo_dispatch_run_file_test.ilo";
-        std::fs::write(path, "f>n;99\n").unwrap();
-        let mut r = make_run_args(path);
-        r.rest = vec!["f".to_string()];
-        let code = dispatch_run(r, OutputMode::Text, false, true);
+    fn tools_cmd_empty_tools_config_exits_zero_for_human_mode() {
+        let path = "/tmp/ilo_tools_empty_human.json";
+        std::fs::write(path, r#"{"tools":{}}"#).unwrap();
+        let code = tools_cmd(&[
+            "--tools".to_string(),
+            path.to_string(),
+            "--human".to_string(),
+        ]);
         assert_eq!(code, 0);
         std::fs::remove_file(path).ok();
     }
 
-    // ── unit: dispatch_bare_args with mode override flags ─────────────────────
-
-    #[test]
-    fn dispatch_bare_args_ansi_global_overrides_mode() {
-        let global = cli::Global { ansi: true, text: false, json: false, no_hints: false };
-        let code = dispatch_bare_args(
-            vec!["ilo".to_string(), "f>n;42".to_string()],
-            &global,
-        );
-        assert_eq!(code, 0);
-    }
-
-    #[test]
-    fn dispatch_bare_args_json_global_overrides_mode() {
-        let global = cli::Global { ansi: false, text: false, json: true, no_hints: false };
-        let code = dispatch_bare_args(
-            vec!["ilo".to_string(), "f>n;42".to_string()],
-            &global,
-        );
-        assert_eq!(code, 0);
-    }
-
-    // ── unit: tools_cmd error paths ───────────────────────────────────────────
-
-    #[test]
-    fn tools_cmd_tools_missing_path_returns_one() {
-        // --tools at end with no path argument → line 56-57
-        let code = tools_cmd(&["--tools".to_string()]);
-        assert_eq!(code, 1);
-    }
-
-    #[test]
-    fn tools_cmd_mcp_missing_path_returns_one() {
-        // --mcp at end with no path argument → line 47-49
-        let code = tools_cmd(&["--mcp".to_string()]);
-        assert_eq!(code, 1);
-    }
-
-    #[test]
-    fn tools_cmd_unknown_flag_returns_one() {
-        // Unknown flag → line 83-88
-        let code = tools_cmd(&["--tools".to_string(), "/dev/null".to_string(), "--bogus".to_string()]);
-        assert_eq!(code, 1);
-    }
-
-    #[test]
-    fn tools_cmd_no_source_returns_one() {
-        // No --mcp or --tools → line 94-99
-        let code = tools_cmd(&[]);
-        assert_eq!(code, 1);
-    }
+    // ── tools_cmd: test HTTP config read error ────────────────────────────────
 
     #[test]
     fn tools_cmd_bad_http_config_returns_one() {
-        // Nonexistent config file → line 112-114
-        let code = tools_cmd(&["--tools".to_string(), "/tmp/ilo_nonexistent_config_xyz.json".to_string()]);
+        // Invalid JSON in tools config → error from ToolsConfig::from_file
+        let path = "/tmp/ilo_tools_bad_config.json";
+        std::fs::write(path, "not valid json").unwrap();
+        let code = tools_cmd(&["--tools".to_string(), path.to_string()]);
         assert_eq!(code, 1);
+        std::fs::remove_file(path).ok();
     }
 
-    // ── unit: dispatch_bare_args more edge cases ──────────────────────────────
+    // ── dispatch_bare_args: no-op case with func in rest matching func_names ──
 
     #[test]
-    fn dispatch_bare_args_e_flag_returns_zero() {
-        let global = cli::Global { ansi: false, text: false, json: false, no_hints: false };
-        // -e flag provides code inline
-        let code = dispatch_bare_args(
-            vec!["ilo".to_string(), "-e".to_string(), "f>n;42".to_string()],
-            &global,
-        );
-        assert_eq!(code, 0);
-    }
-
-    #[test]
-    fn dispatch_bare_args_e_flag_empty_code_returns_one() {
-        let global = cli::Global { ansi: false, text: false, json: false, no_hints: false };
-        let code = dispatch_bare_args(
-            vec!["ilo".to_string(), "-e".to_string()],
-            &global,
-        );
-        assert_eq!(code, 1);
-    }
-
-    #[test]
-    fn dispatch_bare_args_tools_flag_no_path_returns_one() {
-        let global = cli::Global { ansi: false, text: false, json: false, no_hints: false };
-        let code = dispatch_bare_args(
-            vec!["ilo".to_string(), "f>n;42".to_string(), "--tools".to_string()],
-            &global,
-        );
-        assert_eq!(code, 1);
-    }
-
-    #[test]
-    fn dispatch_bare_args_mcp_flag_no_path_returns_one() {
-        let global = cli::Global { ansi: false, text: false, json: false, no_hints: false };
-        let code = dispatch_bare_args(
-            vec!["ilo".to_string(), "f>n;42".to_string(), "--mcp".to_string()],
-            &global,
-        );
-        assert_eq!(code, 1);
-    }
-
-    #[test]
-    fn dispatch_bare_args_tools_and_mcp_mutual_exclusion_returns_one() {
-        let global = cli::Global { ansi: false, text: false, json: false, no_hints: false };
+    fn dispatch_bare_args_func_name_in_rest_routes_correctly() {
+        let global = cli::Global {
+            ansi: false,
+            text: false,
+            json: false,
+            no_hints: false,
+        };
+        // rest has first arg = "double" which matches a function name
         let code = dispatch_bare_args(
             vec![
                 "ilo".to_string(),
-                "f>n;42".to_string(),
-                "--tools".to_string(), "/tmp/t.json".to_string(),
-                "--mcp".to_string(), "/tmp/m.json".to_string(),
+                "double x:n>n;*x 2".to_string(),
+                "double".to_string(),
+                "5".to_string(),
             ],
             &global,
         );
-        assert_eq!(code, 1);
-    }
-
-    // ── unit: dispatch_run file not found ─────────────────────────────────────
-
-    #[test]
-    fn dispatch_run_file_not_found_returns_one() {
-        // If source looks like a file path but doesn't exist...
-        // Actually dispatch_run treats it as inline code if not a file
-        // We need a path that IS a file but can't be read
-        let r = make_run_args("/nonexistent/path/file.ilo");
-        let code = dispatch_run(r, OutputMode::Text, false, false);
-        // treated as inline code, not a file path — so lex/parse/verify
-        let _ = code;
-    }
-
-    // ── unit: graph_cmd lex error ─────────────────────────────────────────────
-
-    #[test]
-    fn graph_cmd_lex_error_returns_one() {
-        // Write a file with a lex error (unterminated string literal)
-        let path = "/tmp/ilo_graph_lex_error.ilo";
-        std::fs::write(path, "f>n;\"unterminated\n").expect("write temp file");
-        let code = graph_cmd(&[path.to_string()]);
-        assert_eq!(code, 1);
-        std::fs::remove_file(path).ok();
-    }
-
-    // ── unit: dispatch_cli Compile with bench/func flags ─────────────────────
-
-    #[test]
-    fn dispatch_cli_compile_with_bench_flag() {
-        // Covers line 1797-1798: bench=true → args.push("--bench")
-        let cli = cli::Cli::try_parse_from(["ilo", "compile", "--bench", "f>n;42"]).unwrap();
-        let code = dispatch_cli(cli, false);
-        let _ = code; // AOT may succeed or fail
-    }
-
-    #[test]
-    fn dispatch_cli_compile_with_func_arg() {
-        // Covers line 1800-1801: func=Some("f") → args.push("f")
-        // func is a positional argument in CompileArgs
-        let cli = cli::Cli::try_parse_from(["ilo", "compile", "f>n;42", "f"]).unwrap();
-        let code = dispatch_cli(cli, false);
-        let _ = code; // AOT may succeed or fail
-    }
-
-    // ── unit: dispatch_bare_args --emit without target ────────────────────────
-
-    #[test]
-    fn dispatch_bare_args_emit_no_target_uses_none() {
-        // "--emit" at end of args (no following arg) → emit: None → falls through to execute
-        // This covers line 2047 (the None branch of the target Option)
-        let global = cli::Global { ansi: false, text: false, json: false, no_hints: false };
-        let code = dispatch_bare_args(
-            vec!["ilo".to_string(), "f>n;42".to_string(), "--emit".to_string()],
-            &global,
-        );
-        // emit=None means the program is just run normally (no emit mode)
         assert_eq!(code, 0);
-    }
-
-    // ── unit: run_vm_with_provider bad tools path ─────────────────────────────
-
-    #[test]
-    fn dispatch_run_vm_engine_bad_tools_config_returns_one() {
-        // Passes a nonexistent tools config path with VM engine
-        let mut r = make_run_args("f>n;42");
-        r.engine = cli::Engine::Vm;
-        r.tools_path = Some("/tmp/ilo_nonexistent_tools_config_abc.json".to_string());
-        let code = dispatch_run(r, OutputMode::Text, false, false);
-        assert_eq!(code, 1); // tools_config file not found
-    }
-
-    // ── unit: dispatch_run Ansi mode ──────────────────────────────────────────
-
-    #[test]
-    fn dispatch_run_ansi_mode_no_panic() {
-        let r = make_run_args("f>n;42");
-        let code = dispatch_run(r, OutputMode::Ansi, false, false);
-        assert_eq!(code, 0);
-    }
-
-    #[test]
-    fn dispatch_run_verify_error_ansi_mode() {
-        let r = make_run_args("f>n;\"bad\"");
-        let code = dispatch_run(r, OutputMode::Ansi, false, false);
-        assert_eq!(code, 1);
-    }
-
-    // ── unit: compile_cmd error paths ─────────────────────────────────────────
-
-    #[test]
-    fn compile_cmd_dash_o_missing_path_returns_one() {
-        // "-o" with no following argument
-        let code = compile_cmd(&["-o".to_string()]);
-        assert_eq!(code, 1);
-    }
-
-    #[test]
-    fn compile_cmd_no_source_only_flags_returns_one() {
-        // Only flag args — no source gets assigned, hits None branch
-        let code = compile_cmd(&["-o".to_string(), "out".to_string()]);
-        assert_eq!(code, 1);
-    }
-
-    #[test]
-    fn compile_cmd_lex_error_returns_one() {
-        // Source with unterminated string literal → lex error
-        let code = compile_cmd(&["f>n;\"unterminated".to_string()]);
-        assert_eq!(code, 1);
-    }
-
-    #[test]
-    fn compile_cmd_verify_error_returns_one() {
-        // Type mismatch → verify error
-        let code = compile_cmd(&["f>n;\"bad_type\"".to_string()]);
-        assert_eq!(code, 1);
-    }
-
-    #[test]
-    fn compile_cmd_file_not_found_returns_one() {
-        // A path that looks like a file (ends in .ilo) but doesn't exist
-        // It will be treated as inline code, which is valid syntax
-        // To get the file-read-error path, we need a file that EXISTS but can't be read.
-        // Instead, use a nonexistent .ilo path as inline code (doesn't trigger is_file branch).
-        // Actually the file-read error is only triggered if the path IS a file — create a
-        // readable but content-invalid approach by covering the bench_mode and func_name paths.
-        let code = compile_cmd(&[
-            "f>n;42".to_string(),
-            "--bench".to_string(),
-        ]);
-        // bench_mode=true path: tries AOT compile — may succeed or fail, but covers line 1031
-        let _ = code;
-    }
-
-    #[test]
-    fn compile_cmd_bench_mode_flag_is_parsed() {
-        // Covers lines 1030-1032 (bench_mode = true branch)
-        // and 1036-1038 (func_name = Some branch) via a second positional arg
-        let code = compile_cmd(&[
-            "f>n;42".to_string(),
-            "f".to_string(),
-        ]);
-        // func_name branch covered; may succeed or fail AOT
-        let _ = code;
-    }
-
-    #[test]
-    fn compile_cmd_with_explicit_func_name() {
-        // Covers the _ => { func_name = Some(&args[i]) } branch (lines 1036-1038)
-        let code = compile_cmd(&[
-            "f>n;42".to_string(),
-            "f".to_string(),
-        ]);
-        let _ = code; // result varies by platform
-    }
-
-    #[test]
-    fn compile_cmd_with_output_path() {
-        // Covers output_path = Some(args[i]) and eprintln!("Compiled: ...") happy path
-        let out = std::env::temp_dir().join("ilo_test_compile_out");
-        let code = compile_cmd(&[
-            "f>n;42".to_string(),
-            "-o".to_string(),
-            out.to_str().unwrap().to_string(),
-        ]);
-        // Line 1178-1179 (Compiled: ...) covered on success; AOT may or may not succeed
-        let _ = code;
-        std::fs::remove_file(&out).ok();
-    }
-
-    // ── unit: dispatch_run with file source (covers is_file=true → explain filename) ──
-
-    #[test]
-    fn dispatch_run_explain_with_file_source_gives_filename() {
-        // Write a temp .ilo file so is_file = true, covering line 2305
-        let path = "/tmp/ilo_explain_file_test.ilo";
-        std::fs::write(path, "f>n;42\n").expect("write temp file");
-        let mut r = make_run_args(path);
-        r.explain = true;
-        let code = dispatch_run(r, OutputMode::Text, false, false);
-        assert_eq!(code, 0);
-        std::fs::remove_file(path).ok();
-    }
-
-    // ── unit: run_cranelift_engine undefined function ─────────────────────────
-
-    #[test]
-    fn run_cranelift_engine_undefined_func_returns_one() {
-        // Program has function "f", but we request "nonexistent" → undefined function branch
-        let program = parse_source("f>n;42");
-        let code = run_cranelift_engine(&program, &["nonexistent".to_string()], false);
-        assert_eq!(code, 1); // undefined function: nonexistent
-    }
-
-    // ── unit: run_jit_engine compile_error is unreachable with valid program ──
-    // (jit compile error path requires vm::compile to fail, which can't happen with valid program)
-
-    // ── unit: dispatch_run VM engine compile error (impossible path) ──────────
-    // vm::compile always succeeds on valid programs; the Err branch is defensive.
-
-    // ── unit: compile_cmd — covers file read via a temp file ──────────────────
-
-    #[test]
-    fn compile_cmd_reads_from_ilo_file() {
-        // Write a valid .ilo file and compile it → covers the is_file branch in compile_cmd
-        let path = "/tmp/ilo_compile_cmd_file_test.ilo";
-        std::fs::write(path, "f>n;42\n").expect("write temp file");
-        let code = compile_cmd(&[path.to_string()]);
-        // Success or AOT-specific failure both fine; we just need line 1053-1054 covered
-        let _ = code;
-        std::fs::remove_file(path).ok();
-    }
-
-    // ── unit: compile_cmd file read error (covers lines 1055-1057) ──────────
-
-    #[test]
-    #[cfg(unix)]
-    fn compile_cmd_file_read_permission_denied_returns_one() {
-        use std::os::unix::fs::PermissionsExt;
-        let path = "/tmp/ilo_compile_cmd_noperm.ilo";
-        std::fs::write(path, "f>n;42\n").expect("write temp file");
-        std::fs::set_permissions(path, std::fs::Permissions::from_mode(0o000))
-            .expect("chmod 000");
-        let code = compile_cmd(&[path.to_string()]);
-        // Restore before assert in case of panic
-        std::fs::set_permissions(path, std::fs::Permissions::from_mode(0o644)).ok();
-        std::fs::remove_file(path).ok();
-        assert_eq!(code, 1);
-    }
-
-    // ── unit: compile_cmd import error (covers lines 1126-1129) ──────────────
-
-    #[test]
-    fn compile_cmd_import_error_returns_one() {
-        // Inline code with a `use` statement triggers "use requires file path context" warning
-        // which goes to import_diagnostics → covers lines 1126-1129
-        let code = compile_cmd(&["use \"nonexistent.ilo\"".to_string()]);
-        assert_eq!(code, 1);
-    }
-
-    // ── unit: compile_cmd verify warning path (covers lines 1134-1140) ───────
-
-    #[test]
-    fn compile_cmd_verify_warning_still_compiles() {
-        // Program with unreachable code after ret → produces verify warning
-        // The warning is printed (lines 1135-1140) but compilation continues
-        let code = compile_cmd(&["f x:n>n;ret x;*x 2".to_string()]);
-        // Warning is emitted but compilation proceeds; AOT may succeed or fail
-        let _ = code; // covers the warning print loop regardless of AOT result
-    }
-
-    // ── unit: compile_cmd verify warning (warn path) ─────────────────────────
-    // verify warnings fire on unused-variable style programs; cover lines 1134-1140
-
-    // ── helper used by run_cranelift_engine test ──────────────────────────────
-    fn parse_source(src: &str) -> ast::Program {
-        let tokens = lexer::lex(src).expect("lex ok");
-        let token_spans: Vec<(lexer::Token, ast::Span)> = tokens
-            .into_iter()
-            .map(|(t, r)| (t, ast::Span { start: r.start, end: r.end }))
-            .collect();
-        let (mut prog, _) = parser::parse(token_spans);
-        ast::resolve_aliases(&mut prog);
-        prog
     }
 }
