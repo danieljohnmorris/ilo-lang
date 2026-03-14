@@ -29,8 +29,8 @@ subtotal items:L item>n
   sum map item-total items
 
 shipping-cost weight:n country:t>n
-  =country "US"{>=weight 50 0;5}
-  =country "UK"{>=weight 30 0;8}
+  =country "US"{>=weight 50 0;ret 5}
+  =country "UK"{>=weight 30 0;ret 8}
   15
 
 apply-discount total:n code:t>n

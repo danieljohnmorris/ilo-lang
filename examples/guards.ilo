@@ -1,6 +1,6 @@
--- Guards: conditional early returns.
--- Braceless form `cond expr` saves 2 tokens vs `cond{expr}` — identical semantics.
--- Safe multi-function file rule: end each non-last function with a binary/unary expression.
+-- Guards: braceless `cond expr` causes early return from function.
+-- Braced `cond{body}` is conditional execution (no early return).
+-- Use braceless for guard chains; use braced + ret for explicit returns.
 
 -- Classify a spend amount into a tier (ends with text literal — safe)
 cls sp:n>t;>=sp 1000 "gold";>=sp 500 "silver";"bronze"

@@ -449,19 +449,25 @@ ilo 'f xs:L t>t;xs.0' 'a,b,c'       → a
 
 ## Statements
 
-Guards replace `if`/`else if`/`else`. They are flat statements — no nesting, no closing braces to match. Each guard returns early if its condition is true; otherwise execution falls through to the next statement. Multiple guards chain vertically, keeping indentation depth constant regardless of how many conditions there are.
+Guards and conditionals replace `if`/`else if`/`else`. They are flat statements — no nesting, no closing braces to match. There are three forms:
+
+- **Braceless guard** (`cond expr`): early return — if condition is true, returns the expression from the function.
+- **Braced conditional** (`cond{body}`): conditional execution — if condition is true, body runs but execution continues (no early return). Use `ret` inside the body for explicit early return.
+- **Ternary** (`cond{then}{else}`): value expression — evaluates then or else branch, no early return.
+
+Multiple braceless guards chain vertically for guard clauses, keeping indentation depth constant.
 
 Match replaces `switch`. There is no fall-through — each arm is independent. The `_` arm is the default catch-all.
 
 | Form | Meaning |
 |------|---------|
 | `x=expr` | bind |
-| `cond{body}` | guard: return body if cond true |
-| `cond expr` | braceless guard (single-expression body) |
+| `cond{body}` | conditional execution: run body if cond true (no early return) |
+| `cond expr` | braceless guard: early return expr if cond true |
 | `cond{then}{else}` | ternary: evaluate then or else (no early return) |
 | `?cond then else` | prefix ternary: `?=x 0 10 20` (no early return) |
-| `!cond{body}` | guard: return body if cond false |
-| `!cond expr` | braceless negated guard |
+| `!cond{body}` | negated conditional execution (no early return) |
+| `!cond expr` | braceless negated guard (early return) |
 | `!cond{then}{else}` | negated ternary |
 | `?x{arms}` | match named value |
 | `?{arms}` | match last result |
@@ -495,18 +501,16 @@ Match replaces `switch`. There is no fall-through — each arm is independent. T
 Arms separated by `;`. First match wins.
 
 ```
-cls sp:n>t;>=sp 1000{"gold"};>=sp 500{"silver"};"bronze"
+cls sp:n>t;>=sp 1000 "gold";>=sp 500 "silver";"bronze"
 ```
 
-### Braceless Guards
+### Braceless Guards (Early Return)
 
-When the guard condition is a comparison or logical operator (`>=`, `<=`, `>`, `<`, `=`, `!=`, `&`, `|`) and the body is a single expression, braces are optional:
+When the guard condition is a comparison or logical operator (`>=`, `<=`, `>`, `<`, `=`, `!=`, `&`, `|`) and the body is a single expression, braces are optional. **Braceless guards cause early return from the function:**
 
 ```
 cls sp:n>t;>=sp 1000 "gold";>=sp 500 "silver";"bronze"
 ```
-
-Equivalent to `>=sp 1000{"gold"}` — saves 2 tokens per guard. Both forms produce identical AST.
 
 Negated braceless guards also work: `!<=n 0 ^"must be positive"`.
 
@@ -518,6 +522,26 @@ Negated braceless guards also work: `!<=n 0 ^"must be positive"`.
 -- OK:    has xs v              -- bare call is safe as last statement in last function
 ```
 
+### Braced Conditionals (No Early Return)
+
+A braced guard `cond{body}` is **conditional execution** — the body runs if the condition is true, but execution always continues to the next statement (no early return):
+
+```
+f x:n>n;>x 0{99};+x 1   -- {99} runs when x>0 but is discarded; always returns +x 1
+```
+
+This makes braced conditionals natural in loops:
+
+```
+f xs:L n>n;m=0;@x xs{>x m{m=x}};m   -- find max: update m when x > m
+```
+
+Use `ret` inside a braced conditional for explicit early return:
+
+```
+f x:n>n;>x 0{ret x};-x   -- return x early if positive, else negate
+```
+
 ### Ternary (Guard-Else)
 
 A guard followed by a second brace block becomes a ternary — it produces a value without early return:
@@ -526,7 +550,7 @@ A guard followed by a second brace block becomes a ternary — it produces a val
 f x:n>t;=x 1{"yes"}{"no"}
 ```
 
-Unlike guards, ternary does **not** return from the function. Code after the ternary continues executing:
+Like braced conditionals, ternary does **not** return from the function. Code after the ternary continues executing:
 
 ```
 f x:n>n;=x 0{10}{20};+x 1   -- always returns x+1, ternary value is discarded
@@ -552,7 +576,7 @@ f x:n>n;>x 0{ret x};0         -- return x early if positive, else 0
 f xs:L n>n;@x xs{>=x 10{ret x}};0  -- return first element >= 10
 ```
 
-Guards already provide early return for simple cases. Use `ret` when you need early return inside a loop or deeply nested block.
+Braceless guards provide early return for simple cases. Use `ret` inside braced conditionals when you need early return with more complex logic or inside loops.
 
 ### Range Iteration
 
@@ -570,7 +594,7 @@ f n:n>n;s=0;@i 0..n{s=+s i};s  -- dynamic end bound
 
 ```
 f>n;i=0;s=0;wh <i 5{i=+i 1;s=+s i};s    -- sum 1..5 = 15
-f>n;i=0;wh true{i=+i 1;>=i 3{ret i}};0   -- early return from loop
+f>n;i=0;wh true{i=+i 1;>=i 3{ret i}};0   -- ret inside braced guard: early return from loop
 ```
 
 Variable rebinding inside loops updates the existing variable rather than creating a new binding.
@@ -586,7 +610,7 @@ f>n;i=0;s=0;wh <i 5{i=+i 1;>=i 3{cnt};s=+s i};s   -- s = 3 (skips i>=3)
 
 `brk expr` provides an optional value (currently discarded — the loop result is the last body value before the break).
 
-Both `brk` and `cnt` work inside guards within loops. Using them outside a loop is a compile-time error (no-op in current implementation).
+Both `brk` and `cnt` work inside braced conditionals within loops. Using them outside a loop is a compile-time error (no-op in current implementation).
 
 ### Pipe Operator
 

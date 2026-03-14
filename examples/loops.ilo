@@ -1,6 +1,7 @@
 -- Loops: wh (while), @i a..b (range), brk (break), cnt (continue).
 -- Loop control flow: brk exits, cnt skips to next iteration.
--- Use ternary form cond{brk/cnt}{body} inside loops to avoid guard-as-return ambiguity.
+-- Braced guards cond{body} inside loops are conditional execution (no early return).
+-- Braceless guards cond expr still cause early function return.
 
 -- While loop: sum 1 through 5
 wh-sum>n;i=0;s=0;wh <i 5{i=+i 1;s=+s i};+s 0

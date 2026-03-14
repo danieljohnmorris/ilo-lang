@@ -296,6 +296,7 @@ fn emit_stmt(out: &mut String, stmt: &Stmt, level: usize, implicit_return: bool)
             negated,
             body,
             else_body,
+            ..
         } => {
             let cond = emit_expr(out, level, condition);
             indent(out, level);
@@ -1517,6 +1518,7 @@ mod tests {
                         negated: false,
                         body: vec![],
                         else_body: None,
+                        braceless: false,
                     })],
                 },
                 MatchArm {

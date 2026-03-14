@@ -605,8 +605,9 @@ fn verify_valid_program_runs() {
 #[test]
 fn inline_factorial_with_prefix_call_arg() {
     // fac -n 1 as a call with prefix arg, result bound then used in operator
+    // Use braceless guard for early return base case
     let out = ilo()
-        .args(["fac n:n>n;<=n 1{1};r=fac -n 1;*n r", "5"])
+        .args(["fac n:n>n;<=n 1 1;r=fac -n 1;*n r", "5"])
         .output()
         .expect("failed to run ilo");
     assert!(
@@ -620,8 +621,9 @@ fn inline_factorial_with_prefix_call_arg() {
 #[test]
 fn inline_fibonacci_with_prefix_call_args() {
     // fib -n 1 and fib -n 2 as direct calls with prefix args
+    // Use braceless guard for early return base case
     let out = ilo()
-        .args(["fib n:n>n;<=n 1{n};a=fib -n 1;b=fib -n 2;+a b", "10"])
+        .args(["fib n:n>n;<=n 1 n;a=fib -n 1;b=fib -n 2;+a b", "10"])
         .output()
         .expect("failed to run ilo");
     assert!(
@@ -2108,14 +2110,8 @@ fn braceless_guard_fibonacci() {
 }
 
 #[test]
-fn braceless_guard_equivalent_to_braced() {
-    let braced = ilo()
-        .args([
-            r#"cls sp:n>t;>=sp 1000{"gold"};>=sp 500{"silver"};"bronze""#,
-            "1500",
-        ])
-        .output()
-        .expect("failed to run ilo");
+fn braceless_guard_early_return_vs_braced_conditional() {
+    // Braceless guard: early return → returns "gold" for 1500
     let braceless = ilo()
         .args([
             r#"cls sp:n>t;>=sp 1000 "gold";>=sp 500 "silver";"bronze""#,
@@ -2124,9 +2120,22 @@ fn braceless_guard_equivalent_to_braced() {
         .output()
         .expect("failed to run ilo");
     assert_eq!(
-        String::from_utf8_lossy(&braced.stdout),
-        String::from_utf8_lossy(&braceless.stdout),
-        "braced and braceless should produce identical output"
+        String::from_utf8_lossy(&braceless.stdout).trim(),
+        "gold",
+        "braceless guard should early-return"
+    );
+    // Braced guard: conditional execution (no early return) → returns "bronze"
+    let braced = ilo()
+        .args([
+            r#"cls sp:n>t;>=sp 1000{"gold"};>=sp 500{"silver"};"bronze""#,
+            "1500",
+        ])
+        .output()
+        .expect("failed to run ilo");
+    assert_eq!(
+        String::from_utf8_lossy(&braced.stdout).trim(),
+        "bronze",
+        "braced guard should be conditional execution (no early return)"
     );
 }
 

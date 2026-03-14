@@ -619,27 +619,13 @@ never be executed.
     // ── Warnings ─────────────────────────────────────────────────────────────
     ErrorEntry {
         code: "ILO-W001",
-        short: "guard without else inside loop",
-        long: r#"## ILO-W001: guard without else inside loop
+        short: "guard without else inside loop (retired)",
+        long: r#"## ILO-W001: guard without else inside loop (retired)
 
-A guard statement (`cond{body}`) without an `{else}` branch inside a loop
-(`@`/`wh`) causes an early **function** return when the condition is true,
-not a loop-iteration skip. This is usually not what you want.
-
-**Example that triggers this:**
-
-    f xs:L n>n;r=0;@ xs x{>=x 10{r= +r x};r}
-
-When `x >= 10`, the guard returns `+r x` from the **function**, not just
-from the current iteration.
-
-**Fix — use ternary (then/else):**
-
-    f xs:L n>n;r=0;@ xs x{>=x 10{r= +r x}{r};r}
-
-Or use `cnt` to skip the iteration:
-
-    f xs:L n>n;r=0;@ xs x{<x 10{cnt};r= +r x;r}
+This warning has been retired. Braced guards `cond{body}` are now
+conditional execution (no early return), making them safe inside loops.
+Use braceless guards `cond expr` for early return, or `ret` inside
+braced guards for explicit early return from loops.
 "#,
     },
     // ── Runtime ──────────────────────────────────────────────────────────────

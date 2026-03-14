@@ -712,6 +712,7 @@ impl Parser {
                         negated: false,
                         body,
                         else_body,
+                        braceless: false,
                     })
                 } else if is_guard_eligible_condition(&expr) && self.can_start_operand() {
                     Ok(self.parse_braceless_guard_body(expr, false)?)
@@ -726,7 +727,40 @@ impl Parser {
         let name = self.expect_ident()?;
         self.expect(&Token::Eq)?;
         let value = self.parse_expr()?;
-        Ok(Stmt::Let { name, value })
+
+        // Check if this is a ternary assignment: v=cond{then}{else}
+        // or a conditional assignment: v=cond{body}
+        if self.peek() == Some(&Token::LBrace) && is_guard_eligible_condition(&value) {
+            let then_body = self.parse_brace_body()?;
+            if self.peek() == Some(&Token::LBrace) {
+                // Two brace blocks: v=cond{then}{else}
+                // Desugar to: Let { name, value: Ternary { condition, then_expr, else_expr } }
+                let else_body = self.parse_brace_body()?;
+                let then_expr = body_to_expr(then_body);
+                let else_expr = body_to_expr(else_body);
+                Ok(Stmt::Let {
+                    name,
+                    value: Expr::Ternary {
+                        condition: Box::new(value),
+                        then_expr: Box::new(then_expr),
+                        else_expr: Box::new(else_expr),
+                    },
+                })
+            } else {
+                // Single brace block: v=cond{body} (conditional assignment)
+                // Desugar to: Guard { condition, body: [Let { name, value: last_expr }] }
+                let body_with_let = wrap_body_as_let(&name, then_body);
+                Ok(Stmt::Guard {
+                    condition: value,
+                    negated: false,
+                    body: body_with_let,
+                    else_body: None,
+                    braceless: false,
+                })
+            }
+        } else {
+            Ok(Stmt::Let { name, value })
+        }
     }
 
     /// Lookahead: `{ident;ident...}=` — destructure pattern
@@ -1018,6 +1052,7 @@ impl Parser {
                 negated: true,
                 body,
                 else_body,
+                braceless: false,
             })
         } else if is_guard_eligible_condition(&inner) && self.can_start_operand() {
             Ok(self.parse_braceless_guard_body(inner, true)?)
@@ -1054,6 +1089,7 @@ impl Parser {
                 negated: false,
                 body,
                 else_body,
+                braceless: false,
             })
         } else if is_guard_eligible_condition(&expr) && self.can_start_operand() {
             Ok(self.parse_braceless_guard_body(expr, false)?)
@@ -1086,6 +1122,7 @@ impl Parser {
             negated,
             body: vec![Spanned::new(Stmt::Expr(body_expr), body_span)],
             else_body: None,
+            braceless: true,
         })
     }
 
@@ -1794,6 +1831,50 @@ impl Parser {
             None => Err(self.error("ILO-P014", "expected number, got EOF".into())),
         }
     }
+}
+
+/// Extract the last expression from a body, falling back to Nil.
+fn body_to_expr(body: Vec<Spanned<Stmt>>) -> Expr {
+    if body.is_empty() {
+        return Expr::Literal(Literal::Nil);
+    }
+    match body.into_iter().last().unwrap().node {
+        Stmt::Expr(e) => e,
+        // If the last statement is not an expression, fall back to Nil.
+        _ => Expr::Literal(Literal::Nil),
+    }
+}
+
+/// Wrap the last expression in a body as a `Let` binding.
+/// For example, if the body is `[Expr(- 0 x)]`, it becomes
+/// `[Let { name: "v", value: Subtract(0, x) }]`.
+fn wrap_body_as_let(name: &str, mut body: Vec<Spanned<Stmt>>) -> Vec<Spanned<Stmt>> {
+    if body.is_empty() {
+        return vec![Spanned::unknown(Stmt::Let {
+            name: name.to_string(),
+            value: Expr::Literal(Literal::Nil),
+        })];
+    }
+    let last_idx = body.len() - 1;
+    let last = &mut body[last_idx];
+    let span = last.span;
+    match &last.node {
+        Stmt::Expr(expr) => {
+            body[last_idx] = Spanned::new(
+                Stmt::Let {
+                    name: name.to_string(),
+                    value: expr.clone(),
+                },
+                span,
+            );
+        }
+        _ => {
+            // If the last statement is not an expression (e.g. another Let),
+            // we can't transform it — leave it as-is. This shouldn't normally
+            // happen in well-formed ternary assignments.
+        }
+    }
+    body
 }
 
 /// Check if an expression is a comparison or logical operator — eligible

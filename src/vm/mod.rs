@@ -823,6 +823,7 @@ impl RegCompiler {
                 negated,
                 body,
                 else_body,
+                braceless,
             } => {
                 let saved_next = self.next_reg;
 
@@ -878,8 +879,8 @@ impl RegCompiler {
                     self.current.patch_jump(jump_over_else);
                     self.next_reg = result_reg + 1;
                     Some(result_reg)
-                } else {
-                    // Guard: cond{body} — early return
+                } else if *braceless {
+                    // Braceless guard: cond expr — early return
                     let body_result = self.compile_body(body);
                     let ret_reg = body_result.unwrap_or_else(|| {
                         let r = self.alloc_reg();
@@ -891,6 +892,22 @@ impl RegCompiler {
                     self.current.patch_jump(jump);
                     self.next_reg = saved_next;
                     None
+                } else {
+                    // Braced guard: cond{body} — conditional execution (no early return)
+                    // Compile body, condition-false jump skips it, no OP_RET emitted.
+                    // The body value is available (like ternary) but does not early-return.
+                    let result_reg = self.alloc_reg();
+                    // Initialize result_reg to Nil (default when condition is false)
+                    let nil_ki = self.current.add_const(Value::Nil);
+                    self.emit_abx(OP_LOADK, result_reg, nil_ki);
+                    let body_result = self.compile_body(body);
+                    let body_reg = body_result.unwrap_or(result_reg);
+                    if body_reg != result_reg {
+                        self.emit_abc(OP_MOVE, result_reg, body_reg, 0);
+                    }
+                    self.current.patch_jump(jump);
+                    self.next_reg = result_reg + 1;
+                    Some(result_reg)
                 }
             }
 
@@ -7703,21 +7720,22 @@ mod tests {
 
     #[test]
     fn vm_cls_gold() {
-        let source = r#"cls sp:n>t;>=sp 1000{"gold"};>=sp 500{"silver"};"bronze""#;
+        // Braceless guards: early return
+        let source = r#"cls sp:n>t;>=sp 1000 "gold";>=sp 500 "silver";"bronze""#;
         let result = vm_run(source, Some("cls"), vec![Value::Number(1000.0)]);
         assert_eq!(result, Value::Text("gold".to_string()));
     }
 
     #[test]
     fn vm_cls_silver() {
-        let source = r#"cls sp:n>t;>=sp 1000{"gold"};>=sp 500{"silver"};"bronze""#;
+        let source = r#"cls sp:n>t;>=sp 1000 "gold";>=sp 500 "silver";"bronze""#;
         let result = vm_run(source, Some("cls"), vec![Value::Number(500.0)]);
         assert_eq!(result, Value::Text("silver".to_string()));
     }
 
     #[test]
     fn vm_cls_bronze() {
-        let source = r#"cls sp:n>t;>=sp 1000{"gold"};>=sp 500{"silver"};"bronze""#;
+        let source = r#"cls sp:n>t;>=sp 1000 "gold";>=sp 500 "silver";"bronze""#;
         let result = vm_run(source, Some("cls"), vec![Value::Number(100.0)]);
         assert_eq!(result, Value::Text("bronze".to_string()));
     }
@@ -7822,7 +7840,8 @@ mod tests {
 
     #[test]
     fn vm_negated_guard() {
-        let source = r#"f x:b>t;!x{"nope"};"yes""#;
+        // Use ternary form for conditional value
+        let source = r#"f x:b>t;!x{"nope"}{"yes"}"#;
         assert_eq!(
             vm_run(source, Some("f"), vec![Value::Bool(false)]),
             Value::Text("nope".to_string())
@@ -8102,7 +8121,8 @@ mod tests {
         // so a subsequent guard `e{"Fizz"}` would see f's value instead of e's.
         // This is the FizzBuzz bug: for n=3, e=true, f=false, &e f=false (correct),
         // but e's register was clobbered to false, so e{"Fizz"} didn't fire.
-        let source = r#"f n:n>t;a=flr /n 3;b=flr /n 5;c=*a 3;d=*b 5;e= =c n;f= =d n;&e f{"FizzBuzz"};e{"Fizz"};f{"Buzz"};str n"#;
+        // Braced guards are now conditional execution, use `ret` for early return.
+        let source = r#"f n:n>t;a=flr /n 3;b=flr /n 5;c=*a 3;d=*b 5;e= =c n;f= =d n;&e f{ret "FizzBuzz"};e{ret "Fizz"};f{ret "Buzz"};str n"#;
         assert_eq!(
             vm_run(source, Some("f"), vec![Value::Number(3.0)]),
             Value::Text("Fizz".to_string())
@@ -8124,7 +8144,8 @@ mod tests {
     #[test]
     fn vm_or_does_not_clobber_left_operand() {
         // Same pattern for OR: left operand must not be clobbered
-        let source = r#"f>t;a=true;b=false;r= |a b;a{"a is still true"};"nope""#;
+        // Braced guards are now conditional execution, use ternary form.
+        let source = r#"f>t;a=true;b=false;r= |a b;a{"a is still true"}{"nope"}"#;
         assert_eq!(
             vm_run(source, Some("f"), vec![]),
             Value::Text("a is still true".to_string())
@@ -8560,8 +8581,8 @@ mod tests {
 
     #[test]
     fn vm_double_eq_in_guard() {
-        // ==x 3 as a guard condition (sugar for =x 3)
-        let source = "f x:n>t;==x 3{\"match\"};\"nope\"";
+        // ==x 3 as a guard condition (sugar for =x 3) — use braceless for early return
+        let source = "f x:n>t;==x 3 \"match\";\"nope\"";
         assert_eq!(
             vm_run(source, Some("f"), vec![Value::Number(3.0)]),
             Value::Text("match".to_string())
@@ -8575,7 +8596,8 @@ mod tests {
     #[test]
     fn vm_assign_equality_with_double_eq() {
         // e= ==c n: assignment e = (== c n) — space between = and ==
-        let source = "f x:n>t;e= ==x 3;e{\"match\"};\"nope\"";
+        // Braced guard is conditional execution, use ternary for value
+        let source = "f x:n>t;e= ==x 3;e{\"match\"}{\"nope\"}";
         assert_eq!(
             vm_run(source, Some("f"), vec![Value::Number(3.0)]),
             Value::Text("match".to_string())
@@ -9222,8 +9244,8 @@ mod tests {
     fn vm_fused_cmpk_guard_emission() {
         // Verify that numeric guards emit CMPK_*_N (fused compare-and-skip) opcodes
         // instead of the classic OP_GE + OP_JMPF pair.
-        // classify x:n>n;>=x 900{30};>=x 700{25};>=x 500{20};>=x 300{15};>=x 100{10};5
-        let source = "classify x:n>n;>=x 900{30};>=x 700{25};>=x 500{20};>=x 300{15};>=x 100{10};5";
+        // Uses braceless guards (early return) for guard chain
+        let source = "classify x:n>n;>=x 900 30;>=x 700 25;>=x 500 20;>=x 300 15;>=x 100 10;5";
         let prog = parse_program(source);
         let compiled = compile(&prog).unwrap();
         let chunk = &compiled.chunks[0];
@@ -9275,53 +9297,53 @@ mod tests {
 
     #[test]
     fn vm_fused_cmpk_guard_all_ops() {
-        // Verify all 6 CMPK opcode variants work correctly
+        // Verify all 6 CMPK opcode variants work correctly — braceless guards (early return)
         assert_eq!(
-            vm_run("f x:n>n;>=x 10{1};0", Some("f"), vec![Value::Number(10.0)]),
+            vm_run("f x:n>n;>=x 10 1;0", Some("f"), vec![Value::Number(10.0)]),
             Value::Number(1.0)
         );
         assert_eq!(
-            vm_run("f x:n>n;>=x 10{1};0", Some("f"), vec![Value::Number(9.0)]),
+            vm_run("f x:n>n;>=x 10 1;0", Some("f"), vec![Value::Number(9.0)]),
             Value::Number(0.0)
         );
         assert_eq!(
-            vm_run("f x:n>n;>x 10{1};0", Some("f"), vec![Value::Number(11.0)]),
+            vm_run("f x:n>n;>x 10 1;0", Some("f"), vec![Value::Number(11.0)]),
             Value::Number(1.0)
         );
         assert_eq!(
-            vm_run("f x:n>n;>x 10{1};0", Some("f"), vec![Value::Number(10.0)]),
+            vm_run("f x:n>n;>x 10 1;0", Some("f"), vec![Value::Number(10.0)]),
             Value::Number(0.0)
         );
         assert_eq!(
-            vm_run("f x:n>n;<x 10{1};0", Some("f"), vec![Value::Number(9.0)]),
+            vm_run("f x:n>n;<x 10 1;0", Some("f"), vec![Value::Number(9.0)]),
             Value::Number(1.0)
         );
         assert_eq!(
-            vm_run("f x:n>n;<x 10{1};0", Some("f"), vec![Value::Number(10.0)]),
+            vm_run("f x:n>n;<x 10 1;0", Some("f"), vec![Value::Number(10.0)]),
             Value::Number(0.0)
         );
         assert_eq!(
-            vm_run("f x:n>n;<=x 10{1};0", Some("f"), vec![Value::Number(10.0)]),
+            vm_run("f x:n>n;<=x 10 1;0", Some("f"), vec![Value::Number(10.0)]),
             Value::Number(1.0)
         );
         assert_eq!(
-            vm_run("f x:n>n;<=x 10{1};0", Some("f"), vec![Value::Number(11.0)]),
+            vm_run("f x:n>n;<=x 10 1;0", Some("f"), vec![Value::Number(11.0)]),
             Value::Number(0.0)
         );
         assert_eq!(
-            vm_run("f x:n>n;==x 10{1};0", Some("f"), vec![Value::Number(10.0)]),
+            vm_run("f x:n>n;==x 10 1;0", Some("f"), vec![Value::Number(10.0)]),
             Value::Number(1.0)
         );
         assert_eq!(
-            vm_run("f x:n>n;==x 10{1};0", Some("f"), vec![Value::Number(11.0)]),
+            vm_run("f x:n>n;==x 10 1;0", Some("f"), vec![Value::Number(11.0)]),
             Value::Number(0.0)
         );
         assert_eq!(
-            vm_run("f x:n>n;!=x 10{1};0", Some("f"), vec![Value::Number(11.0)]),
+            vm_run("f x:n>n;!=x 10 1;0", Some("f"), vec![Value::Number(11.0)]),
             Value::Number(1.0)
         );
         assert_eq!(
-            vm_run("f x:n>n;!=x 10{1};0", Some("f"), vec![Value::Number(10.0)]),
+            vm_run("f x:n>n;!=x 10 1;0", Some("f"), vec![Value::Number(10.0)]),
             Value::Number(0.0)
         );
     }
@@ -15192,7 +15214,8 @@ mod tests {
 
     #[test]
     fn vm_foreach_early_return() {
-        let source = "f xs:L n>n;@x xs{>=x 3{x}};0";
+        // Use `ret` inside braced guard for early return from loop
+        let source = "f xs:L n>n;@x xs{>=x 3{ret x}};0";
         let result = vm_run(
             source,
             Some("f"),
@@ -15232,8 +15255,24 @@ mod tests {
     // ── Guard & ternary ─────────────────────────────────────────────────
 
     #[test]
-    fn vm_guard_still_returns_early() {
+    fn vm_braced_guard_no_early_return() {
+        // Braced guard is conditional execution — no early return
         let source = "f x:n>n;=x 0{99};+x 1";
+        // x=0: {99} runs but value is discarded, returns +0 1 = 1
+        assert_eq!(
+            vm_run(source, Some("f"), vec![Value::Number(0.0)]),
+            Value::Number(1.0)
+        );
+        assert_eq!(
+            vm_run(source, Some("f"), vec![Value::Number(5.0)]),
+            Value::Number(6.0)
+        );
+    }
+
+    #[test]
+    fn vm_braceless_guard_still_returns_early() {
+        // Braceless guard still causes early return
+        let source = "f x:n>n;=x 0 99;+x 1";
         assert_eq!(
             vm_run(source, Some("f"), vec![Value::Number(0.0)]),
             Value::Number(99.0)
@@ -15241,6 +15280,46 @@ mod tests {
         assert_eq!(
             vm_run(source, Some("f"), vec![Value::Number(5.0)]),
             Value::Number(6.0)
+        );
+    }
+
+    #[test]
+    fn vm_braced_guard_in_loop_no_early_return() {
+        // Braced guard inside loop does NOT early-return — finds max of list
+        let source = "mx xs:L n>n;m=xs.0;@x xs{>x m{m=x}};+m 0";
+        let result = vm_run(
+            source,
+            Some("mx"),
+            vec![Value::List(vec![
+                Value::Number(3.0),
+                Value::Number(1.0),
+                Value::Number(5.0),
+            ])],
+        );
+        assert_eq!(result, Value::Number(5.0));
+    }
+
+    #[test]
+    fn vm_braceless_guard_early_return_factorial() {
+        // Braceless guard still early-returns — factorial
+        let source = "f x:n>n;<=x 1 1;r=f -x 1;*x r";
+        assert_eq!(
+            vm_run(source, Some("f"), vec![Value::Number(5.0)]),
+            Value::Number(120.0)
+        );
+    }
+
+    #[test]
+    fn vm_ternary_let_binding() {
+        // Ternary let binding: v=cond{then}{else}
+        let source = "f x:n>n;v=<x 0{- 0 x}{x};v";
+        assert_eq!(
+            vm_run(source, Some("f"), vec![Value::Number(-3.0)]),
+            Value::Number(3.0)
+        );
+        assert_eq!(
+            vm_run(source, Some("f"), vec![Value::Number(7.0)]),
+            Value::Number(7.0)
         );
     }
 
@@ -15573,7 +15652,8 @@ mod tests {
 
     #[test]
     fn vm_for_range_early_return_via_guard() {
-        let result = vm_run("f>n;@i 0..5{>=i 3{i};i}", Some("f"), vec![]);
+        // Use `ret` inside braced guard for early return from loop
+        let result = vm_run("f>n;@i 0..5{>=i 3{ret i};i}", Some("f"), vec![]);
         assert_eq!(result, Value::Number(3.0));
     }
 

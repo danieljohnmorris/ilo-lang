@@ -1724,6 +1724,7 @@ fn eval_stmt(env: &mut Env, stmt: &Stmt, is_last: bool) -> Result<Option<BodyRes
             negated,
             body,
             else_body,
+            braceless,
         } => {
             let cond = eval_expr(env, condition)?;
             let truth = is_truthy(&cond);
@@ -1739,8 +1740,8 @@ fn eval_stmt(env: &mut Env, stmt: &Stmt, is_last: bool) -> Result<Option<BodyRes
                     BodyResult::Continue => Ok(Some(BodyResult::Continue)),
                     BodyResult::Value(v) | BodyResult::Return(v) => Ok(Some(BodyResult::Value(v))),
                 }
-            } else if should_run {
-                // Guard: cond{body} — early return from function
+            } else if should_run && *braceless {
+                // Braceless guard: cond expr — early return from function
                 env.push_scope();
                 let result = eval_body(env, body);
                 env.pop_scope();
@@ -1748,6 +1749,17 @@ fn eval_stmt(env: &mut Env, stmt: &Stmt, is_last: bool) -> Result<Option<BodyRes
                     BodyResult::Break(v) => Ok(Some(BodyResult::Break(v))),
                     BodyResult::Continue => Ok(Some(BodyResult::Continue)),
                     BodyResult::Value(v) | BodyResult::Return(v) => Ok(Some(BodyResult::Return(v))),
+                }
+            } else if should_run {
+                // Braced guard: cond{body} — conditional execution (no early return)
+                env.push_scope();
+                let result = eval_body(env, body);
+                env.pop_scope();
+                match result? {
+                    BodyResult::Break(v) => Ok(Some(BodyResult::Break(v))),
+                    BodyResult::Continue => Ok(Some(BodyResult::Continue)),
+                    BodyResult::Value(v) => Ok(Some(BodyResult::Value(v))),
+                    BodyResult::Return(v) => Ok(Some(BodyResult::Return(v))),
                 }
             } else {
                 Ok(None)
@@ -2293,21 +2305,22 @@ mod tests {
 
     #[test]
     fn interpret_cls_gold() {
-        let source = r#"cls sp:n>t;>=sp 1000{"gold"};>=sp 500{"silver"};"bronze""#;
+        // Braceless guards: early return
+        let source = r#"cls sp:n>t;>=sp 1000 "gold";>=sp 500 "silver";"bronze""#;
         let result = run_str(source, Some("cls"), vec![Value::Number(1000.0)]);
         assert_eq!(result, Value::Text("gold".to_string()));
     }
 
     #[test]
     fn interpret_cls_silver() {
-        let source = r#"cls sp:n>t;>=sp 1000{"gold"};>=sp 500{"silver"};"bronze""#;
+        let source = r#"cls sp:n>t;>=sp 1000 "gold";>=sp 500 "silver";"bronze""#;
         let result = run_str(source, Some("cls"), vec![Value::Number(500.0)]);
         assert_eq!(result, Value::Text("silver".to_string()));
     }
 
     #[test]
     fn interpret_cls_bronze() {
-        let source = r#"cls sp:n>t;>=sp 1000{"gold"};>=sp 500{"silver"};"bronze""#;
+        let source = r#"cls sp:n>t;>=sp 1000 "gold";>=sp 500 "silver";"bronze""#;
         let result = run_str(source, Some("cls"), vec![Value::Number(100.0)]);
         assert_eq!(result, Value::Text("bronze".to_string()));
     }
@@ -2363,7 +2376,8 @@ mod tests {
 
     #[test]
     fn interpret_negated_guard() {
-        let source = r#"f x:b>t;!x{"nope"};"yes""#;
+        // Ternary form: negated guard with else — produces value, no early return
+        let source = r#"f x:b>t;!x{"nope"}{"yes"}"#;
         assert_eq!(
             run_str(source, Some("f"), vec![Value::Bool(false)]),
             Value::Text("nope".to_string())
@@ -3249,7 +3263,8 @@ mod tests {
 
     #[test]
     fn interpret_foreach_early_return() {
-        let source = "f xs:L n>n;@x xs{>=x 3{x}};0";
+        // Use `ret` inside braced guard for early return from loop
+        let source = "f xs:L n>n;@x xs{>=x 3{ret x}};0";
         let result = run_str(
             source,
             Some("f"),
@@ -3740,8 +3755,24 @@ mod tests {
     }
 
     #[test]
-    fn interpret_guard_still_returns_early() {
+    fn interpret_braced_guard_no_early_return() {
+        // Braced guard is conditional execution — no early return
         let source = "f x:n>n;=x 0{99};+x 1";
+        // x=0: {99} runs but value is discarded, returns +0 1 = 1
+        assert_eq!(
+            run_str(source, Some("f"), vec![Value::Number(0.0)]),
+            Value::Number(1.0)
+        );
+        assert_eq!(
+            run_str(source, Some("f"), vec![Value::Number(5.0)]),
+            Value::Number(6.0)
+        );
+    }
+
+    #[test]
+    fn interpret_braceless_guard_still_returns_early() {
+        // Braceless guard still causes early return
+        let source = "f x:n>n;=x 0 99;+x 1";
         assert_eq!(
             run_str(source, Some("f"), vec![Value::Number(0.0)]),
             Value::Number(99.0)
@@ -3749,6 +3780,46 @@ mod tests {
         assert_eq!(
             run_str(source, Some("f"), vec![Value::Number(5.0)]),
             Value::Number(6.0)
+        );
+    }
+
+    #[test]
+    fn interpret_braced_guard_in_loop_no_early_return() {
+        // Braced guard inside loop does NOT early-return — finds max of list
+        let source = "mx xs:L n>n;m=xs.0;@x xs{>x m{m=x}};+m 0";
+        let result = run_str(
+            source,
+            Some("mx"),
+            vec![Value::List(vec![
+                Value::Number(3.0),
+                Value::Number(1.0),
+                Value::Number(5.0),
+            ])],
+        );
+        assert_eq!(result, Value::Number(5.0));
+    }
+
+    #[test]
+    fn interpret_braceless_guard_early_return_factorial() {
+        // Braceless guard still early-returns — factorial
+        let source = "f x:n>n;<=x 1 1;r=f -x 1;*x r";
+        assert_eq!(
+            run_str(source, Some("f"), vec![Value::Number(5.0)]),
+            Value::Number(120.0)
+        );
+    }
+
+    #[test]
+    fn interpret_ternary_let_binding() {
+        // Ternary let binding: v=cond{then}{else}
+        let source = "f x:n>n;v=<x 0{- 0 x}{x};v";
+        assert_eq!(
+            run_str(source, Some("f"), vec![Value::Number(-3.0)]),
+            Value::Number(3.0)
+        );
+        assert_eq!(
+            run_str(source, Some("f"), vec![Value::Number(7.0)]),
+            Value::Number(7.0)
         );
     }
 
@@ -6268,10 +6339,10 @@ mod tests {
 
     #[test]
     fn interpret_for_range_early_return_via_guard() {
-        // A guard inside a for-range body causes early return from the function.
-        // When i >= 3, the guard returns i → BodyResult::Return propagates out of loop.
+        // Use `ret` inside braced guard for early return from loop.
+        // When i >= 3, ret returns i → BodyResult::Return propagates out of loop.
         // Syntax: @binding start..end{body}
-        let result = run_str("f>n;@i 0..5{>=i 3{i};i}", Some("f"), vec![]);
+        let result = run_str("f>n;@i 0..5{>=i 3{ret i};i}", Some("f"), vec![]);
         assert_eq!(result, Value::Number(3.0));
     }
 

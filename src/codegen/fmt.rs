@@ -259,18 +259,33 @@ fn fmt_stmt_dense(stmt: &Stmt) -> String {
             negated,
             body,
             else_body,
+            braceless,
         } => {
             let prefix = if *negated { "!" } else { "" };
-            let main = format!(
-                "{}{}{{{}}}",
-                prefix,
-                fmt_expr(condition, FmtMode::Dense),
-                fmt_body_dense(body)
-            );
-            if let Some(eb) = else_body {
-                format!("{}{{{}}}", main, fmt_body_dense(eb))
+            if *braceless {
+                // Braceless guard: cond expr (single expression, no braces)
+                let body_str = if body.len() == 1 {
+                    if let Stmt::Expr(ref e) = body[0].node {
+                        fmt_expr(e, FmtMode::Dense)
+                    } else {
+                        fmt_body_dense(body)
+                    }
+                } else {
+                    fmt_body_dense(body)
+                };
+                format!("{}{} {}", prefix, fmt_expr(condition, FmtMode::Dense), body_str)
             } else {
-                main
+                let main = format!(
+                    "{}{}{{{}}}",
+                    prefix,
+                    fmt_expr(condition, FmtMode::Dense),
+                    fmt_body_dense(body)
+                );
+                if let Some(eb) = else_body {
+                    format!("{}{{{}}}", main, fmt_body_dense(eb))
+                } else {
+                    main
+                }
             }
         }
         Stmt::Match { subject, arms } => {
@@ -362,6 +377,7 @@ fn fmt_stmt_expanded(out: &mut String, stmt: &Stmt, indent_level: usize) {
             negated,
             body,
             else_body,
+            ..
         } => {
             let prefix = if *negated { "!" } else { "" };
             out.push_str(&ind);
@@ -1040,13 +1056,13 @@ mod tests {
     // ---- Braceless guards ----
 
     #[test]
-    fn braceless_guard_normalizes_to_braced() {
-        // Braceless input should normalize to braced in dense format
+    fn braceless_guard_preserves_braceless() {
+        // Braceless guards should stay braceless in dense format
         let prog = parse(r#"cls sp:n>t;>=sp 1000 "gold";>=sp 500 "silver";"bronze""#);
         let s = format(&prog, FmtMode::Dense);
         assert_eq!(
-            s, r#"cls sp:n>t;>=sp 1000{"gold"};>=sp 500{"silver"};"bronze""#,
-            "braceless guard should normalize to braced: {s}"
+            s, r#"cls sp:n>t;>=sp 1000 "gold";>=sp 500 "silver";"bronze""#,
+            "braceless guard should stay braceless: {s}"
         );
     }
 

@@ -14,6 +14,6 @@ type profile{id:t;name:t;email:t;verified:b}
 -- Returns Ok(_) on success, Err(message) on any failure.
 notify uid:t msg:t>R _ t
   u=get-user! uid
-  !u.verified{^"user not verified"}
+  !u.verified{ret ^"user not verified"}
   send-email! u.email "Notification" msg
   ~_

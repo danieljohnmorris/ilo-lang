@@ -159,13 +159,18 @@ pub enum Stmt {
     /// `name=expr`
     Let { name: String, value: Expr },
 
-    /// `cond{body}` or `!cond{body}` — guard (early return)
+    /// `cond{body}` or `!cond{body}` — conditional execution (no early return)
     /// `cond{then}{else}` — ternary (value, no early return)
+    /// `cond expr` — braceless guard (early return)
     Guard {
         condition: Expr,
         negated: bool,
         body: Vec<Spanned<Stmt>>,
         else_body: Option<Vec<Spanned<Stmt>>>,
+        /// true for braceless guards (`cond expr`), which still early-return.
+        /// false for braced guards (`cond{body}`), which are conditional execution.
+        #[serde(default)]
+        braceless: bool,
     },
 
     /// `?expr{arms}` or `?{arms}`
