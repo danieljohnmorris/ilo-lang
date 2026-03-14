@@ -6017,4 +6017,195 @@ mod tests {
         };
         assert!(matches!(&arms[0].pattern, Pattern::Literal(Literal::Nil)));
     }
+
+    // parse_let single-brace desugar: v=cond{body} → Guard { condition, body: [Let{name,...}] }
+    // Covers lines 752-759 (the else branch after single brace block) and wrap_body_as_let (1851-1878)
+    #[test]
+    fn cov_parse_let_single_brace_guard() {
+        let prog = parse_str(r#"f x:n>n;v=>=x 0{42};v"#);
+        let Decl::Function { body, .. } = &prog.declarations[0] else {
+            panic!("expected function")
+        };
+        // First stmt should be a Guard (desugared from v=cond{body})
+        assert!(
+            matches!(&body[0].node, Stmt::Guard { negated: false, else_body: None, braceless: false, .. }),
+            "expected Guard from single-brace let desugar, got {:?}", body[0].node
+        );
+    }
+
+    // wrap_body_as_let with empty body: v=cond{}  → Guard { body: [Let{name, Nil}] }
+    // Covers wrap_body_as_let empty-body branch (line 1852-1856)
+    #[test]
+    fn cov_wrap_body_as_let_empty_body() {
+        let prog = parse_str(r#"f x:n>n;v=>=x 0{};v"#);
+        let Decl::Function { body, .. } = &prog.declarations[0] else {
+            panic!("expected function")
+        };
+        let Stmt::Guard { body: guard_body, .. } = &body[0].node else {
+            panic!("expected Guard, got {:?}", body[0].node)
+        };
+        // The desugared body should be a single Let with Nil value
+        assert_eq!(guard_body.len(), 1);
+        assert!(
+            matches!(&guard_body[0].node, Stmt::Let { value: Expr::Literal(Literal::Nil), .. }),
+            "expected Let{{Nil}} in guard body, got {:?}", guard_body[0].node
+        );
+    }
+
+    // wrap_body_as_let where last stmt is NOT an Expr (it's a Let) — the non-Expr fallthrough
+    // Covers the `_ => { /* no-op */ }` arm in wrap_body_as_let (line 1871-1875)
+    #[test]
+    fn cov_wrap_body_as_let_non_expr_last() {
+        // body contains only a let stmt (w=1), so wrap_body_as_let's last stmt is Stmt::Let
+        let prog = parse_str(r#"f x:n>n;v=>=x 0{w=1};v"#);
+        let Decl::Function { body, .. } = &prog.declarations[0] else {
+            panic!("expected function")
+        };
+        let Stmt::Guard { body: guard_body, .. } = &body[0].node else {
+            panic!("expected Guard, got {:?}", body[0].node)
+        };
+        // The inner let (w=1) should remain — non-Expr last stmt is left as-is
+        assert!(guard_body.len() >= 1);
+        assert!(
+            matches!(&guard_body[0].node, Stmt::Let { name, .. } if name == "w"),
+            "expected inner Let{{w}} untouched, got {:?}", guard_body[0].node
+        );
+    }
+
+    // parse_list_element with Caret/Err constructor inside list literal: [^"msg"]
+    // Covers lines 1279-1282 (Some(Token::Caret) branch in parse_list_element)
+    #[test]
+    fn cov_list_element_caret_err() {
+        let prog = parse_str(r#"f x:n>R n t;[^"bad"]"#);
+        let Decl::Function { body, .. } = &prog.declarations[0] else {
+            panic!("expected function")
+        };
+        let Stmt::Expr(Expr::List(elems)) = &body[0].node else {
+            panic!("expected List expr, got {:?}", body[0].node)
+        };
+        assert_eq!(elems.len(), 1);
+        assert!(
+            matches!(&elems[0], Expr::Err(_)),
+            "expected Err element, got {:?}", elems[0]
+        );
+    }
+
+    // body_to_expr with empty body → Expr::Literal(Nil)
+    // Covered via ternary desugar v=cond{}{} where both branches are empty
+    // Covers line 1839 (body.is_empty() early return in body_to_expr)
+    #[test]
+    fn cov_body_to_expr_empty() {
+        let prog = parse_str(r#"f x:n>n;v=>=x 0{}{};v"#);
+        let Decl::Function { body, .. } = &prog.declarations[0] else {
+            panic!("expected function")
+        };
+        // v=cond{}{} desugars to Let { value: Ternary { then: Nil, else: Nil } }
+        let Stmt::Let { value, .. } = &body[0].node else {
+            panic!("expected Let, got {:?}", body[0].node)
+        };
+        assert!(
+            matches!(value, Expr::Ternary { then_expr, else_expr, .. }
+                if matches!(then_expr.as_ref(), Expr::Literal(Literal::Nil))
+                && matches!(else_expr.as_ref(), Expr::Literal(Literal::Nil))
+            ),
+            "expected Ternary{{Nil, Nil}}, got {:?}", value
+        );
+    }
+
+    // body_to_expr where last stmt is NOT an Expr → falls back to Nil
+    // Covers line 1844 (_ => Expr::Literal(Literal::Nil) in body_to_expr)
+    #[test]
+    fn cov_body_to_expr_non_expr_last() {
+        // v=cond{w=1}{w=2} — each branch body's last stmt is a Let, not an Expr
+        let prog = parse_str(r#"f x:n>n;v=>=x 0{w=1}{w=2};v"#);
+        let Decl::Function { body, .. } = &prog.declarations[0] else {
+            panic!("expected function")
+        };
+        let Stmt::Let { value, .. } = &body[0].node else {
+            panic!("expected Let, got {:?}", body[0].node)
+        };
+        // Both branches have non-Expr last stmts → both arms become Nil
+        assert!(
+            matches!(value, Expr::Ternary { then_expr, else_expr, .. }
+                if matches!(then_expr.as_ref(), Expr::Literal(Literal::Nil))
+                && matches!(else_expr.as_ref(), Expr::Literal(Literal::Nil))
+            ),
+            "expected Ternary fallback to Nil for non-Expr branches, got {:?}", value
+        );
+    }
+
+    // semi_starts_new_arm TypeIs branch: `;n v:` after an arm body → true (covers line 916 path)
+    // Also the false path: `;n 5` — TypeIs ident found but token after is not Ident/Underscore
+    #[test]
+    fn cov_semi_starts_new_arm_type_is() {
+        // Match with numeric arm, then a TypeIs arm — `;n v:v` should be seen as new arm start
+        let prog = parse_str(r#"f x:n>n;?x{1:x;n v:v;_:0}"#);
+        let Decl::Function { body, .. } = &prog.declarations[0] else {
+            panic!("expected function")
+        };
+        let Stmt::Match { arms, .. } = &body[0].node else {
+            panic!("expected match")
+        };
+        // Three arms: literal 1, TypeIs n, wildcard
+        assert_eq!(arms.len(), 3, "expected 3 match arms");
+        assert!(
+            matches!(&arms[1].pattern, Pattern::TypeIs { ty: Type::Number, .. }),
+            "expected TypeIs Number arm, got {:?}", arms[1].pattern
+        );
+    }
+
+    // semi_starts_new_arm TypeIs false path: `;n 5` — type ident followed by a number (not Ident/Underscore)
+    // Covers line 915 matches! returning false (the else branch in the `^0` annotation)
+    #[test]
+    fn cov_semi_starts_new_arm_type_is_false() {
+        // In this match, arm body has `x` then `;n` where `n` is used as a *variable ref*, not a type pattern.
+        // `?x{1:x;n;_:0}` — `;n` is followed by `;` (not Ident:Colon), so semi_starts_new_arm returns false
+        // for the TypeIs check, and `n` becomes a statement in the arm body.
+        let prog = parse_str(r#"f x:n>n;?x{1:x;n;_:0}"#);
+        let Decl::Function { body, .. } = &prog.declarations[0] else {
+            panic!("expected function")
+        };
+        let Stmt::Match { arms, .. } = &body[0].node else {
+            panic!("expected match")
+        };
+        // `;n;` — `n` is checked: token after_semi is `n` (TypeIs candidate), but token after that
+        // is `;` which is NOT Ident or Underscore → matches! returns false → `n` is a body stmt.
+        // So arm 0 (`1:`) gets body [x, n], arm 1 (`_:`) gets body [0].
+        assert!(arms.len() >= 2, "expected at least 2 arms");
+    }
+
+    // looks_like_prefix_binary with a simple paren group: e.g. `+ (x) 1`
+    // The `(x)` paren group is counted as one atom — covers line 1618-1637
+    #[test]
+    fn cov_looks_like_prefix_binary_paren_group() {
+        // `+ (x) 1` — paren group as first arg, then second arg → binary prefix op
+        let prog = parse_str(r#"f x:n>n;+(x) 1"#);
+        let Decl::Function { body, .. } = &prog.declarations[0] else {
+            panic!("expected function")
+        };
+        // Should parse as BinOp::Add with a paren-grouped first arg
+        assert!(
+            matches!(&body[0].node, Stmt::Expr(Expr::BinOp { op: BinOp::Add, .. })),
+            "expected Add BinOp, got {:?}", body[0].node
+        );
+    }
+
+    // looks_like_prefix_binary with NESTED parens: calling `dbl -((x)) 1`
+    // When parsing `dbl`'s args, the first token is `-` (infix-eligible), so
+    // looks_like_prefix_binary scans forward: `((x))` = one atom (with inner depth++ at line 1631)
+    // then `1` = second atom → returns true (is prefix binary, not infix).
+    #[test]
+    fn cov_looks_like_prefix_binary_nested_parens() {
+        // `dbl -((x)) 1` — `dbl` is called with `-((x))` and `1` as args
+        // The `((x))` paren group causes depth += 1 inside looks_like_prefix_binary
+        let prog = parse_str(r#"dbl x:n>n;*x 2  f y:n>n;dbl -((y)) 1"#);
+        let Decl::Function { body, .. } = &prog.declarations[1] else {
+            panic!("expected second function")
+        };
+        // Should parse as a call to dbl with args [-((y)), 1]... actually as Call{dbl, [BinOp{Sub,Ref(y),Lit(1)}]}
+        assert!(
+            matches!(&body[0].node, Stmt::Expr(Expr::Call { function, .. }) if function == "dbl"),
+            "expected Call to dbl, got {:?}", body[0].node
+        );
+    }
 }
