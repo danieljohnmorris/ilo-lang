@@ -1,0 +1,239 @@
+{
+  "$schema": "https://raw.githubusercontent.com/martinring/tmlanguage/master/tmlanguage.json",
+  "name": "ilo",
+  "scopeName": "source.ilo",
+  "patterns": [
+    { "include": "#comment" },
+    { "include": "#string" },
+    { "include": "#number" },
+    { "include": "#boolean" },
+    { "include": "#nil" },
+    { "include": "#type-declaration" },
+    { "include": "#tool-declaration" },
+    { "include": "#use-declaration" },
+    { "include": "#function-definition" },
+    { "include": "#control-flow" },
+    { "include": "#result-operators" },
+    { "include": "#type-annotations" },
+    { "include": "#operators" },
+    { "include": "#builtins" },
+    { "include": "#keywords" },
+    { "include": "#identifier" }
+  ],
+  "repository": {
+    "comment": {
+      "name": "comment.line.double-dash.ilo",
+      "match": "--[^\\n]*"
+    },
+
+    "string": {
+      "name": "string.quoted.double.ilo",
+      "begin": "\"",
+      "end": "\"",
+      "patterns": [
+        {
+          "name": "constant.character.escape.ilo",
+          "match": "\\\\[ntr\"\\\\]"
+        },
+        {
+          "name": "punctuation.definition.template-expression.ilo",
+          "match": "\\{[^}]*\\}"
+        }
+      ]
+    },
+
+    "number": {
+      "name": "constant.numeric.ilo",
+      "match": "-?[0-9]+(\\.[0-9]+)?"
+    },
+
+    "boolean": {
+      "name": "constant.language.boolean.ilo",
+      "match": "\\b(true|false)\\b"
+    },
+
+    "nil": {
+      "name": "constant.language.nil.ilo",
+      "match": "\\bnil\\b"
+    },
+
+    "type-declaration": {
+      "comment": "type Name{field:type;...}",
+      "patterns": [
+        {
+          "match": "\\btype\\b\\s+([a-z][a-z0-9]*(?:-[a-z0-9]+)*)",
+          "captures": {
+            "0": { "name": "meta.type-declaration.ilo" },
+            "1": { "name": "entity.name.type.ilo" }
+          }
+        },
+        {
+          "name": "keyword.other.ilo",
+          "match": "\\btype\\b"
+        }
+      ]
+    },
+
+    "tool-declaration": {
+      "comment": "tool name\"description\" params>return timeout:n,retry:n",
+      "patterns": [
+        {
+          "match": "\\btool\\b\\s+([a-z][a-z0-9]*(?:-[a-z0-9]+)*)",
+          "captures": {
+            "0": { "name": "meta.tool-declaration.ilo" },
+            "1": { "name": "entity.name.function.ilo" }
+          }
+        },
+        {
+          "name": "keyword.other.ilo",
+          "match": "\\btool\\b"
+        },
+        {
+          "name": "keyword.other.ilo",
+          "match": "\\b(timeout|retry)\\b"
+        }
+      ]
+    },
+
+    "use-declaration": {
+      "match": "\\b(use)\\b",
+      "captures": {
+        "1": { "name": "keyword.control.import.ilo" }
+      }
+    },
+
+    "function-definition": {
+      "comment": "name params:type...>rettype;body — function name at start of declaration",
+      "match": "^([a-z][a-z0-9]*(?:-[a-z0-9]+)*)(?=\\s+[a-z_]|>|\\()",
+      "captures": {
+        "1": { "name": "entity.name.function.ilo" }
+      }
+    },
+
+    "control-flow": {
+      "patterns": [
+        {
+          "name": "keyword.control.ilo",
+          "match": "\\b(wh|brk|cnt|ret)\\b"
+        },
+        {
+          "comment": "@ is foreach operator",
+          "name": "keyword.control.ilo",
+          "match": "@"
+        },
+        {
+          "comment": "with keyword for record update",
+          "name": "keyword.control.ilo",
+          "match": "\\bwith\\b"
+        }
+      ]
+    },
+
+    "result-operators": {
+      "patterns": [
+        {
+          "comment": "~ is ok/result-wrap operator",
+          "name": "keyword.operator.result.ok.ilo",
+          "match": "~"
+        },
+        {
+          "comment": "^ is err/result-wrap operator",
+          "name": "keyword.operator.result.err.ilo",
+          "match": "\\^"
+        }
+      ]
+    },
+
+    "type-annotations": {
+      "comment": "Type names after : in param/field definitions and in type position",
+      "patterns": [
+        {
+          "comment": "Uppercase type constructors: L, R, F, O, M, S",
+          "name": "support.type.ilo",
+          "match": "\\b[LRFOMS]\\b"
+        },
+        {
+          "comment": "Primitive types: n (number), t (text), b (bool)",
+          "name": "support.type.primitive.ilo",
+          "match": "(?<=:)\\s*[ntb](?=[\\s;>\\{\\}\\[\\],)]|$)"
+        },
+        {
+          "comment": "Type variable (single lowercase letter, not n/t/b, in type context)",
+          "name": "support.type.variable.ilo",
+          "match": "(?<=:)\\s*[a-z](?=[\\s;>\\{\\}\\[\\],)]|$)"
+        },
+        {
+          "comment": "Underscore wildcard type",
+          "name": "support.type.ilo",
+          "match": "\\b_\\b"
+        }
+      ]
+    },
+
+    "operators": {
+      "patterns": [
+        {
+          "comment": "Multi-char operators (must be before single-char)",
+          "name": "keyword.operator.ilo",
+          "match": ">=|<=|!=|\\+=|>>|\\?\\?"
+        },
+        {
+          "comment": "Safe field navigation",
+          "name": "keyword.operator.ilo",
+          "match": "\\.\\?"
+        },
+        {
+          "comment": "Range operator",
+          "name": "keyword.operator.range.ilo",
+          "match": "\\.\\."
+        },
+        {
+          "comment": "Single-char operators",
+          "name": "keyword.operator.ilo",
+          "match": "[+\\-*/><&|!?]"
+        },
+        {
+          "comment": "Dollar sign (alias for get)",
+          "name": "keyword.operator.ilo",
+          "match": "\\$"
+        },
+        {
+          "comment": "Equality / assignment",
+          "name": "keyword.operator.assignment.ilo",
+          "match": "==|(?<![!<>=])="
+        }
+      ]
+    },
+
+    "builtins": {
+      "comment": "Built-in functions",
+      "patterns": [
+        {
+          "name": "support.function.builtin.ilo",
+          "match": "\\b(len|str|num|abs|min|max|mod|flr|cel|rnd|now|get|post|env|rd|rdl|rdb|wr|wrl|trm|spl|fmt|cat|has|hd|tl|rev|srt|unq|slc|jpth|jdmp|prnt|jpar|grp|flat|sum|avg|rgx|mmap|mget|mset|mhas|mkeys|mvals|mdel|map|flt|fld)\\b"
+        },
+        {
+          "comment": "Long-form builtin aliases",
+          "name": "support.function.builtin.ilo",
+          "match": "\\b(floor|ceil|round|random|string|number|length|head|tail|reverse|sort|slice|unique|filter|fold|flatten|concat|contains|group|average|print|trim|split|format|regex|read|readlines|readbuf|write|writelines)\\b"
+        }
+      ]
+    },
+
+    "keywords": {
+      "comment": "Reserved words that should be highlighted as errors if used",
+      "patterns": [
+        {
+          "name": "invalid.illegal.reserved.ilo",
+          "match": "\\b(if|return|let|fn|def|var|const)\\b"
+        }
+      ]
+    },
+
+    "identifier": {
+      "comment": "Regular identifiers — lowercase with hyphens",
+      "name": "variable.other.ilo",
+      "match": "[a-z][a-z0-9]*(?:-[a-z0-9]+)*"
+    }
+  }
+}

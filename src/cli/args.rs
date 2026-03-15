@@ -75,6 +75,10 @@ pub enum Cmd {
 
     /// Print version.
     Version,
+
+    /// Start the Language Server Protocol server (stdio).
+    #[cfg(feature = "lsp")]
+    Lsp,
 }
 
 // ── Run ────────────────────────────────────────────────────────────────────────
