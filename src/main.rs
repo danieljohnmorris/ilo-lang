@@ -1825,6 +1825,11 @@ fn dispatch_cli(cli: cli::Cli, bare_has_bin: bool) -> i32 {
             println!("ilo {}", env!("CARGO_PKG_VERSION"));
             0
         }
+        #[cfg(feature = "lsp")]
+        Some(cli::Cmd::Lsp) => {
+            ilo::lsp::run();
+            0
+        }
         Some(cli::Cmd::Run(r)) => {
             let mode = cli.global.output_mode();
             let explicit_json = cli.global.explicit_json();

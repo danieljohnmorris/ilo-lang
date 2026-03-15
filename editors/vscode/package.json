@@ -1,0 +1,53 @@
+{
+  "name": "ilo-lang",
+  "displayName": "ilo",
+  "description": "Language support for ilo — a token-optimised programming language for AI agents",
+  "version": "0.1.0",
+  "publisher": "ilo-lang",
+  "icon": "icons/ilo-icon.png",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/ilo-lang/ilo"
+  },
+  "license": "MIT",
+  "engines": {
+    "vscode": "^1.75.0"
+  },
+  "categories": ["Programming Languages"],
+  "activationEvents": ["onLanguage:ilo"],
+  "main": "./out/extension.js",
+  "contributes": {
+    "languages": [
+      {
+        "id": "ilo",
+        "aliases": ["ilo", "ilo-lang"],
+        "extensions": [".ilo"],
+        "configuration": "./language-configuration.json",
+        "icon": {
+          "light": "./icons/ilo-icon.png",
+          "dark": "./icons/ilo-icon.png"
+        }
+      }
+    ],
+    "grammars": [
+      {
+        "language": "ilo",
+        "scopeName": "source.ilo",
+        "path": "./syntaxes/ilo.tmLanguage.json"
+      }
+    ]
+  },
+  "scripts": {
+    "vscode:prepublish": "npm run compile",
+    "compile": "tsc -p ./",
+    "watch": "tsc -watch -p ./"
+  },
+  "dependencies": {
+    "vscode-languageclient": "^9.0.1"
+  },
+  "devDependencies": {
+    "@types/node": "^20.0.0",
+    "@types/vscode": "^1.75.0",
+    "typescript": "^5.0.0"
+  }
+}

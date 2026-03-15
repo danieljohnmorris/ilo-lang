@@ -8,6 +8,8 @@ pub mod diagnostic;
 pub mod graph;
 pub mod interpreter;
 pub mod lexer;
+#[cfg(feature = "lsp")]
+pub mod lsp;
 pub mod parser;
 pub mod tools;
 pub mod verify;

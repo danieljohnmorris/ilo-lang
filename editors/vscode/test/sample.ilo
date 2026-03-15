@@ -1,0 +1,157 @@
+-- ilo sample file for syntax highlighting testing
+-- Comments: everything after -- is a comment
+
+-- === Type declarations ===
+type point{x:n;y:n}
+type person{name:t;age:n;active:b}
+type color-tag{label:t;hex:t;score:n}
+
+-- === Tool declarations ===
+tool get-user"Retrieve user by ID" uid:t>R profile t timeout:5,retry:2
+tool send-email"Send notification email" to:t subject:t body:t>R _ t timeout:10,retry:1
+
+-- === Use / imports ===
+use "math.ilo"
+use "utils.ilo" [fmt-date parse-id]
+
+-- === Simple functions ===
+dbl x:n>n;*x 2
+inc x:n>n;+x 1
+greet name:t>t;+"hello " name
+
+-- === Multiple params ===
+add a:n b:n>n;+a b
+clamp val:n lo:n hi:n>n;<val lo lo;>val hi hi;+val 0
+
+-- === Boolean / nil / optional ===
+is-positive x:n>b;>x 0
+maybe-val>O n;nil
+safe-val x:O n>n;??x 0
+
+-- === Lists ===
+first-elem xs:L n>n;xs.0
+list-sum xs:L n>n;sum xs
+list-len xs:L n>n;len xs
+make-list>L n;[1 2 3]
+range-sum>n;s=0;@i 0..5{s=+s i};s
+
+-- === Records: construct, access, update, destructure ===
+make-pt>n;p=point x:3 y:4;p.x
+update-pt>n;p=point x:1 y:2;q=p with x:99;q.x
+destruct>n;p=point x:7 y:8;{x;y}=p;+x y
+
+-- === Result types and error handling ===
+safe-div a:n b:n>R n t
+  =b 0{ret ^"division by zero"}
+  ~(/a b)
+
+-- Auto-unwrap
+compute a:n b:n>R n t
+  r=safe-div! a b
+  ~r
+
+-- === Match expression ===
+classify sp:n>t;>=sp 1000 "gold";>=sp 500 "silver";"bronze"
+
+grade x:n>t
+  ?x{
+    100:"perfect"
+    0:"zero"
+    _:"other"
+  }
+
+-- Result match
+handle-result r:R n t>t
+  ?r{
+    ~v:"ok: "
+    ^e:^+"error: " e
+  }
+
+-- === Guards (braceless and braced) ===
+abs-val x:n>n;>=x 0 x;-0 x
+clamp2 x:n>n;<=x 0{ret 0};>=x 100{ret 100};+x 0
+
+-- Ternary
+sign x:n>t;>x 0{"pos"}{"non-pos"}
+
+-- === While loop ===
+count-to n:n>n
+  i=0
+  wh <i n{i=+i 1}
+  i
+
+-- === Break and continue ===
+first-ge-ten xs:L n>n
+  @x xs{>=x 10{ret x}}
+  0
+
+-- === Pipe operator ===
+process x:n>t
+  x>>dbl>>inc>>str
+
+-- === Higher-order functions ===
+apply f:F n n x:n>n;f x
+double-all xs:L n>L n;map dbl xs
+evens xs:L n>L n;flt (>0) xs
+
+-- === Map operations ===
+scores>M t n
+  m=mmap
+  m=mset m "alice" 99
+  m=mset m "bob" 87
+  mget m "alice"
+
+-- === String operations ===
+join-words ws:L t>t;cat ws " "
+split-csv s:t>L t;spl s ","
+trim-ws s:t>t;trm s
+format-msg name:t score:n>t;fmt "Player {} scored {}" name score
+
+-- === HTTP calls ===
+fetch-data url:t>R t t;get url
+post-json url:t body:t>R t t;post url body
+
+-- === File I/O ===
+read-file path:t>R t t;rd path
+write-file path:t content:t>R t t;wr path content
+
+-- === JSON ===
+parse-json s:t>R _ t;jpar s
+dump-json v:_>t;jdmp v
+path-lookup json:t path:t>R t t;jpth json path
+
+-- === Builtins showcase ===
+math-ops x:n>n
+  a=abs x
+  b=flr x
+  c=cel x
+  d=min a b
+  e=max c d
+  +d e
+
+list-ops xs:L n>L n
+  s=srt xs
+  r=rev s
+  u=unq r
+  slc u 0 3
+
+-- === Error propagation (~ and ^) ===
+inner x:n>R n t;~x
+outer x:n>R n t;d=inner! x;~d
+
+-- === Recursive functions ===
+fac n:n>n;<=n 1 1;r=fac -n 1;*n r
+fib n:n>n;<=n 1 n;a=fib -n 1;b=fib -n 2;+a b
+
+-- === Type variables (generics) ===
+identity x:a>a;x
+wrap-list x:a>L a;[x]
+
+-- === Reserved words (should be highlighted as invalid) ===
+-- if let fn def var const return
+-- (these are in comments so they won't cause parse errors)
+
+-- === Nil-coalesce and safe field access ===
+with-default x:O n>n;x??0
+chain-access obj:_>_
+  obj.?name??"unknown"
